@@ -23,6 +23,7 @@ import {
   list,
   loadConfig,
   paths,
+  persistenceAdvice,
   reload,
   status,
   up,
@@ -483,6 +484,12 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
     try {
       const config = await loadConfig(file);
       findings.push({ ok: true, text: `${config.project} resolves, driver ${config.database.driver}` });
+      // Not a refusal: a project can point its runtime at the sandbox's state
+      // directory through a config file this cannot read, so being unable to see
+      // the flag is a strong signal rather than a certainty.
+      for (const advice of persistenceAdvice(config)) {
+        findings.push({ ok: false, text: `${advice.field}: ${advice.reason}`, fix: advice.fix });
+      }
       const check = await checkSecrets(config, { env });
       findings.push(
         check.absent.length === 0

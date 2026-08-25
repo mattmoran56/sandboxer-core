@@ -23,6 +23,8 @@ export type {
 export { ConfigError, findConfig, loadConfig, projectPath, resolveConfig, CONFIG_FILENAME } from "./config/load.js";
 export type { LoadOptions } from "./config/load.js";
 export { allowsRealCredentials, permittedSeeds, publicAccessViolations } from "./config/access.js";
+export { persistenceAdvice, pointsAtSandboxState } from "./config/advice.js";
+export type { Advice } from "./config/advice.js";
 export type { AccessViolation } from "./config/access.js";
 export { configSchema } from "./config/schema.js";
 export { compareVersions, parseVersion, satisfies, VersionError } from "./config/version.js";
