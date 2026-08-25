@@ -113,7 +113,7 @@ fqdn() {
     "${SANDBOXR_SLUG:?SANDBOXR_SLUG is required}" \
     "$1" \
     "$(plan .project)" \
-    "${SANDBOXR_DOMAIN:-sbx.lcl}"
+    "${SANDBOXR_DOMAIN:-sbx.localhost}"
 }
 
 # --- misc --------------------------------------------------------------------
@@ -135,3 +135,13 @@ to_bytes() {
     *) printf '%s\n' "$n" ;;
   esac
 }
+
+# --- the computed environment -------------------------------------------------
+#
+# Sourced last, because it uses the helpers above. Every script gets it, not just
+# the entrypoint: `docker exec` inherits the container's *configured* environment
+# and never sees the entrypoint's exports, so a script reached that way would
+# otherwise run with an empty $SANDBOXR_DB_FILE or $SANDBOXR_D1_DIR and point the
+# runtime at nothing.
+# shellcheck source-path=SCRIPTDIR source=env.sh
+source "$SANDBOXR_SCRIPTS/env.sh"
