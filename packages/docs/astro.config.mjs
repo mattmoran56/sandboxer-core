@@ -31,6 +31,14 @@ export default defineConfig({
           ],
         },
         {
+          label: "What is where, and how it works",
+          items: [
+            { label: "The map", slug: "orientation/map" },
+            { label: "The life of a sandbox", slug: "orientation/life-of-a-sandbox" },
+            { label: "Where everything lives", slug: "orientation/where-things-live" },
+          ],
+        },
+        {
           label: "Getting started",
           items: [
             { label: "Prerequisites", slug: "start/prerequisites" },
@@ -44,6 +52,7 @@ export default defineConfig({
             { label: "Start, stop, list, clean up", slug: "use/lifecycle" },
             { label: "The edit–reload loop", slug: "use/edit-and-reload" },
             { label: "Logs, shells and terminals", slug: "use/logs-and-shells" },
+            { label: "The dashboard", slug: "use/dashboard" },
           ],
         },
         {

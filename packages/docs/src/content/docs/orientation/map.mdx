@@ -1,0 +1,253 @@
+---
+title: The map
+description: What each part of sandboxr is for, which piece does which job, and where in the repository to find it. Read this before anything else if you are going to work on the tool.
+sidebar:
+  order: 1
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Detail from "../../../components/Detail.astro";
+import Mermaid from "../../../components/Mermaid.astro";
+import PageStatus from "../../../components/PageStatus.astro";
+
+<PageStatus
+  level="partly"
+  note="The layout and the responsibilities are real and the code exists. Nothing here has been exercised end to end against a real project."
+/>
+
+sandboxr is made of two halves that talk to each other through one file.
+
+**The outside half** runs on your computer. It reads the project's settings, works out what the
+project actually needs, starts a container and keeps track of what is running.
+
+**The inside half** runs in the container. It brings up the database, serves the apps, and
+answers questions about how it is doing.
+
+The one file between them is called **the plan**. The outside half writes it; the inside half
+reads it, and reads nothing else. That single boundary is the most useful thing to know about
+sandboxr, because it explains why the container never needs to understand YAML, and why adding
+a new kind of project is a change on the outside only.
+
+<Mermaid
+  caption="Two halves and one file. Everything else on this page is detail hanging off this shape."
+  chart={`
+flowchart LR
+  subgraph out["Outside — on your computer"]
+    cfg["sandboxr.yaml<br/>in the project's repo"]
+    core["core<br/>reads it, resolves it"]
+    cli["cli<br/>the sandboxr command"]
+    srv["server<br/>the dashboard"]
+  end
+  plan["plan.json<br/>one resolved file"]
+  subgraph in["Inside — the container"]
+    scripts["container scripts<br/>read the plan, do the work"]
+    svc["the project's services"]
+  end
+  cfg --> core
+  cli --> core
+  srv --> core
+  core --> plan
+  plan --> scripts
+  scripts --> svc
+`}
+/>
+
+## The four host packages, and what each is for
+
+Everything on your computer is TypeScript, and lives under `packages/`.
+
+### `packages/core` — the part that knows what a project is
+
+This is where the thinking happens. Give it a project directory and it will tell you what that
+project is made of, produce the plan, start the container and report what is running.
+
+It owns five jobs:
+
+- **Reading the settings.** It loads `sandboxr.yaml`, checks every field, and fills in defaults.
+- **Naming things.** One place decides what a sandbox is called, what hostname it answers on and
+  what its Docker volumes are named — so two parts of the system can never spell the same name
+  two different ways.
+- **Database drivers.** One small module per kind of database, all with the same shape. See
+  [the driver model](/databases/drivers/).
+- **Starting and stopping.** The `docker run` argument list, the labels, the mounts, and reading
+  the state back out again.
+- **Secrets.** Reading the project's `.env` files, dropping anything that describes *where*
+  something runs, and writing what is left to a private file.
+
+### `packages/cli` — the `sandboxr` command
+
+A thin layer. It parses arguments, calls into `core`, and prints the result. It contains no logic
+of its own on purpose: the dashboard has to do exactly the same things, and two implementations
+of "start a sandbox" drift apart within a week.
+
+### `packages/server` — the dashboard
+
+A web page listing every sandbox on the machine, with buttons to start, stop, rebuild and
+migrate, and a terminal inside any of them. It sits behind a password, always. It is a separate
+package from the CLI because it needs things a command-line tool does not: sessions, streaming
+output to a browser, and a WebSocket for the terminal.
+
+### `packages/docs` — this site
+
+Astro Starlight. Nothing depends on it.
+
+<Detail summary="the exact package names, dependency direction and the one rule that keeps them apart">
+
+| Directory | npm name | Depends on |
+|---|---|---|
+| `packages/core` | `@sandboxr/core` | nothing in this repo |
+| `packages/cli` | `@sandboxr/cli` | `@sandboxr/core` |
+| `packages/server` | `@sandboxr/server` | `@sandboxr/core`, through one adapter file |
+| `packages/docs` | `@sandboxr/docs` | nothing |
+
+`packages/server/src/core/adapter.ts` is the **only** file in the server package that imports
+`@sandboxr/core`. Everything else in that package talks to the interface in
+`packages/server/src/core/port.ts`. That is what lets the server's tests run with no Docker
+daemon present.
+
+The ownership rule for the whole repository: **only `container/` contains bash.** Everything
+host-side is TypeScript. The container scripts are shell because they run under a supervisor
+with no toolchain guarantees.
+
+</Detail>
+
+## The container half
+
+`container/` is not an npm package. It is the Dockerfiles and the shell scripts that run inside
+a sandbox.
+
+### Two images, not one
+
+A sandbox runs from an image built in two layers.
+
+The **base image** is generic. It holds the process supervisor, the web server that routes
+requests, the local object store, and the sandboxr scripts. Nothing about any particular
+project. It is about 400 MB and there is one per machine.
+
+The **project layer** sits on top and holds exactly what one project's settings ask for: its
+language toolchains, its database engine, and its installed dependencies. Adding a second
+project to a machine costs one thin layer, not another few gigabytes.
+
+<Detail kind="why" summary="what one combined image cost, and why the build context holds no source">
+
+The tool sandboxr generalises baked one project's toolchains *and* its whole dependency tree into
+a single ~4.5 GB base image. It worked, and it could never serve a second project: the toolchain
+versions, the database engine and the installed dependencies were all facts about one repository.
+
+Two consequences of the split are worth knowing:
+
+- **The project layer's build context holds only dependency manifests, never source.** A change
+  to a source file must never be able to re-run a dependency install. The worktree is
+  bind-mounted at run time instead.
+- **Dependencies install to `/opt/deps`, not to their natural place in the project.** The
+  worktree is mounted over `/workspace` when the container starts, and a mount hides whatever the
+  image put underneath it. Anything installed at the natural path would simply vanish. A startup
+  script seeds the real location from `/opt/deps` on first boot.
+
+</Detail>
+
+### What runs inside
+
+| File | What it is for |
+|---|---|
+| `container/base/Dockerfile` | The generic base image |
+| `container/project/Dockerfile.template` | The per-project layer, with holes the host fills in |
+| `container/scripts/` | Everything the sandbox actually runs |
+| `container/scripts/db/<driver>.sh` | One file per kind of database |
+| `container/examples/*.plan.json` | Two worked plans, used to test the generators |
+
+The scripts do four things: read the plan and work out where everything is, generate the
+supervisor's list of services, generate the router's configuration, and then get the database
+ready. After that they build things on demand when you ask.
+
+<Detail summary="the startup order, and why the entrypoint is not the supervisor">
+
+`entrypoint.sh` is the container's entrypoint, **not** the supervisor's `/init`. It cannot be:
+the supervisor compiles its list of services once, before any service runs, so the set of
+services has to be settled first. The entrypoint reads the plan, exports the computed
+environment, writes the router config and the service tree, and then `exec`s `/init`.
+
+```
+mysql-init ──→ mysqld ──┐
+minio ──────────────────┼──→ db-init ──→ every backend, every server
+deps-init ──────────────┘
+caddy   (ungated)
+```
+
+One-shot jobs gate long-running ones, so nothing serves traffic against a database that is not
+ready. Which of them exist depends on the plan: the MySQL pair only for `driver: mysql`, MinIO
+only when storage is declared, dependency seeding only when there is a Node tree.
+
+`db-init` exists for **every** driver, `none` included, because it is also what writes the status
+file the dashboard reads. A sandbox with no database still has to be able to say it finished
+booting.
+
+The router is deliberately **not** gated on `db-init`. Full reasoning:
+[the startup graph](/architecture/startup/).
+
+</Detail>
+
+## The one file in between
+
+`sandboxr.yaml` is the human-facing file. It lives at the root of the project being sandboxed —
+not in this repository — so a new service and its settings land in the same commit.
+
+**Nothing inside a container ever reads it.** `packages/core` turns it into `plan.json`: the same
+information with every default already merged, every address already computed, and every list
+flattened into one array of services with an explicit kind. The container reads that.
+
+<Detail summary="the exact boundary, and where its specification lives">
+
+- Written to `~/.sandboxr/build/<project>/<slug>.plan.json` on the host.
+- Mounted at `/sandboxr/plan.json` inside the container, **read-only** — a container that could
+  rewrite its own plan could change what it claims to be running.
+- The authoritative specification is the "The plan" section of `container/README.md`, with two
+  worked examples in `container/examples/*.plan.json`.
+- The emitter is `packages/core/src/config/plan.ts`.
+- Field-by-field walkthrough on this site: [plan.json](/architecture/plan-json/).
+
+Nothing in `container/scripts/` names a service, a port, a package or a route. They are all read
+from the plan. That is what makes one image serve both a multi-service monorepo on MySQL and a
+single Cloudflare Worker on a file database.
+
+</Detail>
+
+## Who does what, when you run a command
+
+Take `sandboxr up`, the command that starts a sandbox.
+
+1. **`cli`** parses the arguments and calls `core`.
+2. **`core`** finds `sandboxr.yaml`, checks it, and works out the sandbox's short name from the
+   directory or branch you are standing in.
+3. **`core`** refuses right here if the project serves its apps publicly and the settings would
+   put real data or real credentials in them. See [public sandboxes](/security/public-sandboxes/).
+4. **`core`** prepares the database seed on your computer, before the container starts — so the
+   image never has to be rebuilt when the source data changes.
+5. **`core`** writes the environment file and the plan, then runs `docker run` with the mounts,
+   the labels and the memory limit.
+6. **Inside the container**, the entrypoint reads the plan, brings up the database, applies the
+   project's migrations, and starts the services.
+7. **`core`** reads the container's own status back and prints the URLs.
+
+The dashboard does the same thing by calling the same code. That is deliberate — see
+[why the dashboard runs the real code path](/architecture/decisions/).
+
+## Two documents that outrank this site
+
+<Aside type="caution" title="Where the truth actually lives">
+When this site disagrees with either of these, they are right and this site is a bug.
+
+- **`docs/architecture/contracts.md`** in the repository is the single source of truth for every
+  boundary: naming, paths, the config schema, the driver interface, access control. Read it
+  before writing any code.
+- **`container/README.md`** is the authoritative specification of `plan.json` and of everything
+  that runs inside a sandbox.
+</Aside>
+
+## Where to go next
+
+- **To use it:** [prerequisites](/start/prerequisites/), then
+  [your first sandbox](/start/first-sandbox/).
+- **To understand a running sandbox:** [the life of a sandbox](/orientation/life-of-a-sandbox/).
+- **To find a file:** [where everything lives](/orientation/where-things-live/).
+- **To know what is real:** [what is built](/reference/status/).

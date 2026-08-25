@@ -1,0 +1,38 @@
+---
+/**
+ * How far the code behind a page has actually been taken.
+ *
+ * sandboxr is documented alongside code that is still being written, and a
+ * reader who lands on one page from a search result cannot see that. Every page
+ * carries one of these under its title, and the full picture is on
+ * `/reference/status/`.
+ */
+
+interface Props {
+  /**
+   * `verified` — someone has run this and watched it work.
+   * `partly` — some of it has been run; the page says which parts.
+   * `unrun` — the code exists and has never been run against a real project.
+   * `designed` — decided and written down, no code yet.
+   * `planned` — not built, not started. Read it as intent.
+   */
+  level: "verified" | "partly" | "unrun" | "designed" | "planned";
+  /** One sentence saying exactly what has and has not been run. */
+  note: string;
+}
+
+const { level, note } = Astro.props;
+
+const LABELS: Record<Props["level"], string> = {
+  verified: "Verified",
+  partly: "Partly verified",
+  unrun: "Written, never run",
+  designed: "Designed, not built",
+  planned: "Planned, not built",
+};
+---
+
+<p class="sbx-status" data-level={level}>
+  <span class="sbx-status-pill">{LABELS[level]}</span>
+  <span class="sbx-status-note">{note}</span>
+</p>
