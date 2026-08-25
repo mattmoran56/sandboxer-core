@@ -1,0 +1,209 @@
+# syntax=docker/dockerfile:1.7
+#
+# The per-project layer. Generated from this template by the host, on top of the
+# sandboxr base image, and adding only what the project's `toolchain:` and
+# `database:` blocks declare.
+#
+# ---------------------------------------------------------------------------
+# HOW THIS TEMPLATE IS RENDERED
+#
+# Two substitutions, in this order:
+#
+#   1. Blocks.  Everything between
+#          # >>> sandboxr:block <name>
+#          # <<< sandboxr:block <name>
+#      is kept when <name> is enabled for this project and deleted otherwise,
+#      guard lines included. Blocks never nest.
+#
+#   2. Values.  Every {{ NAME }} hole -- written without the spaces; they are
+#      here only so this line is not itself a hole -- is replaced with a string.
+#      A value that is not supplied is an error, not an empty string: a silently
+#      empty version pin produces an image that builds and then cannot run.
+#
+# Block names and the config that enables them:
+#
+#   go        toolchain.go
+#   node      toolchain.node
+#   mysql     database.driver == mysql
+#   sqlite    database.driver in (sqlite, d1)
+#   gomod     toolchain.go and a Go module was staged into the build context
+#   deps      toolchain.node and a dependency manifest set was staged
+#
+# Build context, staged by the host:
+#
+#   Dockerfile          this template, rendered
+#   gomod/go.mod        the Go module's manifests, for the `gomod` block
+#   gomod/go.sum
+#   manifests/          the dependency manifests, workspace layout preserved,
+#                       for the `deps` block
+#
+# Only manifests are staged, never source: a source change must never re-run a
+# dependency install. The image is rebuilt when a manifest changes; the worktree
+# itself is bind-mounted at run time.
+# ---------------------------------------------------------------------------
+
+ARG BASE_IMAGE=sandboxr/base:latest
+FROM ${BASE_IMAGE}
+
+ARG TARGETARCH
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+
+# >>> sandboxr:block go
+# The declared version may be a prefix (`1.26`), because that is how a project
+# usually pins a toolchain, so the exact release is resolved from the download
+# index rather than guessed at. Resolving beats appending `.0`: the newest patch
+# in a series is what a project pinning the series meant.
+ARG GO_VERSION={{GO_VERSION}}
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      arm64) GO_ARCH=arm64 ;; \
+      amd64) GO_ARCH=amd64 ;; \
+      *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    FILE=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' \
+      | jq -r --arg v "go${GO_VERSION}" --arg a "linux-${GO_ARCH}" \
+          '[ .[] | select(.version == $v or (.version | startswith($v + "."))) ] \
+           | .[0].files[] \
+           | select(.os + "-" + .arch == $a and .kind == "archive") \
+           | .filename'); \
+    test -n "$FILE" || { echo "no Go release matching ${GO_VERSION}" >&2; exit 1; }; \
+    curl -fsSL "https://go.dev/dl/${FILE}" | tar -xz -C /usr/local
+
+# GOTOOLCHAIN=local so a `go` directive newer than this toolchain fails with a
+# clear message instead of silently downloading another compiler mid-build.
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    GOPATH=/go \
+    GOCACHE=/go/cache \
+    GOTOOLCHAIN=local
+# <<< sandboxr:block go
+
+# >>> sandboxr:block node
+# From the official tarball rather than Debian's archive, which carries whatever
+# version bookworm froze on. The declared version may be a prefix; the newest
+# release under it wins.
+ARG NODE_VERSION={{NODE_VERSION}}
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      arm64) NODE_ARCH=arm64 ;; \
+      amd64) NODE_ARCH=x64   ;; \
+      *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    FULL=$(curl -fsSL https://nodejs.org/dist/index.json \
+      | jq -r --arg v "v${NODE_VERSION}" \
+          '[ .[] | select(.version == $v or (.version | startswith($v + "."))) ] \
+           | .[0].version // empty'); \
+    test -n "$FULL" || { echo "no Node release matching ${NODE_VERSION}" >&2; exit 1; }; \
+    curl -fsSL "https://nodejs.org/dist/${FULL}/node-${FULL}-linux-${NODE_ARCH}.tar.xz" \
+      | tar -xJ -C /usr/local --strip-components=1 \
+        --exclude=CHANGELOG.md --exclude=LICENSE --exclude=README.md; \
+    node --version; \
+    npm --version
+
+ENV NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    NEXT_TELEMETRY_DISABLED=1
+# <<< sandboxr:block node
+
+# >>> sandboxr:block mysql
+# MySQL from the vendor's generic glibc tarball.
+#
+# Debian's archive carries MariaDB, which is not a drop-in substitute for a
+# project that depends on MySQL collation names or MySQL advisory-lock semantics.
+# The vendor's own APT repository would be the natural alternative, but its
+# signing key is expired, so `apt-get update` refuses the repository outright and
+# there is nothing a Dockerfile can do about that. The generic tarball is built
+# against an older glibc than bookworm's, runs fine here, and pins an exact
+# version rather than tracking whatever a repository currently serves.
+#
+# The declared version is usually a series (`8.4`), and the table below is what
+# that resolves to. A full version passes straight through.
+#
+# The table is pinned by necessity, not for convenience, and it is NOT a shortcut
+# waiting to be replaced by a lookup. Go and Node each publish a JSON release
+# index, which is why both of those blocks resolve a prefix at build time; the
+# MySQL download host publishes no machine-readable release list at all, so there
+# is nothing to query. Adding a new series means adding a line here.
+#
+# Only the server, client and support binaries are kept: the full archive is well
+# over a gigabyte unpacked, most of it test suites and debug symbols that a
+# sandbox will never run.
+ARG MYSQL_VERSION={{MYSQL_VERSION}}
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libaio1 libnuma1 libncurses6 \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      arm64) MYSQL_ARCH=aarch64 ;; \
+      amd64) MYSQL_ARCH=x86_64  ;; \
+      *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    # Pinned rather than looked up: see the note above -- the vendor publishes no
+    # release index, so there is no query that could replace this.
+    case "${MYSQL_VERSION}" in \
+      8.0) FULL=8.0.43 ;; \
+      8.4) FULL=8.4.6  ;; \
+      9.0) FULL=9.0.1  ;; \
+      *.*.*) FULL="${MYSQL_VERSION}" ;; \
+      *) echo "no pinned patch release for MySQL ${MYSQL_VERSION}" >&2; exit 1 ;; \
+    esac; \
+    SERIES="${FULL%.*}"; \
+    curl -fsSL "https://dev.mysql.com/get/Downloads/MySQL-${SERIES}/mysql-${FULL}-linux-glibc2.28-${MYSQL_ARCH}.tar.xz" \
+      -o /tmp/mysql.tar.xz; \
+    mkdir -p /opt/mysql; \
+    tar -xJf /tmp/mysql.tar.xz -C /opt/mysql --strip-components=1; \
+    rm -f /tmp/mysql.tar.xz; \
+    rm -rf /opt/mysql/mysql-test /opt/mysql/docs /opt/mysql/man; \
+    find /opt/mysql/bin -type f -name 'mysql_client_test*' -delete; \
+    groupadd -r mysql; \
+    useradd -r -g mysql -s /sbin/nologin mysql; \
+    install -d -o mysql -g mysql /run/mysqld /var/lib/sandboxr/data; \
+    mysqld --version
+
+ENV PATH="/opt/mysql/bin:${PATH}"
+# <<< sandboxr:block mysql
+
+# >>> sandboxr:block sqlite
+# The CLI only. A file-backed database needs no server, which is most of why this
+# kind of sandbox is cheap; the CLI is what applies fixtures, takes a schema
+# snapshot and backs an interactive shell.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends sqlite3 \
+ && rm -rf /var/lib/apt/lists/*
+# <<< sandboxr:block sqlite
+
+# >>> sandboxr:block gomod
+# Warmed so the first build inside a sandbox compiles rather than downloads. Keyed
+# on the module manifests alone, so a source change never re-runs it.
+COPY gomod/ /gomod/
+RUN --mount=type=cache,target=/go/pkg/mod \
+    cd /gomod && go mod download && cp -a /go/pkg/mod /go/pkg/mod-warm || true
+# <<< sandboxr:block gomod
+
+# >>> sandboxr:block deps
+# Installed under /opt/deps, deliberately outside the worktree path.
+#
+# The worktree is bind-mounted over /workspace at run time, and a bind mount hides
+# whatever the image put underneath it -- so a dependency tree installed at its
+# natural location inside the project would simply vanish the moment the container
+# started. Installing somewhere else and seeding a volume from it on first boot is
+# the only arrangement that survives the mount.
+#
+# The seed is also what makes the install shared: the volume is named after the
+# lockfile hash, so every sandbox with the same dependencies uses one copy, and a
+# branch that changes its dependencies transparently gets its own.
+WORKDIR /opt/deps
+COPY manifests/ /opt/deps/
+
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    {{DEPS_INSTALL}}
+
+# Stamped so the seeding step can tell whether the worktree's lockfile still
+# matches what was installed here, and fall back to a real install when it does
+# not. Sixteen hex characters: enough to make a collision irrelevant, short enough
+# to read in a log line.
+RUN sha256sum /opt/deps/{{DEPS_LOCKFILE}} | cut -c1-16 > /opt/deps/.lockhash
+# <<< sandboxr:block deps
+
+WORKDIR /workspace
