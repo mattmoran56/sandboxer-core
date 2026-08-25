@@ -55,6 +55,15 @@ export interface RunInput {
   memory?: string | undefined;
   /** Optional runtimes to start, passed to the entrypoint. */
   with?: string[] | undefined;
+  /**
+   * The labels the shared router reconciles from.
+   *
+   * Passed in rather than derived here because they depend on the domain and on
+   * whether the router terminates TLS, neither of which is a fact about the
+   * sandbox. Absent means the sandbox runs unreachable, which is what a test
+   * wants and never what a person does.
+   */
+  routerLabels?: Record<string, string> | undefined;
 }
 
 /**
@@ -77,7 +86,7 @@ export function runArgs(input: RunInput): string[] {
 
   // The router reconciles from these labels as containers come and go, so
   // starting a sandbox never regenerates router config or triggers a reload.
-  args.push("--label", "sandboxr.router=true");
+  args.push(...labelArgs(input.routerLabels ?? {}));
 
   args.push("--env-file", input.envFile);
   // The secrets file is layered *under* the generated environment: a credential

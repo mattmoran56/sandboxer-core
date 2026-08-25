@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { regexLiteral, routeLabels, routerArgs, sandboxRouteLabels, sandboxRule } from "./router.js";
+import { portSuffix, regexLiteral, routeLabels, routerArgs, routerPorts, sandboxRouteLabels, sandboxRule } from "./router.js";
 
 describe("regexLiteral", () => {
   it.each([
@@ -89,7 +89,7 @@ describe("sandboxRouteLabels", () => {
 
 describe("routerArgs", () => {
   const files = { config: "/h/state/traefik.yml", dynamic: "/h/state/dynamic" };
-  const cert = { certFile: "/h/tls/d.pem", keyFile: "/h/tls/d-key.pem", trusted: true };
+  const cert = { name: "d", certFile: "/h/tls/d.pem", keyFile: "/h/tls/d-key.pem", trusted: true };
 
   it("publishes 443 only when there is a certificate to serve on it", () => {
     const plain = routerArgs({ files, bind: "127.0.0.1" });
@@ -107,5 +107,31 @@ describe("routerArgs", () => {
 
   it("binds only where it is told to", () => {
     expect(routerArgs({ files, bind: "0.0.0.0" })).toContain("0.0.0.0:80:80");
+  });
+
+  // The one thing on the machine sandboxr cannot assume it owns. Another local
+  // router already on 80 makes `docker run` fail with nothing that names a fix.
+  it("publishes the ports it is given, and keeps the container's own at 80/443", () => {
+    const args = routerArgs({ files, cert, tlsDir: "/h/tls", bind: "127.0.0.1", ports: { http: 8080, https: 8443 } });
+    expect(args).toContain("127.0.0.1:8080:80");
+    expect(args).toContain("127.0.0.1:8443:443");
+  });
+});
+
+describe("routerPorts and portSuffix", () => {
+  it("defaults to the standard ports, which need no suffix", () => {
+    expect(routerPorts({})).toEqual({ http: 80, https: 443 });
+    expect(portSuffix("http", { http: 80, https: 443 })).toBe("");
+    expect(portSuffix("https", { http: 80, https: 443 })).toBe("");
+  });
+
+  it("reads an override and then puts it in the URL", () => {
+    const ports = routerPorts({ SANDBOXR_HTTP_PORT: "8080", SANDBOXR_HTTPS_PORT: "8443" });
+    expect(ports).toEqual({ http: 8080, https: 8443 });
+    expect(portSuffix("https", ports)).toBe(":8443");
+  });
+
+  it.each(["", "0", "70000", "not-a-port"])("ignores %s and keeps the default", (value) => {
+    expect(routerPorts({ SANDBOXR_HTTP_PORT: value }).http).toBe(80);
   });
 });

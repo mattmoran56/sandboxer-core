@@ -9,6 +9,7 @@
 import {
   ConfigError,
   TOOL_VERSION,
+  accessStatus,
   checkSecrets,
   containerName,
   deriveSlug,
@@ -20,12 +21,14 @@ import {
   getDriver,
   gitFacts,
   importSecrets,
+  initAccess,
   list,
   loadConfig,
   paths,
   persistenceAdvice,
   reload,
   status,
+  teardownAccess,
   up,
   type ResolvedConfig,
   type Sandbox,
@@ -35,6 +38,16 @@ import { flagBoolean, flagList, flagNumber, flagString, parseArgs, type ParsedAr
 import { Output, processWriter, type Writer } from "./output.js";
 
 export const USAGE = `sandboxr — one container per git worktree, on its own hostname
+
+SETUP
+  init                         Set this machine up: router, certificate, dashboard
+     --no-tls                  Serve plain http even if a trusted CA is present
+     --tls                     Insist on https even if the CA is not trusted yet
+     --rebuild                 Rebuild the base image
+     --bind ADDR               Publish the router here instead of 127.0.0.1
+     --http-port N             Publish http here instead of 80
+     --https-port N            ...and https here instead of 443
+  teardown [--network]         Stop the router and the dashboard
 
 SANDBOX
   up [slug]                    Start a sandbox from this worktree
@@ -126,6 +139,10 @@ export async function main(argv: string[], context: RunContext = {}): Promise<nu
         return await cmdDb(args, out, cwd, env);
       case "secrets":
         return await cmdSecrets(args, out, cwd, env);
+      case "init":
+        return await cmdInit(args, out, env);
+      case "teardown":
+        return await cmdTeardown(args, out, env);
       case "config":
         return await cmdConfig(args, out, cwd);
       case "doctor":
@@ -432,6 +449,57 @@ async function cmdSecrets(args: ParsedArgs, out: Output, cwd: string, env: NodeJ
   return 1;
 }
 
+/**
+ * Sets the machine up so a sandbox can be reached.
+ *
+ * Everything here is idempotent, because this is also how you change the
+ * domain, rotate the password, or pick TLS up after installing mkcert's root.
+ */
+async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Promise<number> {
+  const tls = args.flags.tls === undefined ? undefined : flagBoolean(args, "tls");
+  const http = flagNumber(args, "http-port");
+  const https = flagNumber(args, "https-port");
+  const report = await initAccess({
+    env,
+    tls,
+    rebuild: flagBoolean(args, "rebuild"),
+    bind: flagString(args, "bind"),
+    ports: { ...(http ? { http } : {}), ...(https ? { https } : {}) },
+    log: (line) => out.step(line),
+  });
+
+  if (out.json) out.data(report);
+  out.ok(`Ready on ${report.domain}`);
+  out.line();
+  out.line(`  dashboard   ${report.dashboardUrl}`);
+  out.line(`  sandboxes   ${report.scheme}://<slug>.<label>.<project>.${report.domain}`);
+  out.line();
+  // `.localhost` resolves to the loopback address with no configuration at all,
+  // which is the whole reason it is the default — saying so once here saves the
+  // reader wondering what they were supposed to have set up.
+  out.dim(`  Any name under ${report.domain} resolves to 127.0.0.1 on its own. Nothing to configure.`);
+  for (const note of report.notes) {
+    out.line();
+    out.warn(note);
+  }
+  out.line();
+  out.dim("  Next: cd into a project with a sandboxr.yaml and run `sandboxr up`.");
+  return 0;
+}
+
+/** Stops the shared plumbing. Sandboxes are `down`'s business, not this. */
+async function cmdTeardown(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Promise<number> {
+  const result = await teardownAccess({
+    env,
+    network: flagBoolean(args, "network"),
+    log: (line) => out.ok(line),
+  });
+  if (out.json) out.data(result);
+  if (result.removed.length === 0) out.line("Nothing to tear down.");
+  else out.dim("  Sandboxes are left alone. Use `sandboxr down` for those.");
+  return 0;
+}
+
 async function cmdConfig(args: ParsedArgs, out: Output, cwd: string): Promise<number> {
   const from = flagString(args, "worktree") ?? cwd;
   const file = await findConfig(from);
@@ -466,11 +534,53 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
   const findings: Array<{ ok: boolean; text: string; fix?: string }> = [];
   const p = paths(env);
 
+  const dockerUp = await docker.available();
   findings.push(
-    (await docker.available())
+    dockerUp
       ? { ok: true, text: "Docker is running" }
       : { ok: false, text: "Docker is not running", fix: "start Docker and try again" },
   );
+
+  // The access layer is what makes a sandbox reachable, so it is checked before
+  // anything about a project: a perfect config on a machine with no router
+  // produces a container nothing can address.
+  if (dockerUp) {
+    const access = await accessStatus({ env });
+    findings.push(
+      access.baseImagePresent
+        ? { ok: true, text: "the base image is built" }
+        : { ok: false, text: "no base image", fix: "sandboxr init" },
+    );
+    findings.push(
+      access.routerRunning
+        ? { ok: true, text: `router is up, serving ${access.scheme} on ${access.domain}` }
+        : { ok: false, text: "the shared router is not running", fix: "sandboxr init" },
+    );
+    findings.push(
+      access.dashboardRunning
+        ? { ok: true, text: `dashboard is up at ${access.scheme}://${access.domain}` }
+        : { ok: false, text: "the dashboard is not running", fix: "sandboxr init" },
+    );
+    if (access.scheme === "http") {
+      findings.push({
+        ok: true,
+        text: "serving plain http (a locally-trusted certificate would upgrade it)",
+      });
+    } else if (!access.certificateTrusted) {
+      findings.push({
+        ok: false,
+        text: "the certificate's root is not in this machine's trust store",
+        fix: "mkcert -install",
+      });
+    }
+    if (!env.SANDBOXR_PASSWORD) {
+      findings.push({
+        ok: false,
+        text: "SANDBOXR_PASSWORD is not set, so the dashboard admits nobody",
+        fix: "export SANDBOXR_PASSWORD=… && sandboxr init",
+      });
+    }
+  }
 
   const file = await findConfig(from);
   if (!file) {

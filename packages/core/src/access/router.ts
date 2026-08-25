@@ -31,10 +31,51 @@ export const ROUTER_IMAGE = "traefik:v3.6";
 /** The forward-auth middleware a private project's hostnames go through. */
 export const AUTH_MIDDLEWARE = "sandboxr-auth@file";
 
+export class RouterError extends Error {
+  override readonly name = "RouterError";
+}
+
 /** Where the router reads its own files, inside its container. */
 const CONF = "/etc/traefik/traefik.yml";
 const DYNAMIC = "/etc/traefik/dynamic";
-const TLS_DIR = "/etc/traefik/tls";
+export const TLS_DIR = "/etc/traefik/tls";
+
+/**
+ * The host ports the router publishes on.
+ *
+ * 80 and 443 by default, because a hostname with a port in it is not really a
+ * hostname. They are overridable because they are the one thing on the machine
+ * sandboxr cannot assume it owns: another local development router, or anything
+ * else already bound there, makes 80 unavailable and `docker run` fails with
+ * "address already in use" rather than anything that names the fix.
+ */
+export interface RouterPorts {
+  http: number;
+  https: number;
+}
+
+export function routerPorts(env: NodeJS.ProcessEnv = process.env): RouterPorts {
+  const read = (value: string | undefined, fallback: number): number => {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 && parsed < 65536 ? parsed : fallback;
+  };
+  return {
+    http: read(env.SANDBOXR_HTTP_PORT, 80),
+    https: read(env.SANDBOXR_HTTPS_PORT, 443),
+  };
+}
+
+/**
+ * The `:port` a URL needs, or nothing.
+ *
+ * Empty for the scheme's own default, because `https://x:443` is the same URL
+ * written worse.
+ */
+export function portSuffix(scheme: "http" | "https", ports: RouterPorts): string {
+  const port = scheme === "https" ? ports.https : ports.http;
+  const standard = scheme === "https" ? 443 : 80;
+  return port === standard ? "" : `:${port}`;
+}
 
 export interface RouterFiles {
   /** The static configuration, on the host. */
@@ -118,11 +159,13 @@ export async function writeRouterConfig(options: {
   env?: NodeJS.ProcessEnv | undefined;
   cert?: Certificate | undefined;
   dashboardPort: number;
+  ports?: RouterPorts | undefined;
 }): Promise<RouterFiles> {
   const p = paths(options.env ?? process.env);
   const dynamic = join(p.state, "dynamic");
   await mkdir(dynamic, { recursive: true });
 
+  const ports = options.ports ?? routerPorts(options.env ?? process.env);
   const tls = options.cert !== undefined;
   const config = join(p.state, "traefik.yml");
   await writeFile(
@@ -135,7 +178,17 @@ export async function writeRouterConfig(options: {
       // Only when there is a certificate: redirecting to a scheme nothing serves
       // would take the whole machine off the air rather than upgrading it.
       ...(tls
-        ? ["    http:", "      redirections:", "        entryPoint:", "          to: websecure", "          scheme: https"]
+        ? [
+            "    http:",
+            "      redirections:",
+            "        entryPoint:",
+            "          to: websecure",
+            "          scheme: https",
+            // The entry point listens on 443 inside the container whatever the
+            // host publishes it as, so the redirect has to name the *host* port
+            // or it sends the browser to a port nothing answers on.
+            ...(ports.https === 443 ? [] : [`          port: "${ports.https}"`]),
+          ]
         : []),
       ...(tls ? ["  websecure:", '    address: ":443"'] : []),
       "providers:",
@@ -183,6 +236,7 @@ export interface RouterOptions {
   files: RouterFiles;
   /** Bind address for the published ports. Loopback unless someone asks otherwise. */
   bind?: string | undefined;
+  ports?: RouterPorts | undefined;
   log?: ((line: string) => void) | undefined;
 }
 
@@ -192,8 +246,10 @@ export function routerArgs(options: {
   tlsDir?: string | undefined;
   cert?: Certificate | undefined;
   bind: string;
+  ports?: RouterPorts | undefined;
   image?: string | undefined;
 }): string[] {
+  const ports = options.ports ?? { http: 80, https: 443 };
   const args = [
     "run",
     "-d",
@@ -206,9 +262,9 @@ export function routerArgs(options: {
     "--label",
     "sandboxr.role=router",
     "-p",
-    `${options.bind}:80:80`,
+    `${options.bind}:${ports.http}:80`,
   ];
-  if (options.cert) args.push("-p", `${options.bind}:443:443`);
+  if (options.cert) args.push("-p", `${options.bind}:${ports.https}:443`);
 
   args.push(
     "-v",
@@ -240,16 +296,34 @@ export async function startRouter(options: RouterOptions): Promise<void> {
   if (await docker.containerExists(ROUTER_CONTAINER)) {
     await docker.rm(ROUTER_CONTAINER, { force: true });
   }
-  await docker.ok(
+  const ports = options.ports ?? routerPorts(options.env ?? process.env);
+  const bind = options.bind ?? "127.0.0.1";
+  const result = await docker.raw(
     routerArgs({
       files: options.files,
       tlsDir: p.tls,
       cert: options.cert,
-      bind: options.bind ?? "127.0.0.1",
+      bind,
+      ports,
       image: (options.env ?? process.env).SANDBOXR_ROUTER_IMAGE,
     }),
   );
-  log(`Router listening on ${options.bind ?? "127.0.0.1"}:80${options.cert ? " and :443" : ""}`);
+  if (result.code !== 0) {
+    // Docker's own message for a taken port names the address and nothing else.
+    // The fix is a flag on this command, and it is worth saying so here rather
+    // than leaving it to be found.
+    const taken = /address already in use|port is already allocated/i.test(result.stderr + result.stdout);
+    throw new RouterError(
+      taken
+        ? `Something is already listening on ${bind}:${ports.http}` +
+          (options.cert ? ` or ${bind}:${ports.https}` : "") +
+          ".\n" +
+          "  Stop it, or give sandboxr other ports:\n" +
+          "    sandboxr init --http-port 8080 --https-port 8443"
+        : (result.stderr || result.stdout).trim(),
+    );
+  }
+  log(`Router listening on ${bind}:${ports.http}${options.cert ? ` and :${ports.https}` : ""}`);
 }
 
 export async function stopRouter(docker: Docker): Promise<boolean> {

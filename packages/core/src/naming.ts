@@ -116,6 +116,14 @@ export interface HostParts {
   label: string;
   project: string;
   domain?: string | undefined;
+  /**
+   * The scheme a URL is built with.
+   *
+   * Not always https: the router only terminates TLS when a trusted certificate
+   * exists on the machine, and printing an https URL for a router that is not
+   * serving it sends the reader to a connection refused.
+   */
+  scheme?: "http" | "https" | undefined;
 }
 
 /**
@@ -137,7 +145,7 @@ export function hostFor(parts: HostParts): string {
 }
 
 export function urlFor(parts: HostParts): string {
-  return `https://${hostFor(parts)}`;
+  return `${parts.scheme ?? "https"}://${hostFor(parts)}`;
 }
 
 export function containerName(project: string, slug: string): string {

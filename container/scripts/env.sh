@@ -67,12 +67,16 @@ fi
 # absolute, slug-bearing URL; same-origin API calls do not, which is what keeps
 # CORS out of the picture entirely.
 if [[ -n "${SANDBOXR_SLUG:-}" ]]; then
+  # The port only when the router is not on the scheme's default one, which the
+  # host decides and passes in: a URL missing it points at whatever else owns
+  # 443 on that machine.
+  sandboxr_env_port="${SANDBOXR_PUBLIC_PORT:+:${SANDBOXR_PUBLIC_PORT}}"
   while read -r sandboxr_env_label; do
     [[ -z "$sandboxr_env_label" ]] && continue
     sandboxr_env_var="SANDBOXR_URL_$(printf '%s' "$sandboxr_env_label" | tr '[:lower:]-' '[:upper:]_')"
-    export "$sandboxr_env_var=${SANDBOXR_SCHEME:-https}://$(fqdn "$sandboxr_env_label")"
+    export "$sandboxr_env_var=${SANDBOXR_SCHEME:-https}://$(fqdn "$sandboxr_env_label")${sandboxr_env_port}"
   done < <(jq -r '.services[]?.label // empty' "$SANDBOXR_PLAN" | sort -u)
-  unset sandboxr_env_label sandboxr_env_var
+  unset sandboxr_env_label sandboxr_env_var sandboxr_env_port
 fi
 
 # One SANDBOXR_PORT_<ID> per port-holding service, so a project can address a

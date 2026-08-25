@@ -29,6 +29,15 @@ export interface ContainerEnvInput {
   with?: string[] | undefined;
   /** Which seed source was chosen, so the container can say what it restored. */
   seed?: string | undefined;
+  /** Whether the router in front terminates TLS. Absent means it does. */
+  scheme?: "http" | "https" | undefined;
+  /**
+   * The port the router is published on, when it is not the scheme's default.
+   *
+   * The container builds every SANDBOXR_URL_<LABEL> from this, and a URL with
+   * the port missing points at whatever else owns 443 on the machine.
+   */
+  publicPort?: string | undefined;
 }
 
 /** Turns a hostname label into the variable-name form of itself. */
@@ -48,6 +57,11 @@ export function containerEnv(input: ContainerEnvInput): Record<string, string> {
     SANDBOXR_PROJECT: input.config.project,
     SANDBOXR_DOMAIN: domain,
     SANDBOXR_ACCESS: input.config.access.apps,
+    // The container builds SANDBOXR_URL_<LABEL> from these two. Only the host
+    // knows whether the shared router found a certificate to serve, and on which
+    // port it ended up.
+    SANDBOXR_SCHEME: input.scheme ?? "https",
+    SANDBOXR_PUBLIC_PORT: input.publicPort ?? "",
   };
 
   if (input.config.database.driver === "mysql") {
@@ -65,12 +79,28 @@ export function containerEnv(input: ContainerEnvInput): Record<string, string> {
 }
 
 /** The hostname each label answers on, which `status` and the CLI both print. */
-export function urlsFor(config: ResolvedConfig, slug: string, domain = DEFAULT_DOMAIN): Record<string, string> {
+export function urlsFor(
+  config: ResolvedConfig,
+  slug: string,
+  domain = DEFAULT_DOMAIN,
+  scheme: "http" | "https" = "https",
+  portSuffix = "",
+): Record<string, string> {
   const urls: Record<string, string> = {};
   for (const runtime of [...config.frontends, ...config.backends]) {
-    urls[runtime.label] = urlFor({ slug, label: runtime.label, project: config.project, domain });
+    urls[runtime.label] = `${urlFor({ slug, label: runtime.label, project: config.project, domain, scheme })}${portSuffix}`;
   }
   return urls;
+}
+
+/** Every hostname label this project serves, which is what a certificate lists. */
+export function labelsOf(config: ResolvedConfig): string[] {
+  const labels = [...config.frontends, ...config.backends].map((runtime) => runtime.label);
+  // `s3` is reserved: the sandbox's own object storage answers on it whenever
+  // storage is declared, and a certificate that omits it makes the one URL a
+  // person opens to check an upload the one that warns.
+  if (config.storage.driver === "minio") labels.push("s3");
+  return [...new Set(labels)];
 }
 
 export function hostsFor(config: ResolvedConfig, slug: string, domain = DEFAULT_DOMAIN): string[] {

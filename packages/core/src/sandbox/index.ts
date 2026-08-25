@@ -10,6 +10,17 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import {
+  ROUTER_CONTAINER,
+  discardSandboxCertificate,
+  domainOf,
+  ensureBaseImage,
+  ensureSandboxCertificate,
+  portSuffix,
+  routerPorts,
+  routerScheme,
+  sandboxRouteLabels,
+} from "../access/index.js";
 import { allowsRealCredentials } from "../config/access.js";
 import { loadConfig } from "../config/load.js";
 import { resolveDeps } from "../config/deps.js";
@@ -21,9 +32,10 @@ import { chooseSeed } from "../drivers/seed.js";
 import { describeSeedChoice, mysqlSettings } from "../drivers/mysql.js";
 import type { SeedArtifact } from "../drivers/types.js";
 import { gitFacts } from "../git.js";
-import { DEFAULT_DOMAIN, NETWORK, containerName, deriveSlug, volumeName } from "../naming.js";
+import { ensureProjectImage } from "../image.js";
+import { NETWORK, containerName, deriveSlug, volumeName } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
-import { containerEnv, renderEnvFile, urlsFor } from "./env.js";
+import { containerEnv, labelsOf, renderEnvFile, urlsFor } from "./env.js";
 import { planGc } from "./gc.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
 import { BUILT_MANIFEST, MIGRATE_FAILED, MIGRATE_OK, WWW_DIR } from "./layout.js";
@@ -49,10 +61,6 @@ export class SandboxError extends Error {
 
 const noop = (): void => {};
 
-function domainOf(env: NodeJS.ProcessEnv): string {
-  return env.SANDBOXR_DOMAIN && env.SANDBOXR_DOMAIN !== "" ? env.SANDBOXR_DOMAIN : DEFAULT_DOMAIN;
-}
-
 /**
  * Starts a sandbox for one worktree.
  *
@@ -68,14 +76,22 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   const p = paths(env);
 
   const config = options.config ?? (await loadConfig(options.worktree ?? process.cwd()));
-  const worktree = options.worktree ?? config.root;
-  const facts = await gitFacts(worktree);
+  const facts = await gitFacts(options.worktree ?? config.root);
+  // What `/workspace` is: the directory the config sits in, not the top of the
+  // git worktree. Usually the same thing — a project describes itself at its own
+  // repo root — but a project kept in a subdirectory of a larger repository
+  // would otherwise be mounted with every path in its plan resolving one
+  // directory too high, and every one of those failures reads as a broken plan.
+  const projectRoot = config.root;
   const slug = deriveSlug({
     explicit: options.slug,
     worktreeDir: facts.directory,
     branch: facts.branch === "?" ? undefined : facts.branch,
   });
   const domain = domainOf(env);
+  const scheme = routerScheme(env);
+  const ports = routerPorts(env);
+  const suffix = portSuffix(scheme, ports);
   const container = containerName(config.project, slug);
 
   if (!(await docker.available())) {
@@ -97,8 +113,14 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   for (const dir of directoriesOf(p)) await mkdir(dir, { recursive: true });
   await docker.ensureNetwork(NETWORK);
 
+  // Warned rather than refused: a sandbox that is up but unreachable is still
+  // worth having, and the fix is one command rather than a reason to stop.
+  if (!(await docker.containerRunning(ROUTER_CONTAINER))) {
+    log("The shared router is not running, so this sandbox will have no hostname. Run: sandboxr init");
+  }
+
   const driver = getDriver(config.database.driver);
-  const ctx = driverContext(config, { slug, worktree, env, docker, log, now: undefined });
+  const ctx = driverContext(config, { slug, worktree: projectRoot, env, docker, log, now: undefined });
   const choice = chooseSeed(config, {
     prefer: options.seed,
     localAvailable: config.database.seedFrom?.local
@@ -122,6 +144,8 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
         database: { user: settings.user, password: settings.password },
         with: options.with,
         seed: seed.source,
+        scheme,
+        publicPort: suffix.slice(1),
       }),
       `generated for ${config.project}/${slug} — regenerated on every start`,
     ),
@@ -129,7 +153,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
 
   // The plan is the container's only view of the project: nothing inside reads
   // sandboxr.yaml, so everything project-specific is resolved here first.
-  const deps = await resolveDeps(config, facts.worktree);
+  const deps = await resolveDeps(config, projectRoot);
   const planFile = join(p.build, config.project, `${slug}.plan.json`);
   await writePlan(
     planFor(config, {
@@ -153,24 +177,54 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     branch: facts.branch,
     commit: facts.commit,
     dirty: facts.dirty,
-    worktree: facts.worktree,
+    worktree: projectRoot,
   });
+
+  // The project's own image layer: the base image carries no toolchain and no
+  // database engine, so a project whose plan names `npx` needs this before its
+  // first service can start.
+  const image =
+    env.SANDBOXR_IMAGE ??
+    (
+      await ensureProjectImage({
+        config,
+        worktree: projectRoot,
+        docker,
+        env,
+        log,
+        baseImage: await ensureBaseImage({ docker, env, log }),
+      })
+    ).tag;
+
+  // Issued before the container starts, so the router already holds a
+  // certificate for these hostnames by the time anything asks for one. A
+  // sandbox is three labels deep and no wildcard reaches it, so this is per
+  // sandbox rather than once for the machine.
+  await ensureSandboxCertificate({ project: config.project, slug, labels: labelsOf(config), env, log });
 
   log(`Starting ${slug} from ${facts.branch}@${facts.commit}${facts.dirty ? " (dirty)" : ""}`);
   await docker.ok(
     runArgs({
       config,
       slug,
-      worktree: facts.worktree,
+      worktree: projectRoot,
       labels,
       envFile,
       secretsFile: hasSecrets ? secretsFile : undefined,
       planFile,
       cacheDir: p.cache,
       logDir,
-      depsHash: deps ? await depsHashFor(facts.worktree, deps) : undefined,
-      image: env.SANDBOXR_IMAGE,
+      depsHash: deps ? await depsHashFor(projectRoot, deps) : undefined,
+      image,
       with: options.with,
+      routerLabels: sandboxRouteLabels({
+        container,
+        slug,
+        project: config.project,
+        domain,
+        tls: scheme === "https",
+        access: config.access.apps,
+      }),
     }),
   );
 
@@ -203,7 +257,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
         ...sandboxFromLabels(labels, container, "starting"),
         state: "starting",
       } as Sandbox),
-    urls: urlsFor(config, slug, domain),
+    urls: urlsFor(config, slug, domain, scheme, suffix),
     migrationFailure,
     seed: { source: seed.source, description: describeSeedChoice(choice) },
   };
@@ -220,6 +274,10 @@ export async function down(project: string, slug: string, options: DownOptions =
     return;
   }
   await docker.rm(container, { force: true });
+  // The certificate names this sandbox's hostnames and nothing else's, so it
+  // goes with it. Left behind, the router would keep offering a certificate for
+  // a host that no longer answers.
+  await discardSandboxCertificate(project, slug, options.env ?? process.env);
 
   if (options.keep) {
     log(`Removed ${slug}, kept its volumes`);
@@ -273,13 +331,15 @@ export async function status(project: string, slug: string, options: StatusOptio
       label: backend.label,
       port: backend.port,
       up: sandbox.state === "stopped" ? false : await probe(docker, container, backend.port, backend.health),
-      url: `https://${slug}.${backend.label}.${project}.${domain}`,
+      url:
+        `${routerScheme(env)}://${slug}.${backend.label}.${project}.${domain}` +
+        portSuffix(routerScheme(env), routerPorts(env)),
     });
   }
 
   return {
     ...sandbox,
-    urls: config ? urlsFor(config, slug, domain) : {},
+    urls: config ? urlsFor(config, slug, domain, routerScheme(env), portSuffix(routerScheme(env), routerPorts(env))) : {},
     services,
     migrations: markers.migrateFailed ? "failed" : markers.migrateOk ? "ok" : "pending",
     built: sandbox.state === "stopped" ? [] : await builtApps(docker, container),

@@ -1,11 +1,16 @@
 /**
- * The certificate the router serves.
+ * The certificates the router serves.
  *
- * A sandbox hostname is four labels deep — `<slug>.<label>.<project>.<domain>` —
- * and a wildcard matches exactly one label, so the certificate has to carry a
- * wildcard for every depth rather than one for the domain. Getting that wrong
- * produces a certificate that validates for the dashboard and fails for every
- * sandbox, which reads as a broken sandbox rather than a wrong certificate.
+ * A DNS wildcard matches exactly one label, and a sandbox hostname is three
+ * labels above the domain — `<slug>.<label>.<project>.<domain>`. So no single
+ * wildcard can cover a sandbox, and mkcert refuses a multi-level one outright
+ * (`"*.*.example" is not a valid hostname`). Trying it produces no certificate
+ * at all and a router that quietly falls back to plain http.
+ *
+ * The answer is one certificate per sandbox, with its hostnames listed
+ * explicitly, issued when the sandbox starts and removed when it goes. Traefik
+ * picks between them by SNI, and the base certificate — the domain and one
+ * wildcard under it — covers the dashboard.
  *
  * mkcert is the only issuer supported, because it is the only one that can make
  * a browser trust a local name without a public DNS record. It is optional:
@@ -13,20 +18,20 @@
  * working and an honest first milestone.
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 
 import { nodeRunner, type Runner } from "../docker.js";
 import { paths } from "../paths.js";
 
 export interface Certificate {
+  /** The name this certificate is filed under, which is also its file stem. */
+  name: string;
   certFile: string;
   keyFile: string;
   /** Whether a browser on this machine will accept it without a warning. */
   trusted: boolean;
-  /** The issuing tool's root store, for the message that says how to trust it. */
-  caRoot?: string | undefined;
 }
 
 export interface TlsOptions {
@@ -36,14 +41,23 @@ export interface TlsOptions {
 }
 
 /**
- * The names one certificate has to cover.
+ * The names the base certificate carries.
  *
- * Depth matters: `*.sbx.localhost` does not match `app.demo.sbx.localhost`, so
- * every level a hostname can reach needs its own wildcard. Four levels covers
- * `<slug>.<label>.<project>.<domain>` with one to spare.
+ * The domain itself, for the dashboard, and one wildcard under it. Anything
+ * deeper is a sandbox and gets its own certificate — a wildcard cannot reach it.
  */
-export function certificateNames(domain: string): string[] {
-  return [domain, `*.${domain}`, `*.*.${domain}`, `*.*.*.${domain}`, "localhost", "127.0.0.1", "::1"];
+export function baseCertificateNames(domain: string): string[] {
+  return [domain, `*.${domain}`, "localhost", "127.0.0.1", "::1"];
+}
+
+/** Every hostname one sandbox answers on. Listed, because a wildcard cannot reach them. */
+export function sandboxCertificateNames(input: {
+  slug: string;
+  project: string;
+  domain: string;
+  labels: readonly string[];
+}): string[] {
+  return input.labels.map((label) => `${input.slug}.${label}.${input.project}.${input.domain}`);
 }
 
 /** Whether mkcert is installed and runnable. */
@@ -85,58 +99,96 @@ export async function caTrusted(options: TlsOptions = {}): Promise<boolean> {
 }
 
 /**
- * Issues (or reuses) the wildcard certificate for a domain.
+ * Issues a certificate, or reuses the one already filed under this name.
  *
- * Reused when it is already there: re-issuing on every `init` would invalidate
- * the copy a running browser has pinned for the session, for no gain.
+ * Reused when it is there and already covers what was asked for: re-issuing on
+ * every start would invalidate the copy a running browser has pinned, for no
+ * gain. The manifest beside the certificate is what makes "already covers" a
+ * question that can be answered without parsing X.509.
  */
-export async function ensureCertificate(domain: string, options: TlsOptions = {}): Promise<Certificate | undefined> {
+export async function issueCertificate(
+  name: string,
+  hosts: readonly string[],
+  options: TlsOptions = {},
+): Promise<Certificate | undefined> {
   const run = options.run ?? nodeRunner;
   const env = options.env ?? process.env;
+  if (hosts.length === 0) return undefined;
   if (!(await mkcertAvailable(run))) return undefined;
 
   const dir = paths(env).tls;
   await mkdir(dir, { recursive: true });
-  const certFile = join(dir, `${domain}.pem`);
-  const keyFile = join(dir, `${domain}-key.pem`);
+  const certFile = join(dir, `${name}.pem`);
+  const keyFile = join(dir, `${name}-key.pem`);
+  const manifest = join(dir, `${name}.hosts`);
+  const wanted = `${[...hosts].sort().join("\n")}\n`;
 
-  if (!existsSync(certFile) || !existsSync(keyFile)) {
-    const result = await run("mkcert", ["-cert-file", certFile, "-key-file", keyFile, ...certificateNames(domain)]);
-    if (result.code !== 0) return undefined;
+  const current = existsSync(manifest) ? await readTextOrEmpty(manifest) : "";
+  if (!existsSync(certFile) || !existsSync(keyFile) || current !== wanted) {
+    const result = await run("mkcert", ["-cert-file", certFile, "-key-file", keyFile, ...hosts]);
+    // mkcert exits zero when it rejects a name, so its output is the only
+    // signal. Without this check a rejected name produces no certificate and
+    // the router silently drops to plain http.
+    if (result.code !== 0 || !existsSync(certFile)) return undefined;
+    await writeFile(manifest, wanted);
   }
 
-  return {
-    certFile,
-    keyFile,
-    trusted: await caTrusted(options),
-    caRoot: await caRootOf(run),
-  };
+  return { name, certFile, keyFile, trusted: await caTrusted(options) };
 }
 
-/** Writes the router's TLS section. Kept beside the issuer so both agree on the paths. */
-export async function writeTlsConfig(dynamicDir: string, cert: Certificate, mountedAt: string): Promise<string> {
-  const path = join(dynamicDir, "tls.yml");
+async function readTextOrEmpty(path: string): Promise<string> {
+  const { readFile } = await import("node:fs/promises");
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+/** Removes a certificate and its manifest. Used when a sandbox goes. */
+export async function discardCertificate(name: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const dir = paths(env).tls;
+  for (const file of [`${name}.pem`, `${name}-key.pem`, `${name}.hosts`]) {
+    await rm(join(dir, file), { force: true });
+  }
+}
+
+/**
+ * Writes the router's entry for one certificate.
+ *
+ * One file per certificate rather than one file listing them all, so a sandbox
+ * starting or stopping rewrites only its own — two of them racing cannot lose
+ * each other's entry.
+ */
+export async function writeCertificateEntry(
+  dynamicDir: string,
+  cert: Certificate,
+  mountedAt: string,
+  options: { isDefault?: boolean } = {},
+): Promise<string> {
   await mkdir(dynamicDir, { recursive: true });
+  const path = join(dynamicDir, `cert-${cert.name}.yml`);
+  const certPath = `${mountedAt}/${basename(cert.certFile)}`;
+  const keyPath = `${mountedAt}/${basename(cert.keyFile)}`;
+
   await writeFile(
     path,
     [
-      "# Generated by sandboxr init. Edits are lost on the next run.",
+      "# Generated by sandboxr. Edits are lost on the next run.",
       "tls:",
-      "  stores:",
-      "    default:",
-      "      defaultCertificate:",
-      `        certFile: ${mountedAt}/${basenameOf(cert.certFile)}`,
-      `        keyFile: ${mountedAt}/${basenameOf(cert.keyFile)}`,
+      ...(options.isDefault
+        ? ["  stores:", "    default:", "      defaultCertificate:", `        certFile: ${certPath}`, `        keyFile: ${keyPath}`]
+        : []),
       "  certificates:",
-      `    - certFile: ${mountedAt}/${basenameOf(cert.certFile)}`,
-      `      keyFile: ${mountedAt}/${basenameOf(cert.keyFile)}`,
-      "      stores: [default]",
+      `    - certFile: ${certPath}`,
+      `      keyFile: ${keyPath}`,
       "",
     ].join("\n"),
   );
   return path;
 }
 
-function basenameOf(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
+/** Removes a certificate's router entry. */
+export async function discardCertificateEntry(dynamicDir: string, name: string): Promise<void> {
+  await rm(join(dynamicDir, `cert-${name}.yml`), { force: true });
 }

@@ -1,5 +1,5 @@
 /**
- * The access layer: the shared router, its certificate, and the dashboard.
+ * The access layer: the shared router, its certificates, and the dashboard.
  *
  * This is what makes a sandbox reachable at all. Everything else in this package
  * produces a container; without the pieces here, that container has an internal
@@ -23,7 +23,9 @@
  *    "public" sandbox is public to this machine's browsers, not to the network.
  */
 
-import { mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 
 import { docker as defaultDocker, type Docker } from "../docker.js";
 import { containerDir } from "../install.js";
@@ -31,8 +33,27 @@ import { DEFAULT_DOMAIN, NETWORK } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { TOOL_VERSION } from "../tool-version.js";
 import { DASHBOARD_CONTAINER, DASHBOARD_PORT, startDashboard, stopDashboard } from "./dashboard.js";
-import { ROUTER_CONTAINER, startRouter, stopRouter, writeRouterConfig } from "./router.js";
-import { caTrusted, ensureCertificate, mkcertAvailable, writeTlsConfig, type Certificate } from "./tls.js";
+import {
+  ROUTER_CONTAINER,
+  TLS_DIR,
+  portSuffix,
+  routerPorts,
+  startRouter,
+  stopRouter,
+  writeRouterConfig,
+  type RouterPorts,
+} from "./router.js";
+import {
+  baseCertificateNames,
+  caTrusted,
+  discardCertificate,
+  discardCertificateEntry,
+  issueCertificate,
+  mkcertAvailable,
+  sandboxCertificateNames,
+  writeCertificateEntry,
+  type Certificate,
+} from "./tls.js";
 
 export * from "./router.js";
 export * from "./dashboard.js";
@@ -51,11 +72,13 @@ export interface InitOptions {
   rebuild?: boolean | undefined;
   /** Bind address for the router's published ports. */
   bind?: string | undefined;
+  ports?: Partial<RouterPorts> | undefined;
 }
 
 export interface AccessReport {
   domain: string;
   scheme: "http" | "https";
+  ports: RouterPorts;
   dashboardUrl: string;
   certificate?: Certificate | undefined;
   baseImage: string;
@@ -65,6 +88,24 @@ export interface AccessReport {
 
 export function domainOf(env: NodeJS.ProcessEnv = process.env): string {
   return env.SANDBOXR_DOMAIN && env.SANDBOXR_DOMAIN !== "" ? env.SANDBOXR_DOMAIN : DEFAULT_DOMAIN;
+}
+
+/**
+ * The scheme the router is actually serving, read from what `init` wrote.
+ *
+ * Read from the router's own state rather than from whether mkcert is installed:
+ * the two can disagree — mkcert installed *after* the last `init` is the common
+ * case — and a URL printed for a scheme nothing is listening on sends the reader
+ * to a connection refused.
+ */
+export function routerScheme(env: NodeJS.ProcessEnv = process.env): "http" | "https" {
+  return existsSync(join(paths(env).state, "dynamic", `cert-${domainOf(env)}.yml`)) ? "https" : "http";
+}
+
+/** The origin a sandbox hostname is reached on, port included when it is not the default. */
+export function originFor(host: string, env: NodeJS.ProcessEnv = process.env): string {
+  const scheme = routerScheme(env);
+  return `${scheme}://${host}${portSuffix(scheme, routerPorts(env))}`;
 }
 
 /**
@@ -84,10 +125,7 @@ export async function ensureBaseImage(options: {
   const log = options.log ?? (() => undefined);
   const tag = `${BASE_IMAGE}:${TOOL_VERSION}`;
 
-  if (!options.rebuild && (await options.docker.imageExists(tag))) {
-    log(`Base image ${tag} is current`);
-    return tag;
-  }
+  if (!options.rebuild && (await options.docker.imageExists(tag))) return tag;
 
   const context = containerDir(env);
   log(`Building ${tag} (a few minutes the first time)`);
@@ -111,6 +149,7 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   const log = options.log ?? (() => undefined);
   const p = paths(env);
   const domain = domainOf(env);
+  const ports = { ...routerPorts(env), ...options.ports };
   const notes: string[] = [];
 
   if (!(await docker.available())) {
@@ -123,31 +162,34 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   const baseImage = await ensureBaseImage({ docker, env, rebuild: options.rebuild, log });
 
   // --- the certificate ---------------------------------------------------------
+  //
+  // The base one only: it carries the domain and one wildcard under it, which is
+  // the dashboard. A sandbox is three labels deep and no wildcard reaches it, so
+  // each one gets its own certificate when it starts.
   let cert: Certificate | undefined;
   if (options.tls !== false) {
     if (!(await mkcertAvailable())) {
       notes.push("mkcert is not installed, so the router serves plain http. `brew install mkcert` to change that.");
+    } else if (!(await caTrusted({ env })) && options.tls !== true) {
+      notes.push(
+        "mkcert's root is not in this machine's trust store, so the router serves plain http.\n" +
+          "  Run `mkcert -install` (it asks for your password once) and then `sandboxr init` again.",
+      );
     } else {
-      const trusted = await caTrusted({ env });
-      if (!trusted && options.tls !== true) {
-        notes.push(
-          "mkcert's root is not in this machine's trust store, so the router serves plain http.\n" +
-            "  Run `mkcert -install` (it asks for your password once) and then `sandboxr init` again.",
-        );
-      } else {
-        cert = await ensureCertificate(domain, { env });
-        if (!cert) notes.push("mkcert could not issue a certificate, so the router serves plain http.");
-        else if (!cert.trusted) {
-          notes.push("The certificate is issued but its root is not trusted — run `mkcert -install`.");
-        }
-      }
+      cert = await issueCertificate(domain, baseCertificateNames(domain), { env });
+      if (!cert) notes.push("mkcert could not issue a certificate, so the router serves plain http.");
+      else if (!cert.trusted) notes.push("The certificate is issued but its root is not trusted — run `mkcert -install`.");
     }
   }
 
   // --- the router --------------------------------------------------------------
-  const files = await writeRouterConfig({ env, cert, dashboardPort: DASHBOARD_PORT });
-  if (cert) await writeTlsConfig(files.dynamic, cert, "/etc/traefik/tls");
-  await startRouter({ env, docker, cert, files, bind: options.bind, log });
+  const files = await writeRouterConfig({ env, cert, dashboardPort: DASHBOARD_PORT, ports });
+  if (cert) await writeCertificateEntry(files.dynamic, cert, TLS_DIR, { isDefault: true });
+  // Removed rather than left behind: this file is what `routerScheme` reads, so
+  // a stale one from a previous run would have every command print URLs on a
+  // scheme nothing is listening on.
+  else await rm(join(files.dynamic, `cert-${domain}.yml`), { force: true });
+  await startRouter({ env, docker, cert, files, bind: options.bind, ports, log });
 
   // --- the dashboard -----------------------------------------------------------
   const password = env.SANDBOXR_PASSWORD;
@@ -163,11 +205,52 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   return {
     domain,
     scheme,
-    dashboardUrl: `${scheme}://${domain}`,
+    ports,
+    dashboardUrl: `${scheme}://${domain}${portSuffix(scheme, ports)}`,
     certificate: cert,
     baseImage,
     notes,
   };
+}
+
+/**
+ * Issues the certificate one sandbox needs, and tells the router about it.
+ *
+ * Called when a sandbox starts, because the hostnames it covers are a fact about
+ * that sandbox's plan. Traefik watches the directory, so no reload is needed.
+ * A no-op when the router is not serving TLS.
+ */
+export async function ensureSandboxCertificate(input: {
+  project: string;
+  slug: string;
+  labels: readonly string[];
+  env?: NodeJS.ProcessEnv | undefined;
+  log?: ((line: string) => void) | undefined;
+}): Promise<Certificate | undefined> {
+  const env = input.env ?? process.env;
+  if (routerScheme(env) !== "https") return undefined;
+
+  const domain = domainOf(env);
+  const name = `${input.project}-${input.slug}`;
+  const hosts = sandboxCertificateNames({ slug: input.slug, project: input.project, domain, labels: input.labels });
+  const cert = await issueCertificate(name, hosts, { env });
+  if (!cert) {
+    input.log?.(`Could not issue a certificate for ${input.slug} — its hostnames will not validate.`);
+    return undefined;
+  }
+  await writeCertificateEntry(join(paths(env).state, "dynamic"), cert, TLS_DIR);
+  return cert;
+}
+
+/** Removes a sandbox's certificate and the router's entry for it. */
+export async function discardSandboxCertificate(
+  project: string,
+  slug: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const name = `${project}-${slug}`;
+  await discardCertificateEntry(join(paths(env).state, "dynamic"), name);
+  await discardCertificate(name, env);
 }
 
 export interface TeardownOptions {
@@ -213,6 +296,8 @@ export interface AccessStatus {
   dashboardRunning: boolean;
   /** The scheme the router is actually configured for, read from its own state. */
   scheme: "http" | "https";
+  ports: RouterPorts;
+  dashboardUrl: string;
   certificatePresent: boolean;
   certificateTrusted: boolean;
   baseImagePresent: boolean;
@@ -224,17 +309,18 @@ export async function accessStatus(options: { env?: NodeJS.ProcessEnv; docker?: 
   const docker = options.docker ?? defaultDocker;
   const domain = domainOf(env);
   const p = paths(env);
-  const { existsSync } = await import("node:fs");
-  const { join } = await import("node:path");
+  const scheme = routerScheme(env);
+  const ports = routerPorts(env);
 
-  const certFile = join(p.tls, `${domain}.pem`);
-  const certificatePresent = existsSync(certFile);
+  const certificatePresent = existsSync(join(p.tls, `${domain}.pem`));
 
   return {
     domain,
     routerRunning: await docker.containerRunning(ROUTER_CONTAINER),
     dashboardRunning: await docker.containerRunning(DASHBOARD_CONTAINER),
-    scheme: existsSync(join(p.state, "dynamic", "tls.yml")) ? "https" : "http",
+    scheme,
+    ports,
+    dashboardUrl: `${scheme}://${domain}${portSuffix(scheme, ports)}`,
     certificatePresent,
     certificateTrusted: certificatePresent ? await caTrusted({ env }) : false,
     baseImagePresent:

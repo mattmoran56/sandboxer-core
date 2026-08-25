@@ -259,12 +259,63 @@ describe("up", () => {
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
     expect(runArguments[0]).toBe("run");
     expect(runArguments).toContain(`${LABELS.slug}=tkt-1`);
-    expect(runArguments).toContain(`${dir}:/workspace`);
+    // The config's own directory, not the directory the command ran in:
+    // `/workspace` is the project, and a project is where its config is. A
+    // project kept in a subdirectory of a larger repository would otherwise be
+    // mounted one level too high and every path in its plan would miss.
+    expect(runArguments).toContain("/repo:/workspace");
+    expect(runArguments).toContain(`${LABELS.worktree}=/repo`);
 
     const envFile = join(home, "build", "acme", "tkt-1.env");
     expect(await readFile(envFile, "utf8")).toContain("SANDBOXR_SLUG=tkt-1");
-    expect(result.urls.app).toBe("https://tkt-1.app.acme.sbx.localhost");
+    // http, not https: the URL follows what the router is actually serving, and
+    // this home has never been through `init`, so nothing terminates TLS.
+    expect(result.urls.app).toBe("http://tkt-1.app.acme.sbx.localhost");
     expect(result.seed.source).toBe("fixtures");
+  });
+
+  // Printing an https URL for a router that terminates no TLS sends the reader
+  // to a connection refused, so the scheme is read from the router's own state.
+  it("uses https once the router has a certificate to serve", async () => {
+    const { dir, home } = await worktree();
+    await mkdir(join(home, "state", "dynamic"), { recursive: true });
+    // The router's entry for the base certificate is what everything else reads
+    // to decide the scheme, so this is the file that has to exist.
+    await writeFile(join(home, "state", "dynamic", "cert-sbx.localhost.yml"), "tls: {}\n");
+    const { docker, argsOf } = fakeDocker({ running: true, exists: false, exec: () => ({ stdout: "ok\n" }) });
+
+    const result = await up({
+      config: configOf(),
+      worktree: dir,
+      docker,
+      env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
+    });
+
+    expect(result.urls.app).toBe("https://tkt-1.app.acme.sbx.localhost");
+    const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
+    expect(runArguments).toContain("traefik.http.routers.sandboxr-acme-tkt-1.entrypoints=websecure");
+    expect(runArguments).toContain("traefik.http.routers.sandboxr-acme-tkt-1.tls=true");
+  });
+
+  // The router has to be told about a sandbox at the moment it starts, or the
+  // container comes up serving on port 80 with nothing able to address it.
+  it("labels the container for the shared router", async () => {
+    const { dir, home } = await worktree();
+    const { docker, argsOf } = fakeDocker({ running: true, exists: false, exec: () => ({ stdout: "ok\n" }) });
+    await up({
+      config: configOf(),
+      worktree: dir,
+      docker,
+      env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
+    });
+
+    const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
+    expect(runArguments).toContain("traefik.enable=true");
+    expect(runArguments).toContain(
+      "traefik.http.routers.sandboxr-acme-tkt-1.rule=HostRegexp(`^tkt-1\\.[a-z0-9-]+\\.acme\\.sbx\\.localhost$`)",
+    );
+    // Port 80 is the sandbox's own router, which is what splits by label.
+    expect(runArguments).toContain("traefik.http.services.sandboxr-acme-tkt-1.loadbalancer.server.port=80");
   });
 
   // Anyone who can drive a public app can otherwise make it send real email and
@@ -458,7 +509,7 @@ describe("status", () => {
     const result = await status("acme", "tkt-1", { docker, config: configOf(), env: { SANDBOXR_DOMAIN: "sbx.localhost" } });
     expect(result.migrations).toBe("ok");
     expect(result.built).toEqual(["app"]);
-    expect(result.services[0]).toMatchObject({ name: "api", up: true, url: "https://tkt-1.api.acme.sbx.localhost" });
+    expect(result.services[0]).toMatchObject({ name: "api", up: true, url: "http://tkt-1.api.acme.sbx.localhost" });
     expect(result.worktreeMissing).toBe(true);
   });
 

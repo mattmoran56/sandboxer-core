@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { caTrusted, certificateNames, mkcertAvailable } from "./tls.js";
+import { baseCertificateNames, caTrusted, mkcertAvailable, sandboxCertificateNames } from "./tls.js";
 import type { ExecResult, Runner } from "../docker.js";
 
 const ok = (stdout = ""): ExecResult => ({ code: 0, stdout, stderr: "" });
@@ -17,21 +17,31 @@ function fakeRunner(table: Record<string, ExecResult>): Runner & { calls: string
   return run;
 }
 
-describe("certificateNames", () => {
-  it("carries a wildcard for every depth a sandbox hostname reaches", () => {
-    const names = certificateNames("sbx.localhost");
-    // <slug>.<label>.<project>.<domain> is three labels above the domain, and a
-    // wildcard matches exactly one — so all three depths have to be present or
-    // the certificate validates for the dashboard and fails for every sandbox.
+describe("baseCertificateNames", () => {
+  it("covers the domain and one level under it, and nothing deeper", () => {
+    const names = baseCertificateNames("sbx.localhost");
     expect(names).toContain("sbx.localhost");
     expect(names).toContain("*.sbx.localhost");
-    expect(names).toContain("*.*.sbx.localhost");
-    expect(names).toContain("*.*.*.sbx.localhost");
+    // Deliberately absent: mkcert rejects a multi-level wildcard outright, and
+    // asking for one produces no certificate at all rather than a partial one.
+    expect(names.some((name) => name.startsWith("*.*"))).toBe(false);
   });
 
   it("includes localhost itself, so the router answers before a domain is set up", () => {
-    expect(certificateNames("d")).toContain("localhost");
-    expect(certificateNames("d")).toContain("127.0.0.1");
+    expect(baseCertificateNames("d")).toContain("localhost");
+    expect(baseCertificateNames("d")).toContain("127.0.0.1");
+  });
+});
+
+describe("sandboxCertificateNames", () => {
+  it("lists a sandbox's hostnames in full, because no wildcard reaches them", () => {
+    expect(
+      sandboxCertificateNames({ slug: "tkt-1", project: "acme", domain: "sbx.localhost", labels: ["app", "api"] }),
+    ).toEqual(["tkt-1.app.acme.sbx.localhost", "tkt-1.api.acme.sbx.localhost"]);
+  });
+
+  it("is empty for a project that serves nothing, so no certificate is asked for", () => {
+    expect(sandboxCertificateNames({ slug: "s", project: "p", domain: "d", labels: [] })).toEqual([]);
   });
 });
 
