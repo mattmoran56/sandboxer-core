@@ -472,7 +472,8 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
   out.ok(`Ready on ${report.domain}`);
   out.line();
   out.line(`  dashboard   ${report.dashboardUrl}`);
-  out.line(`  sandboxes   ${report.scheme}://<slug>.<label>.<project>.${report.domain}`);
+  const suffix = report.dashboardUrl.slice(`${report.scheme}://${report.domain}`.length);
+  out.line(`  sandboxes   ${report.scheme}://<slug>.<label>.<project>.${report.domain}${suffix}`);
   out.line();
   // `.localhost` resolves to the loopback address with no configuration at all,
   // which is the whole reason it is the default — saying so once here saves the

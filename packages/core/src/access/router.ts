@@ -182,12 +182,13 @@ export async function writeRouterConfig(options: {
             "    http:",
             "      redirections:",
             "        entryPoint:",
-            "          to: websecure",
+            // `to` takes an entry point name *or* a bare `:port`, and the port
+            // form is the only one that carries a non-standard host port into
+            // the redirect: the entry point itself listens on 443 inside the
+            // container whatever the host publishes it as, so naming it would
+            // send the browser to a port nothing answers on.
+            `          to: ${ports.https === 443 ? "websecure" : `":${ports.https}"`}`,
             "          scheme: https",
-            // The entry point listens on 443 inside the container whatever the
-            // host publishes it as, so the redirect has to name the *host* port
-            // or it sends the browser to a port nothing answers on.
-            ...(ports.https === 443 ? [] : [`          port: "${ports.https}"`]),
           ]
         : []),
       ...(tls ? ["  websecure:", '    address: ":443"'] : []),
