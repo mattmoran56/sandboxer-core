@@ -29,14 +29,49 @@ import {
   writeLog,
 } from "./migrate.js";
 import { cacheEntry, chooseSeed, fileBytes, fileExists } from "./seed.js";
+import type { ResolvedConfig } from "../config/types.js";
+import type { ExecResult } from "../docker.js";
 import type { DatabaseDriver, DriverContext, MigrateResult, SeedArtifact } from "./types.js";
 
 export class FileDriverError extends Error {
   override readonly name = "FileDriverError";
 }
 
-/** Where a sandbox's private copy of the database lives inside the container. */
-export const DATA_MOUNT = "/sandboxr/data";
+/**
+ * Where a sandbox's private copy of the database lives inside the container.
+ *
+ * The same rule `entrypoint.sh` uses, because the host and the container have to
+ * agree on one path: the `data` volume, then a directory per driver.
+ */
+export function dataDir(driver: string): string {
+  return `/var/lib/sandboxr/data/${driver}`;
+}
+
+/**
+ * The database location, as the container's own scripts expect to read it.
+ *
+ * `entrypoint.sh` exports these before it execs `/init`, so every *supervised*
+ * service inherits them — but `docker exec` does not: it gets the container's
+ * configured environment, which never saw those exports. A command run from the
+ * host therefore has to carry them itself, or `$SANDBOXR_DB_FILE` expands to
+ * nothing and `sqlite3 ""` quietly operates on a temporary in-memory database
+ * instead of failing.
+ */
+export function locationEnv(config: ResolvedConfig): Record<string, string> {
+  const driver = config.database.driver;
+  const dir = dataDir(driver);
+  const name = config.project;
+  const env: Record<string, string> = {
+    SANDBOXR_DB_DRIVER: driver,
+    SANDBOXR_DB_NAME: name,
+    SANDBOXR_DB_DIR: dir,
+  };
+  if (driver === "sqlite") env.SANDBOXR_DB_FILE = `${dir}/${name}.sqlite`;
+  // A directory rather than a file: miniflare owns the layout inside it, and
+  // locates its own database by glob.
+  if (driver === "d1") env.SANDBOXR_D1_DIR = dir;
+  return env;
+}
 
 /** A file under this size is not a database — it is what an empty bind mount leaves behind. */
 const MIN_DATABASE_BYTES = 1024;
@@ -164,8 +199,9 @@ function makeDriver(name: "d1" | "sqlite"): DatabaseDriver {
         const docker = ctx.docker;
         if (!docker) throw new FileDriverError("staging a database file needs docker");
         const { containerName } = await import("../naming.js");
-        await ctx.exec(["mkdir", "-p", DATA_MOUNT]);
-        await docker.cp(seed.path, containerName(ctx.project, ctx.slug), DATA_MOUNT);
+        const dir = dataDir(ctx.config.database.driver);
+        await ctx.exec(["mkdir", "-p", dir]);
+        await docker.cp(seed.path, containerName(ctx.project, ctx.slug), dir);
         ctx.log(`Staged a private copy of the database (${seed.key})`);
       }
 
@@ -179,7 +215,7 @@ function makeDriver(name: "d1" | "sqlite"): DatabaseDriver {
       if (fixtures) {
         // Non-fatal: a fixture that no longer matches the schema is a useful
         // signal, not a reason to refuse to start.
-        const result = await execCommand(ctx, `test -f /workspace/${fixtures} && sqlite3 "$SANDBOXR_DB_FILE" < /workspace/${fixtures}`);
+        const result = await containerDb(ctx, "fixtures");
         ctx.log(
           result.code === 0
             ? `Applied fixtures from ${fixtures}`
@@ -205,9 +241,13 @@ function makeDriver(name: "d1" | "sqlite"): DatabaseDriver {
         ctx.log("Comparing against the baseline from before the last failed run.");
       }
 
+      const since = ctx.config.database.migrate?.since;
       const result = await execCommand(ctx, command, {
         workdir: migrateWorkdir(ctx.config),
-        env: { SANDBOXR_DB_DIR: DATA_MOUNT },
+        // The cutoff is exported rather than turned into a flag: the tool cannot
+        // guess a runner's flag spelling, so the command consumes it if it wants
+        // it (contracts §5.4).
+        env: { ...locationEnv(ctx.config), ...(since ? { SANDBOXR_MIGRATE_SINCE: since } : {}) },
       });
       const output = `${result.stdout}${result.stderr}`;
       const parsed = parseMigrationOutput(output);
@@ -233,9 +273,7 @@ function makeDriver(name: "d1" | "sqlite"): DatabaseDriver {
     },
 
     async snapshot(ctx: DriverContext): Promise<string> {
-      const result = await execCommand(ctx, `sqlite3 "$SANDBOXR_DB_FILE" .schema`, {
-        env: { SANDBOXR_DB_DIR: DATA_MOUNT },
-      });
+      const result = await containerDb(ctx, "snapshot");
       if (result.code !== 0) {
         throw new FileDriverError(`could not read the schema: ${(result.stderr || result.stdout).trim()}`);
       }
@@ -246,19 +284,36 @@ function makeDriver(name: "d1" | "sqlite"): DatabaseDriver {
       const docker = ctx.docker;
       if (!docker) throw new FileDriverError("an interactive shell needs docker");
       const { containerName } = await import("../naming.js");
-      // A second writer is exactly what deadlocks this driver, so the shell is
-      // opened read-only unless the caller says otherwise.
+      // The driver script opens it read-only: the owning service holds the file
+      // while it runs, and a writable shell would be the second writer that
+      // deadlocks this driver.
       await docker.execInteractive(containerName(ctx.project, ctx.slug), [
-        "sh",
-        "-lc",
-        'sqlite3 "file:$SANDBOXR_DB_FILE?mode=ro"',
+        "env",
+        ...Object.entries(locationEnv(ctx.config)).map(([key, value]) => `${key}=${value}`),
+        DB_SCRIPT,
+        "shell",
       ]);
     },
   };
 }
 
+/** The container's own database entry point, which owns every driver detail. */
+const DB_SCRIPT = "/opt/sandboxr/scripts/db.sh";
+
+/**
+ * Runs one of the container's database verbs.
+ *
+ * Delegated rather than reimplemented: `container/scripts/db/<driver>.sh` already
+ * knows where a D1 database hides inside miniflare's state directory and that a
+ * shell against it has to be read-only, and a second copy of that here is a
+ * second thing to keep in step with the first.
+ */
+function containerDb(ctx: DriverContext, verb: "fixtures" | "snapshot"): Promise<ExecResult> {
+  return ctx.exec([DB_SCRIPT, verb], { env: locationEnv(ctx.config) });
+}
+
 async function snapshotTo(ctx: DriverContext, path: string): Promise<string> {
-  const result = await execCommand(ctx, `sqlite3 "$SANDBOXR_DB_FILE" .schema`, { env: { SANDBOXR_DB_DIR: DATA_MOUNT } });
+  const result = await containerDb(ctx, "snapshot");
   const { mkdir: makeDir, writeFile } = await import("node:fs/promises");
   const { dirname } = await import("node:path");
   await makeDir(dirname(path), { recursive: true });

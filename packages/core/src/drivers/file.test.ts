@@ -5,7 +5,9 @@
 // - prepareSeed: copies a source into the cache, reuses an existing entry, and reports an empty start when there is nothing to copy
 // - prepareSeed: a public sandbox never copies an unmarked source
 // - migrate: the baseline is taken on a first run and preserved after a failure
-// - shell: opens the database read-only, because a second writer is what deadlocks this driver
+// - migrate: the cutoff reaches the project's runner as SANDBOXR_MIGRATE_SINCE, and is absent when unset
+// - locationEnv: the path entrypoint.sh derives, a directory for d1 and a file for sqlite
+// - shell: delegates to the container's driver script, carrying the location docker exec does not inherit
 // - both driver names are exposed, and they behave identically
 
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
@@ -17,7 +19,7 @@ import { describe, expect, it } from "vitest";
 import { resolveConfig } from "../config/load.js";
 import type { ResolvedConfig } from "../config/types.js";
 import type { Docker, ExecResult } from "../docker.js";
-import { d1Driver, fingerprintPath, hasDatabase, listDatabaseFiles, sqliteDriver } from "./file.js";
+import { d1Driver, fingerprintPath, hasDatabase, listDatabaseFiles, locationEnv, sqliteDriver } from "./file.js";
 import { lastRunFailed, migrationState } from "./migrate.js";
 import type { DriverContext } from "./types.js";
 
@@ -42,10 +44,18 @@ function contextFor(
   config: ResolvedConfig,
   home: string,
   replies: Array<[match: string, reply: Partial<ExecResult>]> = [],
-): { ctx: DriverContext; calls: string[][]; logs: string[]; copies: string[][] } {
+): {
+  ctx: DriverContext;
+  calls: string[][];
+  logs: string[];
+  copies: string[][];
+  /** The environment each exec carried, which is not inherited from the container. */
+  envs: Array<Record<string, string> | undefined>;
+} {
   const calls: string[][] = [];
   const logs: string[] = [];
   const copies: string[][] = [];
+  const envs: Array<Record<string, string> | undefined> = [];
   const docker = {
     cp: async (from: string, container: string, to: string) => {
       copies.push([from, container, to]);
@@ -62,8 +72,9 @@ function contextFor(
     config,
     home,
     worktree: config.root,
-    exec: async (cmd) => {
+    exec: async (cmd, options) => {
       calls.push(cmd);
+      envs.push(options?.env);
       const joined = cmd.join(" ");
       const reply = replies.find(([match]) => joined.includes(match))?.[1] ?? {};
       return { code: reply.code ?? 0, stdout: reply.stdout ?? "", stderr: reply.stderr ?? "" };
@@ -71,7 +82,7 @@ function contextFor(
     log: (line) => logs.push(line),
     docker,
   };
-  return { ctx, calls, logs, copies };
+  return { ctx, calls, logs, copies, envs };
 }
 
 describe("hasDatabase", () => {
@@ -226,7 +237,9 @@ describe("provision", () => {
     });
 
     expect(copies[0]?.[1]).toBe("sandboxr-acme-tkt-1");
-    expect(copies[0]?.[2]).toBe("/sandboxr/data");
+    // The path entrypoint.sh derives, because the host and the container have to
+    // agree on where the database is.
+    expect(copies[0]?.[2]).toBe("/var/lib/sandboxr/data/d1");
     expect(calls.some((cmd) => cmd.join(" ").includes("sh -lc migrate"))).toBe(true);
   });
 });
@@ -267,14 +280,88 @@ describe("migrate", () => {
   });
 });
 
+describe("locationEnv", () => {
+  // The same rule entrypoint.sh uses. Two answers to "where is the database"
+  // is one more than a sandbox can have.
+  it.each([
+    ["d1", { SANDBOXR_D1_DIR: "/var/lib/sandboxr/data/d1" }],
+    ["sqlite", { SANDBOXR_DB_FILE: "/var/lib/sandboxr/data/sqlite/acme.sqlite" }],
+  ])("%s carries the location its driver script reads", (driver, expected) => {
+    const config = resolveConfig(
+      {
+        project: "acme",
+        sandboxr: ">=0.1.0",
+        access: { apps: "private" },
+        database: { driver, migrate: { command: "m" }, owner: "app" },
+        frontends: { apps: [{ label: "app", package: ".", serve: "s", port: 1 }] },
+      },
+      "/repo/sandboxr.yaml",
+    );
+    expect(locationEnv(config)).toMatchObject({ SANDBOXR_DB_DRIVER: driver, SANDBOXR_DB_NAME: "acme", ...expected });
+  });
+
+  it("gives d1 a directory and sqlite a file, which are not interchangeable", () => {
+    const d1Config = configFor("/repo", { fixtures: "f.sql" });
+    expect(locationEnv(d1Config)).not.toHaveProperty("SANDBOXR_DB_FILE");
+  });
+});
+
+describe("migrate environment", () => {
+  // Exported rather than turned into a flag: the tool cannot guess a runner's
+  // flag spelling, so the command consumes it if it wants it (contracts §5.4).
+  it("exports the cutoff as SANDBOXR_MIGRATE_SINCE", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sbx-since-"));
+    const config = resolveConfig(
+      {
+        project: "acme",
+        sandboxr: ">=0.1.0",
+        access: { apps: "private" },
+        database: { driver: "d1", migrate: { command: "migrate", since: "20260209" }, owner: "app" },
+        frontends: { apps: [{ label: "app", package: ".", serve: "s", port: 1 }] },
+      },
+      join(root, "sandboxr.yaml"),
+    );
+    const { ctx, calls, envs } = contextFor(config, join(root, "home"));
+    await d1Driver.migrate(ctx);
+
+    const index = calls.findIndex((cmd) => cmd.join(" ").includes("sh -lc migrate"));
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(envs[index]).toMatchObject({ SANDBOXR_MIGRATE_SINCE: "20260209" });
+  });
+
+  it("leaves it out when the config sets no cutoff", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sbx-nosince-"));
+    const config = configFor(root, { fixtures: "f.sql" });
+    const { ctx, calls, envs } = contextFor(config, join(root, "home"));
+    await d1Driver.migrate(ctx);
+
+    const index = calls.findIndex((cmd) => cmd.join(" ").includes("sh -lc migrate"));
+    expect(envs[index]).not.toHaveProperty("SANDBOXR_MIGRATE_SINCE");
+  });
+});
+
 describe("shell", () => {
-  // A second writer is exactly what deadlocks this driver.
-  it("opens the database read-only", async () => {
+  // Delegated to the container's own driver script, which is where a D1 database
+  // is located by glob and where the read-only rule that stops a second writer
+  // deadlocking this driver is applied. A copy of either here would be a second
+  // thing to keep in step with the first.
+  it("opens the container's database shell", async () => {
     const root = await mkdtemp(join(tmpdir(), "sbx-shell-"));
     const config = configFor(root, { fixtures: "f.sql" });
     const { ctx, calls } = contextFor(config, join(root, "home"));
     await d1Driver.shell(ctx);
-    expect(calls.at(-1)?.join(" ")).toContain("mode=ro");
+    expect(calls.at(-1)?.join(" ")).toContain("/opt/sandboxr/scripts/db.sh shell");
+  });
+
+  // docker exec never sees what entrypoint.sh exported, so a command run from the
+  // host has to carry the location itself. Without it `$SANDBOXR_D1_DIR` is empty
+  // and the driver script exits on its own `:?` guard.
+  it("carries the database location, which docker exec does not inherit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sbx-shell-env-"));
+    const config = configFor(root, { fixtures: "f.sql" });
+    const { ctx, calls } = contextFor(config, join(root, "home"));
+    await d1Driver.shell(ctx);
+    expect(calls.at(-1)?.join(" ")).toContain("SANDBOXR_D1_DIR=/var/lib/sandboxr/data/d1");
   });
 });
 
