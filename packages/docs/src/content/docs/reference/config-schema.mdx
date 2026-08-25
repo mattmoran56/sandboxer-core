@@ -154,8 +154,14 @@ Specified in §5.4; §3.3 reserves a `blob` volume for it.
 The toolchains live in a thin per-project layer on top of a small shared base, so adding a
 project costs one layer rather than another base image.
 
-Changing either needs `sandboxr base build`, which is slow and shared by every sandbox on the
-machine.
+Changing either rebuilds **the project layer** (`sandboxr image build`), not the shared base.
+`sandboxr base build` is only needed when the base itself changes — the supervisor, the
+router, the object store or the container scripts.
+
+Go and Node are resolved from their vendors' release indexes, so a prefix such as `"24"` picks
+the latest matching release at build time. MySQL cannot be: its download host publishes no
+machine-readable release list, so a series such as `"8.4"` resolves through a pinned table in
+the project Dockerfile template.
 
 ## `access`
 

@@ -178,6 +178,6 @@ Before a big build, stop the sandboxes you are not using.
 | Changed a lockfile or added a dependency | `sandboxr up` — the `node_modules` volume is keyed on the lockfile hash |
 | Changed `sandboxr.yaml` | `sandboxr up` — it reconciles the container with the config |
 | Added a migration | `sandboxr db migrate`, then `sandboxr db diff` |
-| Changed a toolchain version | `sandboxr base build`, then `sandboxr up` |
+| Changed a toolchain version | `sandboxr image build` — the project layer, not the shared base — then `sandboxr up` |
 | A service is wedged and the code is fine | `sandboxr restart` |
 | The database is in a state you no longer trust | `sandboxr db reset` |

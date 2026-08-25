@@ -44,9 +44,9 @@ docker system df
 sandboxr gc            # prunes the build cache, which grows fastest of anything here
 ```
 
-The shared base image is around 4.5 GB and each sandbox adds a few hundred MB of volumes, but
-**Docker's build cache** is the thing that actually fills the disk, and nothing except `gc`
-cleans it up.
+The shared base image is around 400 MB, each project's image layer adds its toolchains and
+dependency tree on top, and each sandbox adds a few hundred MB of volumes — but **Docker's
+build cache** is the thing that actually fills the disk, and nothing except `gc` cleans it up.
 
 ### A build died with `code 137`
 

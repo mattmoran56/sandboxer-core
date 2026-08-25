@@ -46,7 +46,8 @@ every service running:
 | One sandbox | ~560 MB memory |
 | The shared router | ~40 MB |
 | The DNS resolver | ~15 MB |
-| The shared base image | ~4.5 GB disk, once |
+| The shared base image | ~400 MB disk, once per machine |
+| A per-project image layer | toolchains, database engine and dependencies — GB-scale for a large monorepo, once per project |
 | Each sandbox's volumes | a few hundred MB |
 
 On an **8 GB Docker VM** that is five or six sandboxes, comfortably. Below 8 GB you will
@@ -63,8 +64,9 @@ Take the laptop numbers and add headroom for concurrency, because a server is sh
 - **Memory:** 1 GB per sandbox you intend to hold, plus 2 GB for the host and the shared
   router, plus whatever a heavy front-end build peaks at. Eight concurrent sandboxes wants
   16 GB, not 8.
-- **Disk:** 40 GB is a sane floor. The base image is ~4.5 GB, each sandbox's volumes are a
-  few hundred MB, and the build cache will happily take everything else.
+- **Disk:** 40 GB is a sane floor. The shared base image is ~400 MB, each project's image
+  layer is the GB-scale part, each sandbox's volumes are a few hundred MB, and the build cache
+  will happily take everything else.
 - **CPU:** builds are the only bursty part. Four cores is enough for a small team; two will
   feel slow when two people rebuild at once.
 

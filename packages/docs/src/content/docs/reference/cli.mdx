@@ -23,7 +23,12 @@ Legend: **C** = named in the contract · **D** = derived.
 |---|---|---|
 | `sandboxr init` | D | One-time machine setup: DNS resolution for the domain suffix, a trusted certificate, and the shared router. Needs `sudo` once locally, and prints the command if it cannot elevate. |
 | `sandboxr doctor` | D | Checks the setup and names what is missing rather than merely failing. Docker reachable, resolver answering, certificate present and unexpired, router running, password set, enough free disk. |
-| `sandboxr base build` | D | Builds the shared base image. Slow, and shared by every sandbox on the machine. Needed after a `toolchain:` change. |
+| `sandboxr base build` | D | Builds the **shared** base image: the supervisor, the router, the object store, `jq` and the container scripts. Generic, one per machine, and needed only when the base itself changes. |
+| `sandboxr image build` | D | Builds the **per-project** layer on top of the base: the toolchains, the database engine and the dependency install. Needed after a `toolchain:`, `database:` or lockfile change. |
+
+The two-image split is [a design decision](/architecture/decisions/), and getting the two
+commands the wrong way round is the most likely way to spend twenty minutes rebuilding
+something that did not change.
 
 ## Sandbox lifecycle
 

@@ -285,9 +285,19 @@ toolchain:
   node: "22"
 ```
 
-The versions installed in the shared base image. Changing one means rebuilding that image
-(`sandboxr base build`), which is slow and shared by every sandbox on the machine — so treat
-a toolchain bump as its own change, not a drive-by.
+The versions installed in the **per-project image layer**, not in the shared base. The base
+image is generic — the supervisor, the router, the object store, `jq` and the container
+scripts — and knows nothing about Go or Node. A toolchain is a fact about one repository, so
+it belongs in that repository's own layer.
+
+Changing one rebuilds the project layer (`sandboxr image build`), not the base. That is a
+minutes-scale rebuild rather than a tens-of-minutes one, and it affects only sandboxes of this
+project — but it does affect all of them, so treat a toolchain bump as its own change rather
+than a drive-by.
+
+The prefix you give is resolved against the vendor's release index, so `node: "24"` picks the
+latest 24.x at build time. [Whether a prefix picks the release a project
+meant](/reference/status/) has not been verified against a real build.
 
 ## `access`
 
