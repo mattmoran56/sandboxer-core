@@ -1,0 +1,35 @@
+{
+  "project": "edge-thing",
+  "database": {
+    "driver": "d1",
+    "owner": "app",
+    "fixtures": "seeds/fixtures.sql",
+    "seed": { "path": "edge-thing-state", "anonymised": true },
+    "migrate": {
+      "command": "npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXR_D1_DIR"
+    }
+  },
+  "storage": { "driver": "none" },
+  "toolchain": { "node": "24" },
+  "deps": {
+    "root": ".",
+    "lockfile": "package-lock.json",
+    "install": "npm ci --no-audit --no-fund"
+  },
+  "services": [
+    {
+      "kind": "server",
+      "label": "app",
+      "package": ".",
+      "root": ".",
+      "serve": "npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to $SANDBOXR_D1_DIR",
+      "port": 8787,
+      "health": "/health"
+    }
+  ],
+  "routes": {},
+  "env": {
+    "API_TOKEN": "dummy",
+    "APP_URL": "${SANDBOXR_URL_APP}"
+  }
+}

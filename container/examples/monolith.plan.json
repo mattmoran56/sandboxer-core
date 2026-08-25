@@ -1,0 +1,122 @@
+{
+  "project": "acme",
+  "database": {
+    "driver": "mysql",
+    "version": "8.4",
+    "name": "acme",
+    "fixtures": "migrations/seeds/fixtures.sql",
+    "seed": { "path": "acme-3f2a1b.sql.zst", "anonymised": true },
+    "migrate": {
+      "workdir": "services",
+      "command": "go run ./cmd/migrate --env local --dir ../migrations",
+      "since": "20260209",
+      "failure_pattern": "[0-9]+ failed",
+      "file_pattern": "[0-9]{8}-[0-9]{4}-[^ ]+\\.sql"
+    }
+  },
+  "storage": {
+    "driver": "minio",
+    "buckets": ["uploads", "avatars"]
+  },
+  "toolchain": { "go": "1.26", "node": "24" },
+  "deps": {
+    "root": "web",
+    "lockfile": "package-lock.json",
+    "install": "npm ci --no-audit --no-fund"
+  },
+  "services": [
+    {
+      "kind": "backend",
+      "name": "api",
+      "label": "api",
+      "port": 8001,
+      "health": "/health",
+      "workdir": "services",
+      "build": "go build -o {out} ./{name}"
+    },
+    {
+      "kind": "backend",
+      "name": "adminApi",
+      "label": "admin-api",
+      "port": 8081,
+      "health": "/health",
+      "workdir": "services",
+      "build": "go build -o {out} ./{name}"
+    },
+    {
+      "kind": "backend",
+      "name": "worker",
+      "label": "worker",
+      "port": 8004,
+      "health": "/health",
+      "workdir": "services",
+      "build": "go build -o {out} ./{name}",
+      "optional": true
+    },
+    {
+      "kind": "static",
+      "label": "app",
+      "package": "app",
+      "root": "web/packages",
+      "build": "npx vite build",
+      "out": "dist",
+      "static_mode": "spa"
+    },
+    {
+      "kind": "static",
+      "label": "admin",
+      "package": "admin",
+      "root": "web/packages",
+      "build": "npx vite build",
+      "out": "dist",
+      "static_mode": "spa"
+    },
+    {
+      "kind": "static",
+      "label": "www",
+      "package": "site",
+      "root": "web/packages",
+      "build": "npm run build",
+      "out": "out",
+      "static_mode": "html",
+      "memory": "6g"
+    },
+    {
+      "kind": "static",
+      "label": "docs",
+      "package": "docs",
+      "root": "web/packages",
+      "build": "npm run build:docs",
+      "out": "build",
+      "static_mode": "files",
+      "in_build_all": false
+    },
+    {
+      "kind": "server",
+      "label": "cms",
+      "package": "cms",
+      "root": "web/packages",
+      "serve": "npx next dev --port 3000 --hostname 127.0.0.1",
+      "port": 3000,
+      "optional": true
+    }
+  ],
+  "routes": {
+    "app": { "/api": "api", "/cms": "cms" },
+    "admin": { "/api/admin": "adminApi", "/api": "api" }
+  },
+  "env": {
+    "DB_HOST": "${SANDBOXR_DB_HOST}",
+    "DB_PORT": "${SANDBOXR_DB_PORT}",
+    "DB_NAME": "${SANDBOXR_DB_NAME}",
+    "DB_USER": "${SANDBOXR_DB_USER}",
+    "DB_PASSWORD": "${SANDBOXR_DB_PASSWORD}",
+    "S3_ENDPOINT": "${SANDBOXR_S3_ENDPOINT}",
+    "S3_KEY": "${SANDBOXR_S3_KEY}",
+    "S3_SECRET": "${SANDBOXR_S3_SECRET}",
+    "S3_BUCKET": "uploads",
+    "VITE_API_URL": "/api",
+    "VITE_APP_URL": "${SANDBOXR_URL_APP}",
+    "VITE_ADMIN_URL": "${SANDBOXR_URL_ADMIN}"
+  }
+}
