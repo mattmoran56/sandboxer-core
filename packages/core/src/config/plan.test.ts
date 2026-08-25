@@ -1,0 +1,314 @@
+// Tests for the plan the container reads (contracts §5.5):
+// - a fully-featured config emits exactly the documented shape, field by field
+// - every runtime kind lands in one services array with an explicit kind
+// - defaults are merged in, so nothing is left for the container to infer
+// - optional fields are omitted rather than written as null or false
+// - static_mode defaults to spa, and in_build_all only appears when false
+// - the seed is named by basename, because the container sees it inside its own cache mount
+// - every example config in the repo emits a plan whose keys the reference plans in
+//   container/examples also have — the check that keeps the two halves of the tool honest
+// - writePlan: valid JSON on disk, and planPorts reads the ports back off it
+
+import { readFileSync, readdirSync } from "node:fs";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { loadConfig, resolveConfig } from "./load.js";
+import { planFor, planPorts, writePlan, type Plan, type PlanService } from "./plan.js";
+
+const EXAMPLES = new URL("../../../../examples/", import.meta.url).pathname;
+const REFERENCE = new URL("../../../../container/examples/", import.meta.url).pathname;
+
+const full = resolveConfig(
+  {
+    project: "acme",
+    sandboxr: ">=0.1.0",
+    access: { apps: "private" },
+    database: {
+      driver: "mysql",
+      version: "8.4",
+      seed_from: { local: { container: "acme_db", database: "acme" }, fixtures: "db/seeds/fixtures.sql" },
+      migrate: {
+        workdir: "services",
+        command: "go run ./cmd/migrate",
+        since: "20240101",
+        failure_pattern: "[0-9]+ failed",
+        file_pattern: "[0-9]{8}-[^ ]+\\.sql",
+        error_pattern: "Error [0-9]+",
+      },
+    },
+    backends: {
+      defaults: { workdir: "services", build: "go build -o {out} ./{name}", health: "/health" },
+      services: [
+        { name: "api", port: 8001, label: "api" },
+        { name: "jobs", port: 8004, label: "jobs", optional: true },
+      ],
+    },
+    frontends: {
+      root: "web/packages",
+      defaults: { build: "npx vite build", out: "dist" },
+      apps: [
+        { label: "app", package: "web" },
+        { label: "www", package: "marketing", build: "npm run build", out: "out", static_mode: "html", memory: "6g" },
+        { label: "docs", package: "docs", build: "npm run docs", out: "build", static_mode: "files", in_build_all: false },
+        { label: "cms", package: "cms", serve: "npx next dev --port 3000", port: 3000, prepare: "npm run codegen", optional: true },
+      ],
+    },
+    routes: { app: { "/api": "api", "/cms": "cms" } },
+    storage: { driver: "minio", buckets: ["uploads", "avatars"] },
+    deps: { root: "web" },
+    toolchain: { go: "1.23", node: "22" },
+    env: { DB_HOST: "${SANDBOXR_DB_HOST}", VITE_API_URL: "/api" },
+  },
+  "/repo/sandboxr.yaml",
+);
+
+describe("planFor", () => {
+  const plan = planFor(full, { seed: { path: "/home/.sandboxr/cache/seed-acme-3f2a1b.sql.zst" } });
+
+  it("emits the documented top-level shape", () => {
+    expect(Object.keys(plan).sort()).toEqual([
+      "database",
+      "deps",
+      "env",
+      "project",
+      "routes",
+      "services",
+      "storage",
+      "toolchain",
+    ]);
+  });
+
+  it("resolves the database, defaulting its name to the project", () => {
+    expect(plan.database).toEqual({
+      driver: "mysql",
+      version: "8.4",
+      name: "acme",
+      fixtures: "db/seeds/fixtures.sql",
+      seed: { path: "seed-acme-3f2a1b.sql.zst", anonymised: false },
+      migrate: {
+        command: "go run ./cmd/migrate",
+        workdir: "services",
+        since: "20240101",
+        failure_pattern: "[0-9]+ failed",
+        file_pattern: "[0-9]{8}-[^ ]+\\.sql",
+        error_pattern: "Error [0-9]+",
+      },
+    });
+  });
+
+  // The container mounts the cache at a path of its own, so it needs the name
+  // inside that mount rather than a host path it cannot resolve.
+  it("names the seed by its basename", () => {
+    expect(plan.database.seed?.path).toBe("seed-acme-3f2a1b.sql.zst");
+  });
+
+  it("puts all three runtime kinds in one array, each saying which it is", () => {
+    expect(plan.services.map((service) => `${service.kind}:${service.label}`)).toEqual([
+      "backend:api",
+      "backend:jobs",
+      "static:app",
+      "static:www",
+      "static:docs",
+      "server:cms",
+    ]);
+  });
+
+  it("merges the defaults into every backend", () => {
+    expect(plan.services[0]).toEqual({
+      kind: "backend",
+      name: "api",
+      label: "api",
+      port: 8001,
+      build: "go build -o {out} ./{name}",
+      health: "/health",
+      workdir: "services",
+    });
+  });
+
+  it("merges the defaults into every static app and carries its root", () => {
+    expect(plan.services[2]).toEqual({
+      kind: "static",
+      label: "app",
+      package: "web",
+      root: "web/packages",
+      build: "npx vite build",
+      out: "dist",
+      static_mode: "spa",
+    });
+  });
+
+  it("resolves a served app without a build or an output directory", () => {
+    expect(plan.services[5]).toEqual({
+      kind: "server",
+      label: "cms",
+      package: "cms",
+      root: "web/packages",
+      serve: "npx next dev --port 3000",
+      port: 3000,
+      prepare: "npm run codegen",
+      optional: true,
+    });
+  });
+
+  // An absent key is the idiom on the container side, where the plan is read
+  // with jq; a null would have to be special-cased at every read.
+  it("omits an optional field rather than writing null or false", () => {
+    const json = JSON.stringify(plan);
+    expect(json).not.toContain("null");
+    expect(json).not.toContain('"optional":false');
+    expect(plan.services[0]).not.toHaveProperty("optional");
+    expect(plan.services[2]).not.toHaveProperty("in_build_all");
+  });
+
+  it("writes in_build_all only for an app that opts out", () => {
+    expect(plan.services[4]).toMatchObject({ label: "docs", in_build_all: false });
+  });
+
+  it("carries each app's static mode, defaulting to spa", () => {
+    const modes = plan.services
+      .filter((service): service is Extract<PlanService, { kind: "static" }> => service.kind === "static")
+      .map((service) => `${service.label}:${service.static_mode}`);
+    expect(modes).toEqual(["app:spa", "www:html", "docs:files"]);
+  });
+
+  it("passes the routes and the project's own variable names through", () => {
+    expect(plan.routes).toEqual({ app: { "/api": "api", "/cms": "cms" } });
+    expect(plan.env).toEqual({ DB_HOST: "${SANDBOXR_DB_HOST}", VITE_API_URL: "/api" });
+  });
+
+  it("carries the dependency tree with its defaults filled in", () => {
+    expect(plan.deps).toEqual({ root: "web", lockfile: "package-lock.json", install: "npm ci --no-audit --no-fund" });
+  });
+
+  it("says storage is none rather than leaving it out", () => {
+    const bare = planFor(
+      resolveConfig(
+        { project: "acme", sandboxr: ">=0.1.0", access: { apps: "private" }, database: { driver: "none" } },
+        "/repo/sandboxr.yaml",
+      ),
+    );
+    expect(bare.storage).toEqual({ driver: "none" });
+    expect(bare.database).toEqual({ driver: "none" });
+    expect(bare.services).toEqual([]);
+    expect(bare.routes).toEqual({});
+    expect(bare.env).toEqual({});
+  });
+
+  it("marks an anonymised dump as such, so the container can say what it restored", () => {
+    const anonymised = resolveConfig(
+      {
+        project: "acme",
+        sandboxr: ">=0.1.0",
+        access: { apps: "public" },
+        database: { driver: "mysql", seed_from: { file: "/seeds/d.sql", anonymised: true }, migrate: { command: "m" } },
+      },
+      "/repo/sandboxr.yaml",
+    );
+    const plan2 = planFor(anonymised, { seed: { path: "/seeds/d.sql", anonymised: true } });
+    expect(plan2.database.seed).toEqual({ path: "d.sql", anonymised: true });
+  });
+
+  it("carries the owner a file-backed driver requires", () => {
+    const d1 = resolveConfig(
+      {
+        project: "acme",
+        sandboxr: ">=0.1.0",
+        access: { apps: "private" },
+        database: { driver: "d1", owner: "app", seed_from: { fixtures: "f.sql" }, migrate: { command: "m" } },
+        frontends: { apps: [{ label: "app", package: ".", serve: "s", port: 1 }] },
+      },
+      "/repo/sandboxr.yaml",
+    );
+    const plan3 = planFor(d1);
+    expect(plan3.database.owner).toBe("app");
+    expect(plan3.services[0]).toMatchObject({ kind: "server", root: "." });
+  });
+});
+
+/**
+ * The plans in `container/examples` are the container's own worked examples.
+ *
+ * Comparing values would be comparing two independently invented projects, so
+ * what is checked is the direction that actually matters: every key this emitter
+ * produces must be a key those reference plans also carry, because the container
+ * only reads keys it knows about. A field invented here would be silently
+ * ignored over there, which is exactly the drift this test exists to catch.
+ */
+describe("the emitted plan against the container's reference plans", () => {
+  const references = readdirSync(REFERENCE)
+    .filter((name) => name.endsWith(".plan.json"))
+    .map((name) => JSON.parse(readFileSync(join(REFERENCE, name), "utf8")) as Plan);
+
+  const knownTopLevel = new Set(references.flatMap((plan) => Object.keys(plan)));
+  const knownDatabase = new Set(references.flatMap((plan) => Object.keys(plan.database)));
+  const knownMigrate = new Set(references.flatMap((plan) => Object.keys(plan.database.migrate ?? {})));
+  const knownService = new Map<string, Set<string>>();
+  for (const plan of references) {
+    for (const service of plan.services) {
+      const keys = knownService.get(service.kind) ?? new Set<string>();
+      for (const key of Object.keys(service)) keys.add(key);
+      knownService.set(service.kind, keys);
+    }
+  }
+
+  it("has reference plans to compare against", () => {
+    expect(references.length).toBeGreaterThan(0);
+    expect(knownTopLevel.size).toBeGreaterThan(0);
+  });
+
+  const configs = readdirSync(EXAMPLES).filter((name) => name.endsWith(".yaml") || name.endsWith(".yml"));
+
+  it.each(configs)("%s emits only keys the container knows", async (name) => {
+    const config = await loadConfig(join(EXAMPLES, name), { enforceAccess: false });
+    const plan = planFor(config, { seed: { path: `/cache/seed-${config.project}-abc.sql.zst` } });
+
+    for (const key of Object.keys(plan)) expect([...knownTopLevel]).toContain(key);
+    for (const key of Object.keys(plan.database)) expect([...knownDatabase]).toContain(key);
+    for (const key of Object.keys(plan.database.migrate ?? {})) expect([...knownMigrate]).toContain(key);
+    for (const service of plan.services) {
+      const known = knownService.get(service.kind);
+      expect(known, `no reference plan has a ${service.kind} service`).toBeDefined();
+      for (const key of Object.keys(service)) expect([...(known ?? [])]).toContain(key);
+    }
+  });
+
+  it.each(configs)("%s emits every key the container requires", async (name) => {
+    const config = await loadConfig(join(EXAMPLES, name), { enforceAccess: false });
+    const plan = planFor(config);
+    for (const required of ["project", "database", "storage", "toolchain", "services", "routes", "env"]) {
+      expect(plan).toHaveProperty(required);
+    }
+    for (const service of plan.services) {
+      expect(service.label).toBeTruthy();
+      expect(["backend", "static", "server"]).toContain(service.kind);
+      if (service.kind === "static") expect(service.static_mode).toBeTruthy();
+      if (service.kind === "server") expect(service.port).toBeGreaterThan(0);
+      if (service.kind === "backend") expect(service.build).toBeTruthy();
+    }
+  });
+});
+
+describe("writePlan", () => {
+  it("writes valid JSON where the container mounts it from", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "sbx-plan-"));
+    const path = join(dir, "build", "acme", "tkt-1.plan.json");
+    await writePlan(planFor(full), path);
+    const written = JSON.parse(await readFile(path, "utf8")) as Plan;
+    expect(written.project).toBe("acme");
+    expect(written.services).toHaveLength(6);
+  });
+});
+
+describe("planPorts", () => {
+  it("reads the ports off the plan, so there is one answer to what it listens on", () => {
+    expect(planPorts(planFor(full))).toEqual([
+      { label: "api", port: 8001 },
+      { label: "jobs", port: 8004 },
+      { label: "cms", port: 3000 },
+    ]);
+  });
+});
