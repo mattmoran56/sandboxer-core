@@ -1,0 +1,32 @@
+{
+  "name": "@sandboxr/cli",
+  "version": "0.1.0",
+  "description": "The sandboxr command.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "sandboxr": "./bin/sandboxr.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sandboxr/core": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
