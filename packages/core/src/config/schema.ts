@@ -93,6 +93,8 @@ const frontendFields = {
   serve: nonEmpty.optional(),
   /** Run once before a served app starts: a codegen step, a schema pull. */
   prepare: nonEmpty.optional(),
+  /** Health path, probed to decide whether a served app is up. */
+  health: nonEmpty.optional(),
   port: port.optional(),
   memory: memory.optional(),
   /**

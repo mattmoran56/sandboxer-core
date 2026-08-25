@@ -7,6 +7,9 @@
 // - the seed is named by basename, because the container sees it inside its own cache mount
 // - every example config in the repo emits a plan whose keys the reference plans in
 //   container/examples also have — the check that keeps the two halves of the tool honest
+// - and the other direction: a config written to produce each worked plan produces it
+//   exactly, which is the only way a field the container reads and the emitter cannot
+//   produce shows up at all
 // - writePlan: valid JSON on disk, and planPorts reads the ports back off it
 
 import { readFileSync, readdirSync } from "node:fs";
@@ -227,6 +230,56 @@ describe("planFor", () => {
     expect(plan3.database.owner).toBe("app");
     expect(plan3.services[0]).toMatchObject({ kind: "server", root: "." });
   });
+
+  // The config may leave the owner out when there is only one runtime to choose,
+  // but the plan may not: `run-server.sh` withholds the database's location from
+  // every server that is not the named owner, so an absent owner means no server
+  // gets it and the one that needed it fails on a missing binding.
+  it("resolves the owner a single-runtime config leaves out", () => {
+    const implied = resolveConfig(
+      {
+        project: "acme",
+        sandboxr: ">=0.1.0",
+        access: { apps: "private" },
+        database: { driver: "sqlite", seed_from: { fixtures: "f.sql" }, migrate: { command: "m" } },
+        frontends: { apps: [{ label: "app", package: ".", serve: "s", port: 1 }] },
+      },
+      "/repo/sandboxr.yaml",
+    );
+    expect(planFor(implied).database.owner).toBe("app");
+  });
+
+  it("leaves the owner out for a driver that has no file to own", () => {
+    expect(planFor(full).database.owner).toBeUndefined();
+  });
+
+  it("carries the health path of a served front-end", () => {
+    const served = resolveConfig(
+      {
+        project: "acme",
+        sandboxr: ">=0.1.0",
+        access: { apps: "private" },
+        frontends: { apps: [{ label: "app", package: ".", serve: "s", port: 1, health: "/healthz" }] },
+      },
+      "/repo/sandboxr.yaml",
+    );
+    expect(planFor(served).services[0]).toMatchObject({ kind: "server", health: "/healthz" });
+  });
+
+  // A static app is up as soon as the file server can find it, so there is no
+  // process to probe and nothing for the container to do with a health path.
+  it("does not carry a health path for a static app", () => {
+    const built = resolveConfig(
+      {
+        project: "acme",
+        sandboxr: ">=0.1.0",
+        access: { apps: "private" },
+        frontends: { apps: [{ label: "app", package: ".", build: "b", out: "dist", health: "/healthz" }] },
+      },
+      "/repo/sandboxr.yaml",
+    );
+    expect(planFor(built).services[0]).not.toHaveProperty("health");
+  });
 });
 
 /**
@@ -289,6 +342,141 @@ describe("the emitted plan against the container's reference plans", () => {
       if (service.kind === "server") expect(service.port).toBeGreaterThan(0);
       if (service.kind === "backend") expect(service.build).toBeTruthy();
     }
+  });
+});
+
+/**
+ * The shape check above only sees keys the example configs happen to declare, so
+ * a field the container reads and the emitter cannot produce passes it unnoticed.
+ * These go the other way: the config that should produce each worked plan, and
+ * the whole plan compared field for field.
+ */
+describe("planFor reproduces the container's worked plans exactly", () => {
+  const reference = (name: string) => JSON.parse(readFileSync(join(REFERENCE, name), "utf8")) as Plan;
+
+  it("monolith.plan.json", () => {
+    const config = resolveConfig(
+      {
+        project: "acme",
+        sandboxr: ">=0.1.0",
+        database: {
+          driver: "mysql",
+          version: "8.4",
+          seed_from: { file: "/seeds/acme.sql.zst", fixtures: "migrations/seeds/fixtures.sql", anonymised: true },
+          migrate: {
+            workdir: "services",
+            command: "go run ./cmd/migrate --env local --dir ../migrations",
+            since: "20260209",
+            failure_pattern: "[0-9]+ failed",
+            file_pattern: "[0-9]{8}-[0-9]{4}-[^ ]+\\.sql",
+          },
+        },
+        storage: { driver: "minio", buckets: ["uploads", "avatars"] },
+        toolchain: { go: "1.26", node: "24" },
+        deps: { root: "web", lockfile: "package-lock.json", install: "npm ci --no-audit --no-fund" },
+        backends: {
+          defaults: { workdir: "services", build: "go build -o {out} ./{name}", health: "/health" },
+          services: [
+            { name: "api", port: 8001, label: "api" },
+            { name: "adminApi", port: 8081, label: "admin-api" },
+            { name: "worker", port: 8004, label: "worker", optional: true },
+          ],
+        },
+        frontends: {
+          root: "web/packages",
+          defaults: { build: "npx vite build", out: "dist" },
+          apps: [
+            { label: "app", package: "app" },
+            { label: "admin", package: "admin" },
+            { label: "www", package: "site", build: "npm run build", out: "out", static_mode: "html", memory: "6g" },
+            {
+              label: "docs",
+              package: "docs",
+              build: "npm run build:docs",
+              out: "build",
+              static_mode: "files",
+              in_build_all: false,
+            },
+            {
+              label: "cms",
+              package: "cms",
+              serve: "npx next dev --port 3000 --hostname 127.0.0.1",
+              port: 3000,
+              optional: true,
+            },
+          ],
+        },
+        routes: {
+          app: { "/api": "api", "/cms": "cms" },
+          admin: { "/api/admin": "adminApi", "/api": "api" },
+        },
+        env: {
+          DB_HOST: "${SANDBOXR_DB_HOST}",
+          DB_PORT: "${SANDBOXR_DB_PORT}",
+          DB_NAME: "${SANDBOXR_DB_NAME}",
+          DB_USER: "${SANDBOXR_DB_USER}",
+          DB_PASSWORD: "${SANDBOXR_DB_PASSWORD}",
+          S3_ENDPOINT: "${SANDBOXR_S3_ENDPOINT}",
+          S3_KEY: "${SANDBOXR_S3_KEY}",
+          S3_SECRET: "${SANDBOXR_S3_SECRET}",
+          S3_BUCKET: "uploads",
+          VITE_API_URL: "/api",
+          VITE_APP_URL: "${SANDBOXR_URL_APP}",
+          VITE_ADMIN_URL: "${SANDBOXR_URL_ADMIN}",
+        },
+      },
+      "/repo/sandboxr.yaml",
+    );
+
+    // The seed is an artifact rather than a config field, so it arrives the way
+    // a real run supplies it: a host path, of which the plan keeps only the
+    // basename, because the container sees it inside its own cache mount.
+    const plan = planFor(config, { seed: { path: "/host/cache/acme-3f2a1b.sql.zst", anonymised: true } });
+
+    expect(plan).toEqual(reference("monolith.plan.json"));
+  });
+
+  it("worker.plan.json", () => {
+    const config = resolveConfig(
+      {
+        project: "edge-thing",
+        sandboxr: ">=0.1.0",
+        database: {
+          driver: "d1",
+          owner: "app",
+          seed_from: { file: ".wrangler/state", fixtures: "seeds/fixtures.sql", anonymised: true },
+          migrate: { command: "npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXR_D1_DIR" },
+        },
+        storage: { driver: "none" },
+        toolchain: { node: "24" },
+        deps: { root: ".", lockfile: "package-lock.json", install: "npm ci --no-audit --no-fund" },
+        frontends: {
+          root: ".",
+          apps: [
+            {
+              label: "app",
+              package: ".",
+              serve: "npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to $SANDBOXR_D1_DIR",
+              port: 8787,
+              health: "/health",
+            },
+          ],
+        },
+        routes: {},
+        env: { API_TOKEN: "dummy", APP_URL: "${SANDBOXR_URL_APP}" },
+      },
+      "/repo/sandboxr.yaml",
+    );
+
+    const plan = planFor(config, { seed: { path: "/host/cache/edge-thing-state", anonymised: true } });
+    const want = reference("worker.plan.json");
+
+    // The worked plan leaves `database.name` out and lets `entrypoint.sh` default
+    // it to the project. The plan is the fully-resolved projection, so the emitter
+    // writes the value the container would have derived rather than leaving one
+    // fact to be decided in two places.
+    expect(plan.database).toEqual({ ...want.database, name: "edge-thing" });
+    expect({ ...plan, database: undefined }).toEqual({ ...want, database: undefined });
   });
 });
 

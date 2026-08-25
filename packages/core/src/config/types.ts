@@ -92,6 +92,8 @@ export interface FrontendApp {
   serve?: string | undefined;
   /** Run once before a served app starts: a codegen step, a schema pull. */
   prepare?: string | undefined;
+  /** Health path, probed to decide whether a served app is up. */
+  health?: string | undefined;
   /** The port a served app listens on. Required with `serve`. */
   port?: number | undefined;
   /** How a built directory is served. Only meaningful for a static app. */

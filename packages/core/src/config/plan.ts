@@ -108,6 +108,24 @@ function compact<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T;
 }
 
+/**
+ * The single service allowed to open a file-backed database.
+ *
+ * The config may leave this out when the project has only one runtime, because
+ * there is then nothing to choose between — but the plan may not. `run-server.sh`
+ * withholds the database's location from every server that is not the owner, and
+ * an absent owner there means no server gets it and the one that needed it fails
+ * on a missing binding. So the single candidate is resolved into the plan here,
+ * where the whole runtime list is in view.
+ */
+function ownerFor(config: ResolvedConfig): string | undefined {
+  if (config.database.owner) return config.database.owner;
+  if (config.database.driver !== "d1" && config.database.driver !== "sqlite") return undefined;
+
+  const runtimes = [...config.backends.map((b) => b.name), ...config.frontends.map((f) => f.label)];
+  return runtimes.length === 1 ? runtimes[0] : undefined;
+}
+
 export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
   const services: PlanService[] = [
     ...config.backends.map(
@@ -138,6 +156,7 @@ export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
           serve: app.serve ?? "",
           port: app.port ?? 0,
           prepare: app.prepare,
+          health: app.health,
           memory: app.memory,
           optional: app.optional ? (true as const) : undefined,
         });
@@ -164,7 +183,7 @@ export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
     // Defaulted here rather than in the container: the name belongs to the
     // project, and a shell default would be a second place it is decided.
     name: config.database.driver === "none" ? undefined : config.project,
-    owner: config.database.owner,
+    owner: ownerFor(config),
     fixtures: config.database.seedFrom?.fixtures,
     seed: input.seed
       ? { path: basename(input.seed.path), anonymised: input.seed.anonymised === true }

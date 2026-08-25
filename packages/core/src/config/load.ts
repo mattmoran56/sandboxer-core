@@ -301,6 +301,9 @@ function resolveFrontends(raw: RawConfig, file: string): FrontendApp[] {
       out,
       serve,
       prepare: kind === "server" ? (entry.prepare ?? defaults.prepare) : undefined,
+      // Only a served app has a process to probe; a built directory is up as
+      // soon as the file server can find it.
+      health: kind === "server" ? (entry.health ?? defaults.health) : undefined,
       port,
       // A single-page app is the common case, and it is the one mode that is
       // wrong in the least damaging way when the author has not thought about it.
