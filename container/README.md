@@ -1,0 +1,527 @@
+# The sandbox container
+
+Everything that runs *inside* a sandbox, and the images it runs from. The host side
+— config parsing, docker orchestration, the dashboard — is TypeScript and lives in
+`packages/`. This directory is the one part of the repository that is deliberately
+shell: it runs under s6 as PID 1's children, before and sometimes without any
+project toolchain, so it can only depend on what the base image guarantees.
+
+Read [`docs/architecture/contracts.md`](../docs/architecture/contracts.md) first.
+Everything below implements it.
+
+## Layout
+
+| Path | What it is |
+|---|---|
+| `base/Dockerfile` | The generic base image: s6, Caddy, MinIO, these scripts |
+| `base/s6/` | The s6 bundle skeleton, copied in at boot and then added to |
+| `project/Dockerfile.template` | The per-project layer, rendered by the host |
+| `scripts/` | Everything the services actually run |
+| `scripts/db/<driver>.sh` | One file per database driver |
+| `examples/*.plan.json` | Two worked plans, used to exercise the generators |
+
+## Two images, not one
+
+The image is split in two, and the split is the main structural difference from
+the implementation this is ported from.
+
+That implementation baked one project's toolchains **and** its whole dependency
+tree into a single ~4.5 GB base. It worked, and it could never serve a second
+project: the toolchain versions, the database engine and the `node_modules` were
+all facts about one repository.
+
+- **`base/Dockerfile`** — Debian bookworm, s6-overlay, Caddy, MinIO, `jq`,
+  `envsubst`, and these scripts. Nothing project-specific. Shared by every sandbox
+  of every project on the machine, and it stays small so that adding a project
+  costs one thin layer rather than another few gigabytes.
+- **`project/Dockerfile.template`** — rendered per project into a layer on top,
+  adding exactly what that project's `toolchain:` and `database:` blocks declare,
+  plus its dependency install.
+
+```
+sandboxr/base:<version>            generic, one per machine
+    └── sandboxr/<project>:<hash>  toolchains + database engine + deps
+            └── one container per worktree
+```
+
+### Building them
+
+```bash
+# base — context is this directory
+docker build -f base/Dockerfile -t sandboxr/base:0.1.0 .
+
+# project — the host renders the template and stages the manifests
+docker build -f <rendered Dockerfile> -t sandboxr/<project>:<hash> <staged context>
+```
+
+### Rendering the project template
+
+The template is a normal Dockerfile with two kinds of hole in it, and the header
+comment inside the file is the authoritative description. In short:
+
+1. **Blocks.** Everything between `# >>> sandboxr:block <name>` and
+   `# <<< sandboxr:block <name>` is kept when that block is enabled and deleted
+   otherwise, guard lines included. Blocks are `go`, `node`, `mysql`, `sqlite`,
+   `gomod`, `deps`.
+2. **Values.** Every `{{NAME}}` becomes a string. A missing value is an error, not
+   an empty string — a silently empty version pin produces an image that builds
+   and then cannot run.
+
+The blocks live in the template rather than in the host code on purpose. Installing
+a toolchain is a container concern, full of arch switches and vendor-specific
+traps, and it belongs next to the other container concerns where the next person
+to hit one of those traps will find it.
+
+The build context holds only **manifests**, never source: a source change must
+never re-run a dependency install. The worktree itself is bind-mounted at run
+time.
+
+## The plan
+
+The container's entire view of the project is one file: `/sandboxr/plan.json`,
+written by the host and mounted read-only. Nothing in `scripts/` names a service, a
+port, a package or a route — they are all read from the plan. That is what makes
+one image serve a multi-service database-backed monorepo and a single-worker
+project on a file database.
+
+The plan is a flattened, fully-resolved projection of `sandboxr.yaml`: every
+default already merged, every optional field either present or absent, nothing
+left to infer. Resolution is the host's job, because the host has a schema and a
+type checker and this side has `jq`.
+
+```jsonc
+{
+  "project": "acme",                    // required
+
+  "database": {
+    "driver": "mysql",                  // mysql | d1 | sqlite | none
+    "version": "8.4",
+    "name": "acme",                     // defaults to the project name
+    "owner": "app",                     // file drivers: the one service that may open it
+    "fixtures": "migrations/seeds/fixtures.sql",   // repo-relative
+    "seed": { "path": "acme-3f2a1b.sql.zst", "anonymised": true },
+    "migrate": {
+      "workdir": "services",            // repo-relative; omitted means run in /empty
+      "command": "go run ./cmd/migrate --env local",
+      "since": "20260209",              // exported as SANDBOXR_MIGRATE_SINCE
+      "failure_pattern": "[0-9]+ failed",
+      "file_pattern": "[0-9]{8}-[^ ]+\\.sql",
+      "error_pattern": "Error [0-9]+ \\([0-9A-Z]+\\):.*"
+    }
+  },
+
+  "storage": { "driver": "minio", "buckets": ["uploads", "avatars"] },
+
+  "toolchain": { "go": "1.26", "node": "24" },
+
+  "deps": {                             // omit entirely if there is no Node tree
+    "root": "web",                      // repo-relative dir holding the lockfile
+    "lockfile": "package-lock.json",
+    "install": "npm ci --no-audit --no-fund"
+  },
+
+  "services": [
+    { "kind": "backend", "name": "api", "label": "api", "port": 8001,
+      "health": "/health", "workdir": "services",
+      "build": "go build -o {out} ./{name}", "optional": false },
+
+    { "kind": "static", "label": "app", "package": "app", "root": "web/packages",
+      "build": "npx vite build", "out": "dist",
+      "static_mode": "spa",             // spa | files | html
+      "memory": "6g", "in_build_all": true },
+
+    { "kind": "server", "label": "cms", "package": "cms", "root": "web/packages",
+      "serve": "npx next dev --port 3000 --hostname 127.0.0.1", "port": 3000,
+      "prepare": "npm run codegen", "optional": true }
+  ],
+
+  "routes": { "app": { "/api": "api", "/cms": "cms" } },
+
+  "env": { "DB_HOST": "${SANDBOXR_DB_HOST}", "S3_BUCKET": "uploads" }
+}
+```
+
+Two fields need explaining because they have no counterpart in the config schema
+today, and the container cannot do its job without them:
+
+- **`static_mode`** decides how a built directory is served, and the three cases
+  are genuinely different: a single-page app needs every unknown path to fall back
+  to `index.html`; a static-site generator that emits `foo.html` needs
+  `/blog/foo` to resolve to it; a plain directory of files needs an unknown path
+  to be a real 404 rather than silently rendering the home page. One mode cannot
+  cover all three, and getting it wrong is not a crash — it is an app that
+  half-works.
+- **`env`** is the mapping from sandboxr's own variable names to the project's.
+  The container computes *where* things are (see below) and the project reads its
+  own names for them; something has to join the two, and only the project knows
+  its own spelling. Values are expanded with `envsubst`, which substitutes
+  `${...}` and does not run a shell, so a value is data and never a command.
+
+### The environment a sandbox computes for itself
+
+Contracts §5.2 forbids importing anything that describes *where* something runs —
+importing a developer's `DB_HOST` would point the sandbox at their own database,
+and importing storage credentials would point it at real cloud storage. So the
+entrypoint derives them and exports them under a `SANDBOXR_` prefix:
+
+| Variable | When |
+|---|---|
+| `SANDBOXR_DB_DRIVER`, `SANDBOXR_DB_NAME`, `SANDBOXR_DB_DIR` | always |
+| `SANDBOXR_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD` | `mysql` |
+| `SANDBOXR_DB_FILE` | `sqlite` |
+| `SANDBOXR_D1_DIR`, `SANDBOXR_D1_OWNER` | `d1` |
+| `SANDBOXR_S3_ENDPOINT`, `_KEY`, `_SECRET`, `_REGION` | `storage.driver: minio` |
+| `SANDBOXR_URL_<LABEL>` | one per app label |
+| `SANDBOXR_PORT_<SERVICE>` | one per port-holding service |
+
+`SANDBOXR_URL_<LABEL>` exists because only the container knows both the slug and
+the domain at the moment a build runs. Same-origin API calls do not need it — the
+router serves `/api` on the app's own hostname, which keeps the bundle free of
+cross-origin requests and takes CORS out of the picture entirely — but cross-app
+navigation needs an absolute, slug-bearing URL.
+
+### Container inputs
+
+Mounts the host is expected to provide:
+
+| Path | What |
+|---|---|
+| `/workspace` | the worktree, bind-mounted read-write |
+| `/sandboxr/plan.json` | the plan, read-only |
+| `/sandboxr/cache` | the seed artifact cache, read-only |
+| `/var/log/sandboxr` | per-sandbox logs, so they survive the container |
+| `/var/lib/sandboxr/data` | the `data` volume |
+| `/var/lib/sandboxr/blob` | the `blob` volume |
+| `/var/lib/sandboxr/bin` | the `bin` volume |
+| `/srv/www` | the `www` volume |
+| `/workspace/<deps.root>/node_modules` | the shared `deps-<hash>` volume |
+
+Environment: `SANDBOXR_SLUG` is required. `SANDBOXR_DOMAIN` (default `sbx.lcl`),
+`SANDBOXR_PROJECT`, `SANDBOXR_WITH`, `SANDBOXR_SEED`, `SANDBOXR_DB_USER`,
+`SANDBOXR_DB_PASSWORD`, `SANDBOXR_S3_KEY` and `SANDBOXR_S3_SECRET` all have
+defaults.
+
+## Startup
+
+`entrypoint.sh` is the container's entrypoint, not `/init`. It cannot be `/init`:
+s6 compiles its service database **once**, before any service runs, so the set of
+services has to be settled first. The entrypoint reads the plan, exports the
+computed environment, writes the router config and the service tree, and then
+`exec`s `/init`.
+
+```
+mysql-init ──→ mysqld ──┐
+minio ──────────────────┼──→ db-init ──→ every backend, every server
+deps-init ──────────────┘
+caddy   (ungated)
+```
+
+Oneshots gate longruns, so nothing serves traffic against a database that is not
+ready. Which of them exist depends on the plan: `mysql-init` and `mysqld` only for
+`driver: mysql`, `minio` only when storage is declared, `deps-init` only when there
+is a dependency tree. A `driver: none` project gets `db-init` and `caddy` and its
+own services, and nothing else — that is most of why such a sandbox is cheap.
+
+`db-init` provisions the database, runs migrations, creates buckets and applies
+fixtures. It exists for every driver, `none` included, because it is also what
+writes the status file the dashboard reads: a sandbox with no database still has to
+be able to say it finished booting.
+
+**Caddy is deliberately not gated on `db-init`.** It serves the status surface and
+the "not built yet" pages, neither of which touches the database, and a first-boot
+restore legitimately takes minutes — which is exactly when the dashboard most needs
+an answer. A backend that is not up yet is a 502, and a 502 is a truthful answer;
+a refused connection is not an answer at all. (The implementation this is ported
+from did gate Caddy on database init, and the sandbox was unreachable and
+unexplained for the whole of its first boot as a result.)
+
+## Three runtime kinds
+
+| Kind | Declared | Built | Run | Served |
+|---|---|---|---|---|
+| `backend` | `backends[]` | `build-backend.sh`, on demand | supervised longrun | proxied on its label's hostname |
+| `static` | `frontends[]` with `out:` | `build-static.sh`, on demand | not a process | file server on its label's hostname |
+| `server` | `frontends[]` with `serve:` | nothing (`build-server.sh` runs an optional `prepare`) | supervised longrun | proxied on its label's hostname |
+
+The third kind is the one the source implementation did not have, and it is not a
+variation on the other two. A project whose app *is* a dev server — a Workers
+project, a framework with no static export — cannot be expressed as a static build
+with a watcher bolted on, and cannot be expressed as a backend because it is the
+front-end. It is also the most expensive thing in a sandbox: a dev server holds its
+whole module graph in memory for as long as the container lives, whether or not
+anyone opens it. That is why a project can mark one `optional`, and why
+`SANDBOXR_WITH` exists.
+
+**Static builds are on demand, never at startup.** A sandbox has to come up in
+seconds. An app nobody opens should cost nothing, and an app that has not been
+built yet answers with a page naming the command to build it.
+
+`build-static.sh` takes a label, or `--all` (everything the plan does not exclude
+with `in_build_all: false`), or `--built` (only what this sandbox has already
+built, read from `/srv/www/.built.json`). The distinction matters once a sandbox has
+built something expensive: `--built` refreshes what is there without ever starting
+a first build of something deliberately excluded from `--all`.
+
+## The router
+
+`gen-caddyfile.sh` writes `/run/sandboxr/Caddyfile` at every boot from the plan and
+the environment. Host matchers are exact: `<slug>.<label>.<project>.<domain>`.
+
+The domain comes from `SANDBOXR_DOMAIN`. This is worth stating because the source
+implementation hardcoded its domain in thirteen places in a static Caddyfile, and
+therefore had a domain override that silently did nothing — every request landed on
+the catch-all 404 and nothing said why.
+
+The status surface answers on **every** hostname the sandbox serves:
+
+| Path | What |
+|---|---|
+| `/__sandboxr/live` | `ok`, unconditionally — the container is up |
+| `/__sandboxr/status.json` | the composed status document (below) |
+| `/__sandboxr/built.json` | label → last build time, for every built app |
+| `/__sandboxr/health/<service>` | proxied to that service's declared health path |
+
+`status.json`:
+
+```json
+{
+  "project": "acme", "slug": "feat-checkout", "domain": "sbx.lcl",
+  "state": "booting | ok | degraded",
+  "database": { "driver": "mysql", "name": "acme" },
+  "migrations": { "state": "ok | failed | skipped | unknown", "file": "", "error": "" },
+  "bootedAt": "2026-08-25T13:41:27Z", "updatedAt": "2026-08-25T13:44:02Z"
+}
+```
+
+`state` is **derived, never asserted**: every writer records a fact in its own
+marker file under `/run/sandboxr` and calls `status.sh`, which composes the answer.
+Two writers therefore cannot disagree about whether the sandbox is degraded.
+
+## Why the pieces are the way they are
+
+### Debian bookworm, not a vendor MySQL image
+
+The obvious base for a project that needs MySQL is the official MySQL image with a
+toolchain layered on top. It does not work. That image is Oracle Linux 9, whose
+glibc is 2.34, and Cloudflare's `workerd` — which anything running miniflare or
+`wrangler dev` needs — requires 2.35. It fails with `GLIBC_2.35 not found` and no
+amount of configuration helps.
+
+Bookworm has glibc 2.36 and satisfies `workerd`, `sharp` and every other native
+Node module. The cost is installing MySQL separately, which is now a per-project
+concern anyway.
+
+### MySQL from the vendor's generic glibc tarball
+
+Debian's archive carries MariaDB, which is not a drop-in substitute for a project
+that depends on MySQL collation names or MySQL advisory-lock semantics.
+
+The vendor's own APT repository would be the natural alternative, and it cannot be
+used: **its signing key is expired**, so `apt-get update` refuses the repository
+outright and there is nothing a Dockerfile can do about that. The generic tarball
+is built against an older glibc than bookworm's, runs fine here, and pins an exact
+version rather than tracking whatever a repository currently serves.
+
+The one cost is that the download host has no machine-readable release list, so a
+series (`8.4`) resolves through a small pinned table in the template. Go and Node
+both publish an index and are resolved from it; MySQL cannot be.
+
+### Dependencies install to `/opt/deps`, outside the worktree path
+
+The worktree is bind-mounted over `/workspace` at run time, and a bind mount hides
+whatever the image put underneath it. A dependency tree installed at its natural
+location inside the project would simply vanish the moment the container started.
+
+So the image installs to `/opt/deps` and `deps-init.sh` seeds the `node_modules`
+volume from it on first boot. The volume is keyed on the lockfile hash, so every
+sandbox with the same dependencies shares one install, and a branch that changes
+its dependencies transparently gets its own — `deps-init` compares the worktree's
+lockfile hash against the one stamped into the image and runs a real install when
+they differ.
+
+`deps-init` also re-links workspace `bin` entries. The image installs from
+manifests alone, and npm skips a `bin` whose target file does not exist yet — so a
+build script one workspace package exposes to another is missing, and the build
+fails with a bare `code 127` that names nothing.
+
+### MinIO is in the base, not a project layer
+
+It is the largest thing in the base image by a wide margin, and it is there anyway.
+A public sandbox driven by a stranger must not be able to write to production
+object storage, and the only reliable way to guarantee that is for the endpoint the
+code sees to be local — which means the stand-in has to be present whether or not
+the project remembered to ask for it. That is a guarantee, not a feature, so it
+does not belong behind a config flag.
+
+### `jq` is not optional
+
+The plan is JSON, the base image deliberately has no Node, and hand-rolling a JSON
+parser in shell is how these scripts would start quietly disagreeing with what the
+plan actually says. `gettext-base` comes along for `envsubst`, which expands the
+plan's environment templates without running a shell.
+
+### A run script must `exec` its service
+
+`logged.sh` redirects with `>>`, never a pipe. Writing `exec cmd | tee log` makes
+the *shell* the supervised process: `s6-svc -r` then signals the shell, the service
+survives the restart still holding its port, and every replacement dies with
+`address already in use` while the old code carries on serving. It looks like a
+deploy that did nothing.
+
+Per-service log files exist because `docker logs` interleaves every process in the
+container and cannot be filtered after the fact, which is what makes a busy sandbox
+unreadable — for a person and for an agent. The files are trimmed rather than
+rotated: these are development logs, and a sandbox left up for days must not be
+able to fill its own disk.
+
+### Caddy's `file` matcher resolves against `root`
+
+`root` is set **before** the matcher in all three static snippets. Testing for
+`index.html` first resolves it against Caddy's working directory instead, always
+misses, and makes every built app report itself as not built.
+
+### A failed migration does not stop the sandbox
+
+`db-init.sh` and `migrate-run.sh` always exit zero. Inspecting a failed migration is
+a reason the sandbox exists, so the failure is recorded, the services boot, and the
+sandbox reports `degraded`. Killing the container would destroy the evidence.
+
+`migrate-run.sh` does not trust the runner's exit code alone, when the project tells
+it not to: a runner that prints its own summary and then exits zero reports success
+while the schema is half-applied — and a sandbox builds that runner from the branch
+it is testing, so the branch may be exactly the one with the bug. A project that has
+such a runner names a `failure_pattern`.
+
+It also reads `PIPESTATUS[0]` rather than the pipeline's status, because `tee`
+always succeeds and testing the pipeline reports every failed migration as a
+success.
+
+### The schema baseline survives a failed run
+
+DDL is not transactional in every engine, so a migration can fail with earlier
+statements already committed, and "what did that actually change?" is the question
+worth answering. For that the baseline has to be the last schema known to be clean,
+so it is taken when there is none and re-taken only after a **success**.
+Re-snapshotting on every attempt would overwrite it with the half-migrated state
+the failure left behind, and the diff would then show nothing exactly when it
+matters most.
+
+### One writer per file-backed database
+
+Two processes opening the same SQLite or D1 file deadlock on `SQLITE_BUSY`, which
+turns a slow boot into a hang with nothing in the log. `database.owner` names the
+single service allowed to open it; `run-server.sh` withholds the database's location
+from every other server, so a second one fails loudly on a missing binding instead
+of quietly hanging on a lock. Fixtures are applied with the SQLite CLI directly
+rather than through the project's own tooling, because `db-init` gates every service
+and is therefore the one moment when nothing else holds the file.
+
+### A memory requirement is refused up front
+
+A build that renders many pages across several worker processes is not bounded by
+any single heap limit — the cgroup total is what the kernel kills — and from outside
+that looks like a bare `Killed` and a package manager's exit code 137, which say
+nothing at all about memory. `build-static.sh` compares the app's declared `memory`
+against the container's cgroup limit and refuses in a second, naming the limit and
+the fix. It *also* sets `--max-old-space-size` to 75% of the limit, so a single
+overrunning process gives up with a JS heap error rather than being killed
+silently; that bounds one process, not their sum, which is why the check exists as
+well.
+
+### A service whose dependencies do not exist is omitted, not left to crash-loop
+
+A project can declare a service that cannot possibly start in a sandbox — most
+often because it needs a database that no migration creates and that exists on no
+developer machine. Such a service must be left out of the plan, or marked
+`optional`. Including it produces a permanent crash-loop that fills the log and
+makes the sandbox look broken, and no amount of supervision improves on that.
+
+## What was deliberately not ported
+
+The implementation this comes from had three behaviours that are correct there and
+wrong here.
+
+- **Migration bookkeeping repair.** It read the project's `migrations` table,
+  identified rows left unfinished by an earlier attempt, and healed the ones whose
+  files no longer existed. That encodes one project's bookkeeping schema, and
+  contracts §6 is explicit that the tool never reimplements the project's migration
+  logic. The reasoning is worth keeping and belongs in the project's own runner:
+  heal a row by *completing* it, never by deleting it, because deleting makes the
+  runner treat a half-applied file as pending again — and never heal a row whose
+  file is still present, because that marks a broken migration as done and the next
+  run fails one migration further along, until the database looks fully migrated
+  having never run any of it.
+- **Per-app environment file generation.** It wrote a `.env.local` into each
+  package with a fixed list of framework-prefixed variables. Those names are the
+  project's, so the plan's `env` map now carries them and the build simply inherits
+  the container environment.
+- **The docker CLI in the image.** It was there because the dashboard ran from the
+  same image and shelled out to the CLI. Here the dashboard is a host-side Node
+  service, so the sandbox has no reason to talk to Docker at all.
+
+## Verifying without a full build
+
+A real image build is slow and network-heavy. Everything below runs in seconds and
+covers the parts most likely to be wrong.
+
+```bash
+# syntax
+find container/scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
+
+# lint (follows the sourced library, so LOG_TAG and the helpers resolve)
+docker run --rm -v "$PWD/container:/c:ro" koalaman/shellcheck-alpine:stable \
+  sh -c 'cd /c && find scripts -name "*.sh" | sort | xargs shellcheck -x -S warning'
+
+# the generators, against both example plans, in a scratch directory
+#   SANDBOXR_SCRIPTS / _RUN / _LOGS / _STATE / _WWW / _S6_DIR / _S6_SKEL
+#   all override their container defaults for exactly this purpose
+
+# the generated router
+docker run --rm -v "$PWD/out:/w:ro" caddy:2-alpine \
+  caddy validate --config /w/Caddyfile --adapter caddyfile
+```
+
+### What has been verified
+
+- `bash -n` and `shellcheck -x -S warning` are clean across every script.
+- Both example plans generate a service tree and a router config, and both
+  generated Caddyfiles pass `caddy validate`.
+- Served for real: a built app serves, a deep path falls back to `index.html`, an
+  unbuilt app answers 503 with instructions, `/__sandboxr/live` answers 200 on any
+  hostname, and an unknown host answers 404 naming the host.
+- `db-init` → `migrate-run` → `status.sh` produce the right state for each outcome:
+  no migration command → `ok`/`skipped`; a command that fails → `degraded`/`failed`
+  with the file and error extracted; a command that exits zero while printing its
+  own failure summary → `degraded`, via `failure_pattern`; a clean run → `ok`.
+- `build-static.sh` refuses a declared memory requirement the container cannot
+  meet, and builds and swaps in a directory when it can.
+- The project template renders to a lint-clean Dockerfile (`docker build --check`)
+  for three block combinations: Go+Node+MySQL, Node+SQLite, and Go alone.
+- The base image builds (~400 MB, glibc 2.36) and boots: s6 compiles the generated
+  tree, the ungated services start immediately, `db-init` runs the driver dispatch
+  and provisions buckets, an on-demand build lands in `/srv/www` and is served
+  through the generated router, and every computed and aliased environment variable
+  reaches each supervised service.
+
+### What is NOT verified
+
+**No project layer has ever been built, and no project has ever been booted in a
+sandbox.** Everything in the list above was exercised against the base image, hand
+written plans and stub commands. Assume nothing beyond it works until someone runs
+a real project through, and expect to find bugs when they do.
+
+Specifically unverified:
+
+| Area | What a real run would settle |
+|---|---|
+| `project/Dockerfile.template` | It renders lint-clean, and has never been built. Every download in it is unproven: the Go and Node index queries, the MySQL tarball URL for a real series, the `sqlite3` and `libaio1` installs. |
+| Toolchain resolution | That a config prefix (`1.26`, `24`) picks the release a project meant, on both architectures. |
+| MySQL | Data-directory initialisation, the app user and grants against a live server, restoring a real dump, and the schema snapshot. |
+| Dependency seeding | The `/opt/deps` seed, the lockfile-hash mismatch path that falls back to a real install, and the workspace bin-linking. |
+| `d1` / `sqlite` | Provisioning from real miniflare state, locating the SQLite file by glob, and whether the owner rule actually prevents the deadlock it exists to prevent. |
+| The s6 graph under load | It boots for a two-service plan. A plan with five backends, a dev server and a first-boot restore has not been started. |
+| Backends | No backend has been built or run: `build-backend.sh`'s staleness check and `run-backend.sh`'s build-failure pause are both untested against a real compiler. |
+
+The single highest-value next step is to run one real project end to end. Nothing
+in the list above is expected to be structurally wrong; all of it is expected to
+have at least one thing wrong in the details.
