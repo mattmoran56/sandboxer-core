@@ -209,6 +209,40 @@ If `access.apps` is `public`, the tool **must refuse to start** unless both hold
 
 This is a refusal, not a warning. `access: private` is the escape hatch.
 
+### 5.4 Fields the container layer requires
+
+These were missing from the schema above and are needed for a sandbox to actually run. They
+are part of the contract.
+
+| Field | Where | Meaning |
+|---|---|---|
+| `static_mode` | a `frontends` entry with `out:` | `spa` \| `files` \| `html`. How a built directory is served. A single-page app needs a catch-all rewrite to `index.html`; a generator emitting `about.html` needs extensionless lookup; a plain directory needs neither. One mode makes two of the three half-work rather than fail, so it is explicit. Default `spa`. |
+| `in_build_all` | a `frontends` entry | Whether "rebuild everything" includes this app. Default `true`. Set `false` for something consulted occasionally and expensive to build, such as a component-library viewer. |
+| `database.owner` | `database` | For a file-backed driver, the single service permitted to open the database file. Required when the driver is `d1` or `sqlite` — see §6.1. |
+| `storage` | top level | `driver: minio \| none` and a `buckets` list. Object storage inside the sandbox, so uploads never reach a real bucket. Default `none`. |
+
+Two driver-specific notes:
+
+- `migrate.since` is passed to the project's migration command as the environment variable
+  `SANDBOXR_MIGRATE_SINCE`. The tool cannot guess a runner's flag spelling, so the command
+  in the config must consume it if it wants it.
+- For file-backed drivers, both the `serve` and `migrate` commands must direct the runtime
+  at the sandbox's own state directory (`$SANDBOXR_D1_DIR` for wrangler's `--persist-to`),
+  or the runtime writes into the worktree instead of the sandbox.
+
+### 5.5 `plan.json` — the container's view of a project
+
+`sandboxr.yaml` is the human-facing file. Nothing inside a container ever reads it.
+
+`packages/core` **must** emit a flattened, fully-resolved projection of it to
+`/sandboxr/plan.json`: defaults merged into every entry, one `services` array carrying all
+three runtime kinds with an explicit `kind`, computed addresses, and the resolved
+environment. Nothing in the container names a service, port, package or route — the
+container is a generic runtime and the plan is its only input.
+
+**The authoritative specification of `plan.json` is `container/README.md` ("The plan"),
+with two worked examples in `container/examples/*.plan.json`.** Treat those as the contract
+for this boundary and keep the emitter in step with them.
 ## 6. The database driver interface
 
 ```ts
