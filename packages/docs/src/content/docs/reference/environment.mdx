@@ -33,7 +33,7 @@ document. Expect them to change. See [what is built](/reference/status/).
 | Variable | Default | What it is |
 |---|---|---|
 | `SANDBOXR_MEMORY_LIMIT` | `2g` | Per-sandbox memory cap. Overridden per app by `memory:` in the config, and per run by `up --memory`. |
-| `SANDBOXR_BASE_IMAGE` | `sandboxr/base:latest` | The shared base image tag. |
+| `SANDBOXR_BASE_IMAGE` | `sandboxr/base:latest` | The shared base image tag. The per-project layer is `sandboxr/<project>:<hash>` and is not overridable — the hash is what makes it correct. |
 | `SANDBOXR_CACHE_TTL_HOURS` | `24` | How stale a cached seed artifact may get before it is re-taken, regardless of fingerprint. |
 | `SANDBOXR_ACME_EMAIL` | *(none)* | Contact address for ACME certificate issuance. Required on a server. |
 | `SANDBOXR_DEBUG` | unset | Verbose tracing. |
@@ -41,6 +41,63 @@ document. Expect them to change. See [what is built](/reference/status/).
 Your DNS provider's API token, for the DNS-01 challenge on a server, is read under **the
 provider's own variable name** rather than a sandboxr one, because the router's ACME client is
 what consumes it.
+
+## Inside the container
+
+These are real: they are read and exported by the container's entrypoint, and every one of
+them was observed reaching a supervised service when the base image was booted.
+
+### What the host passes in
+
+| Variable | Default | What it is |
+|---|---|---|
+| `SANDBOXR_SLUG` | *(required)* | The sandbox's slug. The one variable with no default. |
+| `SANDBOXR_PROJECT` | from the plan | The project name. |
+| `SANDBOXR_DOMAIN` | `sbx.lcl` | The hostname suffix the router generates its matchers from. |
+| `SANDBOXR_WITH` | unset | Comma-separated labels of `optional:` services to start. |
+| `SANDBOXR_SEED` | unset | Which cached seed artifact to provision from. |
+| `SANDBOXR_DB_USER`, `SANDBOXR_DB_PASSWORD` | defaulted | Credentials the sandbox's own database is created with. |
+| `SANDBOXR_S3_KEY`, `SANDBOXR_S3_SECRET` | defaulted | Credentials the sandbox's own object store is created with. |
+
+<Aside type="tip" title="`SANDBOXR_DOMAIN` reaching the router is not a given">
+The tool sandboxr generalises hardcoded its domain in thirteen places in a static router
+config, so its domain override silently did nothing: every request landed on the catch-all 404
+and nothing said why. The router config here is generated from this variable at every boot.
+</Aside>
+
+### What the sandbox computes for itself
+
+Derived by the entrypoint and exported to every service. **Never import any of these** — that
+is what [`secrets.never`](/config/secrets/) is for.
+
+| Variable | Present when |
+|---|---|
+| `SANDBOXR_DB_DRIVER`, `SANDBOXR_DB_NAME`, `SANDBOXR_DB_DIR` | always |
+| `SANDBOXR_DB_HOST`, `SANDBOXR_DB_PORT`, `SANDBOXR_DB_USER`, `SANDBOXR_DB_PASSWORD` | `driver: mysql` |
+| `SANDBOXR_DB_FILE` | `driver: sqlite` |
+| `SANDBOXR_D1_DIR`, `SANDBOXR_D1_OWNER` | `driver: d1` |
+| `SANDBOXR_S3_ENDPOINT`, `SANDBOXR_S3_KEY`, `SANDBOXR_S3_SECRET`, `SANDBOXR_S3_REGION` | `storage.driver: minio` |
+| `SANDBOXR_MIGRATE_SINCE` | `database.migrate.since` is set |
+| `SANDBOXR_URL_<LABEL>` | one per app label |
+| `SANDBOXR_PORT_<SERVICE>` | one per port-holding service |
+
+Two of these have to be consumed by commands in your config rather than being applied for you:
+
+- **`SANDBOXR_MIGRATE_SINCE`** is exported, not added to your migration command as a flag.
+  sandboxr cannot guess a runner's flag spelling, so the command has to reference it.
+- **`SANDBOXR_D1_DIR`** must be passed to wrangler's `--persist-to` by **both** the `serve` and
+  the `migrate` command for a file-backed driver. Miss it and the runtime writes into the
+  worktree instead of the sandbox.
+
+`SANDBOXR_URL_<LABEL>` exists because only the container knows both the slug and the domain at
+the moment a build runs. Same-origin API calls do not need it — the router serves `/api` on the
+app's own hostname, which keeps the bundle free of cross-origin requests and takes CORS out of
+the picture entirely — but cross-app navigation needs an absolute, slug-bearing URL.
+
+The project's own spellings for all of this come from the plan's `env` map, which aliases a
+sandboxr name to the name the project's code actually reads. Values there are expanded with
+`envsubst`, which substitutes `${...}` and **does not run a shell**, so a value is data and can
+never be a command. [plan.json](/architecture/plan-json/)
 
 ## What a sandbox is given, and what it computes
 
