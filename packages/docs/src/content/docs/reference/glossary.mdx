@@ -1,8 +1,155 @@
 ---
 title: Glossary
-description: Placeholder.
+description: Every term sandboxr uses in a specific sense — slug, plan, driver, runtime kind, the two tiers — with the page that explains each one properly.
 sidebar:
   order: 4
 ---
 
-Placeholder.
+Terms sandboxr uses in a narrower sense than English does. Where a term is defined by the
+contract, that is said, because a package that disagrees with the contract is a bug rather
+than a variation.
+
+## The shape of a system
+
+**Sandbox** — one container holding a whole project: its services, its front-ends, its own
+database, its own object storage. One per git worktree. Several run at once on one machine.
+[What sandboxr is](/introduction/what-it-is/)
+
+**Project** — a repository that has a `sandboxr.yaml` at its root. The name in that file
+becomes a label in every hostname the project serves. One project has many sandboxes.
+
+**Slug** — the identifier for one sandbox, derived from a ticket id in the worktree
+directory name, or the branch, or the directory. Sanitised to `[a-z0-9-]` and **capped at 31
+characters**, hashed rather than truncated over that, because the slug ends up inside a
+database advisory-lock name and two long branch names often share a prefix. Contract §3.1.
+[Why the ceiling is load-bearing](/databases/mysql/#the-advisory-lock-and-why-slugs-are-hashed)
+
+**Label** — the middle component of a hostname, naming one app or api within a project:
+`<slug>.<label>.<project>.<domain>`. Comes from a `frontends` or `backends` entry. Not to be
+confused with a **Docker label**, below.
+
+**Domain** — the suffix every sandbox hostname ends in. `SANDBOXR_DOMAIN`, default `sbx.lcl`.
+
+**Dashboard** — the control plane. Lives on the bare domain, never on a per-sandbox
+hostname, and is always behind a password. [The two tiers](/security/two-tiers/)
+
+## Configuration
+
+**`sandboxr.yaml`** — the file at the root of the project *being sandboxed*, versioned with
+that project's code. Describes what to build, what database to use and which secrets to
+bring. [Field by field](/config/sandboxr-yaml/)
+
+**`plan.json`** — the flattened, fully-resolved projection of `sandboxr.yaml` that the host
+writes to `/sandboxr/plan.json`. **Nothing inside a container ever reads `sandboxr.yaml`.**
+Defaults are merged, addresses are computed, and all three runtime kinds appear in one
+`services` array with an explicit `kind`. Contract §5.5.
+[The container boundary](/architecture/plan-json/)
+
+**Runtime kind** — what a thing declared in the config actually *is*. There are exactly
+three, and they are not variations on each other. Contract §5.1.
+[Three runtime kinds](/config/runtime-kinds/)
+
+| Kind | Declared as | How it runs |
+|---|---|---|
+| **backend** | `backends[]` | built to a binary, supervised, holds a port |
+| **static** | `frontends[]` with `out:` | built on demand into a directory, served as files |
+| **server** | `frontends[]` with `serve:` | a long-running process that holds a port |
+
+**`static_mode`** — how a built directory is served: `spa` (catch-all rewrite to
+`index.html`), `html` (extensionless lookup, for a generator emitting `about.html`), or
+`files` (a real 404 for an unknown path). Explicit because the wrong value **half-works**
+rather than failing. Default `spa`. Contract §5.4.
+
+**`in_build_all`** — whether "rebuild everything" includes this app. Default `true`. Set
+`false` for something expensive and consulted occasionally, such as a component-library
+viewer. Contract §5.4.
+
+**`optional`** — a service that is not started unless asked for with `--with`. A live dev
+server is the most expensive thing in a sandbox: it holds its whole module graph in memory
+for as long as the container lives, whether or not anyone opens it.
+
+## Databases
+
+**Driver** — the implementation of one database engine against a five-method interface:
+`prepareSeed`, `provision`, `migrate`, `snapshot`, `shell`. `mysql`, `d1`, `sqlite` and
+`none`. Contract §6. [The driver model](/databases/drivers/)
+
+**Seed** — the reusable artifact a driver produces on the host, content-addressed into
+`~/.sandboxr/cache`, from which every sandbox of that project provisions. Either a fork of a
+running database container (`seed_from.local`) or a restored dump (`seed_from.file`).
+
+**Fixtures** — SQL applied *after* migrations, from the path in `seed_from.fixtures`.
+Non-fatal: a fixture that no longer matches the schema is a useful signal, not a reason to
+refuse to start.
+
+**Baseline** — the structure-only schema snapshot a `db diff` compares against. Taken when
+there is none, and re-taken **only after a successful migration** — re-taking it on every
+attempt would overwrite the last-known-clean schema with the half-migrated state, and the
+diff would show nothing exactly when it matters most. Contract §6.
+
+**`database.owner`** — for a file-backed driver, the single service permitted to open the
+database file. Required for `d1` and `sqlite`, because two processes opening the same file
+deadlock on `SQLITE_BUSY` — a hang with nothing in the log. Contract §5.4.
+[The easy case](/databases/d1-sqlite/)
+
+**Degraded** — a sandbox whose services are running but whose migration failed. Deliberate:
+inspecting a failed migration is a reason the sandbox exists, and killing the container would
+destroy the evidence. Contract §6.
+
+## Inside the container
+
+**Entrypoint** — the script that runs *before* the supervisor. It reads the plan, exports the
+computed environment, writes the router configuration and generates the service tree, then
+`exec`s the supervisor. It cannot be the supervisor itself: the supervisor compiles its
+service database once, before any service runs, so the set of services has to be settled
+first. [The startup graph](/architecture/startup/)
+
+**Oneshot / longrun** — a supervised task that runs once and finishes, versus one that is
+kept alive. Oneshots gate longruns, so nothing serves traffic against a database that is not
+ready.
+
+**The status surface** — `/__sandboxr/live`, `/__sandboxr/status.json`,
+`/__sandboxr/built.json` and `/__sandboxr/health/<service>`, answered on **every** hostname a
+sandbox serves. `state` in `status.json` is derived from marker files, never asserted, so two
+writers cannot disagree about whether a sandbox is degraded.
+
+**Base image** — the small generic image shared by every sandbox of every project on a
+machine: the supervisor, the router, the object store, `jq` and the container scripts.
+Nothing project-specific.
+
+**Project layer** — the thin per-project image on top of the base, holding exactly what that
+project's `toolchain:` and `database:` blocks declare, plus its dependency install. Its build
+context holds **only manifests, never source**, so a source change cannot re-run a dependency
+install. [Two images, not one](/architecture/decisions/)
+
+## Access
+
+**The two tiers** — the apps a sandbox serves are public by default; everything that
+*controls* a sandbox is behind a password. Always. Contract §1 and §7.
+[The two tiers](/security/two-tiers/)
+
+**Public sandbox** — `access.apps: public`. Brings two requirements that are **enforced as a
+refusal to start**, not advised: the seed must not be a fork of live data, and third-party
+credentials must be dummies unless explicitly opted in. Contract §5.3.
+[Public sandboxes](/security/public-sandboxes/)
+
+**Forward auth** — how a private project's app hostnames are protected. The router asks the
+dashboard's `GET /auth/verify`, which answers 200 or 401. Public projects skip the middleware
+entirely.
+
+**Docker label** — where **all** sandbox state lives. `sandboxr.project`, `.slug`, `.branch`,
+`.commit`, `.dirty`, `.worktree`, `.driver`, `.created`, `.access`. There is no manifest file
+and no database of sandboxes, so `list` and `gc` are pure functions of `docker ps` and
+nothing can drift out of sync. Contract §3.4. [State lives in labels](/architecture/state/)
+
+## Two things called something else elsewhere
+
+**Worktree, not clone.** sandboxr works from `git worktree` directories, so several branches
+of one repository are checked out at once and share one `.git`. A sandbox bind-mounts one of
+them read-write — which is why an agent editing inside the container is editing your branch.
+[Agents in a sandbox](/agents/in-a-sandbox/)
+
+**Sandbox, not staging.** There is no high availability, no backup of a sandbox's database,
+and no promise it survives a host reboot with its data intact. A sandbox is disposable; the
+durable thing is the git branch it was made from.
+[What sandboxr is not](/server/deployment/#what-sandboxr-is-not)
