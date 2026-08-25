@@ -17,8 +17,10 @@ sandboxr up
 # https://feat-123.api.acme.sbx.localhost
 ```
 
-> **sandboxr is early.** No project has been run in a sandbox from start to finish yet, so treat
-> every command here as the behaviour the code intends rather than behaviour anyone has watched.
+> **sandboxr is early.** One demo project has been run end to end — the Workers example in
+> `examples/demo-worker`, on two worktrees at once. Nothing larger has, and no MySQL project
+> has, so treat every other command here as the behaviour the code intends rather than
+> behaviour anyone has watched.
 > [What is built, honestly](reference/status.md) says exactly which is which, page by page.
 
 ## Start with what you came to do

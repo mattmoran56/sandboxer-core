@@ -21,14 +21,20 @@ means, and where the whole project actually stands.
 | **Designed, not built** | Decided and written down in the contract. No code yet |
 | **Planned, not built** | Nobody has started. Read it as intent |
 
-> [!CAUTION] No project has ever been booted in a sandbox
-> The generic base image builds and boots. Beyond that, **no project-specific image has been
-> built, no backend has been compiled, and no `sandboxr up` has completed against a real
-> project.**
+> [!NOTE] One project has now been booted in a sandbox
+> The Workers example in `examples/demo-worker` has been run end to end: `sandboxr init` set up
+> the router, DNS and certificate; `sandboxr up` built a project image, started a container,
+> created its D1 database, ran the project's own migrations and served a page over HTTPS. It was
+> then run **twice at once** from two git worktrees, each with its own database, its own
+> hostname and its own container.
 >
-> Somebody is working on that first end-to-end run now, so this page changes often. Until it says
-> otherwise, treat every command on this site as the interface the code intends, not as behaviour
-> anyone has observed.
+> Bidirectional editing was checked too: a file changed on the host appeared instantly inside the
+> container, and a file written inside the container appeared in `git status` on the host.
+>
+> **What that does not cover:** no MySQL project has been run, nothing with a compiled backend or
+> a bundled front-end has been built, and the dashboard has only been exercised over HTTP —
+> its terminal has not been driven from a browser. Treat every command outside that narrow path
+> as the interface the code intends, not as behaviour anyone has observed.
 
 ## Where the code stands
 
@@ -36,9 +42,9 @@ means, and where the whole project actually stands.
 |---|---|
 | `docs/architecture/contracts.md` | **Settled.** The authority. A package that disagrees with it is a bug. |
 | `container/` | **Written, partly verified.** Base image, project template, service and router generators, database drivers, build and run scripts. What has been exercised is below. |
-| `packages/core` | **Written, never run end to end.** Config, drivers, plan emission, secrets, naming, Docker orchestration, lifecycle. Unit-tested. |
-| `packages/cli` | **Written, never run end to end.** The whole command surface on [the CLI page](./cli.md) exists. |
-| `packages/server` | **Written, never run.** The dashboard, password auth, the action list, log streaming and the terminal. Its security properties have tests; no browser has loaded it. |
+| `packages/core` | **Written, run end to end once** against the Workers demo. Config, drivers, plan emission, secrets, naming, Docker orchestration, lifecycle. Unit-tested. |
+| `packages/cli` | **Written, run end to end once.** `init`, `up`, `ls`, `logs`, `config` and `doctor` have all been run for real. The whole command surface on [the CLI page](./cli.md) exists. |
+| `packages/server` | **Written, partly run.** The dashboard serves, redirects to HTTPS and refuses an unauthenticated request; a browser has loaded the login page. The action list and the terminal have not been driven from a browser. |
 | `packages/docs` | This site. |
 
 ## What has actually been run
