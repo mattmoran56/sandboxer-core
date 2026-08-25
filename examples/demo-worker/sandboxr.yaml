@@ -1,0 +1,50 @@
+# The demo project: a Cloudflare Worker on D1.
+#
+# The cheapest thing sandboxr can run, and the fixture the end-to-end check uses.
+# A D1 database is a file, so there is no server to install, no dump to restore,
+# no version skew and no advisory lock — the whole database layer is a copy.
+
+project: demo
+sandboxr: ">=0.1.0"
+
+database:
+  driver: d1
+  seed_from:
+    # No `file:` here on purpose. A fresh checkout has no `.wrangler/state`, so
+    # this sandbox starts from an empty database, runs the project's own
+    # migrations, and then applies these fixtures.
+    fixtures: seeds/fixtures.sql
+  migrate:
+    # The project's own runner, never reimplemented. `--persist-to` is what points
+    # wrangler at the sandbox's state directory instead of the worktree
+    # (contracts §5.4).
+    command: npx wrangler d1 migrations apply demo --local --persist-to "$SANDBOXR_D1_DIR"
+  # A D1 database admits one writer, so exactly one service may open it.
+  owner: app
+
+# No backends. The worker *is* the app, which is the third runtime kind: a
+# long-running dev server, proxied on its own hostname.
+frontends:
+  apps:
+    - label: app
+      package: .
+      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXR_D1_DIR"
+      port: 8787
+      health: /health
+
+deps:
+  root: .
+
+toolchain:
+  node: "22"
+
+access:
+  apps: public
+  controls: password
+
+# The sandbox computes where things are and exports them under a SANDBOXR_ prefix;
+# a project reads its own names for the same things. This is the join between the
+# two, and it is why nothing here can point at a real service.
+env:
+  SANDBOXR_SLUG: "${SANDBOXR_SLUG}"
+  WRANGLER_SEND_METRICS: "false"

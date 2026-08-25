@@ -1,0 +1,15 @@
+{
+  "name": "demo-worker",
+  "main": "src/index.js",
+  "compatibility_date": "2025-05-01",
+  "migrations_dir": "migrations",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "demo",
+      // Local-only. wrangler requires the field and nothing here ever talks to
+      // Cloudflare: the sandbox's database is a file in its own state directory.
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ]
+}
