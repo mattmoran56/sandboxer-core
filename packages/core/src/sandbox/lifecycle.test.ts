@@ -97,6 +97,10 @@ function fakeDocker(options: FakeOptions = {}) {
       return 0;
     },
     logs: async () => ({ code: 0, stdout: "", stderr: "" }),
+    logsFollow: async () => {
+      record("logsFollow");
+      return 0;
+    },
     rm: async (name, rmOptions) => {
       record("rm", name, rmOptions);
     },

@@ -10,6 +10,7 @@ import {
   ConfigError,
   TOOL_VERSION,
   checkSecrets,
+  containerName,
   deriveSlug,
   docker,
   down,
@@ -69,6 +70,10 @@ OTHER
 Human-readable output goes to stderr; --json puts the result on stdout.
 `;
 
+/** The seed sources `--seed` accepts, in the order the usage lists them. */
+const SEED_SOURCES = ["local", "file", "fixtures"] as const;
+type SeedSource = (typeof SEED_SOURCES)[number];
+
 export interface RunContext {
   writer?: Writer | undefined;
   /** The directory commands resolve a config from. */
@@ -82,9 +87,13 @@ export async function main(argv: string[], context: RunContext = {}): Promise<nu
   const cwd = context.cwd ?? process.cwd();
   const env = context.env ?? process.env;
 
-  if (args.command === "" || flagBoolean(args, "help") || flagBoolean(args, "h")) {
+  // Asking for help is a request that succeeded, whether or not a command came
+  // with it. Only being given nothing at all is a failure, because then usage is
+  // a complaint rather than an answer.
+  const askedForHelp = flagBoolean(args, "help") || flagBoolean(args, "h");
+  if (args.command === "" || askedForHelp) {
     out.line(USAGE);
-    return args.command === "" ? 1 : 0;
+    return askedForHelp ? 0 : 1;
   }
 
   try {
@@ -105,9 +114,9 @@ export async function main(argv: string[], context: RunContext = {}): Promise<nu
       case "status":
         return await cmdStatus(args, out, cwd, env);
       case "logs":
-        return await cmdLogs(args, out, cwd, env);
+        return await cmdLogs(args, out, cwd);
       case "shell":
-        return await cmdShell(args, out, cwd, env);
+        return await cmdShell(args, out, cwd);
       case "reload":
         return await cmdReload(args, out, cwd, env);
       case "gc":
@@ -119,7 +128,7 @@ export async function main(argv: string[], context: RunContext = {}): Promise<nu
       case "config":
         return await cmdConfig(args, out, cwd);
       case "doctor":
-        return await cmdDoctor(out, cwd, env);
+        return await cmdDoctor(args, out, cwd, env);
       default:
         out.error(`unknown command: ${args.command}`);
         out.line(USAGE);
@@ -160,12 +169,20 @@ async function cmdUp(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.Pro
   // to *start* something, so it is where a §5.3 refusal belongs.
   const config = await loadConfig(worktree);
 
+  const seed = flagString(args, "seed");
+  // Checked rather than cast: an unrecognised source would otherwise be handed
+  // to the driver, match no branch, and look like the config was at fault.
+  if (seed !== undefined && !SEED_SOURCES.includes(seed as SeedSource)) {
+    out.error(`--seed ${seed} is not a source — one of ${SEED_SOURCES.join(", ")}`);
+    return 1;
+  }
+
   const result = await up({
     config,
     worktree,
     slug: args.positional[0] ?? flagString(args, "slug"),
     with: flagList(args, "with"),
-    seed: flagString(args, "seed") as "local" | "file" | "fixtures" | undefined,
+    seed: seed as SeedSource | undefined,
     detach: flagBoolean(args, "detach"),
     timeoutSeconds: flagNumber(args, "timeout"),
     env,
@@ -244,23 +261,36 @@ async function cmdStatus(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
   return result.state === "degraded" ? 3 : 0;
 }
 
-async function cmdLogs(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
+async function cmdLogs(args: ParsedArgs, out: Output, cwd: string): Promise<number> {
   const { config, slug } = await target(args, cwd);
-  const container = `sandboxr-${config.project}-${slug}`;
-  const result = await docker.logs(container, {
-    tail: flagNumber(args, "tail") ?? 200,
-    follow: flagBoolean(args, "f") || flagBoolean(args, "follow"),
-  });
-  out.line(result.stdout + result.stderr);
-  void env;
+  const container = containerName(config.project, slug);
+  const tail = flagNumber(args, "tail") ?? 200;
+
+  // A followed log has no end, so it is streamed rather than collected: buffering
+  // it would hold every line and print none until the container died.
+  if (flagBoolean(args, "f") || flagBoolean(args, "follow")) {
+    return docker.logsFollow(container, { tail });
+  }
+
+  const result = await docker.logs(container, { tail });
+  const text = result.stdout + result.stderr;
+  if (out.json) {
+    out.data({ container, lines: text === "" ? [] : text.replace(/\n$/, "").split("\n") });
+    return result.code;
+  }
+  // The log is the result here, not decoration, so it goes to stdout whether or
+  // not --json was asked for: `sandboxr logs > today.txt` is the whole point.
+  out.raw(text);
   return result.code;
 }
 
-async function cmdShell(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
+async function cmdShell(args: ParsedArgs, out: Output, cwd: string): Promise<number> {
   const { config, slug } = await target(args, cwd);
-  void env;
   void out;
-  return docker.execInteractive(`sandboxr-${config.project}-${slug}`, ["bash"], { workdir: "/workspace" });
+  // Anything after a bare `--` is the command to run instead of a login shell,
+  // which is what makes `sandboxr shell -- go test ./...` work from a script.
+  const command = args.rest.length > 0 ? args.rest : ["bash"];
+  return docker.execInteractive(containerName(config.project, slug), command, { workdir: "/workspace" });
 }
 
 async function cmdReload(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
@@ -353,10 +383,11 @@ async function cmdDb(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.Pro
     }
     case "snapshot": {
       const schema = await driver.snapshot(ctx);
-      // The schema is the machine-readable result here, so it goes to stdout
-      // whether or not --json was asked for: `sandboxr db snapshot > before.sql`
-      // is the whole point.
-      out.data(schema);
+      // The schema is the result here rather than a description of it, so it
+      // goes to stdout unaltered whether or not --json was asked for:
+      // `sandboxr db snapshot > before.sql` has to produce a usable file.
+      if (out.json) out.data({ project: config.project, slug, schema });
+      else out.raw(schema.endsWith("\n") ? schema : `${schema}\n`);
       return 0;
     }
     case "shell":
@@ -429,7 +460,8 @@ async function cmdConfig(args: ParsedArgs, out: Output, cwd: string): Promise<nu
  * Every check names the fix, because "docker is not running" without "start
  * Docker Desktop" is a diagnosis with no next step.
  */
-async function cmdDoctor(out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
+async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
+  const from = flagString(args, "worktree") ?? cwd;
   const findings: Array<{ ok: boolean; text: string; fix?: string }> = [];
   const p = paths(env);
 
@@ -439,11 +471,11 @@ async function cmdDoctor(out: Output, cwd: string, env: NodeJS.ProcessEnv): Prom
       : { ok: false, text: "Docker is not running", fix: "start Docker and try again" },
   );
 
-  const file = await findConfig(cwd);
+  const file = await findConfig(from);
   if (!file) {
     findings.push({
       ok: false,
-      text: "no sandboxr.yaml here or in any parent directory",
+      text: `no sandboxr.yaml in ${from} or any parent directory`,
       fix: "add one at the root of the project you want to sandbox",
     });
   } else {

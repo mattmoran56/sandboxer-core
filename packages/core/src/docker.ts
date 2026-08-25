@@ -91,6 +91,13 @@ export interface Docker {
   /** Replaces this process with an interactive `docker exec`. Never returns. */
   execInteractive(name: string, cmd: string[], options?: { workdir?: string }): Promise<number>;
   logs(name: string, options?: { tail?: number; follow?: boolean }): Promise<ExecResult>;
+  /**
+   * Streams a container's log to this process until it stops.
+   *
+   * Separate from `logs` because a followed log has no end: buffering it would
+   * hold every line in memory and print none of them until the container died.
+   */
+  logsFollow(name: string, options?: { tail?: number }): Promise<number>;
   rm(name: string, options?: { force?: boolean }): Promise<void>;
   volumes(prefix: string): Promise<string[]>;
   volumeRm(name: string): Promise<boolean>;
@@ -188,6 +195,19 @@ export function createDocker(run: Runner = nodeRunner, bin = "docker"): Docker {
       if (options.follow) args.push("-f");
       args.push(name);
       return raw(args);
+    },
+
+    async logsFollow(name, options = {}) {
+      const args = ["logs", "-f"];
+      if (options.tail !== undefined) args.push("--tail", String(options.tail));
+      args.push(name);
+      return new Promise((resolveCode) => {
+        // stdin is ignored rather than inherited: nothing reads it, and holding
+        // it open stops the parent shell noticing that the pipe has closed.
+        const child = spawn(bin, args, { stdio: ["ignore", "inherit", "inherit"] });
+        child.on("exit", (code) => resolveCode(code ?? 0));
+        child.on("error", () => resolveCode(1));
+      });
     },
 
     async rm(name, options = {}) {

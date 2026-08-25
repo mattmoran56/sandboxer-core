@@ -81,6 +81,17 @@ export class Output {
   }
 
   /**
+   * Text that is itself the result, on stdout and unaltered.
+   *
+   * A schema dump and a log are the answer rather than a description of it, so
+   * `sandboxr db snapshot > before.sql` has to produce the file it looks like it
+   * produces. Nothing is added, so the output is byte-for-byte what was read.
+   */
+  raw(text: string): void {
+    this.writer.out(text);
+  }
+
+  /**
    * A table, aligned to its own content.
    *
    * Written to stderr like everything else a person reads: the same command with
