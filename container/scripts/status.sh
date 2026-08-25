@@ -44,7 +44,7 @@ fi
 jq -n \
   --arg project "${SANDBOXR_PROJECT:-$(plan .project)}" \
   --arg slug "${SANDBOXR_SLUG:-}" \
-  --arg domain "${SANDBOXR_DOMAIN:-sbx.lcl}" \
+  --arg domain "${SANDBOXR_DOMAIN:-sbx.localhost}" \
   --arg state "$STATE" \
   --arg driver "$(plan .database.driver none)" \
   --arg database "${SANDBOXR_DB_NAME:-$(plan .database.name)}" \

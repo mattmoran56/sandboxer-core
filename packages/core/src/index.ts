@@ -70,6 +70,49 @@ export type {
 } from "./sandbox/types.js";
 export { LABELS, labelsFor, sandboxFromLabels, deriveState } from "./sandbox/labels.js";
 
+export {
+  BASE_IMAGE,
+  DASHBOARD_CONTAINER,
+  DASHBOARD_PORT,
+  ROUTER_CONTAINER,
+  ROUTER_IMAGE,
+  accessStatus,
+  caTrusted,
+  dashboardArgs,
+  domainOf,
+  ensureBaseImage,
+  ensureCertificate,
+  initAccess,
+  mkcertAvailable,
+  routerArgs,
+  routeLabels,
+  sandboxRouteLabels,
+  sandboxRule,
+  startDashboard,
+  startRouter,
+  stopDashboard,
+  stopRouter,
+  teardownAccess,
+} from "./access/index.js";
+export type { AccessReport, AccessStatus, Certificate, InitOptions, TeardownOptions } from "./access/index.js";
+
+export {
+  BLOCKS,
+  ImageError,
+  applyBlocks,
+  applyValues,
+  blocksFor,
+  ensureProjectImage,
+  findGoModule,
+  findManifests,
+  imageTag,
+  renderDockerfile,
+  valuesFor,
+} from "./image.js";
+export type { BuiltImage, RenderInput, StagedFile } from "./image.js";
+
+export { InstallError, containerDir, dashboardEntry, installRoot } from "./install.js";
+
 export { checkSecrets, importSecrets, filterSecrets, parseEnvFile, matchesAny } from "./secrets.js";
 export type { SecretsCheck, SecretsReport, SecretRules } from "./secrets.js";
 

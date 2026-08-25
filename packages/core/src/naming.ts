@@ -37,7 +37,7 @@ export const DEFAULT_TICKET_PATTERN = /[a-z]+-[0-9]+/i;
 /** Hostname labels and docker name components share this alphabet. */
 const SAFE = /[^a-z0-9-]+/g;
 
-export const DEFAULT_DOMAIN = "sbx.lcl";
+export const DEFAULT_DOMAIN = "sbx.localhost";
 
 export class NamingError extends Error {
   override readonly name = "NamingError";

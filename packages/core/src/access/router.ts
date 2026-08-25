@@ -1,0 +1,259 @@
+/**
+ * The shared router: one Traefik container in front of every sandbox on the
+ * machine.
+ *
+ * It reconciles from Docker labels, so starting or stopping a sandbox never
+ * regenerates a config file and never triggers a reload — the sandbox's own
+ * `docker run` carries everything the router needs to know about it. That is the
+ * property contracts §3.4 is describing when it says state lives only in labels.
+ *
+ * One router per sandbox, not one per app. Inside the container Caddy already
+ * splits by hostname, serves the status surface on every one of them, and
+ * answers a name it does not know with a 404 that says so. Duplicating that
+ * split out here would mean two places to add a label to, and the outer one
+ * would answer "no such host" for an app the inner one could have explained.
+ */
+
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import type { Docker } from "../docker.js";
+import { NETWORK } from "../naming.js";
+import { paths } from "../paths.js";
+import type { Certificate } from "./tls.js";
+
+/** The router's container name. One per machine, like the network. */
+export const ROUTER_CONTAINER = "sandboxr-router";
+
+/** Pinned: a router that silently changes major version changes its rule syntax. */
+export const ROUTER_IMAGE = "traefik:v3.6";
+
+/** The forward-auth middleware a private project's hostnames go through. */
+export const AUTH_MIDDLEWARE = "sandboxr-auth@file";
+
+/** Where the router reads its own files, inside its container. */
+const CONF = "/etc/traefik/traefik.yml";
+const DYNAMIC = "/etc/traefik/dynamic";
+const TLS_DIR = "/etc/traefik/tls";
+
+export interface RouterFiles {
+  /** The static configuration, on the host. */
+  config: string;
+  /** The directory of dynamic configuration, on the host. */
+  dynamic: string;
+}
+
+/** Escapes a string for use as a literal inside a Go regular expression. */
+export function regexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The rule that sends every one of a sandbox's hostnames to it.
+ *
+ * A regular expression rather than one `Host()` per label, because the set of
+ * labels is a fact about the plan and this is a fact about the sandbox: adding a
+ * front-end to a project must not require the router to be told about it. The
+ * slug and project are fixed, and the label in the middle is whatever the plan
+ * says — which the container itself is the right thing to resolve.
+ */
+export function sandboxRule(slug: string, project: string, domain: string): string {
+  return `HostRegexp(\`^${regexLiteral(slug)}\\.[a-z0-9-]+\\.${regexLiteral(project)}\\.${regexLiteral(domain)}$\`)`;
+}
+
+export interface RouteLabelInput {
+  /** Router and service name. Must be unique across the machine. */
+  name: string;
+  rule: string;
+  /** The port *inside* the target container. */
+  port: number;
+  tls: boolean;
+  middlewares?: string[] | undefined;
+}
+
+/** The Docker labels that make the router serve one container. */
+export function routeLabels(input: RouteLabelInput): Record<string, string> {
+  const { name } = input;
+  const labels: Record<string, string> = {
+    "traefik.enable": "true",
+    [`traefik.http.routers.${name}.rule`]: input.rule,
+    [`traefik.http.routers.${name}.entrypoints`]: input.tls ? "websecure" : "web",
+    [`traefik.http.services.${name}.loadbalancer.server.port`]: String(input.port),
+  };
+  if (input.tls) labels[`traefik.http.routers.${name}.tls`] = "true";
+  if (input.middlewares?.length) {
+    labels[`traefik.http.routers.${name}.middlewares`] = input.middlewares.join(",");
+  }
+  return labels;
+}
+
+/** Every label a sandbox container needs for the router to serve it. */
+export function sandboxRouteLabels(input: {
+  container: string;
+  slug: string;
+  project: string;
+  domain: string;
+  tls: boolean;
+  /** `private` apps go through forward-auth; `public` ones do not. */
+  access: "public" | "private";
+}): Record<string, string> {
+  return routeLabels({
+    name: input.container,
+    rule: sandboxRule(input.slug, input.project, input.domain),
+    port: 80,
+    tls: input.tls,
+    middlewares: input.access === "private" ? [AUTH_MIDDLEWARE] : undefined,
+  });
+}
+
+/**
+ * Writes the router's own configuration.
+ *
+ * The Docker provider is `exposedByDefault: false` on purpose: this router sits
+ * on a network shared with every sandbox, and a default of "expose everything"
+ * would publish a container to the internet-facing entry point the moment it
+ * joined, whether or not anything meant it to.
+ */
+export async function writeRouterConfig(options: {
+  env?: NodeJS.ProcessEnv | undefined;
+  cert?: Certificate | undefined;
+  dashboardPort: number;
+}): Promise<RouterFiles> {
+  const p = paths(options.env ?? process.env);
+  const dynamic = join(p.state, "dynamic");
+  await mkdir(dynamic, { recursive: true });
+
+  const tls = options.cert !== undefined;
+  const config = join(p.state, "traefik.yml");
+  await writeFile(
+    config,
+    [
+      "# Generated by sandboxr init. Edits are lost on the next run.",
+      "entryPoints:",
+      "  web:",
+      '    address: ":80"',
+      // Only when there is a certificate: redirecting to a scheme nothing serves
+      // would take the whole machine off the air rather than upgrading it.
+      ...(tls
+        ? ["    http:", "      redirections:", "        entryPoint:", "          to: websecure", "          scheme: https"]
+        : []),
+      ...(tls ? ["  websecure:", '    address: ":443"'] : []),
+      "providers:",
+      "  docker:",
+      "    endpoint: unix:///var/run/docker.sock",
+      "    exposedByDefault: false",
+      `    network: ${NETWORK}`,
+      "    watch: true",
+      "  file:",
+      `    directory: ${DYNAMIC}`,
+      "    watch: true",
+      "log:",
+      "  level: INFO",
+      "accessLog: {}",
+      "api:",
+      "  dashboard: false",
+      "",
+    ].join("\n"),
+  );
+
+  // The forward-auth middleware a private project's app hostnames go through.
+  // It points at the dashboard by container name, which resolves on the shared
+  // network — one mechanism for sessions, used twice (contracts §7).
+  await writeFile(
+    join(dynamic, "middlewares.yml"),
+    [
+      "# Generated by sandboxr init. Edits are lost on the next run.",
+      "http:",
+      "  middlewares:",
+      "    sandboxr-auth:",
+      "      forwardAuth:",
+      `        address: "http://sandboxr-dashboard:${options.dashboardPort}/auth/verify"`,
+      "        trustForwardHeader: true",
+      "",
+    ].join("\n"),
+  );
+
+  return { config, dynamic };
+}
+
+export interface RouterOptions {
+  env?: NodeJS.ProcessEnv | undefined;
+  docker: Docker;
+  cert?: Certificate | undefined;
+  files: RouterFiles;
+  /** Bind address for the published ports. Loopback unless someone asks otherwise. */
+  bind?: string | undefined;
+  log?: ((line: string) => void) | undefined;
+}
+
+/** The `docker run` argument list for the router. Pure, so a test can read it. */
+export function routerArgs(options: {
+  files: RouterFiles;
+  tlsDir?: string | undefined;
+  cert?: Certificate | undefined;
+  bind: string;
+  image?: string | undefined;
+}): string[] {
+  const args = [
+    "run",
+    "-d",
+    "--name",
+    ROUTER_CONTAINER,
+    "--network",
+    NETWORK,
+    "--restart",
+    "unless-stopped",
+    "--label",
+    "sandboxr.role=router",
+    "-p",
+    `${options.bind}:80:80`,
+  ];
+  if (options.cert) args.push("-p", `${options.bind}:443:443`);
+
+  args.push(
+    "-v",
+    "/var/run/docker.sock:/var/run/docker.sock:ro",
+    "-v",
+    `${options.files.config}:${CONF}:ro`,
+    "-v",
+    `${options.files.dynamic}:${DYNAMIC}:ro`,
+  );
+  if (options.cert && options.tlsDir) args.push("-v", `${options.tlsDir}:${TLS_DIR}:ro`);
+
+  args.push(options.image ?? ROUTER_IMAGE, `--configFile=${CONF}`);
+  return args;
+}
+
+/**
+ * Starts the router, replacing any earlier one.
+ *
+ * Replaced rather than reused: its configuration is bind-mounted, and a change
+ * to which ports it publishes or whether it terminates TLS cannot be picked up
+ * by a running container.
+ */
+export async function startRouter(options: RouterOptions): Promise<void> {
+  const { docker } = options;
+  const log = options.log ?? (() => undefined);
+  const p = paths(options.env ?? process.env);
+
+  await docker.ensureNetwork(NETWORK);
+  if (await docker.containerExists(ROUTER_CONTAINER)) {
+    await docker.rm(ROUTER_CONTAINER, { force: true });
+  }
+  await docker.ok(
+    routerArgs({
+      files: options.files,
+      tlsDir: p.tls,
+      cert: options.cert,
+      bind: options.bind ?? "127.0.0.1",
+      image: (options.env ?? process.env).SANDBOXR_ROUTER_IMAGE,
+    }),
+  );
+  log(`Router listening on ${options.bind ?? "127.0.0.1"}:80${options.cert ? " and :443" : ""}`);
+}
+
+export async function stopRouter(docker: Docker): Promise<boolean> {
+  if (!(await docker.containerExists(ROUTER_CONTAINER))) return false;
+  await docker.rm(ROUTER_CONTAINER, { force: true });
+  return true;
+}

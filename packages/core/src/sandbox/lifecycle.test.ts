@@ -253,7 +253,7 @@ describe("up", () => {
       config: configOf(),
       worktree: dir,
       docker,
-      env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.lcl" },
+      env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
     });
 
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
@@ -263,7 +263,7 @@ describe("up", () => {
 
     const envFile = join(home, "build", "acme", "tkt-1.env");
     expect(await readFile(envFile, "utf8")).toContain("SANDBOXR_SLUG=tkt-1");
-    expect(result.urls.app).toBe("https://tkt-1.app.acme.sbx.lcl");
+    expect(result.urls.app).toBe("https://tkt-1.app.acme.sbx.localhost");
     expect(result.seed.source).toBe("fixtures");
   });
 
@@ -455,10 +455,10 @@ describe("status", () => {
         return { stdout: "" };
       },
     });
-    const result = await status("acme", "tkt-1", { docker, config: configOf(), env: { SANDBOXR_DOMAIN: "sbx.lcl" } });
+    const result = await status("acme", "tkt-1", { docker, config: configOf(), env: { SANDBOXR_DOMAIN: "sbx.localhost" } });
     expect(result.migrations).toBe("ok");
     expect(result.built).toEqual(["app"]);
-    expect(result.services[0]).toMatchObject({ name: "api", up: true, url: "https://tkt-1.api.acme.sbx.lcl" });
+    expect(result.services[0]).toMatchObject({ name: "api", up: true, url: "https://tkt-1.api.acme.sbx.localhost" });
     expect(result.worktreeMissing).toBe(true);
   });
 

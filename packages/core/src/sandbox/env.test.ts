@@ -37,13 +37,13 @@ const withRuntimes = config({
 });
 
 describe("containerEnv", () => {
-  const env = containerEnv({ config: withRuntimes, slug: "tkt-1", domain: "sbx.lcl" });
+  const env = containerEnv({ config: withRuntimes, slug: "tkt-1", domain: "sbx.localhost" });
 
   it("identifies the sandbox, which is the one thing the container cannot derive", () => {
     expect(env).toMatchObject({
       SANDBOXR_SLUG: "tkt-1",
       SANDBOXR_PROJECT: "acme",
-      SANDBOXR_DOMAIN: "sbx.lcl",
+      SANDBOXR_DOMAIN: "sbx.localhost",
       SANDBOXR_ACCESS: "private",
     });
   });
@@ -111,7 +111,7 @@ describe("urlsFor and hostsFor", () => {
   });
 
   it("uses the default domain, and an override when given", () => {
-    expect(urlsFor(withRuntimes, "s").app).toBe("https://s.app.acme.sbx.lcl");
+    expect(urlsFor(withRuntimes, "s").app).toBe("https://s.app.acme.sbx.localhost");
     expect(urlsFor(withRuntimes, "s", "sbx.dev").app).toBe("https://s.app.acme.sbx.dev");
   });
 });
