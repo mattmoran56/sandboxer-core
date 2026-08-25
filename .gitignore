@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+*.log
+
+# Local state — never committed. See docs/architecture/contracts.md.
+.sandboxr/
+secrets/*.env
+!secrets/.gitkeep
+
+# Docs site build output
+docs/.next/
+docs/out/

@@ -1,0 +1,43 @@
+# A Cloudflare Workers project on D1. The easy case, and much cheaper to run.
+#
+# A D1 database is a file, so there is no server to install, no dump and restore, no
+# version skew and no advisory lock. Seeding is a copy. Forking is a copy.
+#
+# Copy to the repo root as `sandboxr.yaml`.
+
+project: worker-thing
+sandboxr: ">=0.1.0"
+
+database:
+  driver: d1
+  seed_from:
+    # miniflare keeps its SQLite files here. `.wrangler/` is normally gitignored, so a
+    # fresh worktree has no content — the tool snapshots from a checkout that does, and
+    # falls back to migrating an empty database.
+    file: .wrangler/state
+    fixtures: seeds/fixtures.sql
+  migrate:
+    command: npx wrangler d1 migrations apply DB --local
+  # Two processes opening the same D1 file deadlock, so exactly one service may own it.
+  # This is a rule of the driver, not a workaround.
+  owner: app
+
+# No backends block at all. The worker IS the app.
+frontends:
+  apps:
+    - label: app
+      package: .
+      serve: npx wrangler dev --port 8787 --ip 127.0.0.1
+      port: 8787
+
+secrets:
+  read: [.dev.vars]
+  keep: [API_TOKEN, SENTRY_DSN]
+  never: ["DB_*", "*_URL"]
+
+toolchain:
+  node: "24.18"
+
+access:
+  apps: public
+  controls: password

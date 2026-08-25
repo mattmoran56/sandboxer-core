@@ -1,0 +1,132 @@
+# A large monorepo on MySQL: several Go services, several Vite apps, a Next.js marketing
+# site, a Storybook, and a CMS on D1. This is the hard case — if the schema can express
+# this project, it can express most.
+#
+# `acme` is a fictional project used throughout the docs and examples.
+#
+# Copy to your repo root as `sandboxr.yaml`.
+
+project: acme
+sandboxr: ">=0.1.0"
+
+database:
+  driver: mysql
+  # Not the version a developer happens to run locally. A migration is only meaningfully
+  # tested against the version it will really run on, so declare the one production uses.
+  version: "8.4"
+  seed_from:
+    # On a laptop: fork a database container the developer already runs. Read-only — every
+    # destructive operation targets a copy.
+    local:
+      container: acme_db
+      database: acme
+    # On a server: restore a dump instead. Must be anonymised if apps are public (§5.3).
+    file: /var/sandboxr/seeds/acme.sql.zst
+    # Applied after migrations. Non-fatal: a fixture that no longer matches the schema is
+    # a useful signal, not a reason to refuse to start.
+    fixtures: db/seeds/fixtures.sql
+  migrate:
+    workdir: services
+    command: go run ./cmd/migrate --dir ../db/migrations --non-interactive
+    # An empty `since` selects every file on disk. If a project adopted migration tracking
+    # part-way through its life, the files that predate it will fail on columns that
+    # already exist — so pin the cutoff the project's own runner uses.
+    since: "20240101"
+
+backends:
+  defaults:
+    workdir: services
+    build: go build -o {out} ./{name}
+    health: /health
+  services:
+    - { name: api, port: 8001, label: api }
+    - { name: adminApi, port: 8081, label: admin-api }
+    - { name: jobs, port: 8004, label: jobs }
+    # A service whose database exists on no developer machine, and that no migration
+    # creates, should be left out rather than declared — otherwise it can only crash-loop.
+
+frontends:
+  root: web/packages
+  # `npx vite build` rather than `npm run build`, which is typically `tsc -b && vite build`:
+  # a branch that does not typecheck still needs a sandbox, and CI is what enforces types.
+  defaults:
+    build: npx vite build
+    out: dist
+  apps:
+    - { label: app, package: web }
+    - { label: admin, package: admin }
+    # A Next.js static export of a few thousand pages. At the default 2 GB limit it is
+    # killed part-way through, which npm reports only as "code 137" with no mention of
+    # memory — so declare what it actually needs.
+    - { label: www, package: marketing, build: npm run build, out: out, memory: 6g }
+    # A component library has no `build` script and emits no dist/: `storybook build`
+    # renders a static site into storybook-static. Excluded from "build everything" — it is
+    # a component viewer rather than an app under test, and it costs about as much as all
+    # the SPAs together.
+    - { label: storybook, package: storybook, build: npm run build-storybook, out: storybook-static, in_build_all: false }
+    # A long-running server rather than a static build, and opt-in because a live dev
+    # server is the heaviest thing in a sandbox.
+    - { label: cms, package: cms, serve: npx next dev --port 3000 --hostname 127.0.0.1, port: 3000, optional: true }
+
+# Same-origin paths rather than absolute URLs, which keeps each bundle free of cross-origin
+# requests and takes CORS out of the picture entirely.
+routes:
+  app:
+    "/api": api
+    "/cms": cms
+  admin:
+    # adminApi, not api: every path the admin app requests is an /admin/* route, which the
+    # public API does not serve.
+    "/api": adminApi
+  www:
+    "/api": api
+
+secrets:
+  read:
+    - services/api/.env
+    - services/adminApi/.env
+    - web/packages/web/.env
+  keep:
+    - AUTH0_DOMAIN
+    - AUTH0_AUDIENCE
+    - AUTH0_CLIENT_ID
+    - AUTH0_CLIENT_SECRET
+    - ANALYTICS_API_KEY
+    - ANALYTICS_ENDPOINT
+    - EMAIL_API_KEY
+    - MAPS_API_KEY
+    - JWT_SECRET
+  rename:
+    # The same value sometimes has two spellings across a codebase: one name in the .env
+    # files, another in the code that reads it. Alias rather than duplicate.
+    ANALYTICS_API_HOST: ANALYTICS_ENDPOINT
+    # Browser-side identity settings are kept under their own names rather than folded into
+    # the server-side ones. They are genuinely allowed to differ — an identity provider can
+    # serve one tenant on both a custom domain and a provider domain, and mixing the two
+    # across services makes one reject the other's token as an invalid issuer: login
+    # succeeds and every API call comes back 401.
+    VITE_AUTH0_DOMAIN: SANDBOXR_AUTH0_SPA_DOMAIN
+    VITE_AUTH0_CLIENT_ID: SANDBOXR_AUTH0_SPA_CLIENT_ID
+    VITE_AUTH0_AUDIENCE: SANDBOXR_AUTH0_SPA_AUDIENCE
+  never:
+    # Anything describing WHERE something runs. A sandbox computes these itself; importing
+    # them would point it at the developer's own database or at real cloud storage.
+    - "DB_*"
+    - "MYSQL_*"
+    - "S3_*"
+    - "*_URL"
+    - "PORT"
+    - "ENV"
+
+storage:
+  # Object storage inside the sandbox, so uploads never reach a real bucket.
+  driver: minio
+  buckets: [uploads, avatars, exports]
+
+toolchain:
+  go: "1.23"
+  node: "22"
+
+access:
+  apps: public
+  controls: password
