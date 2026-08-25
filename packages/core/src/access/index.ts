@@ -62,6 +62,9 @@ export * from "./tls.js";
 /** The generic base image every sandbox runs from. */
 export const BASE_IMAGE = "sandboxr/base";
 
+/** The dashboard image: Node plus a Docker client. Built by `init`, like the base. */
+export const DASHBOARD_IMAGE_NAME = "sandboxr/dashboard";
+
 export interface InitOptions {
   env?: NodeJS.ProcessEnv | undefined;
   docker?: Docker | undefined;
@@ -138,6 +141,45 @@ export async function ensureBaseImage(options: {
 }
 
 /**
+ * Builds the dashboard image if it is not already here.
+ *
+ * Separate from the base image because the two have opposite needs: a sandbox
+ * runs a project and must never be able to reach the daemon, while the
+ * dashboard does nothing else. Keeping the Docker client out of the base is
+ * what stops a sandboxed project — or an agent inside one — driving Docker.
+ */
+export async function ensureDashboardImage(options: {
+  docker: Docker;
+  env?: NodeJS.ProcessEnv | undefined;
+  rebuild?: boolean | undefined;
+  log?: ((line: string) => void) | undefined;
+}): Promise<string> {
+  const env = options.env ?? process.env;
+  const log = options.log ?? (() => undefined);
+  const tag = `${DASHBOARD_IMAGE_NAME}:${TOOL_VERSION}`;
+
+  if (!options.rebuild && (await options.docker.imageExists(tag))) return tag;
+
+  const context = containerDir(env);
+  log(`Building ${tag}`);
+  await options.docker.ok(
+    [
+      "build",
+      "-f",
+      `${context}/dashboard/Dockerfile`,
+      "-t",
+      tag,
+      "-t",
+      `${DASHBOARD_IMAGE_NAME}:latest`,
+      context,
+    ],
+    { timeoutMs: 10 * 60_000 },
+  );
+  log(`Built ${tag}`);
+  return tag;
+}
+
+/**
  * Sets the machine up: network, base image, certificate, router, dashboard.
  *
  * Idempotent. Running it again is how you change the domain, rotate the
@@ -160,6 +202,7 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   await docker.ensureNetwork(NETWORK);
 
   const baseImage = await ensureBaseImage({ docker, env, rebuild: options.rebuild, log });
+  const dashboardImage = await ensureDashboardImage({ docker, env, rebuild: options.rebuild, log });
 
   // --- the certificate ---------------------------------------------------------
   //
@@ -199,7 +242,7 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
         "  Set one and run `sandboxr init` again.",
     );
   }
-  await startDashboard({ docker, domain, tls: cert !== undefined, password, env, log });
+  await startDashboard({ docker, domain, tls: cert !== undefined, password, env, log, image: dashboardImage });
 
   const scheme = cert ? "https" : "http";
   return {
