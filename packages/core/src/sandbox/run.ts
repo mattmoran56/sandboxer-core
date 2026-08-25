@@ -30,7 +30,7 @@ import {
 export const DEFAULT_IMAGE = "sandboxr/base:latest";
 
 /** The entrypoint inside that image. */
-export const ENTRYPOINT = "/sandboxr/scripts/entrypoint.sh";
+export const ENTRYPOINT = "/opt/sandboxr/scripts/entrypoint.sh";
 
 export interface RunInput {
   config: ResolvedConfig;

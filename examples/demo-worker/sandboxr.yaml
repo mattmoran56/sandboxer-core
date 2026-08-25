@@ -15,6 +15,9 @@ database:
     # migrations, and then applies these fixtures.
     fixtures: seeds/fixtures.sql
   migrate:
+    # wrangler resolves wrangler.jsonc from the working directory, so it has to run
+    # in the project root rather than the isolated empty directory used by default.
+    workdir: .
     # The project's own runner, never reimplemented. `--persist-to` is what points
     # wrangler at the sandbox's state directory instead of the worktree
     # (contracts §5.4).

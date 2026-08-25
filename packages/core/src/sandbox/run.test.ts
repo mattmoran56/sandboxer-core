@@ -162,7 +162,7 @@ describe("runArgs", () => {
 
   it("ends with the entrypoint and the image", () => {
     expect(args.at(-3)).toBe("--entrypoint");
-    expect(args.at(-2)).toBe("/sandboxr/scripts/entrypoint.sh");
+    expect(args.at(-2)).toBe("/opt/sandboxr/scripts/entrypoint.sh");
     expect(args.at(-1)).toBe("sandboxr/base:latest");
   });
 
