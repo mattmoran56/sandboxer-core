@@ -102,6 +102,17 @@ State lives **only** in Docker labels. There is no manifest file, no database of
 | `sandboxr.created` | ISO 8601 UTC |
 | `sandboxr.access` | `public` / `private` — whether app hostnames need auth |
 
+**Labels hold durable state only.** Everything above is fixed when the sandbox is created
+and does not change while it runs. Runtime state — whether it is starting, running or
+degraded — is **derived at read time** from the container and its status surface, never
+written back to a label. A label recording "running" would be a second source of truth that
+goes stale the moment a process dies, which is exactly the drift this design avoids.
+
+So `Sandbox.state` in §6 is computed, not stored: the container's own state, plus the
+migration verdict the sandbox exposes. A failed migration deliberately leaves the container
+running, so anything reading only the container's state will report a degraded sandbox as
+healthy — the one case where it matters most.
+
 ## 4. Host paths
 
 `SANDBOXR_HOME`, default `~/.sandboxr`. Never inside a repo, so `git clean` cannot destroy it.
@@ -208,6 +219,26 @@ If `access.apps` is `public`, the tool **must refuse to start** unless both hold
    public app can otherwise make it send real email and spend real LLM credit.
 
 This is a refusal, not a warning. `access: private` is the escape hatch.
+
+For the first requirement to be checkable, `sandboxr.yaml` must be able to say so. A
+`seed_from` entry takes an optional `anonymised: true`, and that flag is the only thing the
+refusal accepts as marking a dump safe:
+
+```yaml
+database:
+  seed_from:
+    file: /var/sandboxr/seeds/acme.sql.zst
+    anonymised: true      # asserts this dump carries no real personal data
+```
+
+A `fixtures` seed is safe by definition and needs no flag. A `local` seed — a fork of a
+running database — can never satisfy the requirement, because it is by definition live data.
+Absent the flag, a `public` project with a `file` seed is refused.
+
+The flag is an assertion by the person who wrote the config, not something the tool can
+verify. That is deliberate: the tool cannot tell an anonymised dump from a real one, so the
+honest design is to make someone state it explicitly in a reviewed file rather than to
+imply a guarantee that does not exist.
 
 ### 5.4 Fields the container layer requires
 
