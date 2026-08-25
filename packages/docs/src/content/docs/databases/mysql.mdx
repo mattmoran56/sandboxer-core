@@ -1,0 +1,240 @@
+---
+title: "MySQL: the hard case"
+description: Why a running database server is the expensive driver — install, wait, dump, restore, version skew, advisory locks — and the specific flags and failures that matter.
+sidebar:
+  order: 2
+---
+
+import { Aside, Steps } from "@astrojs/starlight/components";
+import Mermaid from "../../../components/Mermaid.astro";
+
+A MySQL database is a **running server**. Nothing about it is a copy operation. Every sandbox
+has to install one, start it, wait for it, restore into it, and coordinate with every other
+sandbox that might migrate at the same time.
+
+That is the entire reason this page is long and [D1's](/databases/d1-sqlite/) is short.
+
+## What a sandbox does at first boot
+
+<Mermaid
+  caption="Six steps, and the dump is cached across sandboxes so most runs skip the first two."
+  chart={`
+flowchart TB
+  a["Fingerprint the source"] --> b{"Cache hit?"}
+  b -->|"no"| c["Dump the source<br/>read only"]
+  c --> d[("Cached artifact")]
+  b -->|"yes"| d
+  d --> e["Start mysqld inside the sandbox<br/>at the declared version"]
+  e --> f["Wait for it to accept connections"]
+  f --> g["Restore the dump"]
+  g --> h["Create the app user and grants"]
+  h --> i["Snapshot the schema — the baseline"]
+  i --> j["Take the advisory lock"]
+  j --> k["Run the project's migration command"]
+  k --> l["Apply fixtures"]
+`}
+/>
+
+## Restore into the version production runs
+
+```yaml
+database:
+  driver: mysql
+  version: "8.4"
+```
+
+This is not the version on the developer's machine, and the difference is not pedantry.
+
+A laptop's `mysql:latest` tag drifts over time and commonly resolves to a release line that
+production will never run — sometimes an innovation release that is already end-of-life. A
+migration is only meaningfully tested against the version it will really run on, so the fork
+is restored into the declared version and any skew from the source is reported on every dump.
+
+<Aside type="tip" title="Verify rather than assume the skew is harmless">
+If your source and target versions differ, the question is whether the *dump* uses anything
+version-exclusive. That is checkable: look for column types that only exist in the newer
+version, generated-column syntax, collation names, and `sql_mode` defaults. A driver should
+re-check the cached dump for newer-version-only syntax so the answer stays true as the schema
+changes, rather than being a one-off audit somebody did once.
+</Aside>
+
+## The dump flags that are load-bearing
+
+Three of them are not stylistic. Getting any one wrong produces a failure that does not
+mention the flag.
+
+### Omit `--databases`
+
+Without it the dump contains no `CREATE DATABASE` and no `USE`, so the same file restores into
+**any** schema name. With it, the file pins itself to the source's name, and every fork has to
+overwrite that name — which means the fork and the source can collide, and a per-sandbox
+schema name becomes impossible.
+
+### `--hex-blob`
+
+Binary columns are otherwise emitted as escaped string literals, and any charset mismatch
+anywhere in the pipe corrupts them. The corruption is silent: the restore succeeds and the
+bytes are wrong.
+
+### `--set-gtid-purged=OFF`
+
+Otherwise the dump carries a `SET @@GLOBAL.GTID_PURGED` statement. Applying it needs
+`SYSTEM_VARIABLES_ADMIN`, and if it does apply it poisons the target's GTID state. The failure
+appears as a permissions error on a statement nobody wrote.
+
+## The seed cache invalidates on content, not on time
+
+Dumping is fast but not free, and doing it on every `up` would make starting a second sandbox
+as slow as the first. So the artifact is cached in `~/.sandboxr/cache`, keyed on a fingerprint
+of the source.
+
+A good fingerprint covers:
+
+| Component | What it catches |
+|---|---|
+| Server version | a source upgrade |
+| Table count | tables added or dropped |
+| Column count | schema edits within existing tables |
+| Migration-table row count | anything the project's own runner did |
+| Newest migration timestamp | the same, more precisely |
+| Total byte size | bulk data churn |
+
+It deliberately does **not** notice a single edited row. Paying a full re-dump every time
+somebody changes one record would make the cache pointless. A forced refresh is the escape
+hatch, and a time-to-live — 24 hours is a reasonable default — bounds how stale an entry can
+get.
+
+## The advisory lock, and why slugs are hashed
+
+Two sandboxes migrating at once, against two separate databases, still contend if the
+project's migration runner takes a named lock derived from the database name. So the lock name
+has to be unique per sandbox — and it has a **length budget**.
+
+MySQL's `GET_LOCK()` truncates names at 64 characters. A runner typically builds its lock name
+as a fixed prefix plus the database name, and the prefix can easily be twenty-odd characters.
+That leaves the slug with a real ceiling.
+
+The slug ceiling is **31 characters**. Over that, the first 22 characters are kept and an
+8-character hash of the *raw* input is appended.
+
+<Aside type="danger" title="Hashed, not truncated — and this is load-bearing">
+Two long branch names very often share a prefix. `feature/checkout-redesign-part-one` and
+`feature/checkout-redesign-part-two` truncate to the same string, so two sandboxes would
+collide on **one lock** and one migration would silently wait on the other. A hash of the raw
+input cannot collide that way.
+
+Do not raise the ceiling without re-checking the lock-name budget of every driver.
+</Aside>
+
+## Grants: escape the underscore
+
+MySQL treats `_` and `%` as **wildcards** in the database part of a `GRANT`. A grant meant to
+cover every per-sandbox schema named `acme_<something>` must be written as:
+
+```sql
+GRANT ALL ON `acme\_%`.* TO 'sandbox'@'%';
+```
+
+- `acme_%` unescaped grants far more widely than intended, because `_` matches any single
+  character.
+- `` `acme_%` `` in plain backticks grants on a database *literally named* `acme_%`, and every
+  fork then fails with `Error 1044: Access denied`.
+
+The escaped underscore with a live `%` is the only correct spelling, and the failure mode of
+getting it wrong is an access-denied error naming a database that looks perfectly reasonable.
+
+## Migrations run from a directory with no `.env` in it
+
+This one prevents a genuinely dangerous accident.
+
+A typical migration runner resolves its configuration file from a handful of **relative**
+paths and loads it in a way that does not override variables already set. That sounds safe. It
+is not: a *partially* set environment gets silently backfilled from whichever file the runner
+happened to find — and a repo that contains a production configuration file somewhere in the
+tree will supply the missing half.
+
+The mitigation has two parts:
+
+<Steps>
+
+1. **Run the migration from a directory where none of those relative paths resolve.** The
+   runner then reports that it is configured purely from environment variables, which is
+   per-run *proof* that nothing shadowed the values the sandbox passed.
+
+2. **Refuse to run at all if a production-pointing variable is set in the caller's
+   environment.** A cloud SQL instance name, a production host — if it is in the environment
+   the developer is running from, stop.
+
+</Steps>
+
+## Stuck migration bookkeeping is the project's problem, deliberately
+
+A migration runner that tracks its own runs will typically refuse to proceed
+non-interactively while any row has a null completion timestamp. That refusal is correct: it
+means a previous run died part-way through. And a fork inherits that state.
+
+**sandboxr does not repair it.** Reading and writing a project's bookkeeping table means
+reimplementing the project's migration logic, which the
+[driver contract](/databases/drivers/#4-never-reimplement-the-projects-migration-logic) forbids,
+and it would only ever work for the one project whose schema you encoded.
+
+The reasoning is still worth having, because the repair belongs in the **project's own runner**:
+
+| Option | Consequence |
+|---|---|
+| **Delete the row** | The runner treats that migration as pending and runs it again. Re-running a migration that already applied half its DDL is exactly the hazard the refusal exists to prevent. |
+| **Complete the row** | The runner treats it as done and moves on. Conservative: it may leave a half-applied state in place, but it applies nothing twice. |
+
+Complete it, never delete it. And **never heal a row whose file is still present** — that marks
+a broken migration as done, so the next run fails one migration further along, and the one after
+that fails further still, until the database looks fully migrated having never actually run any
+of it.
+
+<Aside type="tip" title="What this means in practice">
+`sandboxr db fork` hands you a copy in whatever state the source was in. If the runner refuses,
+that refusal is real information about your source database, and the fix is in the project.
+`sandboxr db reset` gives you a clean slate to work from meanwhile.
+</Aside>
+
+## The runner's exit code is not the whole answer
+
+A runner that prints its own failure summary and *then* exits zero reports success while the
+schema is half-applied. And a sandbox builds that runner **from the branch it is testing**, so
+the branch may be exactly the one with that bug.
+
+A project whose runner behaves this way declares patterns alongside the command:
+
+```yaml
+migrate:
+  command: go run ./cmd/migrate
+  # Treated as a failure even on exit 0.
+  failure_pattern: "[0-9]+ failed"
+  # How to pull the failing file and the error text out of the output.
+  file_pattern: "[0-9]{8}-[^ ]+\\.sql"
+  error_pattern: "Error [0-9]+ \\([0-9A-Z]+\\):.*"
+```
+
+<Aside type="danger" title="And never test a pipeline's exit status">
+`cmd | tee log` exits with `tee`'s status, and `tee` always succeeds. Testing the pipeline
+therefore reports **every** failed migration as a success — a silent false green in the one place
+you least want one.
+</Aside>
+
+## Common failures
+
+| Symptom | Cause |
+|---|---|
+| `Error 1044: Access denied ... to database 'acme_...'` | The grant is missing or its underscore is unescaped. |
+| `Refusing to run until these are resolved` | Stuck migration bookkeeping inherited from the source. The runner is protecting you; diff, then reset, and fix it in the project. |
+| InnoDB reporting "probably out of disk space" mid-restore | **A full Docker disk.** It reads as a corrupt database. Check disk first, always. |
+| A permissions error on a statement nobody wrote | `--set-gtid-purged=OFF` is missing from the dump. |
+| Binary columns are garbage after a restore | `--hex-blob` is missing. |
+| The pending migration count differs between two worktrees | Expected. The set is computed from *that worktree's* migration directory, which is the point. |
+
+Each of these is expanded in [troubleshooting](/troubleshooting/symptom-to-cause/).
+
+## If you can, move your own database to the pinned version
+
+The skew is a hazard you can simply delete. If the seed cache makes re-dumping cheap — and it
+does — moving your local database to the version production runs is roughly a one-minute job
+and removes a whole category of "works in my sandbox".

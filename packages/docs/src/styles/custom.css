@@ -1,0 +1,62 @@
+/* Accent tuned for a tool whose whole job is "a box you can throw away". */
+:root {
+  --sl-color-accent-low: #17233a;
+  --sl-color-accent: #3a6df0;
+  --sl-color-accent-high: #c3d3fb;
+  --sl-content-width: 50rem;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #d3ddfb;
+  --sl-color-accent: #2c50c2;
+  --sl-color-accent-high: #16234a;
+}
+
+/* Diagrams */
+.mermaid-figure {
+  margin: 1.75rem 0;
+}
+
+.mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  padding: 1rem 0.5rem;
+  background: var(--sl-color-black);
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Shown only until Mermaid has replaced it, or if the source will not parse. */
+.mermaid-fallback {
+  margin: 0;
+  font-size: 0.8rem;
+  white-space: pre;
+  color: var(--sl-color-gray-3);
+}
+
+.mermaid-figure figcaption {
+  margin-top: 0.5rem;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+  text-align: center;
+}
+
+/* Reference tables are dense and read better without the default cramped cells. */
+.sl-markdown-content table {
+  font-size: var(--sl-text-sm);
+}
+
+.sl-markdown-content table :is(th, td) {
+  vertical-align: top;
+}
+
+/* Timings and other measured numbers, set apart from prose. */
+.sl-markdown-content kbd {
+  font-family: var(--sl-font-system-mono);
+}

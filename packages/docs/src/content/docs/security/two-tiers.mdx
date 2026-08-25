@@ -1,0 +1,152 @@
+---
+title: The two tiers
+description: Apps are public, controls are behind a password. Why the split exists, why the dashboard must be protected, and the specific reason an open action endpoint is remote code execution.
+sidebar:
+  order: 1
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Mermaid from "../../../components/Mermaid.astro";
+
+sandboxr has exactly two security tiers, and one authentication mechanism used twice.
+
+| Tier | What is in it | Protection |
+|---|---|---|
+| **Apps** | Everything a sandbox serves: front-ends, APIs | `public` by default; `private` puts them behind the session |
+| **Controls** | The dashboard, the terminal, start, stop, rebuild, migrate, delete | **Password. Always. Not configurable.** |
+
+<Mermaid
+  caption="One session mechanism. Public app hostnames skip the check; nothing else does."
+  chart={`
+flowchart TB
+  vis["Browser"] --> router["Shared router<br/>terminates TLS, routes on Host"]
+  router --> q{"Which hostname?"}
+  q -->|"&lt;slug&gt;.&lt;label&gt;.&lt;project&gt;.&lt;domain&gt;<br/>project is public"| app["Sandbox container<br/>no auth"]
+  q -->|"same, project is private"| fa["Forward-auth<br/>GET /auth/verify"]
+  fa -->|"200"| app
+  fa -->|"401"| deny["Denied"]
+  q -->|"the bare domain"| dash["Dashboard<br/>session cookie required"]
+  dash --> docker[("Docker socket")]
+  dash --> term["Terminal route<br/>/p/&lt;project&gt;/s/&lt;slug&gt;/terminal"]
+`}
+/>
+
+## Why apps are public by default
+
+Because the point of a sandbox URL is to send it to someone.
+
+A designer, a product manager, the person who filed the ticket — none of them should need an
+account on your Docker host to look at a branch. Someone who finds a sandbox sees a preview of
+unreleased features, and that is usually fine, and sometimes the entire objective.
+
+That default comes with two conditions attached, and they are
+[enforced as refusals](/security/public-sandboxes/). Read that page before you deploy
+anything.
+
+Set `access.apps: private` when the apps must not be public — real data, or a project that is
+not ready to be seen. Private app hostnames get a forward-auth middleware pointing at the
+dashboard's verify endpoint, which returns 200 or 401. It is the same session, so anyone who
+can use the dashboard can use the apps.
+
+## Why the controls are not negotiable
+
+The dashboard talks to the **Docker socket**.
+
+That is not a detail you can design around. The Docker socket is root-equivalent on the host,
+whatever flags it is mounted with. A process that can reach it can start a container with the
+host filesystem mounted and do anything at all.
+
+So: **an action endpoint reachable without a session is remote code execution on the host.**
+Not a leak, not a misconfigured page — arbitrary code, as root, on the machine.
+
+<Aside type="danger" title="If you skim one paragraph on this site, make it this one">
+There is no mode in which the controls are open. No `--no-auth` for local development, no
+"it's only on my laptop" exception, no environment variable that disables it. If
+`SANDBOXR_PASSWORD` is not set, the controls do not serve. That is the design, and asking for
+a way around it is asking for a way to hand your machine to whoever finds port 443.
+</Aside>
+
+## The non-negotiables
+
+These come straight from the contract and they are what "behind a password" actually means in
+code.
+
+### No action endpoint is reachable without a session
+
+Not one. Not a health check that happens to accept a container name. Not a "read-only" listing
+endpoint that leaks worktree paths. Not a websocket that authenticates after the upgrade.
+
+### Every action is a closed table
+
+There is no generic "run this command" endpoint. The set of things the dashboard can do is a
+fixed table in the server package, and each entry names the command, whether progress can be a
+real fraction, and how to parse a line into progress.
+
+This is what stops the dashboard from being a shell with a nicer font. You cannot ask it to run
+something that is not in the table, so an attacker who gets a session still cannot run
+arbitrary commands — only the enumerated ones.
+
+### Every input is validated, and commands are argument arrays
+
+Slugs, project names and branch names are validated against the documented patterns **before**
+they reach a command. Commands are executed as argument arrays, never as a shell string.
+
+Treat every request as untrusted input, including one that arrives with a valid session. A
+slug is `[a-z0-9-]` with a 31-character ceiling; anything else is rejected rather than escaped.
+
+### The login route is rate-limited
+
+A password with no rate limit is a password you can guess offline at HTTP speed.
+
+### The password is compared timing-safely and stored as a hash
+
+Never logged, never echoed, never included in an error message. A comparison that returns early
+on the first wrong byte leaks the password one byte at a time.
+
+## The session
+
+- `POST /auth/login` takes a password and sets a signed cookie: `HttpOnly`, `Secure`,
+  `SameSite=Lax`.
+- `HttpOnly` so page JavaScript cannot read it. `Secure` so it never crosses plain HTTP.
+  `SameSite=Lax` so another site cannot make your browser perform an action with it.
+- The session secret lives in `~/.sandboxr/state/`, outside any repository.
+- The session records **which projects it may control**, so different passwords can grant
+  different projects.
+
+<Aside type="caution" title="Per-project access has no configuration yet">
+The contract says a password grants the projects it is configured for, but there is one
+`SANDBOXR_PASSWORD` and no file mapping passwords to projects. Today, treat the password as
+granting everything. Recorded on [what is built](/reference/status/).
+</Aside>
+
+## Why the terminal is a route, not a hostname
+
+The terminal lives at `/p/<project>/s/<slug>/terminal` **inside the dashboard**, on the bare
+domain. It is never given a hostname of its own, and that is a structural decision rather than
+a routing convenience.
+
+- On the dashboard, it inherits the dashboard's session automatically. There is no second
+  authentication path that could be got wrong.
+- On a per-sandbox hostname, it would sit alongside apps that are `public` by default. One
+  routing mistake, one copied config block, and you have published an interactive shell inside
+  a container that mounts your worktree.
+
+The dashboard is on the bare domain and never on a per-sandbox hostname, for the same reason.
+
+## What this does and does not protect against
+
+| Threat | Covered? |
+|---|---|
+| Someone on the internet finding an app URL | Yes — that is the intended behaviour for `public`, and the [two requirements](/security/public-sandboxes/) make it safe |
+| Someone on the internet finding the dashboard | Yes — password, rate-limited, timing-safe |
+| Someone guessing a slug to reach a private app | No — private apps are behind the session, and slugs are not secrets |
+| A person with the password doing damage | **No.** The password is full control of every sandbox on the host. Treat it as a root credential |
+| A malicious app *inside* a sandbox | Partly. It is a container, with the worktree bind-mounted read-write. It can rewrite your branch |
+| Data leaking out of a public app | Only by the seed and credential requirements. Those are the whole defence, which is why they are refusals |
+
+That third-from-last row deserves emphasis: the worktree is mounted read-write, on purpose, so
+that [agents can work in a sandbox](/agents/in-a-sandbox/). Anything running in the container
+can modify your branch. That is a feature with a sharp edge, not an oversight.
+
+Next: [public sandboxes](/security/public-sandboxes/), which is the page to read before you
+expose anything.

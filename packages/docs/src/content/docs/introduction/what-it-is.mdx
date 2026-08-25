@@ -1,0 +1,146 @@
+---
+title: What sandboxr is
+description: The problem sandboxr solves, what a sandbox actually contains, and the vocabulary the rest of these docs uses.
+sidebar:
+  order: 1
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Mermaid from "../../../components/Mermaid.astro";
+
+sandboxr turns a git worktree into a running copy of a whole project, on its own hostname.
+
+One container per worktree. Inside it: every backend the project declares, every front-end,
+its own database seeded and migrated, its own object storage. Several run at once on one
+machine — a laptop or a remote server — and each is reachable in a browser at
+`https://<slug>.<label>.<project>.<domain>`.
+
+## The problem
+
+A branch that touches more than one service cannot be reviewed by reading it. You have to
+run it. And running it usually means one of these:
+
+- **`git checkout` on your one local stack.** You get one branch at a time. Switching costs
+  a rebuild and, if the branch has a migration, a database that no longer matches whatever
+  you switch back to. Two people cannot look at two branches at once.
+- **A shared staging environment.** One branch at a time again, now with a queue in front of
+  it. A broken deploy blocks everyone. Nobody can test a migration, because the data is
+  shared and the previous migration already ran.
+- **A cloud preview environment per pull request.** Closer, but it is usually front-end only,
+  it takes minutes rather than seconds, it needs CI to build it, and it has no database you
+  are allowed to break.
+
+The thing all three lack is a *disposable whole*. You want the project — services, apps,
+database, storage — running from one branch, for as long as you need it, with permission to
+destroy it.
+
+## What a sandbox is
+
+A sandbox is one Docker container holding everything a project needs to serve itself, plus a
+bind mount of the worktree it was started from.
+
+<Mermaid
+  caption="One sandbox. Everything inside is private to it except the two shared caches."
+  chart={`
+flowchart TB
+  subgraph host["Your machine"]
+    wt["Worktree<br/>.worktrees/feat-123"]
+    subgraph box["Container sandboxr-acme-feat-123"]
+      direction TB
+      ws["/workspace<br/>(bind mount of the worktree)"]
+      db[("Database<br/>seeded + migrated")]
+      blob[("Object storage")]
+      be["Backends<br/>supervised, one port each"]
+      fe["Front-ends<br/>static builds or dev servers"]
+      cad["Internal router<br/>hostname to service"]
+    end
+    deps[("Shared node_modules volume<br/>keyed on the lockfile hash")]
+  end
+  wt -.->|"live, both directions"| ws
+  ws --> be
+  ws --> fe
+  deps -.-> ws
+  be --> db
+  be --> blob
+  cad --> be
+  cad --> fe
+`}
+/>
+
+Concretely, for the monorepo in [the worked example](/config/example-mysql-monorepo/), one
+sandbox is: MySQL 8.4 with a forked-and-migrated copy of the schema, MinIO with three
+buckets, three Go APIs, two single-page apps, a Next.js marketing site, a static component
+library and an optional CMS — around 500 MB of memory when everything is running.
+
+Nothing is published to the host. The container has no host ports at all; a shared router
+reaches it by container name and routes on the `Host` header.
+
+## What you get for each app
+
+Every app and API the config declares gets a hostname of its own:
+
+```
+feat-123.app.acme.sbx.lcl        the main single-page app
+feat-123.api.acme.sbx.lcl        the API behind it
+feat-123.admin.acme.sbx.lcl      the admin app
+feat-123.www.acme.sbx.lcl        the marketing site
+```
+
+Read that as `<slug>.<label>.<project>.<domain>`:
+
+| Part | Where it comes from |
+|---|---|
+| `slug` | Derived from the worktree directory or the branch. A ticket id in either wins. |
+| `label` | The `label` of a `backends` or `frontends` entry in `sandboxr.yaml`. |
+| `project` | The `project` field in `sandboxr.yaml`. |
+| `domain` | `SANDBOXR_DOMAIN`, default `sbx.lcl`. |
+
+The dashboard is the one exception. It lives on the **bare domain** — `https://sbx.lcl` —
+and never on a per-sandbox hostname. That is deliberate: see
+[the two tiers](/security/two-tiers/).
+
+## The vocabulary
+
+You will see these words used precisely throughout, and there is a longer
+[glossary](/reference/glossary/).
+
+| Term | Means |
+|---|---|
+| **Sandbox** | One container, from one worktree, with its own database and storage. |
+| **Slug** | The short identifier for a sandbox. Appears in the hostname, the container name, the volume names, and a database lock name. |
+| **Project** | A repository with a `sandboxr.yaml`. Several projects can run side by side. |
+| **Label** | The per-app hostname component. `app`, `api`, `www`. |
+| **Driver** | The database implementation for a project: `mysql`, `d1`, `sqlite` or `none`. |
+| **Dashboard** | The password-protected web UI on the bare domain. |
+| **Router** | The shared reverse proxy that maps a hostname to a container. |
+| **Degraded** | A sandbox that started but whose migration failed. It stays up on purpose. |
+
+## Two tiers of access, and why it is not one
+
+The apps a sandbox serves are **public** by default. Someone who finds one sees a preview of
+unreleased features, and that is usually the point — you want to send the URL to a designer
+or a product manager without giving them an account on your Docker host.
+
+Everything that *controls* a sandbox — the dashboard, the terminal, start, stop, rebuild,
+migrate — is **behind a password. Always.**
+
+<Aside type="danger" title="This is not a style preference">
+The dashboard talks to the Docker socket. An action endpoint reachable without a session is
+remote code execution on the host, not a misconfigured page. See
+[the two tiers](/security/two-tiers/) and, before you point a domain at anything,
+[public sandboxes](/security/public-sandboxes/).
+</Aside>
+
+Making the apps public brings two hard requirements with it — fixture-only database seeds
+and dummy third-party credentials — and sandboxr **refuses to start** a public sandbox that
+breaks either. They are refusals rather than warnings because the failure mode is a data
+leak or a bill, and neither is recoverable by reading a warning afterwards.
+
+## Where the reasoning comes from
+
+sandboxr generalises an internal tool that did this for a single monorepo and was used
+daily. Much of the container layer is a direct port, and a lot of the reasoning in these
+docs — particularly [design decisions](/architecture/decisions/) and
+[troubleshooting](/troubleshooting/symptom-to-cause/) — records things that went subtly
+wrong in that implementation. It is written down for the same reason it was written down
+there: the symptom rarely resembles the cause.

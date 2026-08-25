@@ -1,0 +1,105 @@
+---
+title: What is built
+description: Which parts of these docs describe working code, which describe the settled contract ahead of the code, and which were filled in to avoid leaving a gap.
+sidebar:
+  order: 5
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+These docs were written from `docs/architecture/contracts.md`, which is the settled design,
+while the packages that implement it were still being written. That means **no command on
+this site has been executed**. This page says exactly what that means for each claim, so you
+can tell a specification from a measurement.
+
+<Aside type="caution" title="Read this before you follow a command">
+Every command in these docs is transcribed from the contract, or carried over from the
+internal single-repo tool sandboxr generalises. None has been run against sandboxr itself,
+because `packages/core`, `packages/cli`, `packages/server` and `container/` were empty when
+this was written. Treat commands as the intended interface, not as verified behaviour.
+</Aside>
+
+## Confidence, page by page
+
+| Confidence | What it means |
+|---|---|
+| **Contract** | Stated in `contracts.md`. It may not be implemented yet, but it is decided, and a package that disagrees with it is a bug. |
+| **Measured** | Observed in the internal tool sandboxr generalises, on one large monorepo. The reasoning transfers; the exact numbers and command names may not. |
+| **Derived** | Not in the contract. Written to fill a gap these docs could not leave blank — mostly the CLI surface. Expect it to change. |
+
+| Page | Confidence | Notes |
+|---|---|---|
+| [What sandboxr is](/introduction/what-it-is/) | Contract | Hostname shape, label sources and the two tiers are `contracts.md` §1–§3. |
+| [When to use it](/introduction/when-to-use/) | Measured | Memory and timing figures come from one large monorepo, not from sandboxr. |
+| [Prerequisites](/start/prerequisites/) | Derived | Version floors are inferred from `package.json` (`node >=22`) and the container's needs. |
+| [Set up your machine](/start/setup/) | Derived | `sandboxr init` and `doctor` are carried over as concepts. Neither command exists yet. |
+| [Your first sandbox](/start/first-sandbox/) | Derived | The hostnames are contract; the commands that produce them are not. |
+| [Lifecycle](/use/lifecycle/) | Derived | `list` and `gc` are named in `contracts.md` §3.4. `up`, `down`, `logs` and `shell` are carried over. |
+| [The edit–reload loop](/use/edit-and-reload/) | Measured | Every timing on that page. Reproduce them before quoting them. |
+| [Logs, shells and terminals](/use/logs-and-shells/) | Mixed | The terminal route and its transport are contract (§3.2, §8). `logs` is carried over. |
+| [sandboxr.yaml](/config/sandboxr-yaml/) | Contract | With the gaps listed below. |
+| [Three runtime kinds](/config/runtime-kinds/) | Contract | `contracts.md` §5.1, with an example built out. |
+| [Secrets](/config/secrets/) | Contract | §5.2. |
+| [Both examples](/config/example-mysql-monorepo/) | Contract | Copied from `examples/` in the repo. |
+| [Databases](/databases/drivers/) | Contract | The driver interface is §6 verbatim. Driver behaviour is §6.1 plus carried-over experience. |
+| [Testing a migration](/databases/testing-a-migration/) | Mixed | The safety properties are contract (§6). The `db` subcommands are derived. |
+| [Access and security](/security/two-tiers/) | Contract | §5.3 and §7. The strongest part of the contract, and the part to trust. |
+| [Deployment guide](/server/deployment/) | Derived | The requirements are contract; the concrete steps are not written down anywhere yet. |
+| [Agents in a sandbox](/agents/in-a-sandbox/) | Mixed | The bind-mount property is contract; the workflow is how the predecessor was used. |
+| [Architecture](/architecture/request-path/) | Mixed | Labels, hostnames, actions and the two tiers are contract. Startup ordering is carried over from the predecessor's container. |
+| [Troubleshooting](/troubleshooting/symptom-to-cause/) | Measured | Every entry is a failure that actually happened. The causes transfer even where the commands do not. |
+| [CLI commands](/reference/cli/) | Derived | The contract does not pin a CLI surface. Flagged in place. |
+| [Environment variables](/reference/environment/) | Mixed | `SANDBOXR_HOME`, `SANDBOXR_DOMAIN` and `SANDBOXR_PASSWORD` are contract. The rest is derived. |
+| [Config schema](/reference/config-schema/) | Contract | Reconciled against `examples/`, which disagrees with §5 — see below. |
+
+## Gaps in the contract these docs could not close
+
+Each of these is a documentation bug worth fixing in `contracts.md`. They are recorded here
+rather than papered over.
+
+1. **§5's YAML snippet does not parse.** `backends:` is shown as a block sequence with a
+   `defaults:` mapping key as a sibling of the list items, which is invalid YAML. The
+   example configs use `backends: { defaults, services }` and
+   `frontends: { root, defaults, apps }`. These docs follow the examples and say so on
+   [the schema page](/reference/config-schema/).
+2. **`seed_from.local` and `seed_from.file` can both be set, and precedence is not
+   stated.** The example's comments imply "local on a laptop, file on a server", but nothing
+   says which wins when both are present, or whether the choice is environmental or
+   ordered. Documented as unspecified.
+3. **§5.3 requires an "explicitly-marked anonymised dump" but no field marks one.** There is
+   no `anonymised: true` in the schema or in either example. The requirement is documented;
+   the mechanism is not, because it does not exist.
+4. **The same is true of "unless explicitly opted in" for third-party credentials.** No
+   opt-in field exists. Documented as an open question on
+   [public sandboxes](/security/public-sandboxes/).
+5. **§5.3's first condition is ambiguous.** "The database seed is a fixture" is hard to read
+   against a `seed_from` block where `fixtures` is applied *after* migrations and coexists
+   with `local`/`file`. The reading these docs use — a public sandbox may have no `local`
+   fork, and a `file` only if marked anonymised — is stated as an interpretation.
+6. **No CLI surface is defined.** §3.4 names `list` and `gc`; §8 says actions are a closed
+   table in the server package but does not enumerate it. Everything else on
+   [the CLI page](/reference/cli/) is derived and marked.
+7. **`storage` is not in §5 at all**, but the monorepo example uses
+   `storage: { driver: minio, buckets: [...] }` and §3.3 reserves a `blob` volume for it.
+   Documented from the example.
+8. **These example-only fields are undocumented in §5:** `backends.defaults.workdir`,
+   `backends.defaults.health`, `frontends.root`, `frontends.defaults`, `apps[].port`,
+   `apps[].memory`, `apps[].optional`, `apps[].in_build_all`, and `database.owner`. All are
+   documented from the examples and marked as such.
+9. **`degraded` is a state with no home.** §6 says a failed migration marks a sandbox
+   `degraded`, but §3.4's label table has no field for it, and state is supposed to live only
+   in labels. Either a label is missing or the state is derived from something unstated.
+10. **The per-project access model in §7 has no configuration.** "A password grants the
+    projects it is configured for" — there is one `SANDBOXR_PASSWORD` and no file mapping
+    passwords to projects. Documented as intent.
+
+## What was not documented at all
+
+- **`container/` internals.** Dockerfiles, s6 service definitions and the internal router
+  config were not written when these docs were. The
+  [startup graph](/architecture/startup/) describes the ordering the contract requires and
+  the shape the predecessor used, and says which is which.
+- **The dashboard's action table.** §8 requires a closed table; its contents are not
+  specified. [Logs, shells and terminals](/use/logs-and-shells/) describes the actions the
+  predecessor's dashboard offered.
+- **`sandboxr doctor`'s exact checks.** Named as a concept, not enumerated.

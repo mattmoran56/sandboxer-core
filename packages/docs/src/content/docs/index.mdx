@@ -1,0 +1,89 @@
+---
+title: sandboxr
+description: Turn any git worktree into a running copy of a whole project, on its own hostname.
+template: splash
+hero:
+  tagline: One container per branch. Its own database, its own storage, its own copy of every service — reachable in a browser at its own hostname.
+  actions:
+    - text: What sandboxr is
+      link: /introduction/what-it-is/
+      icon: right-arrow
+      variant: primary
+    - text: Get a sandbox running
+      link: /start/prerequisites/
+      icon: rocket
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+## The short version
+
+A project describes itself in a `sandboxr.yaml` at its repo root: what to build, what
+database it needs, which secrets to bring. sandboxr reads that and starts one container per
+git worktree, bind-mounting the worktree so your edits are live inside it. A shared router
+sends each hostname to the right container.
+
+```bash
+cd .worktrees/feat-123
+sandboxr up
+# https://feat-123.app.acme.sbx.lcl
+# https://feat-123.api.acme.sbx.lcl
+```
+
+Two sandboxes on two branches do not share a database, a port, an uploads bucket or a
+`node_modules` install they can corrupt for each other. Deleting one deletes all of it.
+
+<CardGrid>
+  <Card title="A whole project, not a service" icon="puzzle">
+    Every backend the project declares, every front-end, a database seeded from real
+    structure, and object storage — inside one container.
+  </Card>
+  <Card title="Public apps, private controls" icon="approve-check">
+    The apps a sandbox serves are shareable by default. Everything that *controls* a
+    sandbox sits behind a password, always.
+  </Card>
+  <Card title="No state to drift" icon="setting">
+    Sandbox state lives only in Docker labels. `list` and `gc` are functions of
+    `docker ps`, so there is nothing to get out of sync.
+  </Card>
+  <Card title="Built for agents" icon="rocket">
+    The worktree is bind-mounted, so an agent editing inside the container is editing your
+    branch. Its work shows up in `git status`.
+  </Card>
+</CardGrid>
+
+## Where to go next
+
+<CardGrid>
+  <LinkCard
+    title="What sandboxr is"
+    href="/introduction/what-it-is/"
+    description="The problem it solves, what a sandbox actually contains, and the vocabulary the rest of the docs uses."
+  />
+  <LinkCard
+    title="Getting started"
+    href="/start/prerequisites/"
+    description="Prerequisites, one-time machine setup, and your first sandbox — separate paths for a laptop and a server."
+  />
+  <LinkCard
+    title="Configuring a project"
+    href="/config/sandboxr-yaml/"
+    description="sandboxr.yaml field by field, the three runtime kinds, and two complete worked examples."
+  />
+  <LinkCard
+    title="Access and security"
+    href="/security/two-tiers/"
+    description="Read this before you point a domain at a server. The dashboard talks to the Docker socket."
+  />
+  <LinkCard
+    title="Architecture"
+    href="/architecture/request-path/"
+    description="How a request reaches a sandbox, the startup ordering, and why each decision went the way it did."
+  />
+  <LinkCard
+    title="Troubleshooting"
+    href="/troubleshooting/symptom-to-cause/"
+    description="Symptoms whose cause looks nothing like them. A full Docker disk reports as a corrupt database."
+  />
+</CardGrid>

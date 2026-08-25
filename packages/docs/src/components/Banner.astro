@@ -1,0 +1,30 @@
+---
+/**
+ * Overrides Starlight's Banner so the notice appears on every page, not only on pages
+ * that set `banner` in frontmatter. sandboxr is documented ahead of its own code, and a
+ * reader who lands mid-site from a search result needs to know that before they copy a
+ * command.
+ */
+---
+
+<div class="sl-banner">
+  sandboxr is early: these docs are written from the contract, ahead of the code.
+  <a href="/reference/status/">See what is built</a>.
+</div>
+
+<style>
+  .sl-banner {
+    --sl-banner-text: var(--sl-color-banner-text, var(--sl-color-white));
+    padding: var(--sl-nav-pad-y) var(--sl-nav-pad-x);
+    background-color: var(--sl-color-bg-accent);
+    color: var(--sl-banner-text);
+    line-height: var(--sl-line-height-headings);
+    text-align: center;
+    text-wrap: balance;
+    box-shadow: var(--sl-shadow-sm);
+  }
+
+  .sl-banner a {
+    color: var(--sl-banner-text);
+  }
+</style>

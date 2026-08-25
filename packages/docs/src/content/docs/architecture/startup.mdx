@@ -1,0 +1,215 @@
+---
+title: The startup graph
+description: What runs in what order inside a sandbox, which services exist at all, why the router is deliberately not gated on the database, and why a failed migration still boots.
+sidebar:
+  order: 2
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Mermaid from "../../../components/Mermaid.astro";
+
+## The entrypoint is not the supervisor
+
+The container's entrypoint is a script, not the process supervisor, and it cannot be the other
+way round.
+
+The supervisor compiles its service database **once**, before any service runs. So the *set of
+services* has to be settled first — and that set depends on the plan. A `driver: none` project
+has no database services at all; a project with no dependency tree has no dependency-seeding
+step.
+
+So the entrypoint:
+
+1. reads [`/sandboxr/plan.json`](/architecture/plan-json/)
+2. exports the computed environment — database address, storage credentials, per-label URLs
+3. writes the router configuration
+4. writes the service tree
+5. `exec`s the supervisor
+
+Everything after that point is supervision.
+
+## The graph
+
+<Mermaid
+  caption="One-shots gate long-runs. The router is deliberately outside the gate."
+  chart={`
+flowchart LR
+  subgraph gated["Gated on the database being ready"]
+    direction LR
+    mi["mysql-init<br/>(oneshot, mysql only)"] --> md["mysqld<br/>(longrun, mysql only)"]
+    md --> di["db-init<br/>(oneshot)"]
+    mo["minio<br/>(longrun, storage only)"] --> di
+    de["deps-init<br/>(oneshot, if a dep tree)"] --> di
+    di --> svc["Every backend<br/>Every server front-end"]
+  end
+  cad["Router<br/>(longrun, UNGATED)"]
+`}
+/>
+
+## Which services exist depends on the plan
+
+This is not a fixed graph with optional branches — the services are *generated*, so the ones
+that do not apply do not exist.
+
+| Service | Exists when |
+|---|---|
+| `mysql-init`, `mysqld` | `driver: mysql` |
+| `minio` | `storage` is declared |
+| `deps-init` | there is a dependency tree in the plan |
+| `db-init` | **always**, including `driver: none` |
+| backends | one per `kind: backend` service |
+| server front-ends | one per `kind: server` service, unless `optional` and not requested |
+| the router | always |
+
+A `driver: none` project therefore gets `db-init`, the router, and its own services — and
+nothing else. **That is most of why such a sandbox is cheap.**
+
+### `db-init` exists even with no database
+
+Because it is also what writes the status file the dashboard reads. A sandbox with no database
+still has to be able to say it finished booting.
+
+## The router is deliberately not gated
+
+The router starts immediately, before the database is provisioned. That looks wrong and is
+important.
+
+It serves the **status surface** and the **"not built yet"** pages, neither of which touches the
+database. And a first-boot database restore legitimately takes minutes — which is exactly when
+the dashboard most needs an answer about what is happening.
+
+The trade is between two failure modes:
+
+| If the router is ungated | If the router is gated on the database |
+|---|---|
+| A backend that is not up yet answers **502** | The whole sandbox answers **connection refused** |
+| A 502 is a truthful answer: "I am here, that service is not" | A refused connection is not an answer at all |
+| The status endpoint says `booting`, with a reason | Nothing can say anything |
+
+<Aside type="danger" title="This was learned the hard way">
+The tool sandboxr generalises *did* gate its router on database initialisation, and a sandbox
+was therefore unreachable and unexplained for the whole of its first boot. Nobody could tell a
+slow restore from a broken one.
+</Aside>
+
+## The status surface
+
+Every hostname a sandbox serves answers these, whatever else it does:
+
+| Path | What |
+|---|---|
+| `/__sandboxr/live` | `ok`, unconditionally — the container is up |
+| `/__sandboxr/status.json` | the composed status document |
+| `/__sandboxr/built.json` | label → last build time, for every built app |
+| `/__sandboxr/health/<service>` | proxied to that service's declared health path |
+
+```json
+{
+  "project": "acme", "slug": "feat-123", "domain": "sbx.lcl",
+  "state": "booting | ok | degraded",
+  "database": { "driver": "mysql", "name": "acme" },
+  "migrations": { "state": "ok | failed | skipped | unknown", "file": "", "error": "" },
+  "bootedAt": "2026-08-25T13:41:27Z", "updatedAt": "2026-08-25T13:44:02Z"
+}
+```
+
+**`state` is derived, never asserted.** Every writer records a fact in its own marker file and
+calls a composer, which computes the answer. Two writers therefore cannot disagree about
+whether the sandbox is degraded — there is no field that one of them could set wrongly.
+
+That is the same principle as [state living only in Docker labels](/architecture/state/), one
+level down: derive the summary from the facts rather than storing the summary.
+
+## Why the gate is at `db-init`
+
+A backend that starts before its database exists will crash-loop for a while and then work,
+which sounds harmless. It is not:
+
+- The logs fill with connection failures that look like the bug you are chasing.
+- A service that seeds or migrates on boot may do so against a half-restored database.
+- The dashboard shows red during a normal startup, so red stops meaning anything.
+
+Gating is cheap and makes "everything is green" a true statement.
+
+## Why a failed migration does not stop the sandbox
+
+The database provisioning steps **always exit zero**. The failure is recorded, the services
+boot, and the sandbox reports `degraded`.
+
+Killing the container would destroy the evidence, and inspecting a failed migration is one of
+the main reasons the sandbox exists. You cannot get a shell into a container that exited, or
+diff a schema you cannot reach.
+
+```bash
+sandboxr list                      # STATE: degraded
+sandboxr logs feat-123 db-init     # what failed
+sandboxr db diff                   # what it changed before failing
+sandboxr shell                     # look for yourself
+```
+
+### The migration runner's exit code is not always trusted
+
+A runner that prints its own failure summary and *then* exits zero reports success while the
+schema is half-applied. And a sandbox builds that runner **from the branch it is testing** — so
+the branch may be exactly the one with the bug.
+
+A project whose runner behaves this way names a pattern:
+
+```jsonc
+"migrate": {
+  "command": "go run ./cmd/migrate",
+  "failure_pattern": "[0-9]+ failed"
+}
+```
+
+<Aside type="caution" title="And never test a pipeline's exit status">
+`cmd | tee log` exits with `tee`'s status, and `tee` always succeeds. Testing the pipeline
+therefore reports **every** failed migration as a success. The container reads the first
+element of the pipeline's status array instead.
+</Aside>
+
+## Two traps in writing supervised services
+
+### A run script must `exec` its service
+
+Write `exec cmd | tee log` and the **shell** becomes the supervised process. A restart signals
+the shell; the service survives, keeps holding its port, and every replacement dies with
+`address already in use` while the old code carries on serving.
+
+It looks exactly like a deploy that did nothing, and you will read your own code for a long
+time before you read a run script. Redirect with `>>`. Never pipe.
+
+### Per-service log files, trimmed rather than rotated
+
+`docker logs` interleaves every process in the container and cannot be filtered afterwards,
+which is what makes a busy sandbox unreadable — for a person and for an agent. So each service
+writes its own file.
+
+Those files are **trimmed**, not rotated: these are development logs, and a sandbox left up for
+days must not be able to fill its own disk.
+
+## Dependency caching
+
+A worktree is bind-mounted over `/workspace` at run time, and a bind mount **hides whatever the
+image put underneath it**. A dependency tree installed at its natural location inside the
+project would simply vanish the moment the container started.
+
+So the image installs to a path outside the project, and `deps-init` seeds a volume from it on
+first boot. The volume is keyed on the **lockfile hash**, so every sandbox with the same
+dependencies shares one install, and a branch that changes its dependencies transparently gets
+its own — `deps-init` compares the worktree's lockfile hash against the one stamped into the
+image and runs a real install when they differ.
+
+<Aside type="tip" title="Workspace binaries need re-linking, and the failure names nothing">
+An image that installs from manifests alone will skip linking a `bin` whose target file does not
+exist yet. A build script one workspace package exposes to another is then missing, and the
+build fails with a bare `code 127` that names nothing useful. `deps-init` re-links workspace
+bins for exactly this reason.
+</Aside>
+
+## Related
+
+- [plan.json](/architecture/plan-json/) — what all of this is generated from.
+- [How a request arrives](/architecture/request-path/) — once it is up.
+- [Design decisions](/architecture/decisions/) — the reasoning, collected.
+- [Troubleshooting](/troubleshooting/symptom-to-cause/) — when a step does not complete.

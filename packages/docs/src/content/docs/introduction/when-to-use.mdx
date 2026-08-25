@@ -1,0 +1,93 @@
+---
+title: When to use it
+description: What a sandbox is good at, what it is not, and the four cases where you should reach for something else.
+sidebar:
+  order: 2
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+A sandbox costs roughly 560 MB of memory and about 30 seconds to start. That is cheap enough
+to be careless with and expensive enough that running one per idea is a bad habit. Here is
+where it earns its keep.
+
+## Use one when
+
+**A branch touches more than one service.** A change that moves a field from one API to
+another cannot be reviewed by reading two diffs. Running both, against one database, is the
+only honest check.
+
+**You need to send someone a URL.** A designer, a product manager, or the person who filed
+the ticket. A sandbox hostname is a real HTTPS URL serving the real app from your branch.
+No account, no build step for them, no screenshots.
+
+**You are writing a migration.** This is the strongest case. The sandbox's database is a
+*copy* — forked from your local one or restored from a dump — so a half-written migration
+can be pointed at real structure and real volume, and getting it wrong costs a `reset`. The
+source database is only ever read.
+
+**Two branches need comparing side by side.** Two sandboxes, two hostnames, both open. No
+`git stash`, no rebuild between them, and each has the database its own migrations produced.
+
+**An agent is going to work unsupervised for a while.** The worktree is bind-mounted, so the
+agent's edits are your branch's edits. A sandbox gives it somewhere to see the result of its
+own work without touching the tree you have open in an editor. See
+[agents in a sandbox](/agents/in-a-sandbox/).
+
+**A reviewer wants to poke at a pull request without checking it out.** From the dashboard,
+a pull request with no sandbox is one button away from having one.
+
+## Do not use one when
+
+**You want hot reload.** There is none. The loop is edit → rebuild → refresh, and a
+front-end rebuild is a few seconds. That is a deliberate trade: a dev server per app per
+sandbox would hold hundreds of megabytes for as long as the container lived, and the point
+of sandboxr is running several at once. If you are iterating on a single component's CSS,
+run that app's dev server on your machine and keep the sandbox for the integration.
+
+**You are changing one function in one service and a unit test would answer the question.**
+Run the test. A sandbox is for questions that need the whole thing running.
+
+**You need to reproduce production data.** A sandbox is seeded from structure plus fixtures,
+or from an anonymised dump. If `access.apps` is `public` it *may not* be seeded from live
+data at all — that is [a refusal](/security/public-sandboxes/), not a setting. Debugging a
+specific production record is a different job with different rules.
+
+**You are load-testing, or measuring performance.** Several sandboxes share one machine's
+CPU and one Docker VM's memory. Numbers from a sandbox mean nothing.
+
+**The machine has under 8 GB available to Docker.** At ~560 MB each you can hold five or six
+comfortably on an 8 GB VM. Below that you will spend your time being OOM-killed, and under
+memory pressure the thing the kernel kills may not be the sandbox — it can be your own local
+database. See [resource sizing](/server/deployment/#sizing-the-machine).
+
+## The honest limits
+
+<Aside type="caution" title="Things a sandbox will not do for you">
+- **No hot reload.** Every change needs a rebuild of the thing you touched.
+- **Heavy front-end builds need headroom.** A Next.js site rendering thousands of pages
+  needs more than the default memory limit and will be OOM-killed without it — reported
+  only as `code 137`. See [the edit–reload loop](/use/edit-and-reload/#memory-limits).
+- **Static builds are on demand.** A freshly started sandbox has built nothing. Each
+  hostname answers with a page naming the command to run until you build it.
+- **A failed migration leaves the sandbox up.** That is intended — inspecting a failed
+  migration is a reason the sandbox exists — but it means "the sandbox is running" is not
+  the same as "the database is what you expected". Check for `degraded`.
+- **One writer per D1 file.** Two processes opening the same D1 or SQLite file deadlock, so
+  exactly one service may own it. See [D1 and SQLite](/databases/d1-sqlite/).
+</Aside>
+
+## Laptop or server?
+
+Both are supported and the difference is not the tool, it is DNS and certificates.
+
+| | Laptop | Remote server |
+|---|---|---|
+| Domain | `sbx.lcl` — a local-only suffix | A real domain you own, with a wildcard record |
+| DNS | A local resolver, installed once with `sudo` | Wildcard `A`/`AAAA` at your DNS provider |
+| Certificates | A locally-trusted certificate authority | Real certificates from an ACME provider |
+| Database seed | Fork the database container you already run | Restore a dump; a live fork is not available |
+| Who can reach it | You | Anyone, which is why the security pages exist |
+
+Start on a laptop. [Set up your machine](/start/setup/) covers both, and
+[the deployment guide](/server/deployment/) is the server-only detail.

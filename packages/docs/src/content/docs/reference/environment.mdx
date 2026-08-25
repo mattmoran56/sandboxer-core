@@ -1,0 +1,113 @@
+---
+title: Environment variables
+description: Every variable sandboxr reads, its default, and what changing it affects — with the three that come from the contract marked separately from the rest.
+sidebar:
+  order: 2
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+## From the contract
+
+These three are defined in `contracts.md` and will not change name.
+
+| Variable | Default | What it is |
+|---|---|---|
+| `SANDBOXR_HOME` | `~/.sandboxr` | Cache, logs, certificates, router state, secrets, generated environments, host-built binaries. Deliberately **never inside a repository**, so `git clean -xdf` cannot destroy it. |
+| `SANDBOXR_DOMAIN` | `sbx.lcl` | The hostname suffix. Every app is `<slug>.<label>.<project>.<domain>`; the dashboard is the bare domain. |
+| `SANDBOXR_PASSWORD` | *(none)* | The control-plane password. **There is no default and no way to disable the requirement.** Compared timing-safely, stored as a hash, never logged. |
+
+<Aside type="danger" title="`SANDBOXR_PASSWORD` is a root credential for the host">
+The dashboard talks to the Docker socket, so whoever has this password can do anything on the
+machine. Generate it with `openssl rand -base64 32`, keep it in a secret manager, and keep it
+out of shell history. [Why this is not negotiable](/security/two-tiers/).
+</Aside>
+
+## Derived
+
+<Aside type="caution" title="Not in the contract">
+The names below are derived from the tool sandboxr generalises, to have something concrete to
+document. Expect them to change. See [what is built](/reference/status/).
+</Aside>
+
+| Variable | Default | What it is |
+|---|---|---|
+| `SANDBOXR_MEMORY_LIMIT` | `2g` | Per-sandbox memory cap. Overridden per app by `memory:` in the config, and per run by `up --memory`. |
+| `SANDBOXR_BASE_IMAGE` | `sandboxr/base:latest` | The shared base image tag. |
+| `SANDBOXR_CACHE_TTL_HOURS` | `24` | How stale a cached seed artifact may get before it is re-taken, regardless of fingerprint. |
+| `SANDBOXR_ACME_EMAIL` | *(none)* | Contact address for ACME certificate issuance. Required on a server. |
+| `SANDBOXR_DEBUG` | unset | Verbose tracing. |
+
+Your DNS provider's API token, for the DNS-01 challenge on a server, is read under **the
+provider's own variable name** rather than a sandboxr one, because the router's ACME client is
+what consumes it.
+
+## What a sandbox is given, and what it computes
+
+A sandbox receives the variables that `secrets` imported, plus everything it works out for
+itself. **Never put the second group in `secrets`** — put their patterns in `secrets.never`.
+
+| The sandbox computes | Because |
+|---|---|
+| Database host, port, user, password, name | The database is inside the sandbox |
+| Object storage endpoint, credentials, bucket names | Storage is inside the sandbox |
+| Inter-service URLs | Derived from `backends.services[].port` and labels |
+| Each service's own `PORT` | From its config entry |
+| The environment name | The sandbox decides |
+| CORS allowlists | Derived from the sandbox's own hostnames |
+
+That last row is why a new sandbox needs no API-side configuration at all. The only external
+system that has to be told about a sandbox hostname is your **identity provider**, and one
+wildcard per app label covers every slug for ever.
+
+Importing any of the above would point a sandbox at the developer's own database or at real
+cloud storage, silently, with the app working perfectly. [In full](/config/secrets/).
+
+## Where state actually lives
+
+| Path under `SANDBOXR_HOME` | Contents |
+|---|---|
+| `cache/` | Database seed artifacts, content-addressed |
+| `logs/<project>/<slug>/` | Per-sandbox logs — survive the container on purpose |
+| `tls/` | Certificate and key |
+| `state/` | Router config, dashboard session secret |
+| `secrets/<project>.env` | Third-party credentials, mode 0600 |
+| `build/<project>/<slug>.env` | The generated per-sandbox environment |
+| `bin/` | Host-built helper binaries |
+
+Everything *about a sandbox* lives in Docker labels rather than here, so listings cannot go
+stale. [Why](/architecture/state/).
+
+## Docker names, for reference
+
+Derived from the project and slug, so you can find things by hand.
+
+| Thing | Pattern | Example |
+|---|---|---|
+| Container | `sandboxr-<project>-<slug>` | `sandboxr-acme-feat-123` |
+| Network | `sandboxr` | one, shared by everything |
+| Database volume | `sandboxr-data-<project>-<slug>` | `sandboxr-data-acme-feat-123` |
+| Storage volume | `sandboxr-blob-<project>-<slug>` | `sandboxr-blob-acme-feat-123` |
+| Built binaries | `sandboxr-bin-<project>-<slug>` | |
+| Built sites | `sandboxr-www-<project>-<slug>` | |
+| Shared dependencies | `sandboxr-deps-<hash>` | keyed on the lockfile |
+| Shared Go caches | `sandboxr-gocache`, `sandboxr-gomod` | |
+
+## Setting them
+
+**Laptop** — a shell profile, so they survive a reboot:
+
+```bash
+export SANDBOXR_PASSWORD='a long random string'
+# SANDBOXR_DOMAIN defaults to sbx.lcl, which is fine locally
+```
+
+**Server** — whatever the machine already uses for service configuration:
+
+```bash
+export SANDBOXR_DOMAIN='sbx.example.com'
+export SANDBOXR_ACME_EMAIL='ops@example.com'
+export SANDBOXR_PASSWORD="$(openssl rand -base64 32)"
+```
+
+[The deployment guide](/server/deployment/) has the rest.

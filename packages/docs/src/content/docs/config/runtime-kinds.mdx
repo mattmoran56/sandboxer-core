@@ -1,0 +1,212 @@
+---
+title: Three runtime kinds
+description: Backend, static and server — how each is declared, how each is served, and why the third one cannot be folded into the other two.
+sidebar:
+  order: 2
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Mermaid from "../../../components/Mermaid.astro";
+
+Everything a sandbox runs is exactly one of three kinds. Getting the kind right is most of
+getting the config right.
+
+| Kind | Declared as | How it runs | Served at |
+|---|---|---|---|
+| **backend** | `backends.services[]` | built once to a binary, supervised, listens on a port | `<slug>.<label>…` proxied |
+| **static** | `frontends.apps[]` with `out:` | built on demand into a directory | `<slug>.<label>…` file server |
+| **server** | `frontends.apps[]` with `serve:` | long-running process, listens on a port | `<slug>.<label>…` proxied |
+
+<Mermaid
+  caption="The same hostname pattern, three different things behind it."
+  chart={`
+flowchart LR
+  req["Request to<br/>&lt;slug&gt;.&lt;label&gt;.acme.sbx.lcl"] --> ir["Internal router"]
+  ir -->|"label is a backend"| be["Supervised binary<br/>listening on a port"]
+  ir -->|"label has out:"| st["Static files on disk<br/>built on demand"]
+  ir -->|"label has serve:"| sv["Long-running dev server<br/>listening on a port"]
+  st -.->|"not built yet"| nb["Page naming the<br/>build command"]
+`}
+/>
+
+## Backend
+
+```yaml
+backends:
+  defaults:
+    workdir: services
+    build: go build -o {out} ./{name}
+    health: /health
+  services:
+    - { name: api, port: 8001, label: api }
+```
+
+Built once when the sandbox starts, then supervised. If it exits, it is restarted. `health`
+gives the sandbox a way to report whether it is actually up rather than merely running.
+
+Rebuild after a change with `sandboxr reload --backend api` — around two seconds for a Go
+service, because it is a compile and a process replacement, nothing more.
+
+Backends are built **at startup**, unlike static front-ends. A compiled service is cheap to
+build and useless until it exists; an app bundle is expensive to build and only needed if
+someone opens it.
+
+## Static
+
+```yaml
+frontends:
+  root: web/packages
+  defaults:
+    build: npx vite build
+    out: dist
+  apps:
+    - { label: app, package: web }
+```
+
+A build command that leaves files in a directory, served by a file server. No process, no
+port, no memory cost once built.
+
+### `static_mode`: three ways to serve a directory
+
+```yaml
+apps:
+  - { label: app, package: web, static_mode: spa }
+  - { label: www, package: marketing, out: out, static_mode: html }
+  - { label: assets, package: assets, static_mode: files }
+```
+
+| Mode | An unknown path… | For |
+|---|---|---|
+| `spa` (default) | rewrites to `index.html` | A single-page app with client-side routing |
+| `html` | resolves `/about` to `about.html` | A generator emitting extensionful files |
+| `files` | is a real 404 | A plain directory of assets |
+
+<Aside type="danger" title="The wrong mode does not fail, it half-works">
+Serve a static-site generator's output in `spa` mode and every deep link renders the home page
+instead of 404ing or resolving. Serve a single-page app in `files` mode and every route except
+`/` is a 404. Serve an asset directory in `spa` mode and a typo'd filename returns your app's
+HTML with a 200.
+
+None of those crash. You find out from a user. That is why the mode is declared rather than
+inferred from what happens to be in the directory.
+</Aside>
+
+### Static builds are on demand, never at startup
+
+This is the rule that makes a sandbox come up in thirty seconds instead of five minutes.
+
+A freshly started sandbox has built **nothing**. Each static hostname answers with a page
+saying the app has not been built yet and naming the command that builds it:
+
+```bash
+sandboxr reload --app app
+```
+
+Two reasons it is a page rather than a 404:
+
+- A 404 at a sandbox hostname is indistinguishable from DNS being broken or the router being
+  misconfigured, so you would go and debug the wrong layer.
+- Most of the time you want one app out of six. Building the other five is pure waiting.
+
+<Aside type="tip" title="A file matcher must resolve against the document root">
+If you are writing the internal router config: test for `index.html` **after** setting the
+root, not before. Reversing them makes the test always miss, and every built app reports
+itself as not built — a failure that looks like the build silently doing nothing.
+</Aside>
+
+## Server
+
+```yaml
+frontends:
+  apps:
+    - label: cms
+      package: cms
+      serve: npx next dev --port 3000 --hostname 127.0.0.1
+      port: 3000
+      optional: true
+```
+
+A long-running process that listens on a port, proxied like a backend. It is declared under
+`frontends` because it *is* the front-end for that label, but it behaves like a backend at
+runtime.
+
+This is what a Cloudflare Workers project needs — `wrangler dev` is a server, not a build —
+and what a CMS or a framework with no static export mode needs.
+
+### Why this is a third kind and not a variation
+
+It is tempting to collapse it: "a server is just a backend under a front-end label", or "a
+static app is just a server that happens to write files". Both are wrong in ways that cost
+you.
+
+- **A server is not a backend.** It has no compiled artefact, so `reload --backend` has
+  nothing to rebuild. It hot-reloads its own source through the bind mount, so it needs no
+  rebuild command at all. And it takes a `label`'s hostname, not a service's.
+- **A static app is not a server.** It has no port, no process, no health check, and no
+  memory cost when idle. Building it is a discrete event with an exit code; serving it is a
+  file read.
+
+Folding them would mean every code path asking "but which sort is this really?", which is
+exactly the branching the three kinds make explicit.
+
+### Servers are expensive, so they are usually opt-in
+
+A live dev server holds its whole module graph resident for as long as the container lives,
+whether or not anyone opens it — commonly hundreds of megabytes. Several sandboxes run at
+once under one memory limit, so that cost is multiplied.
+
+Hence `optional: true`, and hence `sandboxr up --with cms` when you actually need it.
+
+### `prepare` runs once before the server starts
+
+A server has no build step, but some need something done first — code generation, a schema
+sync, a type build:
+
+```yaml
+apps:
+  - label: cms
+    package: cms
+    prepare: npm run codegen
+    serve: npx next dev --port 3000 --hostname 127.0.0.1
+    port: 3000
+    optional: true
+```
+
+`prepare` is the whole of a server's "build". It runs on demand, like a static build, rather
+than at startup.
+
+<Aside type="danger" title="A file-backed database needs the server pointed at the sandbox's state">
+If the project uses `d1` or `sqlite`, both the `serve` and the `migrate` command must direct the
+runtime at the sandbox's own state directory:
+
+```yaml
+serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to $SANDBOXR_D1_DIR
+```
+
+Leave it out and the runtime writes its state **into the worktree** instead — so the sandbox's
+data lands in your branch, and two sandboxes from one worktree share a database file, breaking
+[the one-writer rule](/databases/d1-sqlite/#one-writer-per-file) by construction.
+</Aside>
+
+## Choosing, in one table
+
+| Your app | Kind | Declare |
+|---|---|---|
+| A compiled service with an HTTP port | backend | `backends.services[]` with `port` |
+| A bundled single-page app | static | `out: dist` |
+| A static-export site generator | static | `out: out`, and probably `memory:` |
+| A component library's static build | static | `out: storybook-static`, `in_build_all: false` |
+| A framework with no static export | server | `serve:` + `port`, probably `optional: true` |
+| A Workers project under `wrangler dev` | server | `serve:` + `port` |
+| A worker with no HTTP port at all | backend | `backends.services[]`, no `label` |
+
+## The trade you are making with each
+
+| | Startup cost | Idle cost | Change cost | Hot reload |
+|---|---|---|---|---|
+| **backend** | seconds (compiled at boot) | a running process | ~2s rebuild | no |
+| **static** | none | none | ~3s rebuild, more for big sites | no |
+| **server** | seconds | hundreds of MB, permanently | none | yes |
+
+Read that table as the reason there is no hot reload for the first two kinds. It is not a
+missing feature; it is the price of running six sandboxes on one laptop.

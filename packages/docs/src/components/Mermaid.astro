@@ -1,0 +1,55 @@
+---
+interface Props {
+  /** The Mermaid source. Rendered client-side so the diagram can follow the site theme. */
+  chart: string;
+  /** One line saying what the reader should take from the diagram. */
+  caption?: string;
+}
+
+const { chart, caption } = Astro.props;
+---
+
+<figure class="mermaid-figure">
+  <div class="mermaid-diagram" data-chart={chart.trim()}>
+    <pre class="mermaid-fallback">{chart.trim()}</pre>
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+
+<script>
+  import mermaid from "mermaid";
+
+  let pass = 0;
+
+  const render = async () => {
+    const dark = document.documentElement.dataset.theme === "dark";
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: dark ? "dark" : "neutral",
+      securityLevel: "strict",
+      flowchart: { useMaxWidth: true, curve: "basis" },
+      themeVariables: { fontSize: "15px" },
+    });
+
+    pass += 1;
+    const nodes = document.querySelectorAll<HTMLElement>(".mermaid-diagram");
+    for (const [index, node] of [...nodes].entries()) {
+      const chart = node.dataset.chart;
+      if (!chart) continue;
+      try {
+        const { svg } = await mermaid.render(`sbx-diagram-${pass}-${index}`, chart);
+        node.innerHTML = svg;
+      } catch {
+        // Leave the source visible rather than an empty box: a diagram that will not
+        // parse is still readable as text, and the failure is then obvious.
+      }
+    }
+  };
+
+  void render();
+
+  new MutationObserver(() => void render()).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
+</script>

@@ -1,0 +1,159 @@
+---
+title: The driver model
+description: The five methods every database driver implements, the four rules that apply to all of them, and why the source database is only ever read.
+sidebar:
+  order: 1
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Mermaid from "../../../components/Mermaid.astro";
+
+A driver is the whole database implementation for a project: how to produce a seed, how to get
+from empty to seeded-and-migrated, how to run the project's migrations, how to snapshot the
+schema, and how to open a shell.
+
+There are four: `mysql`, `d1`, `sqlite` and `none`.
+
+## The interface
+
+```ts
+export interface DriverContext {
+  project: string;
+  slug: string;
+  config: ResolvedConfig;
+  home: string;             // SANDBOXR_HOME
+  worktree: string;
+  exec(cmd: string[]): Promise<ExecResult>;   // inside the sandbox container
+  log(line: string): void;
+}
+
+export interface DatabaseDriver {
+  readonly name: "mysql" | "d1" | "sqlite" | "none";
+
+  /** Host-side: produce a reusable seed artifact in ~/.sandboxr/cache. Idempotent. */
+  prepareSeed(ctx: DriverContext): Promise<SeedArtifact>;
+
+  /** Inside the container, first boot: get from empty to seeded-and-migrated. */
+  provision(ctx: DriverContext, seed: SeedArtifact): Promise<void>;
+
+  /** Run the project's own migration command. Never reimplement the project's logic. */
+  migrate(ctx: DriverContext): Promise<MigrateResult>;
+
+  /** Structure-only snapshot, for diffing before/after a migration. */
+  snapshot(ctx: DriverContext): Promise<string>;
+
+  /** An interactive shell against this sandbox's database. */
+  shell(ctx: DriverContext): Promise<void>;
+}
+```
+
+Note the split. `prepareSeed` runs **on the host** and produces a cached artifact that every
+sandbox can reuse. Everything else runs **inside the container**, through `exec`. That
+boundary is why starting a second sandbox on the same project is fast: the expensive part
+already happened.
+
+<Mermaid
+  caption="prepareSeed runs once per source state; the rest runs per sandbox."
+  chart={`
+flowchart TB
+  subgraph hostside["Host"]
+    src[("Source of truth<br/>a running container, or a dump file")]
+    ps["prepareSeed()"]
+    cache[("~/.sandboxr/cache<br/>content-addressed artifact")]
+  end
+  subgraph inside["Inside one sandbox"]
+    prov["provision()"]
+    snap1["snapshot()<br/>baseline"]
+    mig["migrate()<br/>the project's own command"]
+    snap2["snapshot()<br/>compare"]
+    fx["fixtures"]
+  end
+  src -->|"read only"| ps
+  ps --> cache
+  cache --> prov
+  prov --> snap1 --> mig --> snap2 --> fx
+`}
+/>
+
+## The four rules
+
+These apply to every driver, and they are the reason the whole thing is safe to point at real
+data.
+
+### 1. The source database is only ever read
+
+Every destructive operation targets a **copy** — a scratch server, or the database inside a
+sandbox. The source is opened read-only, dumped, and left alone.
+
+This is the property that makes it safe to point a half-written migration at real structure
+and real volume. Without it, the first time someone typo'd a `DROP` in a migration they were
+testing, they would lose their own development database, and nobody would ever trust the tool
+again.
+
+### 2. A failed migration does not stop the sandbox
+
+Record the failure, mark the sandbox `degraded`, and let the services boot anyway.
+
+Killing the container on a failed migration would be exactly backwards. **Inspecting a failed
+migration is one of the reasons the sandbox exists.** You want to get a shell, look at what
+landed, and diff the schema — and you cannot do any of that against a container that exited.
+
+`sandboxr list` shows the state, so it is never silent.
+
+### 3. The schema baseline survives a failed run
+
+Snapshot before migrating; re-take the baseline only after a **success**.
+
+The reasoning is subtle enough to be worth the paragraph. DDL is not transactional in every
+engine — MySQL notably — so a migration can fail with earlier statements already committed.
+The question you then want answered is "what did that actually change?", which is a diff
+against the last schema known to be clean.
+
+If the baseline were re-snapshotted on every attempt, the *failed* attempt would overwrite it
+with the half-migrated state. The next diff would then report **no change** — precisely at the
+moment the question matters most, and in a way that looks like reassurance.
+
+### 4. Never reimplement the project's migration logic
+
+Shell out to the command in `database.migrate.command`. The tool may *read* migration state to
+display progress, but what actually runs is always the project's own program.
+
+Two migration engines that must agree for ever will not agree for long. And a project's runner
+encodes its own decisions — ordering, tracking, locking, what counts as pending — that a
+generic tool cannot replicate without becoming a fork of it.
+
+<Aside type="danger" title="A silent workaround in a migration tool is how you stop believing its results">
+Where a driver *has* to intervene — healing bookkeeping so a runner will proceed, for example
+— it must print exactly what it did, every time. The moment a migration tool quietly fixes
+things, its output stops being evidence.
+</Aside>
+
+## Choosing a driver
+
+| Driver | Use when | Cost |
+|---|---|---|
+| `mysql` | The project uses MySQL. | A server per sandbox: install, start, wait, restore. The expensive one. |
+| `d1` | The project uses Cloudflare D1. | A file copy. Nearly free. |
+| `sqlite` | The project uses SQLite directly. | A file copy. Nearly free. |
+| `none` | The project has no database. | Nothing. Should stay cheap. |
+
+`none` is a real option, not a placeholder. A front-end-only project, or a service whose data
+lives entirely in an external API, should not pay for a database it does not use.
+
+## Where each driver differs
+
+The two families are genuinely different problems, not two configurations of one problem:
+
+| | Server-based (`mysql`) | File-based (`d1`, `sqlite`) |
+|---|---|---|
+| What the database *is* | a running process | a file |
+| Seeding | dump, then restore | copy |
+| Forking | dump, then restore | copy |
+| Version skew | a real hazard, must be pinned | does not exist |
+| Concurrency | needs an advisory lock | needs one writer, enforced by config |
+| Startup cost | seconds to tens of seconds | milliseconds |
+| Failure modes | disk, charset, GTID state, grants | one: two writers |
+
+Read the two pages in that order — [MySQL](/databases/mysql/) first if your project is the
+hard case, [D1 and SQLite](/databases/d1-sqlite/) if it is not — and then
+[testing a migration](/databases/testing-a-migration/), which is the same for both.

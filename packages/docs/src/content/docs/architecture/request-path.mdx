@@ -1,0 +1,225 @@
+---
+title: How a request arrives
+description: Follow one HTTPS request from the browser to a process inside a sandbox — DNS, the shared router, the internal router, and the three things it might reach.
+sidebar:
+  order: 1
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Mermaid from "../../../components/Mermaid.astro";
+
+There are two routing hops, and knowing which one you are debugging saves a lot of time.
+
+<Mermaid
+  caption="Two hops. The first picks a container; the second picks a process inside it."
+  chart={`
+flowchart TB
+  b["Browser<br/>https://feat-123.app.acme.sbx.lcl"]
+  dns["DNS<br/>wildcard resolves to the host"]
+  r["Shared router<br/>one per machine"]
+  tls["Terminate TLS<br/>wildcard certificate"]
+  auth{"Project access?"}
+  fa["Forward-auth<br/>GET /auth/verify"]
+  pick["Match Host to a container<br/>by sandboxr.* labels"]
+  net["Docker network 'sandboxr'<br/>reach the container by name"]
+  ir["Internal router<br/>inside the sandbox"]
+  st["Static files<br/>/srv/www/app"]
+  be["Backend process<br/>127.0.0.1:8001"]
+  sv["Server front-end<br/>127.0.0.1:3000"]
+  b --> dns --> r --> tls --> auth
+  auth -->|"public"| pick
+  auth -->|"private"| fa --> pick
+  pick --> net --> ir
+  ir -->|"path matches a route prefix"| be
+  ir -->|"label has serve:"| sv
+  ir -->|"otherwise"| st
+`}
+/>
+
+## Hop 1: DNS to the shared router
+
+```
+https://feat-123.app.acme.sbx.lcl/api/orders
+```
+
+**DNS** resolves the whole four-label name to one address — your machine locally, the server's
+IP remotely. Every sandbox hostname resolves to the same place; nothing about DNS knows which
+sandbox exists.
+
+That is why a wildcard is enough, and why a wildcard is *necessary*: there are as many
+hostnames as there are sandboxes times labels, and none of them should need a DNS change.
+
+**The shared router** is one process per machine, on a shared Docker network called `sandboxr`.
+It terminates TLS with a wildcard certificate, reads the `Host` header, and decides which
+container the request belongs to.
+
+<Aside type="tip" title="Which hop is broken?">
+- Name does not resolve at all → DNS. `sandboxr doctor`, then
+  [troubleshooting](/troubleshooting/symptom-to-cause/#nothing-resolves).
+- Resolves, TLS warning → certificate. Re-run `sandboxr init`.
+- Resolves, TLS fine, nothing answers → the shared router found no container. The sandbox is
+  not running.
+- **404 naming the host it was asked for** → hop 2. You reached a sandbox and its internal
+  router does not serve that hostname. Usually a wrong label, or a domain mismatch.
+- **502** → hop 2 worked and the backend behind that label is not up yet. A truthful answer
+  during a first boot.
+- **503 with build instructions** → hop 2 worked. The app is simply not built.
+- 404 from something that is clearly an API → hop 2, a `routes` prefix pointing at the wrong
+  service.
+
+Fastest single check: `curl https://<any sandbox hostname>/__sandboxr/live`. If that answers
+`ok`, both hops work and the problem is a specific service.
+</Aside>
+
+## How the router knows where to send it
+
+It reads **container labels**. Every sandbox container carries them:
+
+| Label | Example |
+|---|---|
+| `sandboxr.project` | `acme` |
+| `sandboxr.slug` | `feat-123` |
+| `sandboxr.access` | `public` |
+
+So the router splits `feat-123.app.acme.sbx.lcl` into slug, label, project and domain, and
+looks for the container whose `sandboxr.project` and `sandboxr.slug` match. There is no routing
+table to maintain, and no file that can disagree with what is running. See
+[state lives in labels](/architecture/state/).
+
+Nothing is published to the host. The container has no host ports at all — the router reaches
+it by container name over the shared Docker network. That is why the firewall on a server needs
+only 80 and 443 open: there is nothing else listening.
+
+## Access control happens here, at hop 1
+
+If `sandboxr.access` is `private`, the router applies a forward-auth middleware pointing at the
+dashboard's `GET /auth/verify`, which returns 200 or 401. If it is `public`, the middleware is
+skipped entirely.
+
+The dashboard is a different case again: the **bare domain** goes to the dashboard, always, and
+the dashboard requires a session for everything. It is never on a per-sandbox hostname.
+[Why](/security/two-tiers/#why-the-terminal-is-a-route-not-a-hostname).
+
+## Hop 2: the internal router to a process
+
+Inside the container, a second router takes the same `Host` header and the request path and
+picks one of three things — the three runtime kinds:
+
+<Mermaid
+  caption="Inside one sandbox. The label picks the app; the path picks between app and API."
+  chart={`
+flowchart LR
+  in["Request<br/>Host: feat-123.app.acme.sbx.lcl<br/>Path: /api/orders"] --> lbl{"Which label?"}
+  lbl -->|"app"| p{"Path matches a<br/>routes prefix?"}
+  lbl -->|"api"| direct["Proxy to the api backend"]
+  lbl -->|"cms"| serve["Proxy to the serve: process"]
+  p -->|"/api"| bapi["Proxy to 127.0.0.1:8001"]
+  p -->|"no"| files{"index.html present<br/>under the document root?"}
+  files -->|"yes"| serve2["Serve static files"]
+  files -->|"no"| nb["'Not built yet' page,<br/>naming the build command"]
+`}
+/>
+
+Working through the example: the label is `app`, the path is `/api/orders`, and the config says
+
+```yaml
+routes:
+  app:
+    "/api": api
+```
+
+so the request is proxied to the `api` backend on its internal port. A request to `/orders` on
+the same hostname would instead be served from the static build.
+
+### Why `routes` exists at all
+
+Every backend already has its own hostname, so `/api` on the app's hostname is redundant —
+except that it takes CORS out of the picture entirely. Same-origin requests need no preflight,
+no allowlist per sandbox, and no cookie `SameSite` reasoning. And the app's own code needs no
+sandbox-specific configuration: `/api` is `/api` in every environment.
+
+### Ordering
+
+Prefixes are matched most-specific-first. `"/api/admin"` must be declared before `"/api"`, or
+`/api` swallows it. A misordered pair produces 404s from a service that never had those routes,
+which reads as a bug in the app.
+
+### Three ways to serve a directory
+
+A static app declares `static_mode`, and the internal router serves it accordingly:
+
+| Mode | Behaviour | For |
+|---|---|---|
+| `spa` | Any unknown path rewrites to `index.html` | A single-page app with client-side routing |
+| `html` | `/about` resolves to `about.html` | A generator emitting extensionful files |
+| `files` | An unknown path is a real 404 | A plain directory of assets |
+
+The default is `spa`. Getting this wrong does not crash anything — it produces an app that
+*half-works*, which is why the mode is explicit rather than inferred.
+
+### The "not built yet" response is part of the routing
+
+A static label with no build on disk answers **503 with instructions** naming the command to
+run. It is generated at hop 2, by the internal router, because that is the only layer that knows
+whether the files exist.
+
+A 503 rather than a 404 because the difference matters: 404 means "no such thing here", which
+is indistinguishable from broken DNS or a wrong label, and 503 means "this exists and is not
+ready", which is exactly the truth.
+
+<Aside type="caution" title="A file matcher resolves against the document root">
+If you are writing this config: set the document root **before** the matcher that checks for
+`index.html`. Reversed, the check resolves against the router's working directory instead,
+always misses, and makes every built app report itself as unbuilt — a failure that looks like
+the build doing nothing at all.
+</Aside>
+
+## The status surface
+
+Every hostname a sandbox serves answers these, regardless of what else is on it:
+
+| Path | What |
+|---|---|
+| `/__sandboxr/live` | `ok`, unconditionally — the container is up |
+| `/__sandboxr/status.json` | `booting` / `ok` / `degraded`, plus migration state |
+| `/__sandboxr/built.json` | label → last build time, for every built app |
+| `/__sandboxr/health/<service>` | proxied to that service's declared health path |
+
+These are why the router is deliberately **not** gated on the database: during a first boot,
+which can take minutes, these endpoints are the only way to tell a slow restore from a broken
+one. [More](/architecture/startup/#the-router-is-deliberately-not-gated).
+
+## The router config is generated, and the domain is read once
+
+The internal router's config is written at every boot from
+[the plan](/architecture/plan-json/) and the environment. Host matchers are **exact**:
+`<slug>.<label>.<project>.<domain>`, with the domain from `SANDBOXR_DOMAIN`.
+
+An unknown host answers **404 naming the host it was asked for**, which turns a domain mismatch
+into a self-identifying error.
+
+<Aside type="danger" title="Why the domain is read in exactly one place">
+The tool sandboxr generalises hardcoded its domain in a static router config, in thirteen
+places. Its domain override therefore silently did nothing: every request landed on the
+catch-all and nothing said why.
+</Aside>
+
+## The full path, for one request
+
+| Step | Where | What it does |
+|---|---|---|
+| 1 | DNS | Four-label name → host address |
+| 2 | Shared router | Terminate TLS with the wildcard certificate |
+| 3 | Shared router | Parse `Host` into slug, label, project, domain |
+| 4 | Shared router | Find the container by `sandboxr.project` + `sandboxr.slug` labels |
+| 5 | Shared router | If `sandboxr.access` is `private`, forward-auth against the dashboard |
+| 6 | Docker network | Reach the container by name; no host ports involved |
+| 7 | Internal router | Match the label to a backend, a static app, or a `serve:` process |
+| 8 | Internal router | For a static app, match the path against `routes` prefixes first |
+| 9 | The process, or the filesystem | Answer |
+
+## Related
+
+- [The startup graph](/architecture/startup/) — how the things at step 7 come to exist.
+- [State lives in labels](/architecture/state/) — why steps 3–5 need no configuration file.
+- [Three runtime kinds](/config/runtime-kinds/) — what step 7 is choosing between.
