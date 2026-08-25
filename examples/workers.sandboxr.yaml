@@ -17,7 +17,7 @@ database:
     file: .wrangler/state
     fixtures: seeds/fixtures.sql
   migrate:
-    command: npx wrangler d1 migrations apply DB --local
+    command: npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXR_D1_DIR
   # Two processes opening the same D1 file deadlock, so exactly one service may own it.
   # This is a rule of the driver, not a workaround.
   owner: app
@@ -27,7 +27,7 @@ frontends:
   apps:
     - label: app
       package: .
-      serve: npx wrangler dev --port 8787 --ip 127.0.0.1
+      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to $SANDBOXR_D1_DIR
       port: 8787
 
 secrets:
@@ -41,3 +41,10 @@ toolchain:
 access:
   apps: public
   controls: password
+
+# The environment every process in the sandbox gets. `${SANDBOXR_*}` placeholders are
+# substituted with values the sandbox computes for itself — its own database location, its
+# own storage, its own hostnames — so nothing here can point at a real service.
+env:
+  API_TOKEN: dummy
+  APP_URL: "${SANDBOXR_URL_APP}"

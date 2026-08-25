@@ -130,3 +130,22 @@ toolchain:
 access:
   apps: public
   controls: password
+
+# The environment every process in the sandbox gets. `${SANDBOXR_*}` placeholders are
+# substituted with values the sandbox computes for itself — its own database, its own
+# object storage, its own hostnames — so nothing here can point at a real service. Anything
+# genuinely secret comes from the secrets block above instead, and never appears here.
+env:
+  DB_HOST: "${SANDBOXR_DB_HOST}"
+  DB_PORT: "${SANDBOXR_DB_PORT}"
+  DB_NAME: "${SANDBOXR_DB_NAME}"
+  DB_USER: "${SANDBOXR_DB_USER}"
+  DB_PASSWORD: "${SANDBOXR_DB_PASSWORD}"
+  S3_ENDPOINT: "${SANDBOXR_S3_ENDPOINT}"
+  S3_KEY: "${SANDBOXR_S3_KEY}"
+  S3_SECRET: "${SANDBOXR_S3_SECRET}"
+  S3_BUCKET: uploads
+  # Same-origin paths, so a built bundle makes no cross-origin request.
+  VITE_API_URL: /api
+  VITE_APP_URL: "${SANDBOXR_URL_APP}"
+  VITE_ADMIN_URL: "${SANDBOXR_URL_ADMIN}"
