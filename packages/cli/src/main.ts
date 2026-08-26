@@ -235,13 +235,61 @@ export async function main(argv: string[], context: RunContext = {}): Promise<nu
 }
 
 /** Resolves the project's config, and the slug a command applies to. */
+/**
+ * The worktree a named sandbox was started from, if exactly one answers to it.
+ *
+ * Undefined for no match, for an ambiguous one, and for a docker that will not
+ * answer — every one of which means "I cannot improve on the current directory",
+ * which is the caller's fallback. It never throws for the same reason: this is
+ * a convenience on the way to a command that has its own error to report.
+ */
+async function sandboxWorktree(
+  slug: string,
+  project: string | undefined,
+  env: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  try {
+    const matches = (await list({ project, env })).filter((sandbox) => sandbox.slug === slug);
+    const [only] = matches;
+    return matches.length === 1 && only && only.worktree !== "" ? only.worktree : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function target(
   args: ParsedArgs,
   cwd: string,
   env: NodeJS.ProcessEnv,
   positionalIndex = 0,
 ): Promise<{ config: ResolvedConfig; slug: string; worktree: string }> {
-  const worktree = flagString(args, "worktree") ?? cwd;
+  const named = args.positional[positionalIndex] ?? flagString(args, "slug");
+  const declared = flagString(args, "worktree");
+
+  // A named sandbox knows where it came from, so ask it rather than the current
+  // directory. Without this, `sandboxr status <slug>` only worked from inside a
+  // configured directory — which for a project sandboxr checked out itself is
+  // backwards: the slug identifies it, and the worktree is on its label.
+  //
+  // Only when a slug was actually named and no `--worktree` overrides it, so the
+  // explicit forms keep meaning exactly what they meant.
+  if (named !== undefined && named !== "" && declared === undefined) {
+    const found = await sandboxWorktree(named, flagString(args, "project"), env);
+    if (found) {
+      try {
+        return {
+          config: await loadConfig(found, { enforceAccess: false, env }),
+          slug: named,
+          worktree: found,
+        };
+      } catch {
+        // A worktree that has moved on, or lost its config, is a fine reason to
+        // fall back to the current directory — and a poor reason to refuse.
+      }
+    }
+  }
+
+  const worktree = declared ?? cwd;
   // `env` is what names the workspace, so it is what decides whether this
   // worktree may fall back to its project's config. Passing process.env by
   // accident would make the CLI and the dashboard disagree about one worktree.

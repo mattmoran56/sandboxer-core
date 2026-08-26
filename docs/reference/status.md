@@ -127,6 +127,19 @@ dashboard process, which is the only always-on component holding the Docker sock
 whose dashboard is usually stopped, sandboxes live until something stops them. `SANDBOXR_REAP_MINUTES=0`
 is the honest way to say so.
 
+### Fixed after running it against a real project
+
+- **A named sandbox no longer needs `--worktree`.** `status`, `logs`, `shell` and `reload` take the
+  worktree from the sandbox's own label when a slug names exactly one, so they work from any
+  directory. Verified by running `sandboxr status <slug>` from an unrelated directory. Not
+  unit-tested: resolving it reads the container list, and `docker` is a module singleton the CLI
+  tests deliberately do not reach.
+- **The server's typecheck now covers its tests and fakes.** `tsconfig.check.json` inherited
+  `exclude` through `extends`, so `fakes.test-utils.ts` — which implements `CoreApi` — was never
+  checked against it. A fake missing a newly added method compiled cleanly and failed only when
+  vitest ran it, which is exactly how it went wrong here. Closing the gap surfaced six real type
+  errors, including a `testConfig` that had never gained three fields added to `ServerConfig`.
+
 ## What does not exist at all
 
 **`db diff` and `db reset`.** The driver interface has `snapshot` but nothing that compares two,

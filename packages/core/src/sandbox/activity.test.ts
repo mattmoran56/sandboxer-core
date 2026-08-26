@@ -98,12 +98,16 @@ describe("parseAccessLog", () => {
 });
 
 function fakeDocker(result: ExecResult, calls: Array<{ name: string; since?: string }> = []): Docker {
-  return {
-    logs: async (name, options = {}) => {
-      calls.push({ name, ...(options.since === undefined ? {} : { since: options.since }) });
-      return result;
-    },
-  } as unknown as Docker;
+  // Typed against `Docker["logs"]` rather than left to inference: the cast below
+  // only applies to the finished object, so the parameters of a bare arrow
+  // inside it get no contextual type at all — `name` lands as `any` and
+  // `options` as `{}`, which is how a fake drifts from the interface it stands
+  // in for without anything saying so.
+  const logs: Docker["logs"] = async (name, options = {}) => {
+    calls.push({ name, ...(options.since === undefined ? {} : { since: options.since }) });
+    return result;
+  };
+  return { logs } as unknown as Docker;
 }
 
 describe("lastActivity", () => {
