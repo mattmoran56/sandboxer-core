@@ -1,17 +1,17 @@
 ---
 title: The two tiers
-description: Apps are open, controls are behind a password — one session mechanism used twice, why an unprotected action endpoint is root on the host, and the half of this that is not running yet.
+description: Apps are open, controls are behind a password — two tokens from one login, why an unprotected action endpoint is root on the host, and what the app token still exposes.
 sidebar:
   order: 1
 ---
 
-> **Written, never run** — The dashboard's half — passwords, sessions, per-project grants, the verify endpoint — is written and has tests for each property below, but has never been run. The router's half has never been run at all, so private apps are not protected on any machine today.
+> **Newly running** — Both halves now run end to end: `sandboxr init` starts the router, a private project's sandbox hostnames go through forward-auth, and `GET /auth/verify` answers them. It has been exercised on one machine, not hardened by use. Wildcard DNS and real certificates are still not built.
 
 sandboxr splits everything it serves into exactly two tiers.
 
 | Tier | What is in it | How it is protected |
 |---|---|---|
-| **Apps** | Everything a sandbox serves: front-ends, APIs | Open to anyone by default. `access.apps: private` puts them behind the session |
+| **Apps** | Everything a sandbox serves: front-ends, APIs | Open to anyone by default. `access.apps: private` puts them behind the app token |
 | **Controls** | The dashboard, the terminal, start, stop, rebuild, migrate, delete | **A password. Always. Not configurable.** |
 
 There is **one** authentication mechanism, and it is used twice. The dashboard owns sessions. The
@@ -19,18 +19,18 @@ router protects everything else by asking the dashboard.
 
 ```mermaid
 flowchart TB
-  vis["Browser"] --> router["Shared router — NOT BUILT YET<br/>terminates TLS, routes on hostname"]
+  vis["Browser"] --> router["Shared router<br/>terminates TLS, routes on hostname"]
   router --> q{"Which hostname?"}
   q -->|"an app of a public project"| app["The sandbox container<br/>no check"]
-  q -->|"an app of a private project"| fa["NOT BUILT YET<br/>ask the dashboard: GET /auth/verify"]
+  q -->|"an app of a private project"| fa["ask the dashboard: GET /auth/verify<br/>sends the app token"]
   fa -->|"200"| app
   fa -->|"401"| deny["Refused"]
-  q -->|"the bare domain"| dash["The dashboard<br/>session cookie required"]
+  q -->|"the bare domain"| dash["The dashboard<br/>control session required"]
   dash --> docker[("The Docker socket")]
   dash --> term["The terminal, a page inside it"]
 ```
 
-*One session mechanism. Open app hostnames skip the check; nothing else does. Everything marked NOT BUILT YET is design, not behaviour.*
+*One login, two tokens. Open app hostnames skip the check; nothing else does. The control session never leaves the bare domain.*
 
 
 ## Why apps are open by default
@@ -66,16 +66,16 @@ So an action endpoint reachable without a session is not a leak and not a miscon
 
 ## The honest state of the private tier
 
-**No machine-wide router runs today, so a `private` project's apps are not actually protected.**
+Both halves run now. `sandboxr init` starts the router; a sandbox of a `private` project carries a
+forward-auth middleware in its route labels; the middleware asks `GET /auth/verify`, which reads the
+app token and checks its grant against the project the forwarded hostname belongs to.
 
-The dashboard's half is written: `GET /auth/verify` answers 200 or 401, and checks the session's
-grant against the project the forwarded hostname belongs to. The router's half — a shared proxy in
-front of every sandbox, sending private hostnames through that check first — has just been written
-in `packages/core/src/access/`, and nothing starts it. `sandboxr up` does not.
+Two things are worth knowing before you rely on it:
 
-Until it does, sandboxes are reachable only however you have wired your own machine, and
-`access.apps: private` records an intention rather than enforcing one. Do not rely on it to keep
-anything off the network.
+- **It is newly exercised, not battle-tested.** It has been run end to end on one machine.
+- **A signed-out browser gets a bare `401` JSON body, not a login form.** `verify` answers the
+  router, and the router relays that answer verbatim, so there is currently no redirect to the
+  password page from a private app hostname. You log in on the bare domain first, then load the app.
 
 <details>
 <summary><b>Details for an agent:</b> how the router is meant to enforce it, and what exists so far</summary>
@@ -87,16 +87,16 @@ The design, from `docs/architecture/contracts.md` §7:
 - Each sandbox's container carries the labels that describe its own route. A project whose
   `access.apps` is `private` gets a forward-auth middleware in that route; a public one does not.
 - The middleware points at the dashboard's `GET /auth/verify`, and forwards the hostname it is
-  asking about. `verify` answers 200 when the session exists **and** its grant covers that
-  hostname's project, and 401 otherwise. So a password scoped to one project cannot unlock
-  another's private apps.
+  asking about along with the browser's cookies. `verify` answers 200 when a valid **app token** is
+  present **and** its grant covers that hostname's project, and 401 otherwise. So a password scoped
+  to one project cannot unlock another's private apps.
 
 What exists: `packages/core/src/access/router.ts` builds the route labels and the middleware
-definition, and `packages/server` serves `verify` with tests for both answers.
+definition, `sandboxr init` starts the router, and `packages/server` serves `verify` with tests for
+both answers.
 
-What does not: nothing starts the router as part of a sandbox's lifecycle, and the code has never
-been run. Wildcard DNS and real certificates are also not built — see
-[what is built](../reference/status.md).
+What does not: wildcard DNS and real certificates — see [what is built](../reference/status.md).
+Nor does a private app redirect a signed-out browser to the login form; it answers 401.
 
 </details>
 
@@ -164,12 +164,39 @@ private apps refuses a hostname belonging to a project the session was not grant
 <details>
 <summary><b>Details for an agent:</b> the session cookie, where its key lives, and the six public routes</summary>
 
-`POST /auth/login` takes a password and sets a signed cookie: `HttpOnly` so page JavaScript cannot
-read it, `Secure` so it never crosses plain HTTP, `SameSite=Lax` so another site cannot make your
-browser perform an action with it, `Path=/`, and a `Max-Age` matching the session lifetime
-(`SANDBOXR_SESSION_HOURS`, default 168).
+`POST /auth/login` takes a password and sets **two** signed cookies. Both are `HttpOnly` so page
+JavaScript cannot read them, `Secure` so they never cross plain HTTP, `SameSite=Lax` so another
+site cannot make your browser perform an action with them, `Path=/`, and a `Max-Age` matching the
+session lifetime (`SANDBOXR_SESSION_HOURS`, default 168).
 
-The token carries its own grant and expiry and is signed with the key at
+| Cookie | Scope | Accepted by | What it authorises |
+|---|---|---|---|
+| `sandboxr_session` | **Host-only** — the bare domain and nothing else | Every control route, and the terminal | The controls. Root-equivalent |
+| `sandboxr_app` | `Domain=<domain>` — every sandbox hostname too | `GET /auth/verify`, and nothing else | *Viewing* the private apps its grant covers |
+
+They are not interchangeable in either direction: each is signed over its own version tag, so
+relabelling one as the other breaks the signature. A control session presented to `/auth/verify` is
+a 401, and an app token presented to any control route is a 401.
+
+The split is the reason the second cookie exists at all. A private project's app hostnames go
+through forward-auth, and the only thing a browser can send to `<slug>.<app>.<project>.<domain>` is
+a cookie scoped to reach it — so a host-only control session never arrives, and a private app is
+unreachable in a browser. The obvious fix, putting `Domain` on the control session, is the one thing
+that must not be done: a sandbox hostname serves *the project's own code, from a branch under
+review*, so every cookie the browser sends there lands in a request header that branch code handles.
+The control session authorises Docker-socket-backed actions. Widening it would hand every sandboxed
+app — and every public sandbox reachable from the internet — a credential equivalent to root on the
+host. `HttpOnly` is no defence, because the read is server-side rather than page script.
+
+> [!NOTE] What the app token still exposes
+> A cookie cannot be scoped to "the private hostnames only", so `sandboxr_app` is sent to every host
+> under the domain, public projects included. A malicious or compromised app can therefore capture it
+> and use it to view the private apps its grant covers. That is a real loss of confidentiality,
+> bounded to viewing, within a grant the holder already had — it buys no control, no Docker socket
+> and no path to the other tier. Any cookie-based scheme pays some version of this; the design that
+> avoids it is a redirect handshake issuing a token bound to a single hostname, which is not built.
+
+Each token carries its own grant and expiry and is signed with the key at
 `$SANDBOXR_HOME/state/session.key` (mode 0600) — so there is no session table to lose, and
 restarting the dashboard does not log everybody out. The signature is checked **before** the payload
 is parsed, so a forged payload never reaches `JSON.parse`.
@@ -213,7 +240,8 @@ reason.
 |---|---|
 | Somebody finding an app URL | Yes, in the sense that this is the intended behaviour for a public project — and the [two requirements](./public-sandboxes.md) are what make it safe |
 | Somebody finding the dashboard | Yes. Password, rate-limited, timing-safe, nothing reflected |
-| Somebody guessing a slug to reach a private app | **Not today.** Private apps are meant to sit behind the session, and the router that would enforce that is not running |
+| Somebody guessing a slug to reach a private app | Yes. The hostname goes through forward-auth, and without an app token whose grant covers that project it is a 401 |
+| A sandboxed app harvesting the credential the browser sends it | Partly. It can capture the **app token** and view private apps within that grant. It never receives the control session, which is host-only |
 | A person who has the password doing damage | **No.** The password is full control of every sandbox on the host. It is a root credential |
 | A malicious app *inside* a sandbox | Partly. It is a container, and the worktree is mounted read-write. It can rewrite your branch |
 | Data leaking out of an open app | Only through the seed and credential refusals. Those are the whole defence, which is why they are refusals |
