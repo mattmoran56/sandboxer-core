@@ -11,16 +11,20 @@
  * The mounts are the interesting part, and each one is load-bearing:
  *
  * - The Docker socket, because the dashboard's entire job is to drive Docker.
- * - The home directory, **read-only**, because a sandbox's worktree path is
- *   recorded in its container labels and the dashboard reads that project's
- *   `sandboxr.yaml` to render it. A path it cannot see is a sandbox it can list
- *   but not describe.
- * - `SANDBOXR_HOME`, read-write and nested inside the previous one, because the
- *   session signing secret lives there and has to survive a restart.
+ * - `SANDBOXR_HOME`, read-write, because the session signing secret lives there
+ *   and has to survive a restart — and because the plan `up` writes under it is
+ *   what the dashboard reads to describe a project.
+ * - The installation itself, read-only, because that is the code being run.
+ *
+ * What is deliberately *not* mounted is the user's home directory. An earlier
+ * version bind-mounted all of it read-only, so that the dashboard could reach
+ * any worktree named in a container label and read its `sandboxr.yaml`. That is
+ * a great deal of filesystem to hand a container holding the Docker socket, and
+ * on macOS it means sharing the whole tree with the VM: with a large monorepo
+ * under it the share is enough to wedge the daemon, which shows up as a
+ * container that will not answer SIGTERM and a Docker that has to be restarted.
+ * The plan carries the same fields, so nothing needs the worktree at all.
  */
-
-import { homedir } from "node:os";
-import { isAbsolute, relative } from "node:path";
 
 import type { Docker } from "../docker.js";
 import { NETWORK } from "../naming.js";
@@ -45,12 +49,6 @@ export interface DashboardInput {
   image?: string | undefined;
 }
 
-/** Whether a path is inside a directory, without a filesystem call. */
-function contains(parent: string, child: string): boolean {
-  const rel = relative(parent, child);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
-}
-
 /**
  * The `docker run` argument list for the dashboard. Pure, so a test can read
  * every mount and every variable without a daemon.
@@ -58,7 +56,6 @@ function contains(parent: string, child: string): boolean {
 export function dashboardArgs(input: DashboardInput): string[] {
   const env = input.env ?? process.env;
   const p = paths(env);
-  const home = env.HOME && env.HOME !== "" ? env.HOME : homedir();
   const install = installRoot(env);
   const entry = dashboardEntry(env);
 
@@ -90,13 +87,11 @@ export function dashboardArgs(input: DashboardInput): string[] {
   }
 
   args.push("-v", "/var/run/docker.sock:/var/run/docker.sock");
-  args.push("-v", `${home}:${home}:ro`);
-  // Nested inside the read-only home mount, and listed after it, so the state
-  // directory is the one writable thing the dashboard can reach.
+  // `SANDBOXR_HOME`, read-write: the session secret lives here, and so does the
+  // plan the dashboard reads to describe a project.
   args.push("-v", `${p.home}:${p.home}`);
-  // A checkout outside the home directory still has to be readable: it is what
-  // the dashboard is running.
-  if (!contains(home, install)) args.push("-v", `${install}:${install}:ro`);
+  // The installation, read-only: it is the code this container runs.
+  args.push("-v", `${install}:${install}:ro`);
 
   const environment: Record<string, string> = {
     SANDBOXR_HOST: "0.0.0.0",
