@@ -18,6 +18,7 @@ sandboxr.worktree   the absolute path it was built from
 sandboxr.driver     the database driver
 sandboxr.created    ISO 8601
 sandboxr.access     public or private
+sandboxr.ttl        seconds it may run for, or "never"
 ```
 
 The router and the dashboard carry `sandboxr.role=router` / `=dashboard` instead, so neither ever
@@ -34,6 +35,7 @@ changes at runtime is **derived at read time** instead:
 | Whether the last migration succeeded | a marker file in `/run/sandboxr`, inside the container |
 | Whether a backend is healthy right now | asked, live, over `/__sandboxr/health/<service>` |
 | `running` / `degraded` / `stopped` / `starting` | computed from Docker's state plus those markers |
+| When a sandbox expires | `State.StartedAt` + `sandboxr.ttl`, computed per read |
 
 ## What labels-only buys
 
@@ -78,6 +80,37 @@ and it is preferable to keeping a second copy of the truth on the host.
 **There is no history.** Remove a container and its state goes with it — right for a sandbox, but
 you cannot ask what existed last week.
 
+## Two things that look like exceptions, and are not
+
+A managed dashboard needs to know about projects with nothing running, and needs a way to say
+"keep this one". Both put something on the host, and on a fast read this page forbids that. Here is
+the line.
+
+**The test is not "is it state".** It is the one the argument above actually turns on: *does this
+file's correctness depend on a container?* If it does, it needs a pass that compares it against
+`docker ps` and believes `docker ps` — and at that point it is a cache of something you had to read
+anyway. If it does not, it is an original.
+
+**The workspace** — `~/.sandboxr/workspace/<project>/repo.git` — is an original. Where a repository
+lives on this machine is recorded nowhere else that survives the last container: the
+`sandboxr.worktree` label dies with the container, and the plan file holds container paths. Run the
+six failures listed above against it and none of them apply: no lifecycle command writes it, a
+`docker rm` leaves a project that correctly now has no sandboxes, and it is outside every
+repository. It is also not a *list* — a project is a directory containing `repo.git`, so the
+listing is a `readdir`, the same shape of answer as `docker ps`. And it may only ever *add*
+projects to the dashboard, never filter them: the page shows the workspace unioned with what is
+running, so nothing running can be hidden by deregistering anything.
+
+**A pin** — `state/pins/<project>/<slug>` — is the harder case, because it is genuinely about one
+container. It is legal only because of one detail: the file contains that container's
+`sandboxr.created` value, and a pin whose stamp does not match is ignored. That makes a stale pin
+fail closed, which is what removes the need for a reconciliation pass. Without the stamp it would
+be exactly the bug this page describes — and a nasty one, since slugs are derived from ticket ids,
+so a pin outliving its sandbox would silently pin the next sandbox to take the same name.
+
+The general form: **a file that records what you want is not a copy of what is true.** It earns its
+place by being unable to disagree with reality — not by being written carefully.
+
 ## What is not in labels
 
 Some things must **outlive** a container. Those live under `SANDBOXR_HOME` (`~/.sandboxr`):
@@ -89,6 +122,8 @@ Some things must **outlive** a container. Those live under `SANDBOXR_HOME` (`~/.
 | `tls/`, `state/` | Machine-level, not per-sandbox |
 | `secrets/<project>.env` | Per project, mode 0600, and must never be in an image |
 | `build/<project>/<slug>.env`, `.plan.json` | Regenerated on every `up` |
+| `workspace/<project>/` | The repositories themselves — an original, not a copy |
+| `state/pins/<project>/<slug>` | Operator intent, stamped with the instance it applies to |
 
 `SANDBOXR_HOME` is deliberately never inside a repository, so `git clean -xdf` cannot destroy your
 seed cache or your certificates.

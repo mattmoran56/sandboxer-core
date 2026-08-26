@@ -29,6 +29,7 @@ interface FakeOptions {
   volumes?: string[];
   running?: boolean;
   exists?: boolean;
+  startedAt?: Date | undefined;
 }
 
 /** A docker whose every call is recorded and whose answers are declarative. */
@@ -95,6 +96,20 @@ function fakeDocker(options: FakeOptions = {}) {
     execInteractive: async (name, cmd) => {
       record("execInteractive", name, cmd);
       return 0;
+    },
+    stop: async (name) => {
+      record("stop", name);
+      const row = rows.find((r) => r.name === name);
+      if (row) row.state = "exited";
+    },
+    start: async (name) => {
+      record("start", name);
+      const row = rows.find((r) => r.name === name);
+      if (row) row.state = "running";
+    },
+    startedAt: async (name) => {
+      record("startedAt", name);
+      return options.startedAt;
     },
     logs: async () => ({ code: 0, stdout: "", stderr: "" }),
     logsFollow: async () => {

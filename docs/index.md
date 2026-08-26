@@ -43,6 +43,7 @@ sandboxr up
 [the edit–reload loop](guides/edit-and-reload.md) ·
 [logs, shells and terminals](guides/logs-and-shells.md) ·
 [the dashboard](guides/dashboard.md) ·
+[projects, worktrees and lifetimes](guides/managed-sandboxes.md) ·
 [testing a migration](guides/testing-a-migration.md) ·
 [agents in a sandbox](guides/agents-in-a-sandbox.md)
 

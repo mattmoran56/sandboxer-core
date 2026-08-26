@@ -21,6 +21,9 @@ flowchart LR
 | Variable | Default | What it does |
 |---|---|---|
 | `SANDBOXR_HOME` | `~/.sandboxr` | Everything sandboxr keeps on the host. Never put it inside a repository |
+| `SANDBOXR_WORKSPACE` | `$SANDBOXR_HOME/workspace` | Where the projects the dashboard can start live, one directory each. Its own variable so the repositories can sit on a different disk |
+| `SANDBOXR_TTL_HOURS` | `8` | How long a sandbox started from the dashboard may run before it is stopped. Pin a sandbox to exempt it |
+| `SANDBOXR_REAP_MINUTES` | `5` | How often the dashboard looks for expired sandboxes. **`0` turns it off** — which is the honest setting for a machine whose dashboard is usually not running, since nothing else enforces a lifetime |
 | `SANDBOXR_DOMAIN` | `sbx.localhost` | The hostname suffix |
 | `SANDBOXR_HTTP_PORT` | `80` | The port the router publishes HTTP on |
 | `SANDBOXR_HTTPS_PORT` | `443` | The port the router publishes HTTPS on |

@@ -24,7 +24,16 @@
  * under it the share is enough to wedge the daemon, which shows up as a
  * container that will not answer SIGTERM and a Docker that has to be restarted.
  * The plan carries the same fields, so nothing needs the worktree at all.
+ *
+ * The workspace mount added later is deliberately not a return of that mistake.
+ * It is one directory sandboxr owns and put the repositories in itself, not
+ * wherever the user happens to keep checkouts, so its size is known and it is
+ * the only tree shared with the VM. The rule that came out of the incident above
+ * still holds: mount a directory this tool created, never one it merely found.
  */
+
+import { existsSync } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 
 import type { Docker } from "../docker.js";
 import { NETWORK } from "../naming.js";
@@ -114,6 +123,27 @@ export function dashboardArgs(input: DashboardInput): string[] {
   args.push("-v", `${p.home}:${p.home}`);
   // The installation, read-only: it is the code this container runs.
   args.push("-v", `${install}:${install}:ro`);
+  // The workspace, read-write: the dashboard clones repositories and adds
+  // worktrees in here, and reads each project's sandboxr.yaml out of one.
+  //
+  // Mounted at the identical path inside and out, like the home above, and that
+  // is not cosmetic: a git worktree records an absolute path back to its
+  // repository, so a worktree created under a different mount point would be
+  // broken for every other reader of that directory — including `up`, which
+  // hands the same path to `docker run` on the host.
+  //
+  // Skipped when the workspace is already inside the home, which is the default,
+  // rather than mounting the same directory twice.
+  if (!isInside(p.workspace, p.home)) args.push("-v", `${p.workspace}:${p.workspace}`);
+  // gh's configuration, read-only, when there is any.
+  //
+  // This buys two things at once: `gh pr list` is authenticated, and — because
+  // `sandboxr init` runs `gh auth setup-git` in the image — so is `git fetch`
+  // over https. Without it the dashboard would need its own deploy keys, and a
+  // private repository would fail to clone with an error about a terminal
+  // prompt being disabled, which reads as anything but "no credentials".
+  const ghConfig = ghConfigDir(env);
+  if (ghConfig && existsSync(ghConfig)) args.push("-v", `${ghConfig}:/root/.config/gh:ro`);
 
   const environment: Record<string, string> = {
     SANDBOXR_HOST: "0.0.0.0",
@@ -131,6 +161,25 @@ export function dashboardArgs(input: DashboardInput): string[] {
 
   args.push("--workdir", install, input.image ?? env.SANDBOXR_DASHBOARD_IMAGE ?? DASHBOARD_IMAGE, "node", entry);
   return args;
+}
+
+/**
+ * Whether one path is the same as, or under, another.
+ *
+ * String comparison with a separator guard rather than `startsWith` alone: a
+ * workspace at `/srv/sandboxr-other` would otherwise count as inside
+ * `/srv/sandboxr` and silently lose its mount.
+ */
+function isInside(child: string, parent: string): boolean {
+  const rel = relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/** Where gh keeps its configuration, honouring its own override. */
+export function ghConfigDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (env.GH_CONFIG_DIR && env.GH_CONFIG_DIR !== "") return env.GH_CONFIG_DIR;
+  const home = env.HOME;
+  return home && home !== "" ? join(home, ".config", "gh") : undefined;
 }
 
 export interface StartDashboardOptions extends DashboardInput {

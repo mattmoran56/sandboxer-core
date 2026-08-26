@@ -3,7 +3,10 @@
 // - the exit code each outcome produces, because that is what a script reads
 // - --json puts the result on stdout and leaves stderr for the person
 // - a bad --seed is refused by name before anything is started
+// - a bad --ttl is refused by name, for the same reason
 // - a config error exits 2, distinct from a command that merely failed
+// - project and worktree dispatch: subcommands, missing arguments, no project
+// - the commands that name a sandbox say how they are used when given no slug
 //
 // The commands that talk to Docker are not driven here: `docker` is a module
 // singleton rather than an injected dependency, so nothing below reaches it.
@@ -131,6 +134,89 @@ describe("up", () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("--seed wherever is not a source");
     expect(result.stderr).toContain("local, file, fixtures");
+  });
+
+  // A ttl core cannot read is silently no ttl at all, so the refusal has to
+  // happen here rather than land in a label nothing ever reads back.
+  it.each([["soon"], ["0h"], ["8 hours"]])("refuses --ttl %s as a duration", async (ttl) => {
+    const result = await run(["up", "--ttl", ttl], project);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`--ttl ${ttl} is not a duration`);
+  });
+});
+
+describe("projects", () => {
+  it("says how it is used when given no subcommand", async () => {
+    const result = await run(["project"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("usage: sandboxr project ls|clone|fetch|prs");
+  });
+
+  // An empty workspace is the state of a machine that has never cloned
+  // anything, not a failure of any kind.
+  it("reports an empty workspace as empty, and succeeds", async () => {
+    const result = await run(["project", "ls"], empty);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("sandboxr project clone");
+  });
+
+  it("puts an empty workspace on stdout as an empty list", async () => {
+    const result = await run(["project", "ls", "--json"], empty);
+    expect(JSON.parse(result.stdout)).toEqual([]);
+  });
+
+  it("names the missing url rather than cloning nothing", async () => {
+    const result = await run(["project", "clone"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("usage: sandboxr project clone <url>");
+  });
+
+  it.each([["fetch"], ["prs"]])("%s wants a project name", async (sub) => {
+    const result = await run(["project", sub], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`usage: sandboxr project ${sub} <name>`);
+  });
+
+  it.each([["fetch"], ["prs"]])("%s says the project is not in the workspace", async (sub) => {
+    const result = await run(["project", sub, "nowhere"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("no project called nowhere");
+  });
+});
+
+describe("worktrees", () => {
+  it("says how it is used when given no subcommand", async () => {
+    const result = await run(["worktree"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("usage: sandboxr worktree ls|add|rm");
+  });
+
+  it("wants a project to list the worktrees of", async () => {
+    const result = await run(["worktree", "ls"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("usage: sandboxr worktree ls <project>");
+  });
+
+  it("asks for the branch as well as the project", async () => {
+    const result = await run(["worktree", "add"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("<project> <branch>");
+  });
+
+  it.each([["ls"], ["add"], ["rm"]])("%s says the project is not in the workspace", async (sub) => {
+    const result = await run(["worktree", sub, "nowhere", "feat/thing"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("no project called nowhere");
+  });
+});
+
+// These four resolve the project from `docker ps` before they do anything, so
+// only the argument they refuse before that can be driven here.
+describe("naming a sandbox", () => {
+  it.each([["stop"], ["start"], ["pin"], ["unpin"]])("%s with no slug says how it is used", async (command) => {
+    const result = await run([command], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`usage: sandboxr ${command} <slug> [--project NAME]`);
   });
 });
 

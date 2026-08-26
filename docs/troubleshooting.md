@@ -383,14 +383,25 @@ dashboard.
 
 ### git refuses to create a worktree for a branch
 
-sandboxr has **no command that creates a worktree**. git will not check out one branch in two
-places, and the branch you want is very often already open in your main checkout:
+git will not check out one branch in two places, and the branch you want is very often already
+open in another checkout.
 
-| Where the branch is | What to run |
+For a project in the workspace, sandboxr handles this itself — `sandboxr worktree add`, and the
+dashboard's Start button, pick the right form for you:
+
+| Where the branch is | What sandboxr runs |
 |---|---|
 | A local branch nothing has checked out | `git worktree add <path> <branch>` |
 | A local branch checked out somewhere else | `git worktree add --detach <path> refs/heads/<branch>` |
 | Only on the remote | `git worktree add -b <branch> <path> origin/<branch>` |
+| A new branch off a base | `git worktree add -b <branch> <path> <base>` |
+
+A worktree created the second way is **detached**, which is git working as intended rather than a
+failure. sandboxr recovers the branch name from the commit, so the sandbox is still labelled and
+still reachable at the hostname you expect.
+
+For a repository you keep yourself, outside the workspace, run those commands by hand and then
+`sandboxr up` from inside the worktree. That path is unchanged.
 
 ### A worktree was created but git exited non-zero
 

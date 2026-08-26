@@ -101,6 +101,7 @@ State lives **only** in Docker labels. There is no manifest file, no database of
 | `sandboxr.driver` | database driver in use |
 | `sandboxr.created` | ISO 8601 UTC |
 | `sandboxr.access` | `public` / `private` — whether app hostnames need auth |
+| `sandboxr.ttl` | seconds the sandbox may run for, or `never` |
 
 **Labels hold durable state only.** Everything above is fixed when the sandbox is created
 and does not change while it runs. Runtime state — whether it is starting, running or
@@ -112,6 +113,14 @@ So `Sandbox.state` in §6 is computed, not stored: the container's own state, pl
 migration verdict the sandbox exposes. A failed migration deliberately leaves the container
 running, so anything reading only the container's state will report a degraded sandbox as
 healthy — the one case where it matters most.
+
+**There is deliberately no `sandboxr.expires` label**, and the reason generalises. `sandboxr.ttl`
+is a *duration*, which is durable; a deadline is not. `sandboxr.created` is stamped once and never
+moves, so a deadline of `created + ttl` is already in the past the moment the reaper stops a
+sandbox — restarting it would get it stopped again on the very next pass, and the button would
+look broken. The deadline is therefore derived at read time from the container's **current** start
+time (`State.StartedAt`, which Docker maintains), giving the semantics anyone expects: restarting
+a sandbox buys it another full ttl.
 
 ## 4. Host paths
 
@@ -126,7 +135,57 @@ healthy — the one case where it matters most.
   secrets/<project>.env  third-party credentials, mode 0600
   build/<project>/<slug>.env  the generated per-sandbox environment
   bin/                   host-built helper binaries
+  state/pins/<project>/<slug>  exempts one sandbox from its ttl — see §4.2
+  workspace/<project>/   a project the dashboard can start a sandbox for — see §4.1
 ```
+
+### 4.1 The workspace
+
+`SANDBOXR_WORKSPACE`, default `~/.sandboxr/workspace`. Its own variable because the repositories
+are the one part of the tree worth putting on a different disk.
+
+```
+<workspace>/<project>/
+  repo.git/            a bare clone
+  wt/<branch>/         one worktree per branch, all peers
+```
+
+**A project is a directory containing `repo.git`.** There is no registry file, so listing the
+projects is a `readdir` — a pure function of the filesystem, for the same reason `list` is a pure
+function of `docker ps`. Nothing is written when a project is cloned beyond the clone itself,
+there is nothing to reconcile, and `git clean` cannot reach it.
+
+Two rules follow, and both are load-bearing:
+
+- **Bare, never a mirror.** `git clone --mirror` sets a `+refs/*:refs/*` refspec, so every fetch
+  force-updates `refs/heads/*` to match the remote — and worktree branches live there. A routine
+  fetch would reset a branch that a worktree has checked out and discard local commits. The clone
+  is `--bare` with `+refs/heads/*:refs/remotes/origin/*` set explicitly, which a plain `--bare`
+  clone does not configure at all.
+- **Union with `docker ps`, never a filter.** The dashboard's project list is the workspace
+  *unioned* with the projects that have containers. A running sandbox whose project is not in the
+  workspace must still appear; a list that could hide something running is the staleness this
+  whole design exists to avoid.
+
+The directory name is the key. The `project:` field in that repo's `sandboxr.yaml` is what
+hostnames and container names are built from (§3.2, §3.3), and the two need not match.
+
+### 4.2 Pins, and where mutable state is allowed to live
+
+A pin exempts one sandbox from its ttl. It cannot be a label — a running container's labels are
+immutable, and Docker exposes no way to change one — so it is a file, and it is the one piece of
+per-sandbox state that lives on the host.
+
+The rule that makes this legal rather than a second manifest: **the file records operator intent,
+not observed reality, and it names the instance it applies to.** It contains the `sandboxr.created`
+value of the container it pins, and a pin whose stamp does not match the live container is ignored.
+Slugs are derived from ticket ids (§3.1), so the same `project/slug` is recreated routinely; without
+the stamp a leftover pin would silently pin the *next* sandbox to take that name. With it, a stale
+pin fails closed and needs no reconciliation pass — which matters, because a pass whose job is to
+read `docker ps` and believe it is precisely what makes a file a second copy of the truth.
+
+`down` removes the pin. That is tidiness, not correctness: `docker rm` by hand cannot be hooked,
+and the stamp is what covers that case.
 
 ## 5. The config file: `sandboxr.yaml`
 

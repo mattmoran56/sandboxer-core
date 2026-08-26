@@ -39,6 +39,35 @@ least one thing wrong in the details.
 | **The dashboard's actions and terminal** | Its security properties are unit-tested. No action has been driven from a browser against a real sandbox, and the terminal has not been opened in one |
 | **`sqlite`** | The `d1` path has run; the plain `sqlite` driver has not |
 | **A `private` project** | The forward-auth middleware and the dashboard's `/auth/verify` are both written; the pair has not been exercised together |
+| **A sandbox expiring on its own over a full lifetime** | The reaper runs on a real machine on its timer, and `expire` has stopped and restarted a live sandbox against a clock moved forward by hand. Nothing has yet been stopped by the timer arriving on its own, hours later |
+| **`gh` against a private repository** | Pull requests list against a public repo. Cloning and fetching a private one from inside the dashboard container, using the mounted `gh` credentials, has not been done |
+
+## The managed layer, as of this change
+
+The workspace, worktree management, the lifetime and the pull-request listing are new. What has
+actually been run, rather than merely written:
+
+- **Run for real:** cloning a repository into the workspace; creating a worktree for a new branch
+  off a base, for an existing branch, and for one already checked out elsewhere (which comes back
+  detached, with its branch name recovered); find-or-create returning the same worktree twice;
+  listing worktrees, branches and projects; `loadConfig` reading a config out of a created
+  worktree; pin stamping refusing to apply to a rebuilt sandbox with the same slug.
+  Cloning, starting a sandbox from a branch and pinning have all been driven from the browser
+  through the dashboard, and the reaper's first pass has been observed in a real container log.
+- **Unit-tested only:** the whole `gh` path, which is driven from recorded output rather than the
+  real binary, and cloning or fetching a private repository with the mounted credentials.
+
+Two limits worth stating plainly rather than discovering later:
+
+**Expiry only ever stops a sandbox; it never removes one.** That reclaims memory and CPU and does
+nothing about disk — the container and its volumes remain, so a machine left alone still
+accumulates. `gc` is what reclaims disk, and it is still manual. Automating it means destroying
+databases automatically, which is not a thing to switch on untested.
+
+**Nothing enforces a lifetime while the dashboard is not running.** The reaper lives in the
+dashboard process, which is the only always-on component holding the Docker socket. On a laptop
+whose dashboard is usually stopped, sandboxes live until something stops them. `SANDBOXR_REAP_MINUTES=0`
+is the honest way to say so.
 
 ## What does not exist at all
 
@@ -101,3 +130,7 @@ Recorded here rather than papered over. Each is a documentation bug worth fixing
 5. **The access layer is not in the contract.** The shared router, its label scheme, the
    per-sandbox certificate and the `init` / `teardown` verbs are all implemented in
    `packages/core/src/access` and unnamed in the contract.
+6. **The forge is not in the contract.** Pull-request listing shells out to `gh`, and §5 and §6
+   name every other external the tool depends on. Which forge is supported, and what a machine
+   without one is expected to do, belong there — gap 2 above (no pinned CLI surface) covers the
+   new `project` and `worktree` verbs but not this.

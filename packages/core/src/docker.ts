@@ -103,6 +103,20 @@ export interface Docker {
    */
   logsFollow(name: string, options?: { tail?: number }): Promise<number>;
   rm(name: string, options?: { force?: boolean }): Promise<void>;
+  /** Stops a running container, leaving it — and its labels — in place. */
+  stop(name: string, options?: { timeoutSeconds?: number }): Promise<void>;
+  /** Starts a stopped container again. */
+  start(name: string): Promise<void>;
+  /**
+   * When the container last entered the running state, or undefined.
+   *
+   * Deliberately not read from `ps`: the expiry clock has to restart when a
+   * sandbox does, and `sandboxr.created` is stamped once at creation and never
+   * moves. Taking the deadline from a label would mean a sandbox stopped for
+   * being expired was still expired the instant it came back, so pressing
+   * restart would appear to do nothing.
+   */
+  startedAt(name: string): Promise<Date | undefined>;
   volumes(prefix: string): Promise<string[]>;
   volumeRm(name: string): Promise<boolean>;
   ensureNetwork(name: string): Promise<void>;
@@ -191,6 +205,26 @@ export function createDocker(run: Runner = nodeRunner, bin = "docker"): Docker {
         child.on("exit", (code) => resolveCode(code ?? 0));
         child.on("error", () => resolveCode(1));
       });
+    },
+
+    async stop(name, options = {}) {
+      const args = ["stop"];
+      if (options.timeoutSeconds !== undefined) args.push("-t", String(options.timeoutSeconds));
+      args.push(name);
+      await ok(args);
+    },
+
+    async start(name) {
+      await ok(["start", name]);
+    },
+
+    async startedAt(name) {
+      const out = await inspectField(["inspect", "-f", "{{.State.StartedAt}}", name]);
+      // Docker reports the zero time for a container that has never run, which
+      // parses cleanly to 1 January year 1 and would read as "expired long ago".
+      if (out === undefined || out === "" || out.startsWith("0001-01-01")) return undefined;
+      const when = new Date(out);
+      return Number.isNaN(when.getTime()) ? undefined : when;
     },
 
     async logs(name, options = {}) {

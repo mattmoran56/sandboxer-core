@@ -18,6 +18,9 @@ same tree.
 from a ticket-shaped id in the directory, then in the branch, then the branch itself, then the
 directory. `--slug NAME` and the positional argument are the same thing.
 
+The exceptions are `stop`, `start`, `pin` and `unpin`: they act on a sandbox somewhere else on the
+machine rather than the one you are standing in, so they want the slug spelled out.
+
 **Output goes to two streams.** Human-readable text and progress go to **stderr**; `--json` puts
 the result on **stdout**. `sandboxr logs` and `sandboxr db snapshot` put their real output on
 stdout whether or not you asked for JSON, so redirecting either produces the file you expected.
@@ -65,12 +68,20 @@ starts the container, waits for it, provisions the database, prints the URLs.
 | Flag | Default | What it does |
 |---|---|---|
 | `--worktree PATH` | the current directory | Which worktree to build from |
+| `--project NAME` | — | A project in the workspace, instead of a path. Needs `--branch` |
+| `--branch NAME` | — | Which branch of that project to run. Its worktree is found, or cut |
+| `--base REF` | — | Create `--branch` off this ref rather than expecting it to exist |
+| `--ttl 8h\|never` | none | Stop the sandbox once it has run this long. `30m`, `8h`, `7d`, `never`. An unreadable value is refused by name |
 | `--slug NAME` | derived | Same as the positional argument |
 | `--with a,b` | none | Also start these `optional: true` runtimes |
 | `--seed local\|file\|fixtures` | whatever the config allows | Force the seed source. An unrecognised value is refused by name |
 | `--detach` | off | Do not wait, and skip the database step |
 | `--timeout N` | `180` | Seconds to wait for the container to become ready |
 | `--json` | off | The whole result on stdout |
+
+With `--project` there is no config to read until the worktree exists, so the resolution happens in
+core and the config is loaded from the worktree it picked. Without it, nothing changes: the current
+directory, or `--worktree`. See [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
 
 `up` is the only command that **enforces the public-sandbox access rules**; everything else loads
 the config without them, so you can still inspect and clean up a project whose config would be
@@ -86,8 +97,48 @@ database. A sandbox that does not exist is not an error.
 
 ### `sandboxr ls [--project NAME]`
 
-Every sandbox on the machine: project, slug, state, branch, worktree. `*` after a branch means the
-worktree had uncommitted changes when the sandbox started. `list` is an accepted alias.
+Every sandbox on the machine: project, slug, state, ttl, branch, worktree. `*` after a branch means
+the worktree had uncommitted changes when the sandbox started. `list` is an accepted alias.
+
+**TTL** is one column for two facts, because they answer the same question — when does this go
+away? It reads `8h`, `never`, `-` for a sandbox with no ttl, or `pinned`. A pin is shown *instead*
+of the ttl rather than beside it: it is what the clock will actually do to that sandbox.
+
+### `sandboxr stop <slug>`, `sandboxr start <slug>`
+
+Stops the container, or starts a stopped one again. Everything else survives — the volumes, the
+database, the worktree — so `start` takes seconds where `up` would rebuild and re-seed.
+
+Stopping something already stopped is the state you asked for, so it exits `0`. Starting something
+that does not exist cannot be, so it exits `1`.
+
+### `sandboxr pin <slug>`, `sandboxr unpin <slug>`
+
+Exempts one sandbox from the expiry clock, or hands it back. The pin records the sandbox's
+`sandboxr.created` value, so it only counts for the container it was written for: pinning a sandbox
+that is not there is refused rather than left as a file that would silently pin whatever next takes
+the name.
+
+### `sandboxr expire [--dry-run] [--project NAME]`
+
+Stops every sandbox that has run past its ttl. `--dry-run` prints what would be stopped and why
+without stopping anything.
+
+The deadline is measured from the container's **current start time**, not from when the sandbox was
+created — so `start` buys it another full ttl, which is what pressing that button means. A pinned
+sandbox, a sandbox with no ttl, and one Docker cannot give a start time for are all left alone.
+`--dry-run` lists what would be stopped with the reason each was chosen; `--json` adds what was
+kept, with the reason each survived.
+
+#### The project a slug belongs to
+
+`stop`, `start`, `pin` and `unpin` name a sandbox rather than stand in one, so they work out its
+project in this order:
+
+1. `--project NAME`, if given.
+2. The one sandbox in `sandboxr ls` with that slug. A slug in two projects is ambiguous and is
+   refused, naming them, rather than picked between.
+3. The config in the current worktree.
 
 ### `sandboxr status [slug]`
 
@@ -123,6 +174,29 @@ if any target failed, with the last 20 lines of its output.
 
 Reaps sandboxes whose recorded worktree no longer exists, then removes `sandboxr-` volumes nothing
 owns and nothing has mounted. Shared and `sandboxr-deps-*` volumes are left alone.
+
+## Projects and worktrees
+
+The workspace is the repositories sandboxr keeps for itself, so a sandbox can be a branch you pick
+rather than a worktree you made.
+[Projects, worktrees and lifetimes](../guides/managed-sandboxes.md) is the guide; these are the
+commands.
+
+| Command | What it does |
+|---|---|
+| `sandboxr project ls` | Every project in the workspace: name, base branch, origin |
+| `sandboxr project clone <url> [--name NAME]` | Clone one in, as a bare mirror. `--name` overrides the name taken from the url |
+| `sandboxr project fetch <name>` | Update its remote-tracking branches. Never touches local work |
+| `sandboxr project prs <name>` | Open pull requests, as `gh` reports them. `*` after a number means draft |
+| `sandboxr worktree ls <project>` | Every worktree cut from it. `~` after a branch means detached, `(GONE)` means the directory is not there |
+| `sandboxr worktree add <project> <branch> [--base REF]` | Cut one for a branch, or hand back the one already there |
+| `sandboxr worktree rm <project> <branch> [--force]` | Remove it. `--force` for a worktree with uncommitted work in it |
+
+`project prs` reads GitHub through `gh`, and an empty answer has more than one cause — so it says
+which: not a GitHub repo, no `gh` or a `gh` that is not logged in, or genuinely nothing open.
+
+Naming a project that is not in the workspace exits `1` and says so; it never clones one by
+accident.
 
 ## Databases
 
@@ -172,6 +246,13 @@ resolved config, which is the fastest way to see what a default became.
 | `up` | one sandbox | Replaces the container; **keeps** its volumes |
 | `down` | one sandbox | Removes the container, database and uploads |
 | `ls`, `status`, `logs`, `config`, `doctor`, `version` | — | No |
+| `stop`, `start` | one sandbox | No — the container only |
+| `pin`, `unpin` | one sandbox | No — one file under `~/.sandboxr/state/pins/` |
+| `expire` | machine | Stops **every** sandbox past its ttl. Nothing is removed |
+| `project ls`, `project prs`, `worktree ls` | workspace | No |
+| `project clone`, `project fetch` | workspace | Writes a project directory; a fetch never touches local work |
+| `worktree add` | one project | Creates a checkout |
+| `worktree rm` | one project | Removes a checkout, and with `--force` any uncommitted work in it |
 | `shell` | one sandbox | Whatever you run |
 | `reload` | one sandbox | Rebuilds; touches data only with `--migrate` |
 | `gc` | machine | Reaps **every** sandbox whose worktree is gone |
@@ -183,4 +264,5 @@ resolved config, which is the fastest way to see what a default became.
 ## Related
 
 - [Start, stop, list, clean up](../guides/lifecycle.md) — the same commands, with context
+- [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md) — the workspace, ttls and pins
 - [Environment variables](environment.md)

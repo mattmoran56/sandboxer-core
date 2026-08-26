@@ -68,9 +68,25 @@ Everything sandboxr writes at run time is under `SANDBOXR_HOME`, default `~/.san
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
 | `bin/` | Helper binaries built on the host | yes |
+| `state/pins/<project>/<slug>` | Exempts one sandbox from its lifetime | **no** — see below |
+| `workspace/<project>/` | A project's bare clone and its worktrees | yes |
 
 The logs surviving is on purpose: the logs from a sandbox you have just deleted are usually exactly
 the ones you want.
+
+The pin is the only row that does not survive `down`, including `down --keep`: the container is
+gone either way, and a pin on a container that no longer exists means nothing. It is not relied on,
+though — the file records which instance it pinned, so one left behind by a bare `docker rm` is
+ignored rather than applied to whatever takes the slug next.
+
+The workspace has its own variable, `SANDBOXR_WORKSPACE`, because the repositories are the one part
+of this tree worth putting on a different disk. Inside it, one directory per project:
+
+```
+<workspace>/<project>/
+  repo.git/        a bare clone — this is what makes it a project
+  wt/<branch>/     one worktree per branch
+```
 
 > [!NOTE] Never inside a repository
 > `git clean -xdf` is a normal thing to run, and it would destroy the seed cache, the certificates

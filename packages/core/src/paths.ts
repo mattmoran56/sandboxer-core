@@ -26,6 +26,15 @@ export interface Paths {
   build: string;
   /** Host-built helper binaries. */
   bin: string;
+  /**
+   * The projects this machine can start a sandbox for, one directory each.
+   *
+   * Outside the rest of the tree in spirit: everything else under SANDBOXR_HOME
+   * is something sandboxr generated and can regenerate, whereas this holds
+   * checkouts of other people's repositories. It is still under the home so
+   * there is one directory to mount into the dashboard and one to back up.
+   */
+  workspace: string;
 
   logsFor(project: string, slug: string): string;
   secretsFile(project: string): string;
@@ -33,6 +42,10 @@ export interface Paths {
   envFile(project: string, slug: string): string;
   /** A content-addressed seed artifact. */
   cacheFile(name: string): string;
+  /** Where one project's bare mirror and worktrees live. */
+  projectDir(project: string): string;
+  /** The marker that exempts one sandbox from the expiry clock. */
+  pinFile(project: string, slug: string): string;
 }
 
 /**
@@ -44,6 +57,10 @@ export interface Paths {
  */
 export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
   const home = env.SANDBOXR_HOME && env.SANDBOXR_HOME !== "" ? env.SANDBOXR_HOME : join(homedir(), ".sandboxr");
+  // Its own variable rather than always under the home, because the projects
+  // are the one thing here worth putting on a different disk.
+  const workspace =
+    env.SANDBOXR_WORKSPACE && env.SANDBOXR_WORKSPACE !== "" ? env.SANDBOXR_WORKSPACE : join(home, "workspace");
 
   return {
     home,
@@ -54,15 +71,18 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     secrets: join(home, "secrets"),
     build: join(home, "build"),
     bin: join(home, "bin"),
+    workspace,
 
     logsFor: (project, slug) => join(home, "logs", project, slug),
     secretsFile: (project) => join(home, "secrets", `${project}.env`),
     envFile: (project, slug) => join(home, "build", project, `${slug}.env`),
     cacheFile: (name) => join(home, "cache", name),
+    projectDir: (project) => join(workspace, project),
+    pinFile: (project, slug) => join(home, "state", "pins", project, slug),
   };
 }
 
 /** The directories a command creates before it writes anything. */
 export function directoriesOf(p: Paths): string[] {
-  return [p.cache, p.logs, p.tls, p.state, p.secrets, p.build, p.bin];
+  return [p.cache, p.logs, p.tls, p.state, p.secrets, p.build, p.bin, p.workspace];
 }

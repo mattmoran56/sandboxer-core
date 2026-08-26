@@ -56,9 +56,10 @@ export type { DatabaseDriver, DriverContext, MigrateResult, SeedArtifact } from 
 export { DriverError, driverContext, getDriver, driverNames } from "./drivers/index.js";
 export type { ContextOptions } from "./drivers/index.js";
 
-export { down, gc, list, reload, status, up } from "./sandbox/index.js";
+export { down, expire, gc, list, reload, startSandbox, status, stopSandbox, up } from "./sandbox/index.js";
 export type {
   DownOptions,
+  ExpireOptions,
   GcOptions,
   GcPlan,
   ListOptions,
@@ -68,6 +69,39 @@ export type {
   SandboxStatus,
   UpOptions,
 } from "./sandbox/types.js";
+
+export { deadlineOf, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
+export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.js";
+export { isPinned, readPin, removePin, writePin } from "./sandbox/pins.js";
+
+export {
+  WorkspaceError,
+  cloneProject,
+  fetchProject,
+  findProject,
+  listProjects,
+  projectNameFromUrl,
+} from "./workspace.js";
+export type { CloneOptions, Project, WorkspaceOptions } from "./workspace.js";
+
+export {
+  WorktreeError,
+  addWorktree,
+  listBranches,
+  listWorktrees,
+  parseWorktreeList,
+  removeWorktree,
+} from "./worktree.js";
+export type { AddInput, Branch, Worktree } from "./worktree.js";
+
+export {
+  ghAvailable,
+  listPullRequests,
+  mergedBranches,
+  parsePullRequests,
+  repoSlugFromUrl,
+} from "./forge.js";
+export type { ForgeOptions, PullRequest } from "./forge.js";
 export { LABELS, labelsFor, sandboxFromLabels, deriveState } from "./sandbox/labels.js";
 
 export {

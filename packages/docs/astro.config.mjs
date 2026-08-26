@@ -49,6 +49,7 @@ export default defineConfig({
             { label: "The edit\u2013reload loop", slug: "guides/edit-and-reload" },
             { label: "Logs, shells and terminals", slug: "guides/logs-and-shells" },
             { label: "The dashboard", slug: "guides/dashboard" },
+            { label: "Projects, worktrees and lifetimes", slug: "guides/managed-sandboxes" },
             { label: "Testing a migration", slug: "guides/testing-a-migration" },
             { label: "Agents in a sandbox", slug: "guides/agents-in-a-sandbox" },
           ],

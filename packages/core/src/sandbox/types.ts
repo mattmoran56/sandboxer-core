@@ -23,6 +23,13 @@ export interface Sandbox {
   driver: string;
   access: "public" | "private";
   created: string;
+  /**
+   * How long the sandbox may run for: seconds as a string, or `never`.
+   *
+   * A duration rather than a deadline, because the deadline is measured from
+   * the container's current start time — see the note in `labels.ts`.
+   */
+  ttl: string;
   state: SandboxState;
   container: string;
 }
@@ -55,6 +62,19 @@ export interface CommonOptions {
 export interface UpOptions extends CommonOptions {
   /** The worktree to run. Defaults to the directory the config was found in. */
   worktree?: string | undefined;
+  /**
+   * A project in the workspace, resolved to a worktree when no path is given.
+   *
+   * This is what lets something with no working directory of its own — the
+   * dashboard — start a sandbox. The CLI passes a path and never reaches it.
+   */
+  project?: string | undefined;
+  /** The branch to run, found or created under the project's worktrees. */
+  branch?: string | undefined;
+  /** When set, `branch` is created off this ref rather than expected to exist. */
+  base?: string | undefined;
+  /** How long the sandbox may live: seconds, a span like `8h`, or `never`. */
+  ttl?: string | undefined;
   /** An explicit slug, which beats every derivation. */
   slug?: string | undefined;
   config?: ResolvedConfig | undefined;
@@ -102,6 +122,15 @@ export interface ReloadResult {
   built: string[];
   failed: string[];
   output: string;
+}
+
+export interface ExpireOptions extends CommonOptions {
+  /** Report what would be stopped without stopping it. */
+  dryRun?: boolean | undefined;
+  /** Only sandboxes of one project. */
+  project?: string | undefined;
+  /** The moment to judge against. Injectable so a test needs no clock. */
+  now?: Date | undefined;
 }
 
 export interface GcOptions extends CommonOptions {
