@@ -159,7 +159,7 @@ RUN set -eux; \
     groupadd -r mysql; \
     useradd -r -g mysql -s /sbin/nologin mysql; \
     install -d -o mysql -g mysql /run/mysqld /var/lib/sandboxr/data; \
-    mysqld --version
+    /opt/mysql/bin/mysqld --version
 
 ENV PATH="/opt/mysql/bin:${PATH}"
 # <<< sandboxr:block mysql
@@ -205,5 +205,20 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 # to read in a log line.
 RUN sha256sum /opt/deps/{{DEPS_LOCKFILE}} | cut -c1-16 > /opt/deps/.lockhash
 # <<< sandboxr:block deps
+
+# Put the toolchain back on PATH for login shells.
+#
+# Everything sandboxr runs inside a container goes through `sh -lc`, so that a
+# project's own build and migrate commands see the environment a person would.
+# But Debian's /etc/profile *assigns* PATH rather than extending it, which
+# silently discards every directory the blocks above added — go, mysql — and
+# leaves only what happens to live in /usr/local/bin. The failure reads as
+# `mysql: not found` in a container where mysql is plainly installed.
+#
+# /etc/profile.d is sourced after that assignment, so this wins. It is written
+# last, once, from the image's own resolved PATH, so a block that is not part of
+# this project contributes nothing and nothing here has to be kept in step with
+# the ENV lines above.
+RUN printf 'export PATH="%s"\n' "$PATH" > /etc/profile.d/00-sandboxr-path.sh
 
 WORKDIR /workspace

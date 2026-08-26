@@ -27,7 +27,11 @@ export class DockerError extends Error {
   readonly args: string[];
 
   constructor(args: string[], result: ExecResult) {
-    const detail = (result.stderr || result.stdout).trim().split("\n").slice(0, 6).join("\n");
+    // The *last* lines, not the first. Every long-running docker command streams
+    // progress before it fails — a build's first six lines are always BuildKit's
+    // context-load preamble — so taking the head is guaranteed to truncate away
+    // the one thing the reader needs, which is the error that ended it.
+    const detail = (result.stderr || result.stdout).trim().split("\n").slice(-12).join("\n");
     super(`docker ${args.join(" ")} exited ${result.code}${detail ? `:\n${detail}` : ""}`);
     this.result = result;
     this.args = args;
