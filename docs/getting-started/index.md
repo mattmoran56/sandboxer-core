@@ -1,21 +1,21 @@
 ---
 title: Getting started
-description: What has to be on the machine, the one-time setup, and getting your first sandbox running — in the order you need them.
+description: Install sandboxr, set your machine up with one command, and run your first sandbox — then run every worktree at once.
 ---
 
-Three pages, in order. Read them in order the first time; after that you will only come back to
-the first one when sizing a machine.
+Three pages, in order. Together they take about twenty minutes, most of which is Docker building
+an image.
 
-| Page | What it covers |
+| Page | What you get |
 |---|---|
-| [Prerequisites](prerequisites.md) | What must be installed, how much memory and disk to allow, and the two things people usually get wrong |
-| [Set up your machine](setup.md) | The one-time setup: the shared router, a certificate, the dashboard, and the control password |
-| [Your first sandbox](first-sandbox.md) | From a worktree to a working URL, what happens in between, and what to do when something says it is not built yet |
+| [Install it](install.md) | `sandboxr` on your `PATH`, and a machine set up with `sandboxr init` |
+| [Your first sandbox](first-sandbox.md) | One worktree running at its own URL, and thrown away again |
+| [Every worktree at once](every-worktree.md) | The case the tool exists for: all your branches running side by side |
 
-> **This has not been done successfully yet.** No project has been taken from `sandboxr up` to a
-> working URL. The commands exist; the sequence has never completed. Expect to find bugs, and see
-> [what is built](../reference/status.md) before you plan around anything here.
+You need **Docker**, **Node 22 or newer** and **git**. Nothing else is required; `mkcert` is
+optional and gets you HTTPS instead of HTTP.
 
-**You will also need** a project with a `sandboxr.yaml` at its root. If yours does not have one,
-[configuring a project](../configuration/index.md) is the page that builds one, and there are two
-complete worked examples in the repository's `examples/` directory.
+> [!TIP] Try it on the demo project first
+> `examples/demo-worker` in this repository is a real Cloudflare Worker on D1 with its own
+> migrations and fixtures. It is the cheapest thing sandboxr can run and the fastest way to see
+> the whole path work before you point it at your own project.
