@@ -48,6 +48,44 @@ Check the disk before you believe anything else a failing database tells you.
 `sandboxr gc` reaps sandboxes whose worktree is gone and removes orphaned volumes. It does **not**
 prune the build cache, and never will: sandboxr deletes what it created, not what Docker created.
 
+### An image build fails and the first line is a deprecation notice
+
+```
+Start sandbox: docker build -f /tmp/sandboxr-build-Xh39sf/Dockerfile -t sandboxr/acme:40ed880f9db8 … exited 1:
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+```
+
+**The builder set no `TARGETARCH`, and the notice is only the first line of the output.**
+
+`docker build` uses BuildKit when the `buildx` plugin is installed and the *legacy* builder when it
+is not. The dashboard's image ships the Docker client on its own — no daemon, no compose, no
+buildx — so a build started from a browser always runs on the legacy builder, and the legacy
+builder sets none of BuildKit's built-in platform arguments. Every Dockerfile that switches on
+`TARGETARCH` then fails in whatever way its shell fails: `TARGETARCH: unbound variable`, or
+`unsupported arch ` with nothing after it, or a download of `linux-/…` that comes back 404 and
+reads like a broken mirror. None of them names the architecture.
+
+sandboxr's Dockerfiles resolve the architecture for themselves and fall back to `uname -m`, and the
+host passes `--build-arg TARGETARCH` as well, so the architecture is no longer the problem. What
+remains is the cache mounts: a project with a Go module or a dependency lockfile gets a
+`RUN --mount=type=cache` in its image layer, which the legacy builder refuses outright —
+
+```
+Step 13/19 : RUN --mount=type=cache,target=/go/pkg/mod     cd /gomod && go mod download …
+the --mount option requires BuildKit.
+```
+
+Until the dashboard image carries buildx, **build that project's image once from the host**, where
+buildx is present:
+
+```bash
+sandboxr up --project acme --branch main     # on the host, where buildx is installed
+```
+
+The image tag is content-addressed, so the dashboard finds it already built and starts the sandbox
+without building anything. A project that declares neither a Go module nor a `deps:` block has no
+cache mount in its layer and builds from the dashboard either way.
+
 ### A build died with `code 137`
 
 ```
@@ -383,14 +421,25 @@ dashboard.
 
 ### git refuses to create a worktree for a branch
 
-sandboxr has **no command that creates a worktree**. git will not check out one branch in two
-places, and the branch you want is very often already open in your main checkout:
+git will not check out one branch in two places, and the branch you want is very often already
+open in another checkout.
 
-| Where the branch is | What to run |
+For a project in the workspace, sandboxr handles this itself — `sandboxr worktree add`, and the
+dashboard's Start button, pick the right form for you:
+
+| Where the branch is | What sandboxr runs |
 |---|---|
 | A local branch nothing has checked out | `git worktree add <path> <branch>` |
 | A local branch checked out somewhere else | `git worktree add --detach <path> refs/heads/<branch>` |
 | Only on the remote | `git worktree add -b <branch> <path> origin/<branch>` |
+| A new branch off a base | `git worktree add -b <branch> <path> <base>` |
+
+A worktree created the second way is **detached**, which is git working as intended rather than a
+failure. sandboxr recovers the branch name from the commit, so the sandbox is still labelled and
+still reachable at the hostname you expect.
+
+For a repository you keep yourself, outside the workspace, run those commands by hand and then
+`sandboxr up` from inside the worktree. That path is unchanged.
 
 ### A worktree was created but git exited non-zero
 

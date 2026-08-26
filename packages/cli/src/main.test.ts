@@ -3,16 +3,21 @@
 // - the exit code each outcome produces, because that is what a script reads
 // - --json puts the result on stdout and leaves stderr for the person
 // - a bad --seed is refused by name before anything is started
+// - a bad --ttl is refused by name, for the same reason
 // - a config error exits 2, distinct from a command that merely failed
+// - `config` in a managed worktree names the project-level file it fell back to, and the worktree root
+// - project and worktree dispatch: subcommands, missing arguments, no project
+// - project available: a machine with no gh says so in one sentence and still exits 0
+// - the commands that name a sandbox say how they are used when given no slug
 //
 // The commands that talk to Docker are not driven here: `docker` is a module
 // singleton rather than an injected dependency, so nothing below reaches it.
 
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { main, USAGE } from "./main.js";
 import type { Writer } from "./output.js";
@@ -33,9 +38,9 @@ function recorder(): Writer & { stdout: string; stderr: string } {
 }
 
 /** Runs the CLI against a directory, with nothing written to the real streams. */
-async function run(argv: string[], cwd: string) {
+async function run(argv: string[], cwd: string, env?: NodeJS.ProcessEnv) {
   const writer = recorder();
-  const code = await main(argv, { writer, cwd, env: { SANDBOXR_HOME: join(cwd, "home") } });
+  const code = await main(argv, { writer, cwd, env: env ?? { SANDBOXR_HOME: join(cwd, "home") } });
   return { code, stdout: writer.stdout, stderr: writer.stderr };
 }
 
@@ -123,6 +128,24 @@ describe("config", () => {
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("project");
   });
+
+  // The one case a person cannot work out for themselves: the config governing
+  // this worktree is not in it, and nothing in the worktree says so.
+  it("says when a managed worktree is running on its project-level config", async () => {
+    const home = await mkdtemp(join(tmpdir(), "sbx-managed-"));
+    const projectDir = join(home, "workspace", "acme");
+    const worktree = join(projectDir, "wt", "main");
+    await mkdir(join(projectDir, "repo.git"), { recursive: true });
+    await mkdir(worktree, { recursive: true });
+    await writeFile(join(projectDir, "sandboxr.yaml"), CONFIG);
+
+    const result = await run(["config"], worktree, { SANDBOXR_HOME: home });
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain(join(projectDir, "sandboxr.yaml"));
+    expect(result.stderr).toContain("the workspace project directory");
+    // The root is the worktree, never the project directory it read the file from.
+    expect(result.stderr).toContain(`root        ${worktree}`);
+  });
 });
 
 describe("up", () => {
@@ -131,6 +154,134 @@ describe("up", () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("--seed wherever is not a source");
     expect(result.stderr).toContain("local, file, fixtures");
+  });
+
+  // core refuses it too, but only after the worktree is cut and the seed taken.
+  // The refusal has to happen here so a typo costs nothing.
+  it.each([["soon"], ["0h"], ["8 hours"]])("refuses --ttl %s as a duration", async (ttl) => {
+    const result = await run(["up", "--ttl", ttl], project);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`--ttl ${ttl} is not a duration`);
+  });
+});
+
+// `pin` and `unpin` are what these were called before the concept became
+// keep-alive. They stay as undocumented aliases because they are in people's
+// shell history, so the check is that they still route somewhere rather than
+// falling through to "not a command".
+describe("the old pin aliases", () => {
+  it.each([["pin"], ["unpin"]])("%s still reaches the keep-alive command", async (command) => {
+    const result = await run([command], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("<slug> [--project NAME]");
+    expect(result.stderr).not.toContain("is not a command");
+  });
+
+  it("does not advertise them in the usage", () => {
+    expect(USAGE).toContain("keep <slug>");
+    expect(USAGE).not.toContain("pin <slug>");
+  });
+});
+
+describe("projects", () => {
+  it("says how it is used when given no subcommand", async () => {
+    const result = await run(["project"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("usage: sandboxr project ls|available|clone|fetch|prs");
+  });
+
+  // An empty workspace is the state of a machine that has never cloned
+  // anything, not a failure of any kind.
+  it("reports an empty workspace as empty, and succeeds", async () => {
+    const result = await run(["project", "ls"], empty);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("sandboxr project clone");
+  });
+
+  it("puts an empty workspace on stdout as an empty list", async () => {
+    const result = await run(["project", "ls", "--json"], empty);
+    expect(JSON.parse(result.stdout)).toEqual([]);
+  });
+
+  // A machine without gh is an ordinary machine, not a broken one: the list is
+  // empty, one sentence says why, and `project clone <url>` still works.
+  //
+  // Simulated by emptying PATH rather than by mocking core, because there is no
+  // runner seam through `main` — core spawns gh with the process's own
+  // environment — and this is the real code path a machine without gh takes.
+  describe("available, on a machine with no gh", () => {
+    beforeEach(() => {
+      vi.stubEnv("PATH", join(empty, "no-bin"));
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("says why the list is empty, and succeeds", async () => {
+      const result = await run(["project", "available"], empty);
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain("gh is not installed here, or is not logged in");
+    });
+
+    it("puts an empty list on stdout, so --json is still parseable", async () => {
+      const result = await run(["project", "available", "--json"], empty);
+      expect(result.code).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual([]);
+    });
+  });
+
+  it("names the missing url rather than cloning nothing", async () => {
+    const result = await run(["project", "clone"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("usage: sandboxr project clone <url>");
+  });
+
+  it.each([["fetch"], ["prs"]])("%s wants a project name", async (sub) => {
+    const result = await run(["project", sub], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`usage: sandboxr project ${sub} <name>`);
+  });
+
+  it.each([["fetch"], ["prs"]])("%s says the project is not in the workspace", async (sub) => {
+    const result = await run(["project", sub, "nowhere"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("no project called nowhere");
+  });
+});
+
+describe("worktrees", () => {
+  it("says how it is used when given no subcommand", async () => {
+    const result = await run(["worktree"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("usage: sandboxr worktree ls|add|rm");
+  });
+
+  it("wants a project to list the worktrees of", async () => {
+    const result = await run(["worktree", "ls"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("usage: sandboxr worktree ls <project>");
+  });
+
+  it("asks for the branch as well as the project", async () => {
+    const result = await run(["worktree", "add"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("<project> <branch>");
+  });
+
+  it.each([["ls"], ["add"], ["rm"]])("%s says the project is not in the workspace", async (sub) => {
+    const result = await run(["worktree", sub, "nowhere", "feat/thing"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("no project called nowhere");
+  });
+});
+
+// These four resolve the project from `docker ps` before they do anything, so
+// only the argument they refuse before that can be driven here.
+describe("naming a sandbox", () => {
+  it.each([["stop"], ["start"], ["keep"], ["unkeep"]])("%s with no slug says how it is used", async (command) => {
+    const result = await run([command], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`usage: sandboxr ${command} <slug> [--project NAME]`);
   });
 });
 

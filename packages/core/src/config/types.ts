@@ -7,6 +7,8 @@
  * came from carried along so an error can name it.
  */
 
+import type { ConfigOrigin } from "./locate.js";
+
 export type DriverName = "mysql" | "d1" | "sqlite" | "none";
 
 /** Where a driver gets its initial data. */
@@ -170,10 +172,30 @@ export interface ProjectConfig {
 
 /** What every other package consumes. */
 export interface ResolvedConfig {
-  /** Absolute path to the config file this came from. */
+  /**
+   * Absolute path to the config file this came from. Errors name this, because
+   * it is the file whose author has to edit it.
+   *
+   * > **`dirname(file)` is not always `root`.** It was, until project-level
+   * > configs existed: a managed worktree with no config of its own is governed
+   * > by `<workspace>/<project>/sandboxr.yaml`, which sits one level *above*
+   * > every worktree it applies to (contracts §5.6). Code that wants the
+   * > directory a declared path resolves against wants `root`, or better
+   * > `projectPath()` — never `dirname(file)`.
+   */
   file: string;
-  /** The repo root, i.e. the directory holding the config file. */
+  /**
+   * The tree the config governs: the top of the checkout, and the directory
+   * bind-mounted as `/workspace`. Every relative path in the config resolves
+   * against this.
+   */
   root: string;
+  /**
+   * Whether the file is inside `root` ("repo") or is the workspace's
+   * project-level fallback ("project"). A project running from a config that is
+   * not in its own repository is something a user has to be able to see.
+   */
+  origin: ConfigOrigin;
   project: string;
   /** The version constraint as written, already checked against this tool. */
   sandboxr: string;

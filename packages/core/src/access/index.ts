@@ -27,7 +27,8 @@ import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import { docker as defaultDocker, type Docker } from "../docker.js";
+import { writeMachineConfigExample } from "../config/machine.js";
+import { archBuildArgs, docker as defaultDocker, type Docker } from "../docker.js";
 import { containerDir } from "../install.js";
 import { DEFAULT_DOMAIN, NETWORK } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
@@ -133,7 +134,19 @@ export async function ensureBaseImage(options: {
   const context = containerDir(env);
   log(`Building ${tag} (a few minutes the first time)`);
   await options.docker.ok(
-    ["build", "-f", `${context}/base/Dockerfile`, "-t", tag, "-t", `${BASE_IMAGE}:latest`, context],
+    // ...archBuildArgs() for the same reason as the project layer: TARGETARCH is
+    // a BuildKit built-in, and nothing guarantees the builder here is BuildKit.
+    [
+      "build",
+      "-f",
+      `${context}/base/Dockerfile`,
+      "-t",
+      tag,
+      "-t",
+      `${BASE_IMAGE}:latest`,
+      ...archBuildArgs(),
+      context,
+    ],
     { timeoutMs: 30 * 60_000 },
   );
   log(`Built ${tag}`);
@@ -171,6 +184,7 @@ export async function ensureDashboardImage(options: {
       tag,
       "-t",
       `${DASHBOARD_IMAGE_NAME}:latest`,
+      ...archBuildArgs(),
       context,
     ],
     { timeoutMs: 10 * 60_000 },
@@ -200,6 +214,13 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
 
   for (const dir of directoriesOf(p)) await mkdir(dir, { recursive: true });
   await docker.ensureNetwork(NETWORK);
+
+  // The machine's own settings file, written commented-out-and-explained the
+  // first time and never touched again. It is announced because a config file
+  // nobody knows exists is a config file nobody edits — and the setting in it
+  // decides when this machine stops containers.
+  const configFile = await writeMachineConfigExample(env);
+  if (configFile) notes.push(`Wrote ${configFile}. Edit it to change how long a sandbox may sit unused.`);
 
   const baseImage = await ensureBaseImage({ docker, env, rebuild: options.rebuild, log });
   const dashboardImage = await ensureDashboardImage({ docker, env, rebuild: options.rebuild, log });

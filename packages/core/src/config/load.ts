@@ -8,7 +8,7 @@
  * tool. Every failure is a `ConfigError` naming the file and the field.
  */
 
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { parse as parseYaml } from "yaml";
@@ -16,6 +16,7 @@ import { z } from "zod";
 
 import { TOOL_VERSION } from "../tool-version.js";
 import { publicAccessViolations } from "./access.js";
+import { CONFIG_FILENAME, isWorkspaceProjectDir, locateConfig, type ConfigOrigin } from "./locate.js";
 import { configSchema, type RawConfig } from "./schema.js";
 import type {
   BackendService,
@@ -27,11 +28,6 @@ import type {
   SecretsConfig,
 } from "./types.js";
 import { VersionError, satisfies } from "./version.js";
-
-export const CONFIG_FILENAME = "sandboxr.yaml";
-
-/** Alternative spellings, accepted in this order when both are present. */
-const CONFIG_FILENAMES = [CONFIG_FILENAME, "sandboxr.yml", ".sandboxr.yaml"] as const;
 
 export class ConfigError extends Error {
   override readonly name = "ConfigError";
@@ -53,34 +49,22 @@ export interface LoadOptions {
    * Off only for tools that read a config to describe it rather than run it.
    */
   enforceAccess?: boolean | undefined;
+  /**
+   * The environment the workspace path is read from, for locating a
+   * project-level config. Taken as an argument, like paths(), so a test can
+   * point the workspace at a temporary directory without mutating the process.
+   */
+  env?: NodeJS.ProcessEnv | undefined;
 }
 
-async function isFile(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Walks up from a directory looking for a config file.
- *
- * The file lives at the root of the project being sandboxed, so any directory
- * inside that project is a legal place to run a command from — which is what
- * makes `sandboxr up` work from wherever you happen to be.
- */
-export async function findConfig(from: string = process.cwd()): Promise<string | undefined> {
-  let dir = resolve(from);
-  for (;;) {
-    for (const name of CONFIG_FILENAMES) {
-      const candidate = join(dir, name);
-      if (await isFile(candidate)) return candidate;
-    }
-    const parent = dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
-  }
+export interface ResolveOptions extends LoadOptions {
+  /**
+   * The directory the config governs. Defaults to the file's own directory,
+   * which is right for every config that lives in the repo it describes.
+   */
+  root?: string | undefined;
+  /** Where the file came from. Defaults to "repo". */
+  origin?: ConfigOrigin | undefined;
 }
 
 /** Renders a zod issue path as the dotted field name a config author sees. */
@@ -94,7 +78,7 @@ function fieldOf(issue: z.core.$ZodIssue): string {
  * Separate from reading the file so a caller — a test, or a server rendering
  * someone's config — can validate a document it already has.
  */
-export function resolveConfig(document: unknown, file: string, options: LoadOptions = {}): ResolvedConfig {
+export function resolveConfig(document: unknown, file: string, options: ResolveOptions = {}): ResolvedConfig {
   const parsed = configSchema.safeParse(document);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -105,10 +89,11 @@ export function resolveConfig(document: unknown, file: string, options: LoadOpti
 
   checkToolVersion(raw, file, options.toolVersion ?? TOOL_VERSION);
 
-  const root = dirname(resolve(file));
+  const root = options.root === undefined ? dirname(resolve(file)) : resolve(options.root);
   const resolved: ResolvedConfig = {
     file: resolve(file),
     root,
+    origin: options.origin ?? "repo",
     project: raw.project,
     sandboxr: raw.sandboxr,
     database: resolveDatabase(raw, file),
@@ -154,13 +139,36 @@ export function resolveConfig(document: unknown, file: string, options: LoadOpti
   return resolved;
 }
 
-/** Reads, parses and resolves a config, finding it by walking up from `from`. */
+/**
+ * Reads, parses and resolves the config that governs `from`.
+ *
+ * `from` may be a directory or the config file itself. Which file is read, and
+ * which directory it governs, are locateConfig's decisions — including the
+ * project-level fallback for a managed worktree (contracts §5.6).
+ */
 export async function loadConfig(from: string = process.cwd(), options: LoadOptions = {}): Promise<ResolvedConfig> {
-  const file = (await isFile(from)) ? resolve(from) : await findConfig(from);
-  if (!file) {
+  const env = options.env ?? process.env;
+  const location = await locateConfig(from, { env });
+  if (!location) {
     throw new ConfigError(
       join(resolve(from), CONFIG_FILENAME),
       `no ${CONFIG_FILENAME} here or in any parent directory — a project describes itself in one at its repo root`,
+    );
+  }
+  const { file } = location;
+
+  // **Refused, never mounted.** `root` becomes `/workspace`, and a workspace
+  // project directory holds `repo.git` and every worktree of the project — so
+  // mounting it puts all of them inside the sandbox and resolves every declared
+  // path one directory too high. locateConfig keeps the walk-up inside a
+  // worktree, and this catches the ways in that do not go through it: a config
+  // file named directly, or a command run from the project directory itself.
+  if (isWorkspaceProjectDir(location.root, env)) {
+    throw new ConfigError(
+      file,
+      `is the project-level config for a managed project, so it cannot be run from ${location.root} — ` +
+        "that directory holds repo.git and every worktree, and mounting it would put all of them in the sandbox. " +
+        `Run from a worktree under ${join(location.root, "wt")}, where this file applies on its own`,
     );
   }
 
@@ -173,7 +181,7 @@ export async function loadConfig(from: string = process.cwd(), options: LoadOpti
   }
   if (document === null || document === undefined) throw new ConfigError(file, "is empty");
 
-  return resolveConfig(document, file, options);
+  return resolveConfig(document, file, { ...options, root: location.root, origin: location.origin });
 }
 
 function checkToolVersion(raw: RawConfig, file: string, toolVersion: string): void {
@@ -407,7 +415,13 @@ function checkFileDatabaseOwner(config: ResolvedConfig, file: string): void {
   }
 }
 
-/** Resolves a config-relative path against the project root. */
+/**
+ * Resolves a config-relative path against the tree the config governs.
+ *
+ * Against `root`, never `dirname(config.file)` — a project-level config sits
+ * outside the worktree it configures, and every path it declares still has to
+ * land inside that worktree.
+ */
 export function projectPath(config: ResolvedConfig, relative: string): string {
   return isAbsolute(relative) ? relative : join(config.root, relative);
 }

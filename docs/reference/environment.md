@@ -21,6 +21,9 @@ flowchart LR
 | Variable | Default | What it does |
 |---|---|---|
 | `SANDBOXR_HOME` | `~/.sandboxr` | Everything sandboxr keeps on the host. Never put it inside a repository |
+| `SANDBOXR_WORKSPACE` | `$SANDBOXR_HOME/workspace` | Where the projects the dashboard can start live, one directory each. Its own variable so the repositories can sit on a different disk |
+| `SANDBOXR_TTL_HOURS` | `12` | How long a sandbox may sit unused before it is stopped. **`~/.sandboxr/config.yaml` beats this** — see below |
+| `SANDBOXR_REAP_MINUTES` | `5` | How often the dashboard looks for sandboxes that have sat unused too long. **`0` turns it off** — which is the honest setting for a machine whose dashboard is usually not running, since nothing else enforces a lifetime |
 | `SANDBOXR_DOMAIN` | `sbx.localhost` | The hostname suffix |
 | `SANDBOXR_HTTP_PORT` | `80` | The port the router publishes HTTP on |
 | `SANDBOXR_HTTPS_PORT` | `443` | The port the router publishes HTTPS on |
@@ -37,6 +40,23 @@ flowchart LR
 > With it set, `up` never renders or builds the project's own image, so the toolchain and
 > dependencies in whatever you named are what the sandbox has. Useful for debugging an image, and
 > confusing if you forget it is exported.
+
+### The one setting that is a file, not a variable
+
+How long a sandbox may sit unused is read from `~/.sandboxr/config.yaml`, which `sandboxr init`
+writes with the setting explained in it:
+
+```yaml
+ttl: 12h
+projects:
+  acme: { ttl: 3d }
+```
+
+Most specific wins: `--ttl` on the command, then the project's entry, then the file's top-level
+`ttl`, then `SANDBOXR_TTL_HOURS`, then the built-in twelve hours. The variable sits below the file
+because it is what a service unit sets once and everybody forgets — an edit to the file that lost to
+it would be the worst kind of not working. Full description in
+[Lifetimes](../guides/managed-sandboxes.md).
 
 ### For a MySQL project
 

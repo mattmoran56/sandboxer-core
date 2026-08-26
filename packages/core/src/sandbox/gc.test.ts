@@ -23,6 +23,7 @@ function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
     driver: "mysql",
     access: "public",
     created: "2026-08-25T09:00:00.000Z",
+    ttl: "never",
     state: "running",
     container: "sandboxr-acme-tkt-1",
     ...overrides,

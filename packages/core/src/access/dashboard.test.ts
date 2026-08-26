@@ -1,6 +1,7 @@
 // Tests for the dashboard container's `docker run` arguments:
 // - the mount set, asserted exactly: the socket, SANDBOXR_HOME and the installation, nothing more
 // - the password is passed through, or omitted entirely
+// - a GitHub token is passed as a value, and omitted entirely when there is none
 // - Secure cookies are dropped only when there is no TLS to carry them
 // - two Traefik routers onto one service: the bare domain, and the reserved handshake path on any
 //   sandbox hostname
@@ -126,5 +127,23 @@ describe("the dashboard's two routers", () => {
       expect(labels(false)[`traefik.http.routers.${router}.entrypoints`], router).toBe("web");
       expect(labels(false)[`traefik.http.routers.${router}.tls`], router).toBeUndefined();
     }
+  });
+});
+
+describe("the GitHub token", () => {
+  const env = { SANDBOXR_HOME: "/home/dev/.sandboxr", HOME: "/home/dev" };
+
+  // As a value, not a mounted file. On macOS `gh` keeps the token in the login
+  // keychain, so the mounted ~/.config/gh names the user and carries no
+  // credential — and a private clone then fails with "could not read Username
+  // for 'https://github.com'", which reads like a missing prompt.
+  it("reaches the container as GH_TOKEN", () => {
+    const args = dashboardArgs({ domain: "sbx.localhost", tls: true, ghToken: "gho_example", env });
+    expect(args).toContain("GH_TOKEN=gho_example");
+  });
+
+  it("is omitted entirely when there is none, rather than sent empty", () => {
+    const args = dashboardArgs({ domain: "sbx.localhost", tls: true, env });
+    expect(args.some((arg) => arg.startsWith("GH_TOKEN="))).toBe(false);
   });
 });

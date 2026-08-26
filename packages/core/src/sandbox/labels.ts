@@ -23,7 +23,23 @@ export const LABELS = {
   driver: "sandboxr.driver",
   created: "sandboxr.created",
   access: "sandboxr.access",
+  ttl: "sandboxr.ttl",
 } as const;
+
+/**
+ * There is deliberately no `sandboxr.expires` label.
+ *
+ * A deadline label is the obvious design and it is wrong. Labels hold durable
+ * state (contracts §3.4): `sandboxr.created` is stamped once when the container
+ * is created and never moves, so `created + ttl` is a fixed instant. The moment
+ * the reaper stops an expired sandbox that instant is already in the past — so
+ * pressing Restart would hand the next pass a sandbox that is still expired and
+ * stop it again, and the button would look broken.
+ *
+ * The ttl is therefore stored as a *duration* and the deadline is derived from
+ * the container's current start time, which docker updates on every restart.
+ * See `expiry.ts`.
+ */
 
 /** The filter that finds every sandbox, whatever project it belongs to. */
 export const SANDBOX_FILTER = `label=${LABELS.slug}`;
@@ -38,6 +54,8 @@ export interface LabelInput {
   driver: string;
   access: "public" | "private";
   created?: Date | undefined;
+  /** Seconds the sandbox may run for, or the word `never`. */
+  ttl?: string | undefined;
 }
 
 export function labelsFor(input: LabelInput): Record<string, string> {
@@ -54,6 +72,9 @@ export function labelsFor(input: LabelInput): Record<string, string> {
     [LABELS.driver]: input.driver,
     [LABELS.created]: (input.created ?? new Date()).toISOString(),
     [LABELS.access]: input.access,
+    // Absent means never: a sandbox nobody gave a lifetime to is not one the
+    // clock gets to decide about.
+    [LABELS.ttl]: input.ttl === undefined || input.ttl === "" ? "never" : input.ttl,
   };
 }
 
@@ -100,6 +121,11 @@ export function sandboxFromLabels(
     driver: labels[LABELS.driver] ?? "none",
     access: labels[LABELS.access] === "private" ? "private" : "public",
     created: labels[LABELS.created] ?? "",
+    // A container started before this label existed has no ttl, and must read
+    // as `never` rather than as an empty string: anything the expiry planner
+    // cannot parse has to fail closed, and an unlabelled sandbox that came out
+    // as "already expired" would be stopped the first time the reaper ran.
+    ttl: labels[LABELS.ttl] ?? "never",
     state,
     container: container === "" && project !== "" ? containerName(project, slug) : container,
   };

@@ -1,0 +1,394 @@
+/**
+ * The writing half of git: cutting worktrees out of a project's bare clone.
+ *
+ * ./git.js reads a worktree that already exists — this creates, lists and
+ * removes them. Same posture as that file: the injectable `Runner` from
+ * ./docker.js is the only seam onto the OS, arguments are arrays rather than
+ * shell strings, and a listing degrades to a usable answer rather than throwing.
+ * Creating and removing *do* throw, because a caller that asked for a worktree
+ * needs to know it did not get one.
+ *
+ * The layout is workspace.ts's: `<project>/wt/<slug>`, one directory per branch.
+ */
+
+import { existsSync, realpathSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+
+import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
+import { branchOf } from "./git.js";
+import { sanitizeSlug } from "./naming.js";
+import type { Project } from "./workspace.js";
+
+export interface Worktree {
+  /** Absolute path to the top of the worktree. */
+  path: string;
+  /** The branch name, or `?` when it cannot be resolved — never git's literal "HEAD". */
+  branch: string;
+  /** Short commit sha, or `?`. */
+  head: string;
+  /** Checked out detached, which is how a branch open elsewhere is run. */
+  detached: boolean;
+  /** Whether the directory is really on disk. */
+  exists: boolean;
+}
+
+export interface Branch {
+  /** The name a forge would report: `feat/thing`, with no `origin/` on the front. */
+  name: string;
+  /** True when the only ref for it is the remote-tracking one. */
+  remote: boolean;
+  /** Last commit date, ISO 8601, as git formatted it. */
+  updated: string;
+}
+
+export class WorktreeError extends Error {
+  override readonly name = "WorktreeError";
+}
+
+export interface AddInput {
+  project: Project;
+  branch: string;
+  /** Create the branch off this ref — `origin/main`, a tag, a sha. */
+  base?: string | undefined;
+  run?: Runner | undefined;
+  /** Progress and warnings, one line at a time. */
+  log?: ((line: string) => void) | undefined;
+}
+
+const UNKNOWN = "?";
+
+/** How many characters of a sha to keep, matching `git rev-parse --short`. */
+const SHORT_SHA = 7;
+
+async function git(run: Runner, dir: string, args: string[]): Promise<ExecResult> {
+  return run("git", ["-C", dir, ...args]);
+}
+
+function failure(args: string[], result: ExecResult): WorktreeError {
+  const detail = (result.stderr || result.stdout).trim().split("\n").slice(-8).join("\n");
+  return new WorktreeError(`git ${args.join(" ")} exited ${result.code}${detail ? `:\n${detail}` : ""}`);
+}
+
+/**
+ * Rejects a branch name git would read as something other than a branch name.
+ *
+ * Passing arguments as an array stops a name becoming shell syntax, but not a
+ * name becoming an *option*: `git worktree add -b --foo …` is still git parsing
+ * a flag. `..` is worse than wrong — in the base position it is a revision
+ * *range*, so `a..b` names no commit at all and the failure arrives from deep
+ * inside git looking nothing like "that is not a branch".
+ */
+function assertBranchName(raw: string): string {
+  const branch = raw.trim();
+  if (branch === "") throw new WorktreeError("a branch name is required");
+  if (branch.startsWith("-")) {
+    throw new WorktreeError(`branch "${branch}" starts with "-", which git would read as an option`);
+  }
+  if (branch.includes("..")) {
+    throw new WorktreeError(`branch "${branch}" contains "..", which git reads as a commit range`);
+  }
+  return branch;
+}
+
+interface RawWorktree {
+  path: string;
+  head: string;
+  branch: string;
+  detached: boolean;
+}
+
+/**
+ * Parses `git worktree list --porcelain`.
+ *
+ * The porcelain form and not the human one, which prints path, sha and branch
+ * separated by runs of spaces: a worktree whose path contains a space is then
+ * ambiguous, and the first such path silently turns into a wrong sha and a
+ * missing branch. Porcelain gives one key per line, so the path is whatever
+ * follows the first space and nothing has to be guessed.
+ *
+ * Pure and exported so the parsing can be tested without a repository — the
+ * shapes that matter (bare, detached, a space in the path) are all awkward to
+ * arrange on disk and trivial to write down.
+ */
+export function parseWorktreeList(porcelain: string): RawWorktree[] {
+  const entries: RawWorktree[] = [];
+
+  // Stanzas are separated by a blank line, and the last one may or may not have
+  // a trailing newline depending on git's version.
+  for (const stanza of porcelain.split(/\r?\n\r?\n/)) {
+    let path = "";
+    let head = UNKNOWN;
+    let branch = UNKNOWN;
+    let detached = false;
+    let bare = false;
+
+    for (const rawLine of stanza.split(/\r?\n/)) {
+      const line = rawLine.replace(/\r$/, "").trimEnd();
+      if (line === "") continue;
+
+      const space = line.indexOf(" ");
+      const key = space === -1 ? line : line.slice(0, space);
+      const value = space === -1 ? "" : line.slice(space + 1);
+
+      if (key === "worktree") path = value;
+      else if (key === "HEAD") head = value;
+      else if (key === "branch") branch = value.replace(/^refs\/heads\//, "");
+      else if (key === "detached") detached = true;
+      else if (key === "bare") bare = true;
+    }
+
+    // The first stanza of a bare repository is the repository itself: no HEAD,
+    // no branch, and no directory anybody could run a sandbox from.
+    if (path === "" || bare) continue;
+
+    // git never writes `branch HEAD`, but a ref named HEAD would parse to it and
+    // "HEAD" names nothing a caller can use — naming.ts refuses to slug it.
+    entries.push({ path, head, branch: branch === "HEAD" ? UNKNOWN : branch, detached });
+  }
+
+  return entries;
+}
+
+/**
+ * The path git will call this path.
+ *
+ * git records a worktree by its *resolved* path, so on any machine where a
+ * parent directory is a symlink — macOS's `/tmp` and `/var/folders` are both
+ * symlinks into `/private`, and plenty of people keep their code under one — the
+ * path handed in never string-matches the path `worktree list` reports back.
+ * That mismatch does not look like a symlink problem: it looks like git having
+ * created a worktree it then denies exists.
+ */
+function canonical(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+function samePath(a: string, b: string): boolean {
+  return a === b || canonical(a) === canonical(b);
+}
+
+function shortSha(head: string): string {
+  return head === UNKNOWN || head === "" ? UNKNOWN : head.slice(0, SHORT_SHA);
+}
+
+async function rawList(run: Runner, project: Project): Promise<RawWorktree[]> {
+  const result = await git(run, project.repo, ["worktree", "list", "--porcelain"]);
+  // A listing never throws: a project whose repo has gone has no worktrees, and
+  // that is a fact the dashboard can render.
+  if (result.code !== 0) return [];
+  return parseWorktreeList(result.stdout);
+}
+
+/**
+ * Every worktree git knows about for this project, and whether it is real.
+ *
+ * `exists` is checked on the filesystem rather than trusted from git, for the
+ * reason sandbox/gc.ts already records at its `worktreeExists` input: a worktree
+ * deleted with a plain `rm -rf` leaves its entry in git's admin files, so git
+ * goes on reporting it and everything downstream goes on believing it is alive.
+ * The entry is reported rather than dropped, because "registered but gone" is
+ * precisely what the caller wants to see before it prunes anything.
+ */
+export async function listWorktrees(
+  project: Project,
+  options: { run?: Runner | undefined } = {},
+): Promise<Worktree[]> {
+  const run = options.run ?? nodeRunner;
+  return hydrate(run, await rawList(run, project));
+}
+
+/**
+ * Turns parsed stanzas into answers: the sha shortened, the branch of a detached
+ * tree recovered.
+ *
+ * A detached worktree has no branch of its own, and git.ts's `branchOf` gets the
+ * name back from any local branch pointing at the same commit — the property the
+ * detached form depends on to be usable at all. It needs the tree, so a worktree
+ * that is no longer on disk keeps whatever git's admin files still say.
+ */
+async function hydrate(run: Runner, entries: RawWorktree[]): Promise<Worktree[]> {
+  const out: Worktree[] = [];
+  for (const entry of entries) {
+    const exists = existsSync(entry.path);
+    const branch = entry.branch === UNKNOWN && exists ? await branchOf(entry.path, run) : entry.branch;
+    out.push({ path: entry.path, branch, head: shortSha(entry.head), detached: entry.detached, exists });
+  }
+  return out;
+}
+
+async function localBranchExists(run: Runner, project: Project, branch: string): Promise<boolean> {
+  const result = await git(run, project.repo, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+  return result.code === 0;
+}
+
+async function remoteBranchExists(run: Runner, project: Project, branch: string): Promise<boolean> {
+  const result = await git(run, project.repo, ["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`]);
+  return result.code === 0;
+}
+
+/**
+ * Creates the worktree for a branch, or hands back the one already there.
+ *
+ * The three cases are the ones docs/troubleshooting.md has always told people to
+ * run by hand, in the same order:
+ *
+ * | Where the branch is | What runs |
+ * |---|---|
+ * | a base was given | `worktree add -b <branch> <path> <base>` |
+ * | local, checked out nowhere | `worktree add <path> <branch>` |
+ * | local, checked out somewhere else | `worktree add --detach <path> refs/heads/<branch>` |
+ * | only on the remote | `worktree add -b <branch> <path> origin/<branch>` |
+ *
+ * git refuses to check out one branch in two places, and a branch is very often
+ * already open in somebody's main checkout, so the detached form is not an edge
+ * case — it is the normal way to run a branch somebody is working on. It costs
+ * nothing, because git.ts's `branchOf` recovers the branch name from a detached
+ * tree via `git branch --points-at HEAD`.
+ */
+export async function addWorktree(input: AddInput): Promise<Worktree> {
+  const run = input.run ?? nodeRunner;
+  const log = input.log ?? (() => {});
+  const branch = assertBranchName(input.branch);
+  const { project } = input;
+
+  // The directory name is the slug, not the branch: `feat/tkt-4821` has a slash
+  // in it and would otherwise become a nested directory, and the same sanitiser
+  // is what names the container and the hostname, so one branch has one name
+  // everywhere.
+  const path = join(project.worktrees, sanitizeSlug(branch));
+
+  const before = await rawList(run, project);
+  const atPath = before.find((entry) => samePath(entry.path, path));
+  if (atPath && existsSync(path)) {
+    // Find-or-create: asking twice for the same branch is what a dashboard does
+    // on a double click, and the second answer should be the first worktree.
+    const [existing] = await hydrate(run, [atPath]);
+    if (existing) return existing;
+  }
+  if (atPath) {
+    // Registered but gone — see listWorktrees. Without this, `worktree add`
+    // refuses with "already registered" for a directory that is not there.
+    await git(run, project.repo, ["worktree", "prune"]);
+  }
+
+  // Asked of the *raw* entries: branchOf gives a detached worktree the name of
+  // the branch it sits on, and a detached worktree does not hold that branch, so
+  // the recovered name would detach every later worktree for no reason.
+  const heldElsewhere = before.some((entry) => !entry.detached && entry.branch === branch);
+
+  let args: string[];
+  if (input.base !== undefined && input.base.trim() !== "") {
+    args = ["worktree", "add", "-b", branch, path, input.base.trim()];
+  } else if (await localBranchExists(run, project, branch)) {
+    args = heldElsewhere
+      ? ["worktree", "add", "--detach", path, `refs/heads/${branch}`]
+      : ["worktree", "add", path, branch];
+  } else if (await remoteBranchExists(run, project, branch)) {
+    args = ["worktree", "add", "-b", branch, path, `origin/${branch}`];
+  } else {
+    throw new WorktreeError(
+      `branch "${branch}" does not exist locally or on origin — pass a base to create it`,
+    );
+  }
+
+  await mkdir(project.worktrees, { recursive: true });
+  const added = await git(run, project.repo, args);
+
+  // **The tree on disk decides whether it worked, not the exit code.** A
+  // repository's `post-checkout` hook runs *after* the checkout is already
+  // written — one depending on a tool this machine does not have fails exactly
+  // here — and git then exits non-zero for a worktree that exists and is
+  // perfectly fine. Trusting the exit code deletes somebody's working setup and
+  // tells them the worktree was never created, which is both wrong and the
+  // hardest kind of wrong to debug.
+  if (!existsSync(path)) throw failure(args, added);
+  if (added.code !== 0) {
+    log(
+      `worktree created at ${path}, but git exited ${added.code} — a repository hook failed after the checkout:\n` +
+        (added.stderr || added.stdout).trim().split("\n").slice(-8).join("\n"),
+    );
+  }
+
+  const after = await rawList(run, project);
+  const entry = after.find((candidate) => samePath(candidate.path, path));
+  if (!entry) throw new WorktreeError(`git created ${path} but does not list it as a worktree`);
+
+  const [created] = await hydrate(run, [entry]);
+  if (!created) throw new WorktreeError(`git created ${path} but does not list it as a worktree`);
+  return created;
+}
+
+/**
+ * Removes a worktree and the entry that outlives it.
+ *
+ * The prune is not tidiness: `worktree remove` refuses a directory somebody has
+ * already deleted by hand, and without the prune that stale entry keeps the
+ * worktree looking alive to `list` and blocks the next `add` at the same path.
+ * So the disk decides here too — if the directory is gone afterwards, the job is
+ * done, whatever `remove` thought of it.
+ */
+export async function removeWorktree(
+  project: Project,
+  path: string,
+  options: { run?: Runner | undefined; force?: boolean | undefined } = {},
+): Promise<void> {
+  const run = options.run ?? nodeRunner;
+
+  const args = ["worktree", "remove", ...(options.force ? ["--force"] : []), path];
+  const removed = await git(run, project.repo, args);
+  await git(run, project.repo, ["worktree", "prune"]);
+
+  if (existsSync(path)) throw failure(args, removed);
+}
+
+/**
+ * Every branch the project has, local and remote, most recent commit first.
+ *
+ * Named the way a forge names them — `origin/` is stripped — because the branch
+ * a caller types is the one a pull request shows, and a listing that answers
+ * `origin/feat/thing` would make `addWorktree("origin/feat/thing")` look right
+ * when it is not a branch name at all.
+ */
+export async function listBranches(
+  project: Project,
+  options: { run?: Runner | undefined } = {},
+): Promise<Branch[]> {
+  const run = options.run ?? nodeRunner;
+
+  // A tab separator rather than a space: a committer date has spaces in some
+  // formats, and a ref name may not contain a tab, so the split is unambiguous.
+  const result = await git(run, project.repo, [
+    "for-each-ref",
+    "--format=%(refname:short)%09%(committerdate:iso8601)",
+    "refs/heads",
+    "refs/remotes/origin",
+  ]);
+  if (result.code !== 0) return [];
+
+  // Local wins over remote: they are the same branch, and the local ref is the
+  // one a worktree can be checked out from without creating anything.
+  const branches = new Map<string, Branch>();
+
+  for (const line of result.stdout.split("\n")) {
+    if (line.trim() === "") continue;
+    const [rawName = "", updated = ""] = line.split("\t");
+
+    const remote = rawName.startsWith("origin/");
+    const name = remote ? rawName.slice("origin/".length) : rawName;
+
+    // `origin/HEAD` is a symbolic ref onto the default branch, not a branch of
+    // its own; listing it puts a phantom branch called HEAD in every dropdown.
+    if (name === "" || name === "HEAD") continue;
+
+    const seen = branches.get(name);
+    if (seen && (!seen.remote || remote)) continue;
+    branches.set(name, { name, remote, updated: updated.trim() });
+  }
+
+  return [...branches.values()].sort((a, b) => b.updated.localeCompare(a.updated) || a.name.localeCompare(b.name));
+}

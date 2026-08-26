@@ -9,6 +9,7 @@ description: The things you actually do with a sandbox — start one, rebuild wh
 | [The edit–reload loop](edit-and-reload.md) | How a file you save becomes running code, and why there is no hot reload |
 | [Logs, shells and terminals](logs-and-shells.md) | The three ways to see inside a sandbox |
 | [The dashboard](dashboard.md) | The same things without a terminal |
+| [Projects, worktrees and lifetimes](managed-sandboxes.md) | Letting sandboxr keep the repositories, and having sandboxes stop themselves |
 | [Testing a migration](testing-a-migration.md) | Pointing a half-written migration at real structure, safely |
 | [Agents in a sandbox](agents-in-a-sandbox.md) | Giving a coding agent somewhere to see the result of its own work |
 

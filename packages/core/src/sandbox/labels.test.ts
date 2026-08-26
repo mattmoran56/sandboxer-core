@@ -1,8 +1,10 @@
 // Tests for the container labels that hold all of a sandbox's state:
 // - LABELS: every key from contracts §3.4 is present and namespaced
 // - labelsFor: booleans as strings, an unresolvable branch or commit recorded as ?, an ISO timestamp
+// - labelsFor: a ttl passed through as given, and defaulted to `never` when there is none
 // - labelArgs: rendered as --label pairs, one argument each
 // - sandboxFromLabels: a full round-trip, missing fields defaulted, a container that is not ours refused
+// - sandboxFromLabels: a container predating the ttl label reads as `never`, never as already expired
 // - deriveState: stopped, starting, running, degraded, and that a failed migration outranks a successful marker
 
 import { describe, expect, it } from "vitest";
@@ -33,6 +35,7 @@ describe("LABELS", () => {
       "driver",
       "project",
       "slug",
+      "ttl",
       "worktree",
     ]);
   });
@@ -49,6 +52,14 @@ describe("labelsFor", () => {
     expect(labels[LABELS.dirty]).toBe("false");
     expect(labels[LABELS.created]).toBe("2026-08-25T09:00:00.000Z");
     expect(labels[LABELS.access]).toBe("public");
+  });
+
+  // Absent means never: a sandbox nobody gave a lifetime to is not one the
+  // clock gets to decide about.
+  it("defaults a missing ttl to never, and passes one through as given", () => {
+    expect(labelsFor(input)[LABELS.ttl]).toBe("never");
+    expect(labelsFor({ ...input, ttl: "8h" })[LABELS.ttl]).toBe("8h");
+    expect(labelsFor({ ...input, ttl: "" })[LABELS.ttl]).toBe("never");
   });
 
   it("marks a dirty worktree", () => {
@@ -109,9 +120,17 @@ describe("sandboxFromLabels", () => {
       driver: "mysql",
       access: "public",
       created: "2026-08-25T09:00:00.000Z",
+      ttl: "never",
       state: "running",
       container: "sandboxr-acme-tkt-1",
     });
+  });
+
+  // An unlabelled sandbox must never look already expired: the expiry planner
+  // reads `never` as "no expiry set" and leaves it alone, whereas an empty
+  // string would be a ttl it could not parse on a container it might stop.
+  it("reads a container predating the ttl label as never", () => {
+    expect(sandboxFromLabels({ [LABELS.slug]: "tkt-1" }, "c", "stopped")?.ttl).toBe("never");
   });
 
   // A stray container on the same daemon must never appear in the list.

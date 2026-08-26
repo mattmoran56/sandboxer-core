@@ -6,30 +6,55 @@
  * whole surface can be driven from a test without ending the test run.
  */
 
+import { basename } from "node:path";
+
 import {
+  CONFIG_FILENAME,
   ConfigError,
   TOOL_VERSION,
   accessStatus,
+  addWorktree,
   checkSecrets,
+  cloneProject,
   containerName,
   deriveSlug,
   docker,
   down,
   driverContext,
-  findConfig,
+  expire,
+  fetchProject,
+  findProject,
+  formatTtl,
   gc,
   getDriver,
+  ghAvailable,
   gitFacts,
   importSecrets,
   initAccess,
+  isKeptAlive,
   list,
+  listProjects,
+  listPullRequests,
+  listRemoteRepos,
+  listWorktrees,
   loadConfig,
+  locateConfig,
+  matchesOrigin,
+  parseTtl,
   paths,
   persistenceAdvice,
   reload,
+  removeKeep,
+  removeWorktree,
+  repoSlugFromUrl,
+  sanitizeSlug,
+  startSandbox,
   status,
+  stopSandbox,
   teardownAccess,
   up,
+  writeKeep,
+  type Project,
   type ResolvedConfig,
   type Sandbox,
 } from "@sandboxr/core";
@@ -52,18 +77,43 @@ SETUP
 SANDBOX
   up [slug]                    Start a sandbox from this worktree
      --worktree PATH           ...or from another one
+     --project NAME            ...or from a project in the workspace
+     --branch NAME             Which branch of it to run
+     --base REF                Create that branch off this ref first
+     --ttl 12h|never           Stop it again once it has sat unused this long
      --with a,b                Also start these optional runtimes
      --seed local|file|fixtures  Force a seed source
      --detach                  Do not wait for it to come up
   down [slug] [--keep]         Remove it, and its database and uploads
-  ls [--project NAME]          Every sandbox: state, branch, worktree
+  stop <slug> [--project N]    Stop the container, keep everything else
+  start <slug> [--project N]   Start a stopped one again
+  keep <slug> [--project N]    Exempt it from the idle clock
+  unkeep <slug> [--project N]  Hand it back to the clock
+  ls [--project NAME]          Every sandbox: state, ttl, branch, worktree
   status [slug]                One sandbox in detail
   logs [slug] [--tail N] [-f]  The container's own log stream
   shell [slug]                 A shell inside the sandbox
   reload [slug] --go [name]    Rebuild a backend and restart it
                 --web <label|all|built>   Rebuild a front-end
                 --migrate      Re-run this sandbox's migrations
+  expire [--dry-run]           Stop every sandbox past its idle limit
+     --project NAME            ...of one project only
   gc [--dry-run]               Reap sandboxes whose worktree is gone
+
+PROJECTS
+  project ls                   Every project in the workspace
+  project available            Repositories you could add, as gh can see them
+  project clone <url>          Put one there, as a bare mirror
+     --name NAME               ...under this name, not the url's
+  project fetch <name>         Bring its remote-tracking branches up to date
+  project prs <name>           Open pull requests, as gh reports them
+
+WORKTREES
+  worktree ls <project>        Every worktree cut from a project
+  worktree add <project> <branch>   Cut one for a branch
+     --base REF                ...creating the branch off this ref
+  worktree rm <project> <branch>    Remove one
+     --force                   ...even with uncommitted work in it
 
 DATABASE
   db seed [--seed SOURCE]      Produce or refresh the seed artifact
@@ -125,12 +175,32 @@ export async function main(argv: string[], context: RunContext = {}): Promise<nu
       case "ls":
       case "list":
         return await cmdList(args, out, env);
+      case "stop":
+        return await cmdPower(args, out, cwd, env, "stop");
+      case "start":
+        return await cmdPower(args, out, cwd, env, "start");
+      // `pin` and `unpin` are the names these had before the concept was called
+      // keep-alive. Kept as undocumented aliases rather than removed: they are
+      // in people's shell history and in scripts, and the cost of honouring
+      // them is two lines.
+      case "keep":
+      case "pin":
+        return await cmdKeep(args, out, cwd, env, true);
+      case "unkeep":
+      case "unpin":
+        return await cmdKeep(args, out, cwd, env, false);
+      case "expire":
+        return await cmdExpire(args, out, env);
+      case "project":
+        return await cmdProject(args, out, env);
+      case "worktree":
+        return await cmdWorktree(args, out, env);
       case "status":
         return await cmdStatus(args, out, cwd, env);
       case "logs":
-        return await cmdLogs(args, out, cwd);
+        return await cmdLogs(args, out, cwd, env);
       case "shell":
-        return await cmdShell(args, out, cwd);
+        return await cmdShell(args, out, cwd, env);
       case "reload":
         return await cmdReload(args, out, cwd, env);
       case "gc":
@@ -144,7 +214,7 @@ export async function main(argv: string[], context: RunContext = {}): Promise<nu
       case "teardown":
         return await cmdTeardown(args, out, env);
       case "config":
-        return await cmdConfig(args, out, cwd);
+        return await cmdConfig(args, out, cwd, env);
       case "doctor":
         return await cmdDoctor(args, out, cwd, env);
       default:
@@ -165,13 +235,65 @@ export async function main(argv: string[], context: RunContext = {}): Promise<nu
 }
 
 /** Resolves the project's config, and the slug a command applies to. */
+/**
+ * The worktree a named sandbox was started from, if exactly one answers to it.
+ *
+ * Undefined for no match, for an ambiguous one, and for a docker that will not
+ * answer — every one of which means "I cannot improve on the current directory",
+ * which is the caller's fallback. It never throws for the same reason: this is
+ * a convenience on the way to a command that has its own error to report.
+ */
+async function sandboxWorktree(
+  slug: string,
+  project: string | undefined,
+  env: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  try {
+    const matches = (await list({ project, env })).filter((sandbox) => sandbox.slug === slug);
+    const [only] = matches;
+    return matches.length === 1 && only && only.worktree !== "" ? only.worktree : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function target(
   args: ParsedArgs,
   cwd: string,
+  env: NodeJS.ProcessEnv,
   positionalIndex = 0,
 ): Promise<{ config: ResolvedConfig; slug: string; worktree: string }> {
-  const worktree = flagString(args, "worktree") ?? cwd;
-  const config = await loadConfig(worktree, { enforceAccess: false });
+  const named = args.positional[positionalIndex] ?? flagString(args, "slug");
+  const declared = flagString(args, "worktree");
+
+  // A named sandbox knows where it came from, so ask it rather than the current
+  // directory. Without this, `sandboxr status <slug>` only worked from inside a
+  // configured directory — which for a project sandboxr checked out itself is
+  // backwards: the slug identifies it, and the worktree is on its label.
+  //
+  // Only when a slug was actually named and no `--worktree` overrides it, so the
+  // explicit forms keep meaning exactly what they meant.
+  if (named !== undefined && named !== "" && declared === undefined) {
+    const found = await sandboxWorktree(named, flagString(args, "project"), env);
+    if (found) {
+      try {
+        return {
+          config: await loadConfig(found, { enforceAccess: false, env }),
+          slug: named,
+          worktree: found,
+        };
+      } catch {
+        // A worktree that has moved on, or lost its config, is a fine reason to
+        // fall back to the current directory — and a poor reason to refuse.
+      }
+    }
+  }
+
+  const worktree = declared ?? cwd;
+  // `env` is what names the workspace, so it is what decides whether this
+  // worktree may fall back to its project's config. Passing process.env by
+  // accident would make the CLI and the dashboard disagree about one worktree.
+  const config = await loadConfig(worktree, { enforceAccess: false, env });
   const facts = await gitFacts(worktree);
   const slug = deriveSlug({
     explicit: args.positional[positionalIndex] ?? flagString(args, "slug"),
@@ -182,10 +304,17 @@ async function target(
 }
 
 async function cmdUp(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
-  const worktree = flagString(args, "worktree") ?? cwd;
+  const project = flagString(args, "project");
+  // With `--project` there is no worktree yet — core finds one for the branch,
+  // or cuts it — so there is nothing here to load a config from, and the cwd is
+  // whatever directory the person happened to be standing in. Without it the
+  // behaviour is exactly as it was: this worktree, or the one `--worktree` names.
+  const worktree = flagString(args, "worktree") ?? (project === undefined ? cwd : undefined);
   // Enforced here rather than in `target`: this is the one command that decides
-  // to *start* something, so it is where a §5.3 refusal belongs.
-  const config = await loadConfig(worktree);
+  // to *start* something, so it is where a §5.3 refusal belongs. When core
+  // resolves the worktree it loads the config the same way, so the refusal still
+  // happens — one step later, on the worktree that actually got picked.
+  const config = worktree === undefined ? undefined : await loadConfig(worktree, { env });
 
   const seed = flagString(args, "seed");
   // Checked rather than cast: an unrecognised source would otherwise be handed
@@ -195,9 +324,24 @@ async function cmdUp(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.Pro
     return 1;
   }
 
+  // Refused here as well as in core, and before anything is seeded or built:
+  // core throws on a lifetime it cannot read, but by then the worktree is cut
+  // and the seed is taken, so the person gets a stack of work undone over a
+  // typo they could have been told about immediately. See parseTtl on why it
+  // will not guess.
+  const ttl = flagString(args, "ttl");
+  if (ttl !== undefined && parseTtl(ttl) === undefined) {
+    out.error(`--ttl ${ttl} is not a duration — a span like 30m, 12h or 7d, or never`);
+    return 1;
+  }
+
   const result = await up({
     config,
     worktree,
+    project,
+    branch: flagString(args, "branch"),
+    base: flagString(args, "base"),
+    ttl,
     slug: args.positional[0] ?? flagString(args, "slug"),
     with: flagList(args, "with"),
     seed: seed as SeedSource | undefined,
@@ -223,7 +367,7 @@ async function cmdUp(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.Pro
 }
 
 async function cmdDown(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
-  const { config, slug } = await target(args, cwd);
+  const { config, slug } = await target(args, cwd, env);
   await down(config.project, slug, { keep: flagBoolean(args, "keep"), env, log: (line) => out.ok(line) });
   if (out.json) out.data({ project: config.project, slug, removed: true });
   return 0;
@@ -239,12 +383,25 @@ async function cmdList(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
     out.line("No sandboxes. Create one with: sandboxr up");
     return 0;
   }
+  // One column for two facts, because they answer the same question — when does
+  // this go away? `kept` is shown instead of the ttl rather than beside it: it
+  // is what the clock will actually do to this sandbox, and a row reading `12h`
+  // next to a keep-alive invites exactly the wrong conclusion.
+  const lifetimes = await Promise.all(
+    sandboxes.map(async (sandbox) => {
+      if (await isKeptAlive(sandbox, env)) return "kept";
+      const ttl = parseTtl(sandbox.ttl);
+      return ttl === undefined ? "-" : formatTtl(ttl);
+    }),
+  );
+
   out.table(
-    ["PROJECT", "SLUG", "STATE", "BRANCH", "WORKTREE"],
-    sandboxes.map((sandbox) => [
+    ["PROJECT", "SLUG", "STATE", "TTL", "BRANCH", "WORKTREE"],
+    sandboxes.map((sandbox, index) => [
       sandbox.project,
       sandbox.slug,
       sandbox.state,
+      lifetimes[index] ?? "-",
       // The star is the only place `dirty` shows, and it is worth the character:
       // a sandbox built from uncommitted work is not reproducible from its
       // commit alone.
@@ -252,13 +409,17 @@ async function cmdList(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
       sandbox.worktree,
     ]),
   );
-  out.line();
-  out.dim("* uncommitted changes when the sandbox started");
+  // Only when something is actually starred: a legend for a mark that is not in
+  // the table reads as though it were, and sends you looking for it.
+  if (sandboxes.some((sandbox) => sandbox.dirty)) {
+    out.line();
+    out.dim("* uncommitted changes when the sandbox started");
+  }
   return 0;
 }
 
 async function cmdStatus(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
-  const { config, slug } = await target(args, cwd);
+  const { config, slug } = await target(args, cwd, env);
   const result = await status(config.project, slug, { config, env });
   if (out.json) {
     out.data(result);
@@ -279,8 +440,8 @@ async function cmdStatus(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
   return result.state === "degraded" ? 3 : 0;
 }
 
-async function cmdLogs(args: ParsedArgs, out: Output, cwd: string): Promise<number> {
-  const { config, slug } = await target(args, cwd);
+async function cmdLogs(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
+  const { config, slug } = await target(args, cwd, env);
   const container = containerName(config.project, slug);
   const tail = flagNumber(args, "tail") ?? 200;
 
@@ -302,8 +463,8 @@ async function cmdLogs(args: ParsedArgs, out: Output, cwd: string): Promise<numb
   return result.code;
 }
 
-async function cmdShell(args: ParsedArgs, out: Output, cwd: string): Promise<number> {
-  const { config, slug } = await target(args, cwd);
+async function cmdShell(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
+  const { config, slug } = await target(args, cwd, env);
   void out;
   // Anything after a bare `--` is the command to run instead of a login shell,
   // which is what makes `sandboxr shell -- go test ./...` work from a script.
@@ -312,7 +473,7 @@ async function cmdShell(args: ParsedArgs, out: Output, cwd: string): Promise<num
 }
 
 async function cmdReload(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
-  const { config, slug } = await target(args, cwd);
+  const { config, slug } = await target(args, cwd, env);
 
   const kind = flagBoolean(args, "migrate")
     ? "migrate"
@@ -369,9 +530,415 @@ async function cmdGc(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Pro
   return 0;
 }
 
+/**
+ * Resolves the project a slug belongs to, for the commands that name a sandbox
+ * rather than stand in one.
+ *
+ * `list` is asked first because it is the same ground truth `sandboxr ls`
+ * prints, so a slug copied out of that table resolves from anywhere — which is
+ * the whole point of `stop`, `start` and `keep`: they are things you do to
+ * somebody else's sandbox from wherever you happen to be. The config in the
+ * current worktree is the fallback rather than the first answer, because it
+ * names the project you are *standing in*, not the sandbox you asked for.
+ *
+ * `--project` beats both, and is the way out of an ambiguous slug: slugs come
+ * from ticket ids, so two projects sharing a `tkt-4821` is ordinary rather than
+ * exotic, and picking one of them would be a coin toss with a container at stake.
+ */
+async function sandboxTarget(
+  args: ParsedArgs,
+  out: Output,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  usage: string,
+): Promise<{ project: string; slug: string; sandbox: Sandbox | undefined } | undefined> {
+  const slug = args.positional[0] ?? flagString(args, "slug");
+  if (slug === undefined || slug === "") {
+    out.error(usage);
+    return undefined;
+  }
+
+  const wanted = flagString(args, "project");
+  const matches = (await list({ project: wanted, env })).filter((sandbox) => sandbox.slug === slug);
+
+  const [first] = matches;
+  if (first && matches.length === 1) return { project: first.project, slug, sandbox: first };
+  if (matches.length > 1) {
+    const projects = [...new Set(matches.map((sandbox) => sandbox.project))].join(", ");
+    out.error(`${slug} is a sandbox of ${projects} — say which with --project`);
+    return undefined;
+  }
+  if (wanted !== undefined) return { project: wanted, slug, sandbox: undefined };
+
+  try {
+    const config = await loadConfig(flagString(args, "worktree") ?? cwd, { enforceAccess: false, env });
+    return { project: config.project, slug, sandbox: undefined };
+  } catch {
+    // Deliberately swallowed: a config that will not load is a fine reason to be
+    // unable to *guess* the project, but a poor reason to refuse a command that
+    // only needed a name — which `--project` supplies.
+    out.error(`no sandbox called ${slug} on this machine — name its project with --project`);
+    return undefined;
+  }
+}
+
+/** Stops or starts one container. Everything else about the sandbox survives. */
+async function cmdPower(
+  args: ParsedArgs,
+  out: Output,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  action: "stop" | "start",
+): Promise<number> {
+  const found = await sandboxTarget(args, out, cwd, env, `usage: sandboxr ${action} <slug> [--project NAME]`);
+  if (!found) return 1;
+
+  // core says one line about what it did, and it is held rather than printed as
+  // it arrives: "No sandbox called x" comes back through the same log as
+  // "Stopped x", and only the return value says which of them this was. Printed
+  // straight through, a failure would appear under the green ok marker.
+  let said = "";
+  const log = (line: string): void => {
+    said = line;
+  };
+  const changed =
+    action === "stop"
+      ? await stopSandbox(found.project, found.slug, { env, log })
+      : await startSandbox(found.project, found.slug, { env, log });
+
+  // The two false answers do not mean the same thing. Stopping something that
+  // was already stopped is the state being asked for, so it succeeds; starting
+  // something that does not exist cannot be, so it fails.
+  const worked = action === "stop" || changed;
+  const key = action === "stop" ? "stopped" : "started";
+  if (out.json) out.data({ project: found.project, slug: found.slug, [key]: changed });
+  if (said !== "") {
+    if (worked) out.ok(said);
+    else out.error(said);
+  }
+  return worked ? 0 : 1;
+}
+
+/** Exempts one sandbox from the idle clock, or hands it back. */
+async function cmdKeep(
+  args: ParsedArgs,
+  out: Output,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  keepAlive: boolean,
+): Promise<number> {
+  const verb = keepAlive ? "keep" : "unkeep";
+  const found = await sandboxTarget(args, out, cwd, env, `usage: sandboxr ${verb} <slug> [--project NAME]`);
+  if (!found) return 1;
+
+  if (!keepAlive) {
+    await removeKeep(found.project, found.slug, env);
+    if (out.json) out.data({ project: found.project, slug: found.slug, keepAlive: false });
+    out.ok(`${found.slug} is back on the clock`);
+    return 0;
+  }
+
+  // The marker holds the `sandboxr.created` of the container it was written
+  // for, so there has to be a container to read it from. Writing one anyway
+  // would leave a file that keeps nothing alive now and silently keeps whatever
+  // next takes the name.
+  if (!found.sandbox) {
+    out.error(`no sandbox called ${found.slug} in ${found.project} — keep one that exists`);
+    out.dim("      sandboxr ls");
+    return 1;
+  }
+  if (found.sandbox.created === "") {
+    out.error(`${found.slug} carries no created label, so a keep-alive could not tell it from its successor`);
+    out.dim("      sandboxr down and up again to relabel it");
+    return 1;
+  }
+
+  await writeKeep(found.sandbox.project, found.sandbox.slug, found.sandbox.created, env);
+  if (out.json) out.data({ project: found.sandbox.project, slug: found.sandbox.slug, keepAlive: true });
+  out.ok(`${found.sandbox.slug} will not expire until it is unkept`);
+  return 0;
+}
+
+/** Stops every sandbox that has sat unused past its limit. */
+async function cmdExpire(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Promise<number> {
+  const dryRun = flagBoolean(args, "dry-run");
+  const plan = await expire({
+    dryRun,
+    project: flagString(args, "project"),
+    env,
+    log: (line) => out.ok(line),
+  });
+
+  if (out.json) out.data(plan);
+  else if (dryRun) {
+    // The reason, not just the name: "ran for 9h, past its 8h ttl" is what makes
+    // the plan checkable before anything is stopped for real.
+    for (const { sandbox, reason } of plan.stop) out.line(`  would stop ${sandbox.slug} — ${reason}`);
+    if (plan.stop.length === 0) out.line("Nothing to expire.");
+  }
+  return 0;
+}
+
+async function cmdProject(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Promise<number> {
+  const sub = args.positional[0] ?? "";
+  const name = args.positional[1];
+
+  if (sub === "ls" || sub === "list") {
+    const projects = await listProjects({ env });
+    if (out.json) {
+      out.data(projects);
+      return 0;
+    }
+    if (projects.length === 0) {
+      out.line("No projects yet. Clone one with: sandboxr project clone <url>");
+      return 0;
+    }
+    out.table(
+      ["PROJECT", "BASE", "ORIGIN"],
+      projects.map((project) => [project.name, project.base, project.origin === "" ? "-" : project.origin]),
+    );
+    return 0;
+  }
+
+  if (sub === "available") {
+    return await projectAvailable(out, env);
+  }
+
+  if (sub === "clone") {
+    const url = name;
+    if (url === undefined) {
+      out.error("usage: sandboxr project clone <url> [--name NAME]");
+      return 1;
+    }
+    const project = await cloneProject(url, {
+      env,
+      name: flagString(args, "name"),
+      log: (line) => out.step(line),
+    });
+    if (out.json) out.data(project);
+    out.ok(`${project.name} is in the workspace, on ${project.base}`);
+    out.dim(`      sandboxr worktree add ${project.name} <branch>`);
+    return 0;
+  }
+
+  if (sub === "fetch" || sub === "prs") {
+    if (name === undefined) {
+      out.error(`usage: sandboxr project ${sub} <name>`);
+      return 1;
+    }
+    const project = await findProject(name, { env });
+    if (!project) return noProject(out, name);
+    return sub === "fetch" ? await projectFetch(project, out) : await projectPulls(project, out);
+  }
+
+  out.error("usage: sandboxr project ls|available|clone|fetch|prs");
+  return 1;
+}
+
+/**
+ * The repositories you could add, and which ones you already have.
+ *
+ * Adding a project used to mean knowing a clone URL and typing it. This is the
+ * same list the dashboard offers, from the same call, so the two faces cannot
+ * disagree about what is on offer or about which rows are already here.
+ *
+ * `added` is core's origin join rather than a string comparison: a project
+ * cloned over ssh records `git@github.com:owner/repo.git` while the listing
+ * gives the https URL, and comparing those would offer to clone something that
+ * is already in the workspace.
+ */
+async function projectAvailable(out: Output, env: NodeJS.ProcessEnv): Promise<number> {
+  const [repos, projects] = await Promise.all([
+    // The cap is core's, and it keeps the most recently updated. Said out loud
+    // rather than silently truncating: a repository missing from a list you are
+    // picking from reads as "gh cannot see it", which is a different problem.
+    listRemoteRepos({ log: (line) => out.warn(line) }),
+    listProjects({ env }),
+  ]);
+
+  const rows = repos.map((repo) => ({ ...repo, added: projects.some((project) => matchesOrigin(project, repo)) }));
+
+  if (out.json) {
+    out.data(rows);
+    return 0;
+  }
+
+  // An empty list has two causes and only one of them is "your account has no
+  // repositories". core answers both the same way on purpose — a missing forge
+  // must not take the dashboard down — which leaves telling them apart to
+  // whoever is talking to a person. Not a failure either way: a machine without
+  // gh is an ordinary machine, and `project clone <url>` still works on it.
+  if (rows.length === 0) {
+    if (!(await ghAvailable())) {
+      out.line("gh is not installed here, or is not logged in, so there are no repositories to list.");
+      out.dim("      brew install gh && gh auth login");
+    } else {
+      out.line("gh can see no repositories for this account.");
+    }
+    return 0;
+  }
+
+  out.table(
+    ["REPOSITORY", "VISIBILITY", "UPDATED", "STATUS"],
+    rows.map((repo) => [
+      repo.fork ? `${repo.fullName}*` : repo.fullName,
+      repo.visibility,
+      // The date alone: the time of day is never why you pick one of these, and
+      // a full timestamp costs the column that the repository name wants.
+      repo.updated === "" ? "-" : repo.updated.slice(0, 10),
+      repo.added ? "added" : "-",
+    ]),
+  );
+
+  // Only when something is actually starred, for cmdList's reason: a legend for
+  // a mark that is not in the table sends you looking for it.
+  if (rows.some((repo) => repo.fork)) {
+    out.line();
+    out.dim("* a fork");
+  }
+  out.line();
+  out.dim("      sandboxr project clone <url>");
+  return 0;
+}
+
+async function projectFetch(project: Project, out: Output): Promise<number> {
+  await fetchProject(project);
+  if (out.json) out.data({ project: project.name, origin: project.origin, fetched: true });
+  out.ok(`fetched ${project.name}${project.origin === "" ? "" : ` from ${project.origin}`}`);
+  return 0;
+}
+
+async function projectPulls(project: Project, out: Output): Promise<number> {
+  const pulls = await listPullRequests(project);
+  if (out.json) {
+    out.data(pulls);
+    return 0;
+  }
+
+  // An empty list has four causes and only one of them is "nothing is open", so
+  // it is worth one extra call to say which. core answers all four the same way
+  // on purpose — a missing forge must not take the dashboard down — which leaves
+  // telling them apart to whoever is talking to a person.
+  if (pulls.length === 0) {
+    if (!repoSlugFromUrl(project.origin)) {
+      const origin = project.origin === "" ? "no origin" : project.origin;
+      out.line(`${project.name} is not a GitHub repo (${origin}),`);
+      out.line("so there are no pull requests to read.");
+    } else if (!(await ghAvailable())) {
+      out.line("gh is not installed here, or is not logged in, so pull requests cannot be read.");
+      out.dim("      brew install gh && gh auth login");
+    } else {
+      out.line(`No open pull requests on ${project.name}.`);
+    }
+    return 0;
+  }
+
+  // The title goes last so a long one runs off the end rather than pushing the
+  // branch — the column you copy into `worktree add` — off the screen.
+  out.table(
+    ["#", "BRANCH", "AUTHOR", "TITLE"],
+    pulls.map((pull) => [
+      pull.draft ? `${pull.number}*` : `${pull.number}`,
+      pull.branch,
+      pull.author,
+      pull.title,
+    ]),
+  );
+  out.line();
+  out.dim("* draft");
+  return 0;
+}
+
+async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Promise<number> {
+  const sub = args.positional[0] ?? "";
+  const name = args.positional[1];
+  const branch = args.positional[2];
+
+  if (sub !== "ls" && sub !== "list" && sub !== "add" && sub !== "rm" && sub !== "remove") {
+    out.error("usage: sandboxr worktree ls|add|rm <project> [branch]");
+    return 1;
+  }
+  if (name === undefined) {
+    out.error(`usage: sandboxr worktree ${sub} <project>${sub === "ls" || sub === "list" ? "" : " <branch>"}`);
+    return 1;
+  }
+
+  const project = await findProject(name, { env });
+  if (!project) return noProject(out, name);
+
+  if (sub === "ls" || sub === "list") {
+    const worktrees = await listWorktrees(project);
+    if (out.json) {
+      out.data(worktrees);
+      return 0;
+    }
+    if (worktrees.length === 0) {
+      out.line(`No worktrees yet. Cut one with: sandboxr worktree add ${project.name} <branch>`);
+      return 0;
+    }
+    out.table(
+      ["BRANCH", "HEAD", "PATH"],
+      worktrees.map((worktree) => [
+        // Detached is not a defect — it is how a branch somebody else has open
+        // gets run — so it is a mark on the branch rather than a column of its own.
+        worktree.detached ? `${worktree.branch}~` : worktree.branch,
+        worktree.head,
+        worktree.exists ? worktree.path : `${worktree.path} (GONE)`,
+      ]),
+    );
+    if (worktrees.some((worktree) => worktree.detached)) {
+      out.line();
+      out.dim("~ detached, because the branch is checked out somewhere else");
+    }
+    return 0;
+  }
+
+  if (branch === undefined) {
+    out.error(`usage: sandboxr worktree ${sub} ${project.name} <branch>`);
+    return 1;
+  }
+
+  if (sub === "add") {
+    const worktree = await addWorktree({
+      project,
+      branch,
+      base: flagString(args, "base"),
+      log: (line) => out.warn(line),
+    });
+    if (out.json) out.data(worktree);
+    out.ok(`${worktree.branch} at ${worktree.path}`);
+    out.dim(`      sandboxr up --project ${project.name} --branch ${worktree.branch}`);
+    return 0;
+  }
+
+  // Removal takes a branch but core takes a path, and the mapping is looked up
+  // in the listing rather than rebuilt from the branch name: a worktree cut
+  // before the naming changed, or one added by hand, still has to be removable.
+  const worktrees = await listWorktrees(project);
+  const found =
+    worktrees.find((worktree) => worktree.branch === branch) ??
+    worktrees.find((worktree) => basename(worktree.path) === sanitizeSlug(branch));
+  if (!found) {
+    out.error(`no worktree for ${branch} in ${project.name}`);
+    out.dim(`      sandboxr worktree ls ${project.name}`);
+    return 1;
+  }
+
+  await removeWorktree(project, found.path, { force: flagBoolean(args, "force") });
+  if (out.json) out.data({ project: project.name, branch: found.branch, path: found.path, removed: true });
+  out.ok(`removed ${found.path}`);
+  return 0;
+}
+
+function noProject(out: Output, name: string): number {
+  out.error(`no project called ${name} in the workspace`);
+  out.dim("      sandboxr project ls");
+  return 1;
+}
+
 async function cmdDb(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
   const sub = args.positional[0] ?? "";
-  const { config, slug, worktree } = await target(args, cwd, 1);
+  const { config, slug, worktree } = await target(args, cwd, env, 1);
   const driver = getDriver(config.database.driver);
 
   // The driver context is built through core's own factory, which is what wires
@@ -419,7 +986,7 @@ async function cmdDb(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.Pro
 
 async function cmdSecrets(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
   const sub = args.positional[0] ?? "";
-  const config = await loadConfig(flagString(args, "worktree") ?? cwd, { enforceAccess: false });
+  const config = await loadConfig(flagString(args, "worktree") ?? cwd, { enforceAccess: false, env });
 
   if (sub === "import") {
     const report = await importSecrets(config, { env });
@@ -501,20 +1068,34 @@ async function cmdTeardown(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
   return 0;
 }
 
-async function cmdConfig(args: ParsedArgs, out: Output, cwd: string): Promise<number> {
+async function cmdConfig(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
   const from = flagString(args, "worktree") ?? cwd;
-  const file = await findConfig(from);
-  if (!file) {
+  // locateConfig rather than findConfig, and the whole location rather than just
+  // the file: a managed worktree may be governed by a config that is not in it,
+  // and handing the file back to loadConfig on its own would lose the root.
+  const location = await locateConfig(from, { env });
+  if (!location) {
     out.error(`no sandboxr.yaml here or in any parent of ${from}`);
     return 2;
   }
-  const config = await loadConfig(file, { enforceAccess: false });
+  const config = await loadConfig(from, { enforceAccess: false, env });
   if (out.json) {
     out.data(config);
     return 0;
   }
   out.bold(config.project);
   out.line(`  file        ${config.file}`);
+  out.line(`  root        ${config.root}`);
+  // Said out loud, never inferred. A project running from a config that is not
+  // in its own repository is exactly the thing somebody must not have to guess
+  // at when a path in it resolves somewhere they did not expect.
+  if (config.origin === "project") {
+    out.line("  origin      the workspace project directory, not this worktree");
+    out.warn(`this worktree has no ${CONFIG_FILENAME} of its own, so the project-level one applies`);
+    out.dim("  Commit one to the repository and it wins over this file from then on.");
+  } else {
+    out.line("  origin      this checkout");
+  }
   out.line(`  driver      ${config.database.driver}`);
   out.line(`  access      apps ${config.access.apps}, credentials ${config.access.credentials}`);
   out.line(`  backends    ${config.backends.map((backend) => backend.label).join(", ") || "none"}`);
@@ -583,17 +1164,23 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
     }
   }
 
-  const file = await findConfig(from);
-  if (!file) {
+  const location = await locateConfig(from, { env });
+  if (!location) {
     findings.push({
       ok: false,
       text: `no sandboxr.yaml in ${from} or any parent directory`,
       fix: "add one at the root of the project you want to sandbox",
     });
   } else {
-    findings.push({ ok: true, text: `config at ${file}` });
+    findings.push({
+      ok: true,
+      text:
+        location.origin === "project"
+          ? `config at ${location.file}, the project-level one — this worktree has none of its own`
+          : `config at ${location.file}`,
+    });
     try {
-      const config = await loadConfig(file);
+      const config = await loadConfig(from, { env });
       findings.push({ ok: true, text: `${config.project} resolves, driver ${config.database.driver}` });
       // Not a refusal: a project can point its runtime at the sandbox's state
       // directory through a config file this cannot read, so being unable to see

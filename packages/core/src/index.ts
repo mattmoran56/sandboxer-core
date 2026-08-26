@@ -20,13 +20,30 @@ export type {
   StorageConfig,
   ToolchainConfig,
 } from "./config/types.js";
-export { ConfigError, findConfig, loadConfig, projectPath, resolveConfig, CONFIG_FILENAME } from "./config/load.js";
-export type { LoadOptions } from "./config/load.js";
+export { ConfigError, loadConfig, projectPath, resolveConfig } from "./config/load.js";
+export type { LoadOptions, ResolveOptions } from "./config/load.js";
+export {
+  CONFIG_FILENAME,
+  findConfig,
+  isWorkspaceProjectDir,
+  locateConfig,
+  workspaceWorktree,
+} from "./config/locate.js";
+export type { ConfigLocation, ConfigOrigin, LocateOptions, WorkspaceWorktree } from "./config/locate.js";
 export { allowsRealCredentials, permittedSeeds, publicAccessViolations } from "./config/access.js";
 export { persistenceAdvice, pointsAtSandboxState } from "./config/advice.js";
 export type { Advice } from "./config/advice.js";
 export type { AccessViolation } from "./config/access.js";
 export { configSchema } from "./config/schema.js";
+export {
+  DEFAULT_TTL,
+  MACHINE_CONFIG_EXAMPLE,
+  loadMachineConfig,
+  machineConfigSchema,
+  resolveTtl,
+  writeMachineConfigExample,
+} from "./config/machine.js";
+export type { MachineConfig, TtlInput } from "./config/machine.js";
 export { compareVersions, parseVersion, satisfies, VersionError } from "./config/version.js";
 export { TOOL_VERSION } from "./tool-version.js";
 
@@ -48,7 +65,7 @@ export {
 } from "./naming.js";
 export type { DeriveSlugInput, HostParts, VolumePurpose } from "./naming.js";
 
-export { directoriesOf, paths, type Paths } from "./paths.js";
+export { WORKTREES_DIR, directoriesOf, paths, type Paths } from "./paths.js";
 
 export { docker, createDocker, DockerError, type Docker, type ExecResult } from "./docker.js";
 
@@ -56,9 +73,10 @@ export type { DatabaseDriver, DriverContext, MigrateResult, SeedArtifact } from 
 export { DriverError, driverContext, getDriver, driverNames } from "./drivers/index.js";
 export type { ContextOptions } from "./drivers/index.js";
 
-export { down, gc, list, reload, status, up } from "./sandbox/index.js";
+export { activityFor, down, expire, gc, list, reload, startSandbox, status, stopSandbox, up } from "./sandbox/index.js";
 export type {
   DownOptions,
+  ExpireOptions,
   GcOptions,
   GcPlan,
   ListOptions,
@@ -68,6 +86,45 @@ export type {
   SandboxStatus,
   UpOptions,
 } from "./sandbox/types.js";
+
+export { deadlineOf, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
+export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.js";
+export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js";
+export { DEFAULT_ACTIVITY_WINDOW, lastActivity, parseAccessLog } from "./sandbox/activity.js";
+export type { ActivityOptions } from "./sandbox/activity.js";
+
+export {
+  WorkspaceError,
+  cloneProject,
+  fetchProject,
+  findProject,
+  listProjects,
+  projectNameFromUrl,
+} from "./workspace.js";
+export type { CloneOptions, Project, WorkspaceOptions } from "./workspace.js";
+
+export {
+  WorktreeError,
+  addWorktree,
+  listBranches,
+  listWorktrees,
+  parseWorktreeList,
+  removeWorktree,
+} from "./worktree.js";
+export type { AddInput, Branch, Worktree } from "./worktree.js";
+
+export {
+  alreadyAdded,
+  ghAvailable,
+  listPullRequests,
+  listRemoteRepos,
+  matchesOrigin,
+  mergedBranches,
+  parsePullRequests,
+  parseRemoteRepos,
+  repoSlugFromUrl,
+} from "./forge.js";
+export type { ForgeOptions, PullRequest, RemoteRepo, RemoteReposOptions } from "./forge.js";
 export { LABELS, labelsFor, sandboxFromLabels, deriveState } from "./sandbox/labels.js";
 
 export {

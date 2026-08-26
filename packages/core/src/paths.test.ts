@@ -3,13 +3,15 @@
 // - every directory in contracts §4 present and under the home
 // - logsFor / secretsFile / envFile / cacheFile shapes
 // - directoriesOf: the set a command creates up front
+// - workspace: its own variable, defaulting under the home
+// - projectDir / worktreesDir / keepFile / configFile shapes
 
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { directoriesOf, paths } from "./paths.js";
+import { WORKTREES_DIR, directoriesOf, paths } from "./paths.js";
 
 describe("paths", () => {
   const p = paths({ SANDBOXR_HOME: "/tmp/sbx" });
@@ -59,6 +61,57 @@ describe("paths", () => {
   });
 
   it("lists every directory a command has to create", () => {
-    expect(directoriesOf(p)).toHaveLength(7);
+    expect(directoriesOf(p)).toHaveLength(8);
+  });
+
+  it("includes the workspace, which a clone writes into before anything else", () => {
+    expect(directoriesOf(p)).toContain(p.workspace);
+  });
+});
+
+describe("workspace", () => {
+  it("sits under the home by default", () => {
+    expect(paths({ SANDBOXR_HOME: "/tmp/sbx" }).workspace).toBe(join("/tmp/sbx", "workspace"));
+  });
+
+  // Its own variable because the repositories are the one part of the tree
+  // worth putting on a different disk from the seed cache and the logs.
+  it("can be moved off the home entirely", () => {
+    const moved = paths({ SANDBOXR_HOME: "/tmp/sbx", SANDBOXR_WORKSPACE: "/srv/projects" });
+    expect(moved.workspace).toBe("/srv/projects");
+    expect(moved.projectDir("acme")).toBe(join("/srv/projects", "acme"));
+    expect(moved.worktreesDir("acme")).toBe(join("/srv/projects", "acme", "wt"));
+  });
+
+  // One spelling of the layout, because config/locate.ts recognises a worktree
+  // from its path alone and a second spelling is how a config gets looked for in
+  // the wrong directory.
+  it("puts worktrees under wt/ inside the project directory", () => {
+    const p = paths({ SANDBOXR_HOME: "/tmp/sbx" });
+    expect(p.worktreesDir("acme")).toBe(join(p.projectDir("acme"), WORKTREES_DIR));
+    expect(WORKTREES_DIR).toBe("wt");
+  });
+
+  it("treats an empty override as absent, like SANDBOXR_HOME does", () => {
+    expect(paths({ SANDBOXR_HOME: "/tmp/sbx", SANDBOXR_WORKSPACE: "" }).workspace).toBe(
+      join("/tmp/sbx", "workspace"),
+    );
+  });
+});
+
+describe("keepFile", () => {
+  // Under state/ rather than build/: build is regenerated on every `up`, and a
+  // keep-alive marker has to outlive that.
+  it("is one file per sandbox, under the state directory", () => {
+    const p2 = paths({ SANDBOXR_HOME: "/tmp/sbx" });
+    expect(p2.keepFile("acme", "tkt-1")).toBe(join("/tmp/sbx", "state", "keep", "acme", "tkt-1"));
+  });
+});
+
+describe("configFile", () => {
+  // At the top of the home, not inside state/: everything under state/ is
+  // generated and may be rewritten, and this one is written by hand.
+  it("is config.yaml at the top of the home", () => {
+    expect(paths({ SANDBOXR_HOME: "/tmp/sbx" }).configFile).toBe(join("/tmp/sbx", "config.yaml"));
   });
 });

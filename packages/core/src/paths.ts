@@ -9,6 +9,16 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+/**
+ * The directory a project's worktrees are cut into, inside its project
+ * directory: `<workspace>/<project>/wt/<slug>`.
+ *
+ * Here rather than in workspace.ts because config/locate.ts has to recognise a
+ * worktree from its path alone — two spellings of one layout rule is exactly how
+ * a config ends up being looked for in the wrong directory.
+ */
+export const WORKTREES_DIR = "wt";
+
 export interface Paths {
   /** SANDBOXR_HOME itself. */
   home: string;
@@ -22,10 +32,26 @@ export interface Paths {
   state: string;
   /** Third-party credentials, one file per project, mode 0600. */
   secrets: string;
+  /**
+   * The machine's own settings — how long a sandbox may sit unused.
+   *
+   * Beside the tree rather than inside `state/`, because everything under
+   * `state/` is generated and may be rewritten, and this one is written by hand.
+   */
+  configFile: string;
   /** Generated per-sandbox environment files. */
   build: string;
   /** Host-built helper binaries. */
   bin: string;
+  /**
+   * The projects this machine can start a sandbox for, one directory each.
+   *
+   * Outside the rest of the tree in spirit: everything else under SANDBOXR_HOME
+   * is something sandboxr generated and can regenerate, whereas this holds
+   * checkouts of other people's repositories. It is still under the home so
+   * there is one directory to mount into the dashboard and one to back up.
+   */
+  workspace: string;
 
   logsFor(project: string, slug: string): string;
   secretsFile(project: string): string;
@@ -33,6 +59,12 @@ export interface Paths {
   envFile(project: string, slug: string): string;
   /** A content-addressed seed artifact. */
   cacheFile(name: string): string;
+  /** Where one project's bare mirror and worktrees live. */
+  projectDir(project: string): string;
+  /** Where that project's worktrees are cut, one directory per branch. */
+  worktreesDir(project: string): string;
+  /** The marker that keeps one sandbox alive past its idle limit. */
+  keepFile(project: string, slug: string): string;
 }
 
 /**
@@ -44,6 +76,10 @@ export interface Paths {
  */
 export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
   const home = env.SANDBOXR_HOME && env.SANDBOXR_HOME !== "" ? env.SANDBOXR_HOME : join(homedir(), ".sandboxr");
+  // Its own variable rather than always under the home, because the projects
+  // are the one thing here worth putting on a different disk.
+  const workspace =
+    env.SANDBOXR_WORKSPACE && env.SANDBOXR_WORKSPACE !== "" ? env.SANDBOXR_WORKSPACE : join(home, "workspace");
 
   return {
     home,
@@ -52,17 +88,22 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     tls: join(home, "tls"),
     state: join(home, "state"),
     secrets: join(home, "secrets"),
+    configFile: join(home, "config.yaml"),
     build: join(home, "build"),
     bin: join(home, "bin"),
+    workspace,
 
     logsFor: (project, slug) => join(home, "logs", project, slug),
     secretsFile: (project) => join(home, "secrets", `${project}.env`),
     envFile: (project, slug) => join(home, "build", project, `${slug}.env`),
     cacheFile: (name) => join(home, "cache", name),
+    projectDir: (project) => join(workspace, project),
+    worktreesDir: (project) => join(workspace, project, WORKTREES_DIR),
+    keepFile: (project, slug) => join(home, "state", "keep", project, slug),
   };
 }
 
 /** The directories a command creates before it writes anything. */
 export function directoriesOf(p: Paths): string[] {
-  return [p.cache, p.logs, p.tls, p.state, p.secrets, p.build, p.bin];
+  return [p.cache, p.logs, p.tls, p.state, p.secrets, p.build, p.bin, p.workspace];
 }

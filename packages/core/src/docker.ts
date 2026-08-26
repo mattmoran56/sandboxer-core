@@ -31,11 +31,59 @@ export class DockerError extends Error {
     // progress before it fails — a build's first six lines are always BuildKit's
     // context-load preamble — so taking the head is guaranteed to truncate away
     // the one thing the reader needs, which is the error that ended it.
-    const detail = (result.stderr || result.stdout).trim().split("\n").slice(-12).join("\n");
+    //
+    // Both streams, and never `stderr || stdout`. Which stream carries the build
+    // depends on the builder: BuildKit puts the whole log on stderr and leaves
+    // stdout empty, but the *legacy* builder — what runs wherever buildx is
+    // absent, which is every build the dashboard starts — does the opposite. It
+    // prints every step and the failing command's own output on stdout, and puts
+    // exactly one thing on stderr: "DEPRECATED: The legacy builder is
+    // deprecated". Preferring stderr therefore reported that deprecation notice
+    // as the cause of a failed build and threw the actual error away, which cost
+    // an afternoon.
+    const detail = tail([result.stderr, result.stdout]);
     super(`docker ${args.join(" ")} exited ${result.code}${detail ? `:\n${detail}` : ""}`);
     this.result = result;
     this.args = args;
   }
+}
+
+/** The last few meaningful lines of the streams a failed command left behind. */
+function tail(streams: string[], lines = 12): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const stream of streams) {
+    const trimmed = stream.trim();
+    if (trimmed === "") continue;
+    for (const line of trimmed.split("\n").slice(-lines)) {
+      // A command that writes the same line to both streams is common enough
+      // (docker's own progress does it) that repeating it would push the real
+      // error out of the window this exists to preserve.
+      if (seen.has(line)) continue;
+      seen.add(line);
+      out.push(line);
+    }
+  }
+  return out.slice(-lines).join("\n");
+}
+
+/**
+ * The `--build-arg TARGETARCH=…` a `docker build` should carry, or nothing.
+ *
+ * `TARGETARCH` is a BuildKit built-in and the legacy builder never sets it, so
+ * every Dockerfile here resolves the architecture for itself and falls back to
+ * `uname -m` (see the note above the s6 block in container/base/Dockerfile).
+ * Passing it as well is belt and braces: the host knows which architecture it is
+ * without having to ask the shell inside a half-built image.
+ *
+ * An architecture this does not recognise passes nothing rather than a guess.
+ * The value would land in a download URL, and a wrong one there is a 404 in the
+ * middle of a build — strictly worse than letting the Dockerfile's own fallback
+ * decide.
+ */
+export function archBuildArgs(arch: string = process.arch): string[] {
+  const mapped = arch === "x64" ? "amd64" : arch === "arm64" ? "arm64" : undefined;
+  return mapped ? ["--build-arg", `TARGETARCH=${mapped}`] : [];
 }
 
 /** Runs one process and collects its output. The only seam onto the OS. */
@@ -94,7 +142,16 @@ export interface Docker {
   exec(name: string, cmd: string[], options?: { workdir?: string; env?: Record<string, string> }): Promise<ExecResult>;
   /** Replaces this process with an interactive `docker exec`. Never returns. */
   execInteractive(name: string, cmd: string[], options?: { workdir?: string }): Promise<number>;
-  logs(name: string, options?: { tail?: number; follow?: boolean }): Promise<ExecResult>;
+  /**
+   * A container's log so far.
+   *
+   * `since` is passed straight to docker, which takes either a timestamp or a
+   * relative duration (`36h`). It is not a nicety: the router's log is read to
+   * find out when each sandbox was last used, and that container can be up for
+   * weeks — without a window the read would grow without bound on the one call
+   * that happens on every dashboard render.
+   */
+  logs(name: string, options?: { tail?: number; follow?: boolean; since?: string }): Promise<ExecResult>;
   /**
    * Streams a container's log to this process until it stops.
    *
@@ -103,6 +160,20 @@ export interface Docker {
    */
   logsFollow(name: string, options?: { tail?: number }): Promise<number>;
   rm(name: string, options?: { force?: boolean }): Promise<void>;
+  /** Stops a running container, leaving it — and its labels — in place. */
+  stop(name: string, options?: { timeoutSeconds?: number }): Promise<void>;
+  /** Starts a stopped container again. */
+  start(name: string): Promise<void>;
+  /**
+   * When the container last entered the running state, or undefined.
+   *
+   * Deliberately not read from `ps`: the expiry clock has to restart when a
+   * sandbox does, and `sandboxr.created` is stamped once at creation and never
+   * moves. Taking the deadline from a label would mean a sandbox stopped for
+   * being expired was still expired the instant it came back, so pressing
+   * restart would appear to do nothing.
+   */
+  startedAt(name: string): Promise<Date | undefined>;
   volumes(prefix: string): Promise<string[]>;
   volumeRm(name: string): Promise<boolean>;
   ensureNetwork(name: string): Promise<void>;
@@ -193,9 +264,30 @@ export function createDocker(run: Runner = nodeRunner, bin = "docker"): Docker {
       });
     },
 
+    async stop(name, options = {}) {
+      const args = ["stop"];
+      if (options.timeoutSeconds !== undefined) args.push("-t", String(options.timeoutSeconds));
+      args.push(name);
+      await ok(args);
+    },
+
+    async start(name) {
+      await ok(["start", name]);
+    },
+
+    async startedAt(name) {
+      const out = await inspectField(["inspect", "-f", "{{.State.StartedAt}}", name]);
+      // Docker reports the zero time for a container that has never run, which
+      // parses cleanly to 1 January year 1 and would read as "expired long ago".
+      if (out === undefined || out === "" || out.startsWith("0001-01-01")) return undefined;
+      const when = new Date(out);
+      return Number.isNaN(when.getTime()) ? undefined : when;
+    },
+
     async logs(name, options = {}) {
       const args = ["logs"];
       if (options.tail !== undefined) args.push("--tail", String(options.tail));
+      if (options.since !== undefined && options.since !== "") args.push("--since", options.since);
       if (options.follow) args.push("-f");
       args.push(name);
       return raw(args);

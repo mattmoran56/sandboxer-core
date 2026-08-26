@@ -49,11 +49,40 @@ RUN apt-get update \
       jq gettext-base tzdata \
  && rm -rf /var/lib/apt/lists/*
 
+# Architecture, resolved rather than assumed. Every arch switch in this image and
+# in the generated project layer uses this shape, and the reason is worth the
+# paragraph:
+#
+# `TARGETARCH` is a *BuildKit* built-in. The legacy builder never sets it, and
+# `docker build` falls back to the legacy builder wherever buildx is absent --
+# which is exactly the dashboard's container, since dashboard/Dockerfile ships
+# the docker client alone, on purpose. So every image build started from the
+# browser saw a `TARGETARCH` that was never declared, and the failure took
+# whichever disguise the block wore: under `set -u` a hard `TARGETARCH: unbound
+# variable` from bash before the case was even reached; without it, a fall
+# through to the `*)` arm and "unsupported arch " with nothing after it; and
+# where the value is interpolated into a URL rather than matched,
+# `linux-${TARGETARCH}/minio` became `linux-/minio` -- a 404 that reads as a
+# broken mirror. The first line of the output was the builder's own deprecation
+# notice in every case, so the symptom named Go, or a download, or a
+# deprecation. Never the architecture.
+#
+# Hence: take `TARGETARCH` when the builder supplied one, fall back to `uname -m`
+# otherwise, and accept both spellings, because uname says x86_64/aarch64 where
+# Docker says amd64/arm64. The host also passes `--build-arg TARGETARCH` (see
+# `archBuildArgs` in packages/core/src/docker.ts); the fallback is what keeps a
+# hand-run `docker build` working when nobody passes it.
+#
+# `${TARGETARCH:-}` and never a bare `${TARGETARCH}`: these run under `set -u`,
+# where expanding an ARG the builder never declared exits 2 with "parameter not
+# set" -- a second failure wearing the same disguise as the first.
 RUN set -eux; \
-    case "${TARGETARCH}" in \
-      arm64) S6_ARCH=aarch64 ;; \
-      amd64) S6_ARCH=x86_64  ;; \
-      *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1 ;; \
+    ARCH="${TARGETARCH:-}"; \
+    if [ -z "$ARCH" ]; then ARCH="$(uname -m)"; fi; \
+    case "$ARCH" in \
+      arm64|aarch64) S6_ARCH=aarch64 ;; \
+      amd64|x86_64)  S6_ARCH=x86_64  ;; \
+      *) echo "unsupported arch $ARCH" >&2; exit 1 ;; \
     esac; \
     curl -fsSL "https://github.com/just-containers/s6-overlay/releases/download/v${S6_VERSION}/s6-overlay-noarch.tar.xz" \
       -o /tmp/s6-noarch.tar.xz; \
@@ -69,9 +98,19 @@ RUN set -eux; \
 # configurable -- the endpoint the code sees is local whatever the project asked
 # for. The two binaries are the largest thing in this image by a wide margin;
 # that is the price of the guarantee.
+#
+# The arch goes straight into the download path here, so an unresolved one is a
+# 404 rather than an error about architecture -- see the note above the s6 block.
 RUN set -eux; \
-    curl -fsSL "https://dl.min.io/server/minio/release/linux-${TARGETARCH}/minio" -o /usr/local/bin/minio; \
-    curl -fsSL "https://dl.min.io/client/mc/release/linux-${TARGETARCH}/mc"      -o /usr/local/bin/mc; \
+    ARCH="${TARGETARCH:-}"; \
+    if [ -z "$ARCH" ]; then ARCH="$(uname -m)"; fi; \
+    case "$ARCH" in \
+      arm64|aarch64) MINIO_ARCH=arm64 ;; \
+      amd64|x86_64)  MINIO_ARCH=amd64 ;; \
+      *) echo "unsupported arch $ARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://dl.min.io/server/minio/release/linux-${MINIO_ARCH}/minio" -o /usr/local/bin/minio; \
+    curl -fsSL "https://dl.min.io/client/mc/release/linux-${MINIO_ARCH}/mc"      -o /usr/local/bin/mc; \
     chmod +x /usr/local/bin/minio /usr/local/bin/mc
 
 COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy

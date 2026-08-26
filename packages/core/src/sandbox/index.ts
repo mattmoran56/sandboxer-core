@@ -23,6 +23,7 @@ import {
 } from "../access/index.js";
 import { allowsRealCredentials } from "../config/access.js";
 import { loadConfig } from "../config/load.js";
+import { loadMachineConfig, resolveTtl } from "../config/machine.js";
 import { resolveDeps } from "../config/deps.js";
 import { planFor, writePlan } from "../config/plan.js";
 import type { ResolvedConfig } from "../config/types.js";
@@ -32,6 +33,11 @@ import { chooseSeed } from "../drivers/seed.js";
 import { describeSeedChoice, mysqlSettings } from "../drivers/mysql.js";
 import type { SeedArtifact } from "../drivers/types.js";
 import { gitFacts } from "../git.js";
+import { findProject } from "../workspace.js";
+import { addWorktree } from "../worktree.js";
+import { lastActivity } from "./activity.js";
+import { parseTtl, planExpiry, type ExpiryCandidate, type ExpiryPlan } from "./expiry.js";
+import { isKeptAlive, removeKeep } from "./keep.js";
 import { ensureProjectImage } from "../image.js";
 import { NETWORK, containerName, deriveSlug, volumeName } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
@@ -42,9 +48,11 @@ import { BUILT_MANIFEST, MIGRATE_STATE, WWW_DIR } from "./layout.js";
 import { backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
 import type {
   DownOptions,
+  ExpireOptions,
   GcOptions,
   GcPlan,
   ListOptions,
+  CommonOptions,
   ReloadOptions,
   ReloadResult,
   Sandbox,
@@ -75,13 +83,26 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   const docker = options.docker ?? defaultDocker;
   const p = paths(env);
 
-  const config = options.config ?? (await loadConfig(options.worktree ?? process.cwd()));
-  const facts = await gitFacts(options.worktree ?? config.root);
-  // What `/workspace` is: the directory the config sits in, not the top of the
-  // git worktree. Usually the same thing — a project describes itself at its own
-  // repo root — but a project kept in a subdirectory of a larger repository
-  // would otherwise be mounted with every path in its plan resolving one
-  // directory too high, and every one of those failures reads as a broken plan.
+  // A worktree path, or a project and branch to find one for.
+  //
+  // The dashboard has no working directory that means anything — it runs in a
+  // container whose cwd is the installation — so without this it could only ever
+  // start a sandbox for whatever `process.cwd()` happened to be. Resolving here
+  // rather than in the caller keeps one answer to "which worktree is this",
+  // shared by the CLI and the dashboard.
+  const worktree = options.worktree ?? (await resolveWorktree(options, log));
+
+  // `env` matters here: it is what says where the workspace is, and so whether
+  // this worktree may fall back to its project's own `sandboxr.yaml`.
+  const config = options.config ?? (await loadConfig(worktree ?? process.cwd(), { env }));
+  const facts = await gitFacts(worktree ?? config.root);
+  // What `/workspace` is: the tree the config governs, not the directory the
+  // config file sits in. Usually the same thing — a project describes itself at
+  // its own repo root — but a project kept in a subdirectory of a larger
+  // repository would otherwise be mounted with every path in its plan resolving
+  // one directory too high, and every one of those failures reads as a broken
+  // plan. A project-level config in the workspace is the other way round: the
+  // file is above the worktree, and `root` is still the worktree.
   const projectRoot = config.root;
   const slug = deriveSlug({
     explicit: options.slug,
@@ -172,12 +193,34 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     await docker.rm(container, { force: true });
   }
 
+  // The idle limit, resolved once here so the CLI and the dashboard cannot
+  // disagree about it: `--ttl` beats the project's entry in
+  // `~/.sandboxr/config.yaml`, which beats that file's top-level `ttl`, which
+  // beats `SANDBOXR_TTL_HOURS`, which beats the built-in twelve hours. A
+  // malformed config file throws from here rather than being papered over — see
+  // the note at the top of ../config/machine.ts.
+  const wanted = resolveTtl({
+    explicit: options.ttl,
+    project: config.project,
+    config: await loadMachineConfig(env),
+    env,
+  });
+  // An unreadable ttl is refused by name rather than silently becoming a
+  // default span. `parseTtl` returns undefined for anything it cannot read, and
+  // quietly substituting a lifetime nobody asked for is the one mistake here
+  // that destroys work.
+  const ttl = parseTtl(wanted);
+  if (ttl === undefined) {
+    throw new SandboxError(`Cannot read "${wanted}" as a lifetime. Try 12h, 30m, 7d, a number of seconds, or never.`);
+  }
+
   const labels = labelsFromConfig(config, {
     slug,
     branch: facts.branch,
     commit: facts.commit,
     dirty: facts.dirty,
     worktree: projectRoot,
+    ttl: ttl === "never" ? "never" : String(ttl),
   });
 
   // The project's own image layer: the base image carries no toolchain and no
@@ -278,6 +321,13 @@ export async function down(project: string, slug: string, options: DownOptions =
   // goes with it. Left behind, the router would keep offering a certificate for
   // a host that no longer answers.
   await discardSandboxCertificate(project, slug, options.env ?? process.env);
+  // Above the `keep` early return on purpose: `--keep` preserves a sandbox's
+  // data, but the container is gone either way and a keep-alive marker for a
+  // container that no longer exists means nothing. It is tidiness rather than
+  // correctness — the marker records which instance it was written for, so a
+  // leftover one fails closed — but leaving it would make `docker rm` and
+  // `sandboxr down` differ for no reason.
+  await removeKeep(project, slug, options.env ?? process.env);
 
   if (options.keep) {
     log(`Removed ${slug}, kept its volumes`);
@@ -320,7 +370,7 @@ export async function status(project: string, slug: string, options: StatusOptio
   const sandbox = await read(docker, container);
   if (!sandbox) throw new SandboxError(`no sandbox called ${slug} in project ${project}`);
 
-  const config = options.config ?? (sandbox.worktree ? await tryLoad(sandbox.worktree) : undefined);
+  const config = options.config ?? (sandbox.worktree ? await tryLoad(sandbox.worktree, options.env) : undefined);
   const domain = domainOf(env);
   const markers = sandbox.state === "stopped" ? {} : await readMarkers(docker, container);
 
@@ -363,7 +413,7 @@ export async function reload(project: string, slug: string, options: ReloadOptio
   const sandbox = await read(docker, container);
   if (!sandbox || sandbox.state === "stopped") throw new SandboxError(`sandbox ${slug} is not running`);
 
-  const config = options.config ?? (await loadConfig(sandbox.worktree || process.cwd()));
+  const config = options.config ?? (await loadConfig(sandbox.worktree || process.cwd(), { env: options.env }));
   const built: string[] = [];
   const failed: string[] = [];
   let output = "";
@@ -430,6 +480,159 @@ export async function reload(project: string, slug: string, options: ReloadOptio
     }
   }
   return { kind: "frontend", built, failed, output };
+}
+
+
+/**
+ * Turns a project and a branch into a worktree on disk, creating it if needed.
+ *
+ * Returns undefined when the caller named neither, so `up` falls back to the
+ * current directory exactly as it always has — the CLI's behaviour is untouched
+ * by this whole path.
+ *
+ * Find-or-create rather than create: pressing Start twice for the same branch
+ * has to be the same sandbox, not a second one beside it.
+ */
+async function resolveWorktree(
+  options: UpOptions,
+  log: (line: string) => void,
+): Promise<string | undefined> {
+  if (!options.project) return undefined;
+
+  const project = await findProject(options.project, { env: options.env });
+  if (!project) {
+    throw new SandboxError(
+      `No project called ${options.project} in the workspace.\n` +
+        "  Clone one first: sandboxr project clone <url>",
+    );
+  }
+  if (!options.branch) {
+    throw new SandboxError(`${options.project}: which branch? Pass a branch to start a sandbox for.`);
+  }
+
+  log(`Resolving the worktree for ${options.branch}`);
+  const worktree = await addWorktree({
+    project,
+    branch: options.branch,
+    ...(options.base === undefined ? {} : { base: options.base }),
+    log,
+  });
+  log(`Worktree ${worktree.path}`);
+  return worktree.path;
+}
+
+/**
+ * Stops a sandbox, leaving everything else alone.
+ *
+ * Deliberately not `down`. A stopped container keeps its labels, so the sandbox
+ * still appears in `list` and can be started again; and it keeps its volumes, so
+ * its database survives and coming back costs a start rather than a re-seed.
+ * `down` removes the container, and with it every label — the sandbox would
+ * vanish from the dashboard with nothing left to press.
+ */
+export async function stopSandbox(project: string, slug: string, options: CommonOptions = {}): Promise<boolean> {
+  const docker = options.docker ?? defaultDocker;
+  const log = options.log ?? noop;
+  const container = containerName(project, slug);
+
+  if (!(await docker.containerRunning(container))) {
+    log(`${slug} is not running`);
+    return false;
+  }
+  await docker.stop(container);
+  log(`Stopped ${slug}`);
+  return true;
+}
+
+/** Starts a stopped sandbox again. */
+export async function startSandbox(project: string, slug: string, options: CommonOptions = {}): Promise<boolean> {
+  const docker = options.docker ?? defaultDocker;
+  const log = options.log ?? noop;
+  const container = containerName(project, slug);
+
+  if (!(await docker.containerExists(container))) {
+    log(`No sandbox called ${slug}`);
+    return false;
+  }
+  if (await docker.containerRunning(container)) {
+    log(`${slug} is already running`);
+    return true;
+  }
+  await docker.start(container);
+  log(`Started ${slug} — its services take a few seconds to answer`);
+  return true;
+}
+
+/**
+ * Stops every sandbox that has sat unused past its limit.
+ *
+ * The clock runs from the later of the container's current start time and the
+ * last request that reached it through the router — not from `sandboxr.created`,
+ * see the note on the ttl label in ./labels.ts. So restarting a sandbox buys it
+ * a full lifetime, and so does opening it.
+ */
+export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
+  const docker = options.docker ?? defaultDocker;
+  const log = options.log ?? noop;
+  const env = options.env ?? process.env;
+
+  const sandboxes = await list({
+    docker,
+    env,
+    ...(options.project === undefined ? {} : { project: options.project }),
+  });
+
+  const active = await activityFor(sandboxes, { docker, ...(options.now === undefined ? {} : { now: options.now }) });
+
+  const candidates: ExpiryCandidate[] = await Promise.all(
+    sandboxes.map(async (sandbox) => ({
+      sandbox,
+      // Only asked of a running container: a stopped one is never stopped
+      // again, and the inspect would be a call that can only fail.
+      startedAt: sandbox.state === "stopped" ? undefined : await docker.startedAt(sandbox.container),
+      lastActive: active.get(sandbox.container),
+      keptAlive: await isKeptAlive(sandbox, env),
+    })),
+  );
+
+  const plan = planExpiry({ candidates, now: options.now ?? new Date() });
+  if (options.dryRun) return plan;
+
+  for (const { sandbox, reason } of plan.stop) {
+    log(`Stopping ${sandbox.slug} — ${reason}`);
+    await stopSandbox(sandbox.project, sandbox.slug, { docker, env, log: noop });
+  }
+  if (plan.stop.length === 0) log("Nothing to expire");
+  return plan;
+}
+
+/**
+ * When each of these sandboxes was last used, read once for the whole set.
+ *
+ * The window is the longest lifetime in play plus an hour, because a sandbox
+ * whose last request predates its own ttl is idle by definition and reading
+ * further back could not change the answer. The margin covers the gap between
+ * the log line and this pass.
+ *
+ * A set with no readable lifetime at all skips the read entirely: nothing there
+ * can expire, so the answer would be thrown away.
+ */
+export async function activityFor(
+  sandboxes: Sandbox[],
+  options: { docker?: Docker | undefined; now?: Date | undefined } = {},
+): Promise<Map<string, Date>> {
+  let longest = 0;
+  for (const sandbox of sandboxes) {
+    const ttl = parseTtl(sandbox.ttl);
+    if (typeof ttl === "number" && ttl > longest) longest = ttl;
+  }
+  if (longest === 0) return new Map();
+
+  return lastActivity({
+    docker: options.docker,
+    since: `${Math.ceil(longest / 3600) + 1}h`,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
 }
 
 /** Reaps sandboxes whose work is finished, and the volumes nothing owns. */
@@ -588,11 +791,11 @@ async function mountedVolumes(docker: Docker, sandboxes: Sandbox[]): Promise<Set
   return mounted;
 }
 
-async function tryLoad(worktree: string): Promise<ResolvedConfig | undefined> {
+async function tryLoad(worktree: string, env?: NodeJS.ProcessEnv | undefined): Promise<ResolvedConfig | undefined> {
   try {
     // Access enforcement is off: this is a read of a config to describe a
     // sandbox that is already running, not a decision to start one.
-    return await loadConfig(worktree, { enforceAccess: false });
+    return await loadConfig(worktree, { enforceAccess: false, env });
   } catch {
     return undefined;
   }
