@@ -1,17 +1,28 @@
 /**
- * Deciding what has run long enough.
+ * Deciding what has sat unused long enough.
  *
- * A pure function of what `docker ps` and `docker inspect` report, plus one
- * question per sandbox — whether it is pinned. Separated from the stopping so
- * the plan can be printed, tested and inspected before a container somebody may
- * be looking at goes away.
+ * A pure function of what `docker ps`, `docker inspect` and the router's access
+ * log report, plus one question per sandbox — whether somebody asked to keep it
+ * alive. Separated from the stopping so the plan can be printed, tested and
+ * inspected before a container somebody may be looking at goes away.
  *
- * The deadline is measured from the container's **current start time**, not
- * from `sandboxr.created`. `created` is stamped once and never moves, so a
- * deadline derived from it stays in the past for ever: the reaper would stop an
- * expired sandbox, the developer would press Restart, and the next pass would
- * stop it again. Restarting a sandbox buys it another full ttl, which is what
- * anyone pressing that button means by it.
+ * **The clock measures idleness, not uptime.** The deadline is
+ * `max(startedAt, lastActive) + ttl`, and both halves of that maximum are
+ * load-bearing:
+ *
+ * - `lastActive` is the last request that reached the sandbox through the
+ *   router (see ./activity.ts). Using a sandbox therefore resets its clock,
+ *   which is what anyone would expect of a limit described as "unused".
+ * - `startedAt` is the floor, and it is not redundant. It covers a sandbox that
+ *   has never been visited, and — more importantly — the router's log window
+ *   only reaches so far back, so a sandbox in constant use whose evidence has
+ *   scrolled off must not read as idle since the beginning of time.
+ *
+ * `sandboxr.created` is deliberately not either of them. It is stamped once and
+ * never moves, so a deadline derived from it stays in the past for ever: the
+ * reaper would stop an expired sandbox, the developer would press Restart, and
+ * the next pass would stop it again. Restarting a sandbox buys it a full ttl,
+ * and so does using it.
  */
 
 import type { Sandbox } from "./types.js";
@@ -20,7 +31,15 @@ export interface ExpiryCandidate {
   sandbox: Sandbox;
   /** When the container last entered the running state, from docker inspect. */
   startedAt: Date | undefined;
-  pinned: boolean;
+  /**
+   * The last request that reached this sandbox through the router.
+   *
+   * Undefined means "no request seen in the window read", which is the same
+   * answer as "not used" for every purpose here — the sandbox falls back to its
+   * start time and the clock runs from there.
+   */
+  lastActive: Date | undefined;
+  keptAlive: boolean;
 }
 
 export interface ExpiryInput {
@@ -59,7 +78,7 @@ function unitSeconds(suffix: string): number | undefined {
  * Reads a ttl into seconds.
  *
  * Accepts a plain number of seconds, the word `never`, and the human forms a
- * person actually types — `30m`, `8h`, `7d`.
+ * person actually types — `30m`, `12h`, `7d`.
  *
  * Returns undefined for anything it cannot read rather than throwing, and never
  * coerces a bad value into a number. A ttl arrives from a container label,
@@ -98,6 +117,16 @@ export function formatTtl(seconds: number | "never"): string {
 }
 
 /**
+ * The most recent thing that counts as use: the later of starting and being
+ * asked for. Undefined only when docker could not say when it started.
+ */
+function activeSince(candidate: ExpiryCandidate): Date | undefined {
+  if (candidate.startedAt === undefined) return undefined;
+  if (candidate.lastActive === undefined) return candidate.startedAt;
+  return candidate.lastActive > candidate.startedAt ? candidate.lastActive : candidate.startedAt;
+}
+
+/**
  * When a candidate runs out, or undefined when it has no deadline at all.
  *
  * Undefined covers three situations that mean the same thing to the planner: no
@@ -107,8 +136,9 @@ export function formatTtl(seconds: number | "never"): string {
 export function deadlineOf(candidate: ExpiryCandidate): Date | undefined {
   const ttl = parseTtl(candidate.sandbox.ttl);
   if (ttl === undefined || ttl === "never") return undefined;
-  if (candidate.startedAt === undefined) return undefined;
-  return new Date(candidate.startedAt.getTime() + ttl * 1000);
+  const since = activeSince(candidate);
+  if (since === undefined) return undefined;
+  return new Date(since.getTime() + ttl * 1000);
 }
 
 export function planExpiry(input: ExpiryInput): ExpiryPlan {
@@ -132,10 +162,11 @@ export function planExpiry(input: ExpiryInput): ExpiryPlan {
       continue;
     }
 
-    // Checked after the ttl so a pin on a sandbox that was never going to
-    // expire does not report a reason implying the pin is what saved it.
-    if (candidate.pinned) {
-      keep.push({ sandbox, reason: "pinned" });
+    // Checked after the ttl so a keep-alive on a sandbox that was never going
+    // to expire does not report a reason implying the keep-alive is what saved
+    // it.
+    if (candidate.keptAlive) {
+      keep.push({ sandbox, reason: "kept alive" });
       continue;
     }
 
@@ -148,13 +179,18 @@ export function planExpiry(input: ExpiryInput): ExpiryPlan {
       continue;
     }
 
-    const ran = Math.floor((input.now.getTime() - candidate.startedAt.getTime()) / 1000);
-    if (ran >= ttl) {
-      stop.push({ sandbox, reason: `ran for ${describe(ran)}, past its ${formatTtl(ttl)} ttl` });
+    // Never negative. A clock that has gone backwards between the container
+    // starting and this pass would otherwise produce a negative idle time,
+    // which `describe` renders as nonsense in the one string somebody reads to
+    // find out why their sandbox went away.
+    const since = activeSince(candidate) ?? candidate.startedAt;
+    const idle = Math.max(0, Math.floor((input.now.getTime() - since.getTime()) / 1000));
+    if (idle >= ttl) {
+      stop.push({ sandbox, reason: `idle ${describe(idle)}, past its ${formatTtl(ttl)} limit` });
       continue;
     }
 
-    keep.push({ sandbox, reason: `${describe(ttl - ran)} left of its ${formatTtl(ttl)} ttl` });
+    keep.push({ sandbox, reason: `${describe(ttl - idle)} left, idle ${describe(idle)}` });
   }
 
   return { stop, keep };

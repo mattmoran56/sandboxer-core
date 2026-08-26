@@ -1,6 +1,8 @@
 // Tests for the docker CLI wrapper:
 // - every call is an argument array, and a name that looks like shell syntax is passed through untouched
 // - raw returns a non-zero exit as data; ok turns it into a DockerError that quotes the daemon
+// - DockerError quotes the *end* of both streams, so a legacy build's error survives its deprecation notice
+// - archBuildArgs: the mapping onto docker's spelling, and silence for an architecture it does not know
 // - ps: label filters, the JSON-per-line format, an unparseable line, a state derived from Status
 // - labels: the inspect template form, values containing commas and equals signs
 // - containerExists / containerRunning / available: the exit code and field each reads
@@ -9,7 +11,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DockerError, createDocker, parseLabelLines, parseLabelPairs, parsePsJson, type Runner } from "./docker.js";
+import {
+  DockerError,
+  archBuildArgs,
+  createDocker,
+  parseLabelLines,
+  parseLabelPairs,
+  parsePsJson,
+  type Runner,
+} from "./docker.js";
 
 interface Call {
   bin: string;
@@ -47,6 +57,38 @@ describe("createDocker", () => {
     await expect(createDocker(run).ok(["run", "x"])).rejects.toThrow(DockerError);
     const { run: run2 } = recorder([{ code: 125, stderr: "port is already allocated" }]);
     await expect(createDocker(run2).ok(["run", "x"])).rejects.toThrow(/port is already allocated/);
+  });
+
+  it("quotes the end of the output, not the deprecation notice the legacy builder opens with", async () => {
+    // The exact shape of a failed `docker build` without buildx: one line on
+    // stderr, the whole build — error included — on stdout. Reporting stderr
+    // alone told the reader the builder was deprecated and nothing else.
+    const stderr = "DEPRECATED: The legacy builder is deprecated and will be removed in a future release.";
+    const stdout = ["Step 4/9 : RUN set -eux; ...", "unsupported arch ", "The command '/bin/sh -c ...' returned 1"].join(
+      "\n",
+    );
+    const { run } = recorder([{ code: 1, stdout, stderr }]);
+    const error = await createDocker(run)
+      .ok(["build", "-t", "sandboxr/acme:abc", "/tmp/ctx"])
+      .then(
+        () => undefined,
+        (thrown: unknown) => thrown as DockerError,
+      );
+    expect(error?.message).toContain("unsupported arch");
+    expect(error?.message).toContain("returned 1");
+    // The notice is still there — it is one line of context, not the headline.
+    expect(error?.message).toContain("DEPRECATED");
+  });
+
+  it("does not repeat a line both streams carried", async () => {
+    const { run } = recorder([{ code: 1, stdout: "boom", stderr: "boom" }]);
+    const error = await createDocker(run)
+      .ok(["build", "x"])
+      .then(
+        () => undefined,
+        (thrown: unknown) => thrown as DockerError,
+      );
+    expect(error?.message.match(/boom/g)).toHaveLength(1);
   });
 
   it("asks the daemon for its version to decide whether it is available", async () => {
@@ -142,6 +184,19 @@ describe("createDocker", () => {
     await createDocker(run).logs("c", { tail: 40, follow: true });
     expect(calls[0]?.args).toEqual(["logs", "--tail", "40", "-f", "c"]);
   });
+
+  // The window the router's access log is read through — see sandbox/activity.ts.
+  it("passes a since window through to docker", async () => {
+    const { calls, run } = recorder();
+    await createDocker(run).logs("sandboxr-router", { since: "13h" });
+    expect(calls[0]?.args).toEqual(["logs", "--since", "13h", "sandboxr-router"]);
+  });
+
+  it("omits an empty since rather than sending docker a blank window", async () => {
+    const { calls, run } = recorder();
+    await createDocker(run).logs("c", { since: "" });
+    expect(calls[0]?.args).toEqual(["logs", "c"]);
+  });
 });
 
 describe("parsePsJson", () => {
@@ -185,5 +240,19 @@ describe("label parsing", () => {
     ["a=\n", { a: "" }],
   ])("parses the line form %s", (input, want) => {
     expect(parseLabelLines(input)).toEqual(want);
+  });
+});
+
+describe("archBuildArgs", () => {
+  it("maps node's architecture names onto docker's", () => {
+    expect(archBuildArgs("x64")).toEqual(["--build-arg", "TARGETARCH=amd64"]);
+    expect(archBuildArgs("arm64")).toEqual(["--build-arg", "TARGETARCH=arm64"]);
+  });
+
+  it("passes nothing for an architecture it does not know", () => {
+    // Rather than a guess: the value ends up in a download URL, where a wrong
+    // one is a 404 in the middle of a build. The Dockerfile's own `uname -m`
+    // fallback is a better answer than anything this could invent.
+    expect(archBuildArgs("ppc64")).toEqual([]);
   });
 });

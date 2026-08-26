@@ -384,6 +384,19 @@ The full list of what a sandbox computes: [environment variables](../reference/e
 — which is the config's directory, not the git top level, so a project kept in a subdirectory of a
 larger repository is mounted at the right level.
 
+Inside a worktree sandboxr keeps in its [workspace](../reference/paths.md#the-workspace), the walk
+stops at the top of that worktree, and one fallback follows it:
+`<workspace>/<project>/sandboxr.yaml`, the project-level config. It applies to every worktree of the
+project that has none of its own, and it is read for its contents only — **the worktree is still
+what gets mounted**, and every path in the config still resolves inside the branch's own checkout.
+
+A worktree that carries its own config always uses that one. The fallback is a stopgap for a project
+whose config has not been committed yet; see
+[a config for a project that has not committed one](../guides/managed-sandboxes.md#a-config-for-a-project-that-has-not-committed-one).
+
+`sandboxr config` prints which of the two was used, so this is never something to deduce from
+behaviour.
+
 ## Related
 
 - [Two worked examples](examples.md)

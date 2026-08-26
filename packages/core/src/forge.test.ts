@@ -10,11 +10,28 @@
 //   and a limit that is bounded and numeric
 // - mergedBranches: asks for --state merged and returns head branch names
 // - ghAvailable: true only when gh answers `auth status` cleanly
+// - parseRemoteRepos: recorded gh output as one object per line, and as a whole JSON array
+// - parseRemoteRepos: blank lines, junk, a half-written last line, and entries missing a name or a url
+// - listRemoteRepos: newest-updated first, whatever order gh answered in
+// - listRemoteRepos: the cap keeps the newest and reports that it truncated; the flags are constants
+// - listRemoteRepos: [] for a missing gh, a logged-out gh, no network and unparseable output
+// - matchesOrigin / alreadyAdded: ssh and https spellings of one repo, case, and a different repo
 
 import { describe, expect, it } from "vitest";
 
 import type { ExecResult, Runner } from "./docker.js";
-import { ghAvailable, listPullRequests, mergedBranches, parsePullRequests, repoSlugFromUrl } from "./forge.js";
+import {
+  alreadyAdded,
+  ghAvailable,
+  listPullRequests,
+  listRemoteRepos,
+  matchesOrigin,
+  mergedBranches,
+  parsePullRequests,
+  parseRemoteRepos,
+  repoSlugFromUrl,
+  type RemoteRepo,
+} from "./forge.js";
 import type { Project } from "./workspace.js";
 
 const project = (origin: string): Project => ({
@@ -288,5 +305,205 @@ describe("ghAvailable", () => {
   it("is false when gh cannot be spawned", async () => {
     const { run } = stubRunner({ throws: enoent() });
     await expect(ghAvailable(run)).resolves.toBe(false);
+  });
+});
+
+/**
+ * Recorded `gh api --paginate /user/repos --jq '.[] | {…}'` output.
+ *
+ * One JSON object per line, which is what gh really produces: `--jq` is applied
+ * per page and there is no enclosing array. Deliberately not in updated order —
+ * the API's own sort is a hint, not a promise, and the ordering is core's job.
+ */
+const REPOS = [
+  '{"fork":false,"fullName":"acme/web","updated":"2026-08-20T11:02:00Z","url":"https://github.com/acme/web.git","visibility":"private"}',
+  '{"fork":true,"fullName":"acme/forked-tool","updated":"2026-08-26T14:09:13Z","url":"https://github.com/acme/forked-tool.git","visibility":"public"}',
+  '{"fork":false,"fullName":"demo/site","updated":"2026-01-04T08:00:00Z","url":"https://github.com/demo/site.git","visibility":"internal"}',
+].join("\n");
+
+const repo = (overrides: Partial<RemoteRepo> = {}): RemoteRepo => ({
+  fullName: "acme/web",
+  visibility: "private",
+  fork: false,
+  updated: "2026-08-20T11:02:00Z",
+  url: "https://github.com/acme/web.git",
+  ...overrides,
+});
+
+describe("parseRemoteRepos", () => {
+  it("maps one JSON object per line, as --paginate --jq produces them", () => {
+    const repos = parseRemoteRepos(REPOS);
+    expect(repos).toHaveLength(3);
+    expect(repos[0]).toEqual({
+      fullName: "acme/web",
+      visibility: "private",
+      fork: false,
+      updated: "2026-08-20T11:02:00Z",
+      url: "https://github.com/acme/web.git",
+    });
+    expect(repos[1]?.fork).toBe(true);
+    expect(repos[2]?.visibility).toBe("internal");
+  });
+
+  // A caller — or a future gh — handing over one array must not read as nothing.
+  it("reads a whole JSON array too", () => {
+    const array = JSON.stringify(REPOS.split("\n").map((line) => JSON.parse(line)));
+    expect(parseRemoteRepos(array).map((entry) => entry.fullName)).toEqual([
+      "acme/web",
+      "acme/forked-tool",
+      "demo/site",
+    ]);
+  });
+
+  // A page that arrived truncated must cost its own line and nothing else: the
+  // repositories already read are still a usable list.
+  it("keeps the lines that parse and drops the ones that do not", () => {
+    const text = ["", REPOS.split("\n")[0]!, "  ", "<html>504 Gateway Timeout</html>", '{"fullName":"acme/'].join("\n");
+    expect(parseRemoteRepos(text).map((entry) => entry.fullName)).toEqual(["acme/web"]);
+  });
+
+  it.each([
+    ["null", "null"],
+    ["an object that is not a list", '{"message":"Bad credentials"}'],
+    ["an empty array", "[]"],
+    ["nothing at all", ""],
+  ])("returns [] for %s", (_name, text) => {
+    expect(parseRemoteRepos(text)).toEqual([]);
+  });
+
+  it.each([
+    ["no name", '{"url":"https://github.com/acme/web.git"}'],
+    ["no url", '{"fullName":"acme/web"}'],
+    ["a name that is not a slug", '{"fullName":"acme","url":"https://github.com/acme.git"}'],
+    ["a leading dash on the owner", '{"fullName":"-oProxyCommand/web","url":"https://github.com/x/y.git"}'],
+    ["a shell metacharacter in the name", '{"fullName":"acme/web;id","url":"https://github.com/acme/web.git"}'],
+  ])("drops an entry with %s", (_name, line) => {
+    expect(parseRemoteRepos([line, REPOS.split("\n")[0]!].join("\n")).map((entry) => entry.fullName)).toEqual([
+      "acme/web",
+    ]);
+  });
+
+  it("falls back rather than dropping an entry whose visibility or date is missing", () => {
+    const [entry] = parseRemoteRepos('{"fullName":"acme/web","url":"https://github.com/acme/web.git"}');
+    expect(entry).toEqual({
+      fullName: "acme/web",
+      visibility: "?",
+      fork: false,
+      updated: "",
+      url: "https://github.com/acme/web.git",
+    });
+  });
+});
+
+describe("listRemoteRepos", () => {
+  it("answers newest-updated first, whatever order gh replied in", async () => {
+    const { run } = stubRunner({ code: 0, stdout: REPOS });
+    const repos = await listRemoteRepos({ run });
+    expect(repos.map((entry) => entry.fullName)).toEqual(["acme/forked-tool", "acme/web", "demo/site"]);
+  });
+
+  // Every argument is a constant, and stays one whatever the caller asked for:
+  // the `--jq` value is a program, and the day a caller's string reaches it is
+  // the day this stops being a read.
+  it("asks gh for JSON through a fixed path and a fixed jq program", async () => {
+    const { run, calls } = stubRunner({ code: 0, stdout: REPOS });
+    await listRemoteRepos({ run, limit: 7 });
+
+    expect(calls).toHaveLength(1);
+    const [bin, args] = calls[0]!;
+    expect(bin).toBe("gh");
+    expect(args).toEqual([
+      "api",
+      "--paginate",
+      "/user/repos?per_page=100&sort=updated&direction=desc",
+      "--jq",
+      ".[] | {fullName: .full_name, visibility: .visibility, fork: .fork, updated: .updated_at, url: .clone_url}",
+    ]);
+    // Not `@tsv`: a tab in any field would shift every column after it.
+    expect(args.join(" ")).not.toContain("@tsv");
+  });
+
+  // The cap is applied after the sort, so an account with thousands of
+  // repositories still gets the ones it has touched — not an arbitrary slice.
+  it("keeps the newest when the cap truncates, and says that it did", async () => {
+    const lines: string[] = [];
+    const { run } = stubRunner({ code: 0, stdout: REPOS });
+    const repos = await listRemoteRepos({ run, limit: 2, log: (line) => lines.push(line) });
+
+    expect(repos.map((entry) => entry.fullName)).toEqual(["acme/forked-tool", "acme/web"]);
+    expect(lines).toEqual(["showing the 2 most recently updated of 3 repositories"]);
+  });
+
+  it("says nothing when the cap did not truncate", async () => {
+    const lines: string[] = [];
+    const { run } = stubRunner({ code: 0, stdout: REPOS });
+    await listRemoteRepos({ run, log: (line) => lines.push(line) });
+    expect(lines).toEqual([]);
+  });
+
+  it.each([
+    ["zero, raised to one", 0, 1],
+    ["a fraction, truncated", 2.9, 2],
+    ["nonsense, the default", Number.NaN, 3],
+  ])("bounds %s", async (_name, limit, want) => {
+    const { run } = stubRunner({ code: 0, stdout: REPOS });
+    await expect(listRemoteRepos({ run, limit })).resolves.toHaveLength(want);
+  });
+
+  // A machine with no gh has no repositories to offer. That is an ordinary
+  // machine, and the page that lists them must still render.
+  it.each([
+    ["gh is not installed", { code: 127, stderr: "gh: command not found" }],
+    ["gh is not authenticated", { code: 4, stderr: "gh auth login" }],
+    ["the network is gone", { code: 1, stderr: "lookup api.github.com: no such host" }],
+    ["the token cannot list repositories", { code: 1, stderr: "HTTP 403: Resource not accessible" }],
+    ["the output does not parse", { code: 0, stdout: "<html>504 Gateway Timeout</html>" }],
+  ])("returns [] when %s", async (_name, reply) => {
+    await expect(listRemoteRepos({ run: stubRunner(reply).run })).resolves.toEqual([]);
+  });
+
+  it("returns [] when the runner itself fails to spawn gh", async () => {
+    const { run } = stubRunner({ throws: enoent() });
+    await expect(listRemoteRepos({ run })).resolves.toEqual([]);
+  });
+});
+
+describe("matchesOrigin", () => {
+  // The whole point of the join: the two sides spell the same repository
+  // differently, and comparing the strings would offer to clone one twice.
+  it.each([
+    ["an ssh origin", "git@github.com:acme/web.git"],
+    ["an https origin with .git", "https://github.com/acme/web.git"],
+    ["an https origin without .git", "https://github.com/acme/web"],
+    ["an ssh:// origin", "ssh://git@github.com/acme/web.git"],
+    ["different capitalisation", "https://github.com/Acme/Web.git"],
+  ])("matches %s to the listed repository", (_name, origin) => {
+    expect(matchesOrigin(project(origin), repo())).toBe(true);
+  });
+
+  it.each([
+    ["a different repository", "https://github.com/acme/api.git"],
+    ["a different owner", "https://github.com/other/web.git"],
+    ["another forge", "https://gitlab.com/acme/web.git"],
+    ["no origin at all", ""],
+  ])("does not match %s", (_name, origin) => {
+    expect(matchesOrigin(project(origin), repo())).toBe(false);
+  });
+
+  it("falls back to the reported name when the clone url is not a GitHub url", () => {
+    expect(matchesOrigin(project("git@github.com:acme/web.git"), repo({ url: "https://example.test/tarball" }))).toBe(
+      true,
+    );
+  });
+});
+
+describe("alreadyAdded", () => {
+  it("is true when any project in the workspace points at the repository", () => {
+    const projects = [project("https://github.com/demo/site.git"), project("git@github.com:acme/web.git")];
+    expect(alreadyAdded(repo(), projects)).toBe(true);
+  });
+
+  it("is false for an empty workspace", () => {
+    expect(alreadyAdded(repo(), [])).toBe(false);
   });
 });

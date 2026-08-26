@@ -54,6 +54,10 @@ The directory holding it is what gets mounted at `/workspace` — the **config's
 git top level, so a project kept in a subdirectory of a larger repository is mounted at the right
 level.
 
+There is one exception, for a project in the workspace that has not committed a config yet: it can
+keep one [beside its mirror](#the-workspace), and every worktree that has none of its own uses it.
+The worktree is still what gets mounted.
+
 ## 3. On your computer
 
 Everything sandboxr writes at run time is under `SANDBOXR_HOME`, default `~/.sandboxr`.
@@ -63,30 +67,60 @@ Everything sandboxr writes at run time is under `SANDBOXR_HOME`, default `~/.san
 | `cache/` | Database seed artifacts, named by content | yes |
 | `logs/<project>/<slug>/` | Per-sandbox logs, and the schema baselines | **yes** — deliberately |
 | `tls/` | Certificates and keys the router serves | yes |
+| `config.yaml` | The machine's own settings — how long a sandbox may sit unused | yes |
 | `state/` | Router config, the dynamic config directory, the dashboard's session key | yes |
 | `secrets/<project>.env` | Third-party credentials, mode 0600 | yes |
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
 | `bin/` | Helper binaries built on the host | yes |
-| `state/pins/<project>/<slug>` | Exempts one sandbox from its lifetime | **no** — see below |
+| `state/keep/<project>/<slug>` | Keeps one sandbox alive past its idle limit | **no** — see below |
 | `workspace/<project>/` | A project's bare clone and its worktrees | yes |
+| `workspace/<project>/sandboxr.yaml` | Optional: a config for every worktree that has none — see below | yes |
 
 The logs surviving is on purpose: the logs from a sandbox you have just deleted are usually exactly
 the ones you want.
 
-The pin is the only row that does not survive `down`, including `down --keep`: the container is
-gone either way, and a pin on a container that no longer exists means nothing. It is not relied on,
-though — the file records which instance it pinned, so one left behind by a bare `docker rm` is
-ignored rather than applied to whatever takes the slug next.
+`config.yaml` is the one file here you are meant to edit. `sandboxr init` writes a commented example
+the first time and never touches it again:
+
+```yaml
+# How long a sandbox may sit unused before it is stopped.
+ttl: 12h
+# Per project, optional.
+projects:
+  acme: { ttl: 3d }
+```
+
+A missing file means the defaults. A malformed one is an error naming the file and the key — see
+[Lifetimes](../guides/managed-sandboxes.md).
+
+The keep-alive marker is the only row that does not survive `down`, including `down --keep`: the
+container is gone either way, and a marker for a container that no longer exists means nothing. It
+is not relied on, though — the file records which instance it was written for, so one left behind by
+a bare `docker rm` is ignored rather than applied to whatever takes the slug next.
+
+### The workspace
 
 The workspace has its own variable, `SANDBOXR_WORKSPACE`, because the repositories are the one part
 of this tree worth putting on a different disk. Inside it, one directory per project:
 
 ```
 <workspace>/<project>/
+  sandboxr.yaml    optional — a config for every worktree that has none of its own
   repo.git/        a bare clone — this is what makes it a project
   wt/<branch>/     one worktree per branch
 ```
+
+`sandboxr.yaml` here is the only file you put in a project directory by hand, and it is a stopgap:
+a worktree is a separate checkout, so an uncommitted config in one does not exist in any other, and
+without this you would copy the file into every new worktree forever. A worktree that carries its
+own config always wins over it, so committing the file upstream ends the arrangement on its own.
+See [Every worktree, from one place](../guides/managed-sandboxes.md#a-config-for-a-project-that-has-not-committed-one).
+
+> [!WARNING] It is read, never mounted
+> `<workspace>/<project>` holds `repo.git` and every other worktree. Only the worktree is ever
+> mounted at `/workspace`; running `sandboxr up` from the project directory itself is refused, with
+> an error saying so.
 
 > [!NOTE] Never inside a repository
 > `git clean -xdf` is a normal thing to run, and it would destroy the seed cache, the certificates

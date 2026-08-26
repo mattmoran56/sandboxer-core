@@ -9,6 +9,16 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+/**
+ * The directory a project's worktrees are cut into, inside its project
+ * directory: `<workspace>/<project>/wt/<slug>`.
+ *
+ * Here rather than in workspace.ts because config/locate.ts has to recognise a
+ * worktree from its path alone — two spellings of one layout rule is exactly how
+ * a config ends up being looked for in the wrong directory.
+ */
+export const WORKTREES_DIR = "wt";
+
 export interface Paths {
   /** SANDBOXR_HOME itself. */
   home: string;
@@ -22,6 +32,13 @@ export interface Paths {
   state: string;
   /** Third-party credentials, one file per project, mode 0600. */
   secrets: string;
+  /**
+   * The machine's own settings — how long a sandbox may sit unused.
+   *
+   * Beside the tree rather than inside `state/`, because everything under
+   * `state/` is generated and may be rewritten, and this one is written by hand.
+   */
+  configFile: string;
   /** Generated per-sandbox environment files. */
   build: string;
   /** Host-built helper binaries. */
@@ -44,8 +61,10 @@ export interface Paths {
   cacheFile(name: string): string;
   /** Where one project's bare mirror and worktrees live. */
   projectDir(project: string): string;
-  /** The marker that exempts one sandbox from the expiry clock. */
-  pinFile(project: string, slug: string): string;
+  /** Where that project's worktrees are cut, one directory per branch. */
+  worktreesDir(project: string): string;
+  /** The marker that keeps one sandbox alive past its idle limit. */
+  keepFile(project: string, slug: string): string;
 }
 
 /**
@@ -69,6 +88,7 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     tls: join(home, "tls"),
     state: join(home, "state"),
     secrets: join(home, "secrets"),
+    configFile: join(home, "config.yaml"),
     build: join(home, "build"),
     bin: join(home, "bin"),
     workspace,
@@ -78,7 +98,8 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     envFile: (project, slug) => join(home, "build", project, `${slug}.env`),
     cacheFile: (name) => join(home, "cache", name),
     projectDir: (project) => join(workspace, project),
-    pinFile: (project, slug) => join(home, "state", "pins", project, slug),
+    worktreesDir: (project) => join(workspace, project, WORKTREES_DIR),
+    keepFile: (project, slug) => join(home, "state", "keep", project, slug),
   };
 }
 

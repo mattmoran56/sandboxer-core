@@ -1,15 +1,37 @@
+// Tests for the per-project image layer:
+// - applyBlocks / applyValues: which blocks survive, and a missing value refused rather than emptied
+// - blocksFor / valuesFor: what a config turns on, and the versions it pins
+// - staging a build context: the manifests found, the go.mod rule, the content-addressed tag
+// - the real container Dockerfiles: every architecture switch survives a builder that sets no TARGETARCH
+// - ensureProjectImage: the build arguments, base image and architecture included
+
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { applyBlocks, applyValues, blocksFor, findGoModule, findManifests, imageTag, valuesFor } from "./image.js";
+import { readFile } from "node:fs/promises";
+
+import {
+  applyBlocks,
+  applyValues,
+  blocksFor,
+  ensureProjectImage,
+  findGoModule,
+  findManifests,
+  imageTag,
+  renderDockerfile,
+  valuesFor,
+} from "./image.js";
+import { containerDir } from "./install.js";
+import type { Docker } from "./docker.js";
 import type { ResolvedConfig } from "./config/types.js";
 
 const config = (overrides: Partial<ResolvedConfig> = {}): ResolvedConfig => ({
   file: "/p/sandboxr.yaml",
   root: "/p",
+  origin: "repo",
   project: "acme",
   sandboxr: ">=0.1.0",
   database: { driver: "none" },
@@ -177,5 +199,98 @@ describe("staging a build context", () => {
 
     await writeFile(manifest, '{"a":1}');
     expect(await imageTag("acme", "FROM a", staged)).not.toBe(first);
+  });
+});
+
+// A build arg is only half the fix. These read the files that are actually
+// shipped, because the failure they guard against — an empty TARGETARCH under
+// the legacy builder — is invisible to any test that renders a fake template.
+describe("the architecture switches in the shipped Dockerfiles", () => {
+  const sources = ["base/Dockerfile", "dashboard/Dockerfile", "project/Dockerfile.template"];
+
+  it.each(sources)("resolves the architecture for itself in %s", async (name) => {
+    const text = await readFile(join(containerDir(), name), "utf8");
+
+    // A bare expansion is two bugs at once: empty under the legacy builder, and
+    // an exit 2 "parameter not set" under `set -u`.
+    expect(text).not.toMatch(/case "\$\{TARGETARCH\}"/);
+    expect(text).toContain('ARCH="${TARGETARCH:-}"');
+    expect(text).toContain('ARCH="$(uname -m)"');
+    // uname's spelling and docker's, because the fallback produces the first.
+    expect(text).toMatch(/arm64\|aarch64/);
+    expect(text).toMatch(/amd64\|x86_64/);
+  });
+
+  it("keeps the fallback in the rendered project layer", async () => {
+    const template = await readFile(join(containerDir(), "project", "Dockerfile.template"), "utf8");
+    const rendered = renderDockerfile(template, {
+      config: config({ toolchain: { go: "1.25", node: "24" }, database: { driver: "mysql" } }),
+      gomod: false,
+      deps: false,
+    });
+    // Go, Node and MySQL each switch on it, and the Go one is where this failed.
+    expect(rendered.match(/ARCH="\$\{TARGETARCH:-\}"/g)).toHaveLength(3);
+    expect(rendered).toContain("GO_ARCH=amd64");
+    expect(rendered).not.toContain("${TARGETARCH}");
+  });
+});
+
+describe("ensureProjectImage", () => {
+  let worktree: string;
+
+  beforeEach(async () => {
+    worktree = await mkdtemp(join(tmpdir(), "sandboxr-image-build-"));
+  });
+
+  afterEach(async () => {
+    await rm(worktree, { recursive: true, force: true });
+  });
+
+  /** Records the arguments a build was asked to run with, and builds nothing. */
+  const spy = () => {
+    const calls: string[][] = [];
+    const docker = {
+      imageExists: async () => false,
+      ok: async (args: string[]) => {
+        calls.push(args);
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    } as unknown as Docker;
+    return { calls, docker };
+  };
+
+  it("passes the base image and this host's architecture", async () => {
+    const { calls, docker } = spy();
+    const built = await ensureProjectImage({
+      config: config({ toolchain: { node: "24" } }),
+      worktree,
+      docker,
+      baseImage: "sandboxr/base:9.9.9",
+    });
+
+    expect(built.built).toBe(true);
+    const args = calls[0] ?? [];
+    expect(args.slice(0, 2)).toEqual(["build", "-f"]);
+    expect(args.join(" ")).toContain("--build-arg BASE_IMAGE=sandboxr/base:9.9.9");
+
+    // Mapped here rather than taken from archBuildArgs, so the test would catch
+    // the mapping changing under it.
+    const expected = process.arch === "x64" ? "amd64" : process.arch === "arm64" ? "arm64" : undefined;
+    if (expected) expect(args.join(" ")).toContain(`--build-arg TARGETARCH=${expected}`);
+    else expect(args.join(" ")).not.toContain("TARGETARCH");
+  });
+
+  it("builds nothing when the tag is already here", async () => {
+    const calls: string[][] = [];
+    const docker = {
+      imageExists: async () => true,
+      ok: async (args: string[]) => {
+        calls.push(args);
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    } as unknown as Docker;
+    const built = await ensureProjectImage({ config: config({ toolchain: { node: "24" } }), worktree, docker });
+    expect(built.built).toBe(false);
+    expect(calls).toEqual([]);
   });
 });

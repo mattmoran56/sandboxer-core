@@ -35,7 +35,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 
-import type { Docker } from "../docker.js";
+import { nodeRunner, type Docker } from "../docker.js";
 import { NETWORK } from "../naming.js";
 import { paths } from "../paths.js";
 import { dashboardEntry, installRoot } from "../install.js";
@@ -59,6 +59,16 @@ export interface DashboardInput {
   tls: boolean;
   /** The control-plane password, or nothing — the dashboard boots either way. */
   password?: string | undefined;
+  /**
+   * A GitHub token for the dashboard's `gh` and `git`.
+   *
+   * Needed as a *value*, not a mounted file. On macOS `gh` keeps the token in
+   * the login keychain, so the `~/.config/gh` that gets mounted names the user
+   * and carries no credential at all — and a private clone then fails with
+   * "could not read Username for 'https://github.com'", which reads like a
+   * missing prompt rather than a missing token.
+   */
+  ghToken?: string | undefined;
   env?: NodeJS.ProcessEnv | undefined;
   image?: string | undefined;
 }
@@ -156,6 +166,7 @@ export function dashboardArgs(input: DashboardInput): string[] {
     // and the login form silently loops. The server says so at startup.
     ...(input.tls ? {} : { SANDBOXR_INSECURE_COOKIES: "1" }),
     ...(input.password ? { SANDBOXR_PASSWORD: input.password } : {}),
+    ...(input.ghToken ? { GH_TOKEN: input.ghToken } : {}),
   };
   for (const [key, value] of Object.entries(environment)) args.push("-e", `${key}=${value}`);
 
@@ -173,6 +184,25 @@ export function dashboardArgs(input: DashboardInput): string[] {
 function isInside(child: string, parent: string): boolean {
   const rel = relative(parent, child);
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * The host's GitHub token, from the environment or from `gh` itself.
+ *
+ * Never throws and never logs the value: a machine with no gh, or one that is
+ * not logged in, simply has no token, and the dashboard says so once at start
+ * rather than failing every clone with a confusing git error.
+ */
+export async function hostGhToken(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
+  const declared = env.GH_TOKEN ?? env.GITHUB_TOKEN;
+  if (declared && declared !== "") return declared;
+  try {
+    const result = await nodeRunner("gh", ["auth", "token"]);
+    const token = result.code === 0 ? result.stdout.trim() : "";
+    return token === "" ? undefined : token;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Where gh keeps its configuration, honouring its own override. */
@@ -198,11 +228,20 @@ export async function startDashboard(options: StartDashboardOptions): Promise<vo
   const { docker } = options;
   const log = options.log ?? (() => undefined);
 
+  // Resolved here rather than left to the caller: `gh auth token` is the only
+  // thing that can read a token out of the host's keychain, and the dashboard
+  // is useless for a private repository without one. An explicit value wins, so
+  // a service unit can set GH_TOKEN and never invoke gh at all.
+  const ghToken = options.ghToken ?? (await hostGhToken(options.env ?? process.env));
+  if (!ghToken) {
+    log("No GitHub token, so private repositories and pull requests will not be readable.");
+  }
+
   await docker.ensureNetwork(NETWORK);
   if (await docker.containerExists(DASHBOARD_CONTAINER)) {
     await docker.rm(DASHBOARD_CONTAINER, { force: true });
   }
-  await docker.ok(dashboardArgs(options));
+  await docker.ok(dashboardArgs({ ...options, ...(ghToken ? { ghToken } : {}) }));
   log(options.password ? "Dashboard started" : "Dashboard started with no password — it will admit nobody");
 }
 

@@ -1,5 +1,6 @@
 /**
- * What GitHub can tell us about a project's branches.
+ * What GitHub can tell us: a project's pull requests, and the repositories the
+ * user could add a project from.
  *
  * Asked by way of the `gh` CLI, through the same injectable `Runner` seam as
  * git and docker, for two reasons:
@@ -17,8 +18,9 @@
  * **Nothing in this file throws.** A machine with no `gh`, a `gh` that is not
  * logged in, a repo hosted somewhere that is not GitHub, a dropped network or
  * output that does not parse all answer with an empty list. The dashboard draws
- * a pull-request column from this, and "there is no forge here" is an ordinary
- * state for a project to be in — not an error worth losing the page over.
+ * a pull-request column and a "repositories you could add" list from this, and
+ * "there is no forge here" is an ordinary state for a machine to be in — not an
+ * error worth losing the page over.
  */
 
 import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
@@ -37,6 +39,27 @@ export interface PullRequest {
   url: string;
 }
 
+/** One repository the signed-in account can reach, as a candidate to clone. */
+export interface RemoteRepo {
+  /** "owner/repo". */
+  fullName: string;
+  /** "public", "private" or "internal", as GitHub reported it. */
+  visibility: string;
+  fork: boolean;
+  /** ISO 8601, as the forge reported it. */
+  updated: string;
+  /** The https clone URL, ready to hand to cloneProject. */
+  url: string;
+}
+
+export interface RemoteReposOptions {
+  run?: Runner | undefined;
+  /** How many repositories to keep, newest-updated first. Clamped to `MAX_REPO_LIMIT`. */
+  limit?: number | undefined;
+  /** Told when the cap threw some away, so a partial list is never silent. */
+  log?: ((line: string) => void) | undefined;
+}
+
 export interface ForgeOptions {
   run?: Runner | undefined;
   state?: "open" | "merged" | "all" | undefined;
@@ -49,6 +72,41 @@ const UNKNOWN = "?";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+
+/**
+ * How many repositories a listing keeps, and the ceiling on asking for more.
+ *
+ * An account that belongs to a large organisation can reach thousands, and
+ * `--paginate` will happily fetch every one of them — so what a caller gets back
+ * is bounded here whatever the forge answered. The cap is applied *after* the
+ * sort, so the 200 kept are the 200 most recently touched rather than whichever
+ * 200 the API happened to hand over first.
+ */
+const DEFAULT_REPO_LIMIT = 200;
+const MAX_REPO_LIMIT = 1000;
+
+/**
+ * The repositories the signed-in account can reach.
+ *
+ * `sort=updated` is asked for even though the sort is redone locally: it decides
+ * which repositories are on the *first* page, so a truncated listing is still
+ * the newest ones rather than an arbitrary slice.
+ *
+ * Fixed string, and it must stay one — nothing user-supplied belongs in an
+ * argument array that carries a `--jq` program.
+ */
+const REPOS_PATH = "/user/repos?per_page=100&sort=updated&direction=desc";
+
+/**
+ * The projection, as jq, producing **one JSON object per line**.
+ *
+ * Deliberately not the `@tsv` a person would type at a shell. A tab-separated
+ * pipeline is a parsing hazard in a program: a field could contain a tab and
+ * every column after it would shift by one, silently. JSON escapes both the tab
+ * and the newline, so a line is always exactly one record.
+ */
+const REPOS_JQ =
+  ".[] | {fullName: .full_name, visibility: .visibility, fork: .fork, updated: .updated_at, url: .clone_url}";
 
 /**
  * A repo slug that is safe to hand a subprocess.
@@ -176,6 +234,74 @@ function text(value: unknown, fallback: string): string {
   return typeof value === "string" && value !== "" ? value : fallback;
 }
 
+/**
+ * Maps the repository projection onto `RemoteRepo`, tolerating anything.
+ *
+ * Exported and pure for parsePullRequests' reason: the mapping is the part worth
+ * testing and it should be testable on a machine with no gh on it.
+ *
+ * Two shapes are accepted because gh produces both. `--jq '.[] | {…}'` emits one
+ * object per line, and with `--paginate` it emits the lines of every page in
+ * turn — there is no enclosing array to parse. A caller (or a future gh) handing
+ * over a whole JSON array is read too, rather than being a silent empty list.
+ */
+export function parseRemoteRepos(text: string): RemoteRepo[] {
+  const repos: RemoteRepo[] = [];
+
+  const collect = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const entry of value) collect(entry);
+      return;
+    }
+    const repo = toRemoteRepo(value);
+    if (repo) repos.push(repo);
+  };
+
+  const whole = parseJson(text);
+  if (Array.isArray(whole)) {
+    collect(whole);
+    return repos;
+  }
+
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    collect(parseJson(trimmed));
+  }
+  return repos;
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function toRemoteRepo(entry: unknown): RemoteRepo | undefined {
+  if (typeof entry !== "object" || entry === null) return undefined;
+  const record = entry as Record<string, unknown>;
+
+  // The slug and the clone URL are the two fields everything downstream needs —
+  // one names the row, the other is what `cloneProject` is handed — so an entry
+  // missing either is not a repository this can offer. The slug is checked
+  // against the same pattern `--repo` is, because it is the key the workspace
+  // join and the dashboard row are both identified by.
+  const fullName = record["fullName"];
+  const url = record["url"];
+  if (typeof fullName !== "string" || !isSafeSlug(fullName)) return undefined;
+  if (typeof url !== "string" || url === "") return undefined;
+
+  return {
+    fullName,
+    visibility: text(record["visibility"], UNKNOWN),
+    fork: record["fork"] === true,
+    updated: text(record["updated"], ""),
+    url,
+  };
+}
+
 /** Whether a usable, authenticated `gh` is on this machine. */
 export async function ghAvailable(run: Runner = nodeRunner): Promise<boolean> {
   // `auth status` rather than `--version`: an installed but logged-out gh
@@ -240,6 +366,75 @@ export async function mergedBranches(
 ): Promise<string[]> {
   const pulls = await listPullRequests(project, { ...options, state: "merged" });
   return pulls.map((pull) => pull.branch);
+}
+
+/**
+ * Every repository the signed-in account can reach, newest-updated first.
+ *
+ * This is what turns "adding a project" from pasting a URL into picking from a
+ * list. It asks about the *account*, not about a project, so unlike everything
+ * else here it has no `Project` to start from and no origin to check first.
+ *
+ * The sort happens here rather than at each caller so that the CLI and the
+ * dashboard cannot disagree about the order, and so that the cap below keeps the
+ * newest rather than an arbitrary slice.
+ *
+ * Never throws, for this file's usual reason: an account with no gh simply has
+ * no repositories to offer, and "you cannot see a list" is a better page than a
+ * stack trace.
+ */
+export async function listRemoteRepos(options: RemoteReposOptions = {}): Promise<RemoteRepo[]> {
+  const limit = clampRepoLimit(options.limit);
+
+  // Every argument is a constant. Keep it that way: `--jq` takes a program, and
+  // there is no interpolation here for anything user-supplied to reach.
+  const args = ["api", "--paginate", REPOS_PATH, "--jq", REPOS_JQ];
+
+  const result = await attempt(options.run ?? nodeRunner, args);
+  // 127 or ENOENT (no gh), 4 (not authenticated), 1 (no network, or a token
+  // without the scope to list repositories) — all of them an empty list.
+  if (!result || result.code !== 0) return [];
+
+  const repos = parseRemoteRepos(result.stdout);
+  repos.sort((a, b) => b.updated.localeCompare(a.updated) || a.fullName.localeCompare(b.fullName));
+
+  if (repos.length > limit) {
+    options.log?.(`showing the ${limit} most recently updated of ${repos.length} repositories`);
+    return repos.slice(0, limit);
+  }
+  return repos;
+}
+
+/**
+ * Whether a project in the workspace was cloned from this repository.
+ *
+ * The two sides spell the same repository differently — a project cloned over
+ * ssh records `git@github.com:owner/repo.git`, while the listing gives
+ * `https://github.com/owner/repo.git` — so comparing the strings would offer to
+ * clone something that is already there. Both are put through the normaliser
+ * `--repo` already uses, rather than a second one written for this, because two
+ * normalisers is how the dashboard and the CLI come to disagree.
+ *
+ * Lives in core, and not in the dashboard's view model, for the same reason: the
+ * CLI answers this question too.
+ */
+export function matchesOrigin(project: Project, repo: RemoteRepo): boolean {
+  const origin = repoSlugFromUrl(project.origin ?? "");
+  if (!origin) return false;
+  const listed = repoSlugFromUrl(repo.url) ?? repo.fullName;
+  // GitHub owner and repository names are case-insensitive, and a clone URL
+  // typed by hand rarely matches the capitalisation the API reports.
+  return origin.toLowerCase() === listed.toLowerCase();
+}
+
+/** Whether any project in the workspace already points at this repository. */
+export function alreadyAdded(repo: RemoteRepo, projects: Project[]): boolean {
+  return projects.some((project) => matchesOrigin(project, repo));
+}
+
+function clampRepoLimit(limit: number | undefined): number {
+  if (typeof limit !== "number" || !Number.isFinite(limit)) return DEFAULT_REPO_LIMIT;
+  return Math.min(MAX_REPO_LIMIT, Math.max(1, Math.trunc(limit)));
 }
 
 function clampLimit(limit: number | undefined): number {

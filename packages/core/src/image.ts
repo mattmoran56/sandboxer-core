@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 
 import type { ResolvedConfig } from "./config/types.js";
-import { docker as defaultDocker, type Docker } from "./docker.js";
+import { archBuildArgs, docker as defaultDocker, type Docker } from "./docker.js";
 import { containerDir } from "./install.js";
 import { TOOL_VERSION } from "./tool-version.js";
 
@@ -266,6 +266,12 @@ export async function ensureProjectImage(options: BuildImageOptions): Promise<Bu
     log(`Building ${tag}`);
     const args = ["build", "-f", join(context, "Dockerfile"), "-t", tag];
     if (options.baseImage) args.push("--build-arg", `BASE_IMAGE=${options.baseImage}`);
+    // The architecture is passed rather than left to the builder: the dashboard
+    // builds without buildx, and BuildKit is the only thing that sets
+    // TARGETARCH. The rendered Dockerfile falls back to `uname -m` on its own —
+    // it has to, so a hand-run `docker build` still works — and this is the
+    // second belt.
+    args.push(...archBuildArgs());
     args.push(context);
     await docker.ok(args, { timeoutMs: 45 * 60_000 });
     log(`Built ${tag}`);

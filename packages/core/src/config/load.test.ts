@@ -1,6 +1,6 @@
 // Tests for finding, validating and resolving sandboxr.yaml:
 // - every shipped example config parses and resolves, checked structurally rather than by value
-// - findConfig: found in place, found by walking up, absent, and a file handed in directly
+// - loadConfig: the error when there is no config anywhere (finding one is locate.test.ts's job)
 // - the version constraint: satisfied, unsatisfied, unparseable
 // - defaults merging for backends and front-ends, including a served app under a static default
 // - the three runtime kinds: static, server, and the errors for an app that is neither or both
@@ -11,13 +11,13 @@
 // - ConfigError: names the file and the field, for a schema error and for a resolution error
 
 import { readdirSync } from "node:fs";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ConfigError, findConfig, loadConfig, resolveConfig } from "./load.js";
+import { ConfigError, loadConfig, resolveConfig } from "./load.js";
 
 const EXAMPLES = new URL("../../../../examples/", import.meta.url).pathname;
 
@@ -97,30 +97,8 @@ describe("the example configs", () => {
   });
 });
 
-describe("findConfig", () => {
-  it("finds a config in the directory it starts in", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "sbx-find-"));
-    await writeFile(join(dir, "sandboxr.yaml"), "project: x\nsandboxr: '>=0.1.0'\n");
-    expect(await findConfig(dir)).toBe(join(dir, "sandboxr.yaml"));
-  });
-
-  it("walks up to the project root", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "sbx-find-"));
-    await writeFile(join(dir, "sandboxr.yaml"), "project: x\nsandboxr: '>=0.1.0'\n");
-    const deep = join(dir, "a", "b", "c");
-    await mkdir(deep, { recursive: true });
-    expect(await findConfig(deep)).toBe(join(dir, "sandboxr.yaml"));
-  });
-
-  it("returns nothing when there is no config anywhere above", async () => {
-    // A temp directory has no project above it, and the walk stops at the root
-    // rather than looping.
-    const dir = await mkdtemp(join(tmpdir(), "sbx-none-"));
-    const found = await findConfig(dir);
-    expect(found === undefined || found.startsWith(dir) === false).toBe(true);
-  });
-
-  it("explains itself when loadConfig finds nothing", async () => {
+describe("loadConfig", () => {
+  it("explains itself when it finds nothing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sbx-none-"));
     await expect(loadConfig(join(dir, "definitely", "not", "here"))).rejects.toThrow(/sandboxr\.yaml/);
   });

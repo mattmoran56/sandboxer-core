@@ -45,6 +45,12 @@
 ARG BASE_IMAGE=sandboxr/base:latest
 FROM ${BASE_IMAGE}
 
+# Resolved, not trusted: `TARGETARCH` is a BuildKit built-in and the legacy
+# builder leaves it empty, which is what the dashboard's container builds with --
+# it ships no buildx. Every arch switch below therefore falls back to `uname -m`
+# and accepts both spellings. The long version of why is above the s6 block in
+# base/Dockerfile; the short version is that without the fallback an image built
+# from the browser fails with a message about Go.
 ARG TARGETARCH
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -56,10 +62,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 # in a series is what a project pinning the series meant.
 ARG GO_VERSION={{GO_VERSION}}
 RUN set -eux; \
-    case "${TARGETARCH}" in \
-      arm64) GO_ARCH=arm64 ;; \
-      amd64) GO_ARCH=amd64 ;; \
-      *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1 ;; \
+    ARCH="${TARGETARCH:-}"; \
+    if [ -z "$ARCH" ]; then ARCH="$(uname -m)"; fi; \
+    case "$ARCH" in \
+      arm64|aarch64) GO_ARCH=arm64 ;; \
+      amd64|x86_64)  GO_ARCH=amd64 ;; \
+      *) echo "unsupported arch $ARCH" >&2; exit 1 ;; \
     esac; \
     FILE=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' \
       | jq -r --arg v "go${GO_VERSION}" --arg a "linux-${GO_ARCH}" \
@@ -84,10 +92,12 @@ ENV PATH="/usr/local/go/bin:${PATH}" \
 # release under it wins.
 ARG NODE_VERSION={{NODE_VERSION}}
 RUN set -eux; \
-    case "${TARGETARCH}" in \
-      arm64) NODE_ARCH=arm64 ;; \
-      amd64) NODE_ARCH=x64   ;; \
-      *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1 ;; \
+    ARCH="${TARGETARCH:-}"; \
+    if [ -z "$ARCH" ]; then ARCH="$(uname -m)"; fi; \
+    case "$ARCH" in \
+      arm64|aarch64) NODE_ARCH=arm64 ;; \
+      amd64|x86_64)  NODE_ARCH=x64   ;; \
+      *) echo "unsupported arch $ARCH" >&2; exit 1 ;; \
     esac; \
     FULL=$(curl -fsSL https://nodejs.org/dist/index.json \
       | jq -r --arg v "v${NODE_VERSION}" \
@@ -134,10 +144,12 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
-    case "${TARGETARCH}" in \
-      arm64) MYSQL_ARCH=aarch64 ;; \
-      amd64) MYSQL_ARCH=x86_64  ;; \
-      *) echo "unsupported arch ${TARGETARCH}" >&2; exit 1 ;; \
+    ARCH="${TARGETARCH:-}"; \
+    if [ -z "$ARCH" ]; then ARCH="$(uname -m)"; fi; \
+    case "$ARCH" in \
+      arm64|aarch64) MYSQL_ARCH=aarch64 ;; \
+      amd64|x86_64)  MYSQL_ARCH=x86_64  ;; \
+      *) echo "unsupported arch $ARCH" >&2; exit 1 ;; \
     esac; \
     # Pinned rather than looked up: see the note above -- the vendor publishes no
     # release index, so there is no query that could replace this.

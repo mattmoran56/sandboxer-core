@@ -18,7 +18,7 @@ sandboxr.worktree   the absolute path it was built from
 sandboxr.driver     the database driver
 sandboxr.created    ISO 8601
 sandboxr.access     public or private
-sandboxr.ttl        seconds it may run for, or "never"
+sandboxr.ttl        seconds it may sit unused for, or "never"
 ```
 
 The router and the dashboard carry `sandboxr.role=router` / `=dashboard` instead, so neither ever
@@ -35,7 +35,8 @@ changes at runtime is **derived at read time** instead:
 | Whether the last migration succeeded | a marker file in `/run/sandboxr`, inside the container |
 | Whether a backend is healthy right now | asked, live, over `/__sandboxr/health/<service>` |
 | `running` / `degraded` / `stopped` / `starting` | computed from Docker's state plus those markers |
-| When a sandbox expires | `State.StartedAt` + `sandboxr.ttl`, computed per read |
+| When a sandbox expires | `max(State.StartedAt, last request)` + `sandboxr.ttl`, computed per read |
+| When a sandbox was last used | the shared router's access log, read at the moment it is asked for |
 
 ## What labels-only buys
 
@@ -101,15 +102,40 @@ listing is a `readdir`, the same shape of answer as `docker ps`. And it may only
 projects to the dashboard, never filter them: the page shows the workspace unioned with what is
 running, so nothing running can be hidden by deregistering anything.
 
-**A pin** — `state/pins/<project>/<slug>` — is the harder case, because it is genuinely about one
-container. It is legal only because of one detail: the file contains that container's
-`sandboxr.created` value, and a pin whose stamp does not match is ignored. That makes a stale pin
-fail closed, which is what removes the need for a reconciliation pass. Without the stamp it would
-be exactly the bug this page describes — and a nasty one, since slugs are derived from ticket ids,
-so a pin outliving its sandbox would silently pin the next sandbox to take the same name.
+**A keep-alive marker** — `state/keep/<project>/<slug>` — is the harder case, because it is
+genuinely about one container. It is legal only because of one detail: the file contains that
+container's `sandboxr.created` value, and a marker whose stamp does not match is ignored. That makes
+a stale marker fail closed, which is what removes the need for a reconciliation pass. Without the
+stamp it would be exactly the bug this page describes — and a nasty one, since slugs are derived
+from ticket ids, so a marker outliving its sandbox would silently keep the next sandbox to take the
+same name alive.
 
 The general form: **a file that records what you want is not a copy of what is true.** It earns its
 place by being unable to disagree with reality — not by being written carefully.
+
+## The best example of the argument: last activity
+
+A sandbox is stopped once it has sat unused for its `sandboxr.ttl`, so something has to answer "when
+was this last used?". The obvious design is to store it: a timestamp per sandbox, written whenever a
+request arrives. Run the six failures above against that file and it fails every one of them, with
+the worst possible consequence — a last-activity time that is wrong in the *early* direction stops a
+sandbox somebody is working in.
+
+There is nothing to store, because the answer is already written down. The shared router logs one
+line per request, and each line ends with the router's name, which for a sandbox **is** its container
+name. So last activity is a `docker logs sandboxr-router --since <window>` at the moment somebody
+asks, parsed and thrown away. No file, no writer, no reconciliation, and it cannot disagree with
+what actually happened because it *is* what actually happened.
+
+Two details of that are load-bearing:
+
+- **The per-sandbox logs are not a substitute.** `logs/<project>/<slug>/` looks like the same signal
+  and is not: the dashboard's health probes dial containers directly on the Docker network, so they
+  write to those logs every few seconds on a sandbox nobody is touching. A timer keyed on them would
+  never fire. The router's log is the right one *because* the probes do not go through the router.
+- **A missing router means no information, never "no activity".** If the log cannot be read, every
+  sandbox falls back to its start time. The alternative reading — "nobody has used anything" — would
+  stop every sandbox on the machine at once, which is the one failure here that destroys work.
 
 ## What is not in labels
 
@@ -123,7 +149,8 @@ Some things must **outlive** a container. Those live under `SANDBOXR_HOME` (`~/.
 | `secrets/<project>.env` | Per project, mode 0600, and must never be in an image |
 | `build/<project>/<slug>.env`, `.plan.json` | Regenerated on every `up` |
 | `workspace/<project>/` | The repositories themselves — an original, not a copy |
-| `state/pins/<project>/<slug>` | Operator intent, stamped with the instance it applies to |
+| `config.yaml` | The machine's own settings — how long a sandbox may sit unused |
+| `state/keep/<project>/<slug>` | Operator intent, stamped with the instance it applies to |
 
 `SANDBOXR_HOME` is deliberately never inside a repository, so `git clean -xdf` cannot destroy your
 seed cache or your certificates.

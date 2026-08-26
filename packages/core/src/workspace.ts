@@ -23,7 +23,7 @@ import { join } from "node:path";
 
 import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
 import { sanitizeSlug } from "./naming.js";
-import { paths } from "./paths.js";
+import { WORKTREES_DIR, paths } from "./paths.js";
 
 export interface Project {
   /** Directory name in the workspace — the key everything else is looked up by. */
@@ -56,9 +56,6 @@ export interface CloneOptions extends WorkspaceOptions {
 
 /** The directory name of the bare mirror inside a project directory. */
 const REPO_DIR = "repo.git";
-
-/** The directory worktrees are cut into. */
-const WORKTREES_DIR = "wt";
 
 /**
  * What `base` falls back to.
