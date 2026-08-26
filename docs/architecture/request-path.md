@@ -76,7 +76,41 @@ machine off the air rather than upgrading it.
 
 If `access.apps` is `private`, the sandbox's router entry carries a forward-auth middleware
 pointing at the dashboard's `GET /auth/verify`, which answers 200 or 401 and also checks that the
-session's grant covers that hostname's project. A `public` project skips it entirely.
+grant covers that hostname's project. A `public` project skips it entirely.
+
+The token it looks for is bound to the hostname being asked about, so it cannot be a cookie the
+dashboard sets — a cookie can only be set by something answering on the hostname it is for. That
+is why there is a **second router entry** on the dashboard's container, and it is the one place
+the dashboard answers on a sandbox hostname:
+
+| Label | Value |
+|---|---|
+| `traefik.http.routers.sandboxr-handshake.rule` | `` HostRegexp(`^[a-z0-9-]+\.[a-z0-9-]+\.[a-z0-9-]+\.<domain>$`) && PathPrefix(`/.sandboxr/auth`) `` |
+| `traefik.http.routers.sandboxr-handshake.service` | `sandboxr-dashboard` — two routers, one service |
+| `traefik.http.routers.sandboxr-handshake.priority` | `10000` |
+
+The priority is explicit because Traefik defaults it to the **length of the rule**, which would
+decide this by accident: this rule's host pattern is generic where a sandbox's names its slug and
+project, so which of the two strings is longer depends on how long somebody's branch name is.
+
+The host pattern counts labels rather than naming anything — three above the domain is a sandbox,
+and the dashboard's own bare domain has none, so this can never shadow the control plane. It
+carries no forward-auth middleware, because the request whose entire purpose is to obtain a
+credential cannot be asked to present that credential first.
+
+Reaching it is a three-redirect handshake, described from the reader's side in
+[Access and security](../access.md#opening-one-in-a-browser). Two consequences show up here:
+
+- `/.sandboxr/` is **reserved on every sandbox hostname**, public projects included. One rule for
+  the machine rather than one per private sandbox, because the rule has to exist before the
+  sandbox it is for — and reconciling it from a sandbox's own labels would make it appear and
+  disappear as a project's `access` changed.
+- Only a browser navigation is redirected. Forward-auth covers a private project's **API**
+  hostnames as much as its front-ends, so `GET /auth/verify` requires a `GET` or `HEAD`, an
+  explicit `text/html` or `application/xhtml+xml` in `Accept`, and — where the client sends one —
+  `Sec-Fetch-Mode: navigate`. `Accept: */*` is curl's default and is *not* read as asking for
+  HTML. Everything else keeps the identical `401 application/json {"ok":false}`, so an app's own
+  `fetch` and every API client see a refusal rather than a login page.
 
 ## Hop 2 — which app inside the sandbox
 
@@ -141,6 +175,7 @@ diagnostic on this site.
 | **404 from something that is clearly an API** | You reached the right app, and a `routes` prefix points at the wrong service — or none matched, so the request fell through to the static files | Check the `routes` block for that label |
 | **Connection refused** | Nothing reached the shared router | `sandboxr doctor` — is the router running, and on which port? |
 | **404 from Traefik itself** | The router is up and no sandbox matched the hostname | `sandboxr ls`, then check the slug and project |
+| **`{"ok":false}`** | A `private` project's forward-auth refused a request that did not ask for a page — usually the app's own `fetch`, since a navigation is redirected to the login form instead | Open the app's own URL in a tab and sign in there first |
 | **A certificate warning** | The router is serving a certificate the browser does not trust | `mkcert -install`, then `sandboxr init` |
 | **`ok` from `/__sandboxr/live`** | The container and its own router are both up. Anything still wrong is one specific service | — |
 

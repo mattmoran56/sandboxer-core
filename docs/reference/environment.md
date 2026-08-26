@@ -64,6 +64,7 @@ Set on the dashboard's own process. `sandboxr init` sets the ones that matter.
 | `SANDBOXR_HOST` | `127.0.0.1` |
 | `SANDBOXR_DOCKER_SOCKET` | `/var/run/docker.sock` |
 | `SANDBOXR_SESSION_HOURS` | `168` |
+| `SANDBOXR_APP_SESSION_MINUTES` | `60` — how long a private app stays open in a browser |
 | `SANDBOXR_SESSION_SECRET` | a file under `$SANDBOXR_HOME/state` |
 | `SANDBOXR_INSECURE_COOKIES` | `0` — set to `1` when the router serves plain HTTP |
 | `SANDBOXR_TRUST_PROXY` | `true` |

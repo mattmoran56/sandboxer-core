@@ -57,47 +57,117 @@ access:
 
 Every one of that project's app hostnames then goes through a forward-auth middleware in the
 shared router, which asks the dashboard's `GET /auth/verify` whether the request carries a valid
-**app token** — and whether its grant covers this project. A `public` project skips the
+**app token** — and whether that token's grant covers this project. A `public` project skips the
 middleware entirely.
 
-### One login, two tokens
-
-`POST /auth/login` sets two signed cookies, not one. Both are `HttpOnly`, `Secure` and
-`SameSite=Lax`.
+### Two tokens, scoped differently on purpose
 
 | Cookie | Scope | Accepted by | Authorises |
 |---|---|---|---|
 | `sandboxr_session` | **Host-only** — the bare domain, nothing else | Every control route, and the terminal | The controls. Root-equivalent |
-| `sandboxr_app` | `Domain=<domain>` — sandbox hostnames too | `GET /auth/verify`, nothing else | *Viewing* the private apps its grant covers |
+| `sandboxr_app` | **Host-only, on one sandbox hostname** | `GET /auth/verify`, for that hostname only | *Viewing* the one private app it was issued for |
 
-They are not interchangeable. Each is signed over its own version tag, so relabelling one as the
-other breaks the signature: a control session sent to `/auth/verify` is a 401, and an app token
-sent to any control route is a 401.
+Both are `HttpOnly`, `Secure` and `SameSite=Lax`, and they are not interchangeable. Each is signed
+over its own version tag, so relabelling one as the other breaks the signature: a control session
+sent to `/auth/verify` is a 401, and an app token sent to any control route is a 401.
 
-The second cookie exists because a browser can only send a sandbox hostname a cookie scoped to
-reach it, so a host-only control session never arrives and a private app is unreachable. The
-obvious fix — putting `Domain` on the control session — is the one thing that must never be done.
-A sandbox hostname serves the project's own code from a branch under review, so every cookie sent
+The second exists because a browser can only send a sandbox hostname a cookie scoped to reach it,
+so a host-only control session never arrives and a private app would be unreachable. The obvious
+fix — putting `Domain` on the control session — is the one thing that must never be done. A
+sandbox hostname serves the project's own code from a branch under review, so every cookie sent
 there lands in a header that branch code handles, and the control session authorises actions
 against the Docker socket. Widening it would hand every sandboxed app, and every public sandbox
 reachable from the internet, a credential worth root on the host. `HttpOnly` is no defence: the
 read is server-side, not page script.
 
-> [!NOTE] What the app token still exposes
-> A cookie cannot be scoped to "private hostnames only", so `sandboxr_app` reaches every host
-> under the domain, public projects included. A malicious or compromised app can capture it and
-> view the private apps its grant already covered. Bounded to viewing — no control, no Docker
-> socket, no path to the other tier. Every cookie-based scheme pays some version of this; the
-> design that avoids it is a redirect handshake issuing a token bound to one hostname, which is
-> not built.
+A second cookie scoped `Domain=<domain>` would fix reachability, and it is not enough either: a
+cookie cannot be scoped to "the private hostnames only", so it would reach every host under the
+domain, public projects included, where a compromised app could capture it and view every private
+app its grant covered. So the app token is bound to **one** hostname and set host-only on that
+hostname, which removes that entirely — the browser offers it to the one app it was issued for,
+and `verify` refuses it anywhere else even when it is replayed there by hand.
 
-> [!WARNING] A signed-out browser gets a bare 401
-> Forward-auth cannot send you a login page from an app hostname, so an expired or missing app
-> token shows `{"ok":false}` rather than a form. Log in on the bare domain first, then load the
-> app.
+Which is why signing in does not set it: a cookie for a sandbox hostname can only be set by
+something answering on that hostname. That is what the handshake below is.
 
-Use it when the branch itself is sensitive, when the sandbox needs real data, or when it needs
-real third-party credentials.
+Use `private` when the branch itself is sensitive, when the sandbox needs real data, or when it
+needs real third-party credentials.
+
+### Opening one in a browser
+
+You do not sign in twice. Navigating to a private app that you have not opened yet sends you to
+the dashboard's login form, and back to the app afterwards — and if you are already signed in to
+the dashboard, straight back with nothing asked.
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as tkt-4821.app.acme.…
+  participant D as sbx.localhost
+  B->>A: GET /orders
+  A->>B: 303 to the dashboard (forward-auth said no)
+  B->>D: /auth/app?next=…
+  Note over D: the login form, if you are not signed in
+  D->>B: 303 back, carrying a 30-second ticket
+  B->>A: /.sandboxr/auth?ticket=…
+  A->>B: sets a cookie for this hostname, 303 to /orders
+  B->>A: GET /orders — 200
+```
+
+Three properties of that are deliberate, and each one is a thing that can go wrong:
+
+- **The cookie it sets is good for that one hostname.** It is not scoped to the domain, so it is
+  never sent to another project's app — including a public one, where the branch's own code would
+  see it in a request header. Losing it costs the one app it was issued for.
+- **`/.sandboxr/` is a reserved path** on every sandbox hostname on the machine, public projects
+  included. It is the one path the dashboard answers there, and a project that serves a route of
+  its own under it will find the dashboard answering instead.
+- **Only a page is redirected.** Everything else keeps exactly the answer it got before.
+
+### Only a page is redirected
+
+This matters more than it looks. Forward-auth sits in front of **every** hostname of a private
+project — `tkt-4821.api.acme.…` as much as `tkt-4821.app.acme.…` — so the clients on the other
+side of the decision are curl, SDKs, webhook senders and server-to-server callers as well as
+browsers. Answering one of those with a redirect to an HTML login page breaks it in the worst way
+available: it reports a *parse error* rather than an authentication failure.
+
+So three conditions have to hold before anything is redirected, and otherwise the response is
+byte-for-byte what it was before — `401`, `application/json`, `{"ok":false}`, no `Location`:
+
+| | Redirected | Refused |
+|---|---|---|
+| Method | `GET` or `HEAD` | anything else — a `303` turns a `POST` into a `GET` and drops its body |
+| `Accept` | names `text/html` or `application/xhtml+xml` | `*/*`, `application/json`, or absent |
+| `Sec-Fetch-Mode` | `navigate`, or not sent at all | `cors`, `same-origin`, `no-cors` |
+
+> [!IMPORTANT] `Accept: */*` is never treated as asking for HTML
+> It is curl's default and what a great many HTTP clients send, and it is a statement that
+> anything will do — not a preference for a web page. Reading it as one would answer every API
+> client on the machine with a login form.
+
+`Sec-Fetch-Mode` is a veto rather than a requirement, so a client too old to send it is still
+judged on `Accept` alone. Where it *is* sent it separates a real navigation from a `fetch()` that
+happens to ask for HTML, which content negotiation cannot do. Node's own `fetch` sends
+`Sec-Fetch-Mode: cors`, so a server-to-server caller written against it lands on the refusal
+without having to do anything.
+
+None of this touches the project's own authentication. sandboxr's gate and whatever the app does
+inside it — Auth0, a session of its own, an API key — are independent layers: a request carrying a
+valid app token is passed through untouched, and the app answers exactly as it would on a `public`
+project.
+
+The app cookie lasts an hour by default (`SANDBOXR_APP_SESSION_MINUTES`) rather than the week a
+dashboard session does. It is short because the dashboard cannot clear it: the cookie lives on a
+hostname the dashboard does not answer on, so signing out ends your control session and stops any
+*new* app being opened, while one already open closes when the hour is up. When it does, the
+handshake above runs again and you see nothing.
+
+> [!NOTE] If a private app shows you `{"ok":false}`
+> That is the forward-auth refusal, and reaching it in a browser window means the request was not
+> a top-level navigation — so it is almost always an app's own `fetch`, an iframe, or a client
+> sending `Accept: */*`. Open the app's own URL in a tab first; the handshake runs and the token
+> it leaves behind covers the app's own requests too.
 
 ## Two refusals on a public sandbox
 
