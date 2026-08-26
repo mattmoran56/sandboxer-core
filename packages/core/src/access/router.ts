@@ -102,6 +102,34 @@ export function sandboxRule(slug: string, project: string, domain: string): stri
   return `HostRegexp(\`^${regexLiteral(slug)}\\.[a-z0-9-]+\\.${regexLiteral(project)}\\.${regexLiteral(domain)}$\`)`;
 }
 
+/**
+ * The one path the dashboard answers on a *sandbox* hostname: the private-app
+ * login handshake.
+ *
+ * A reserved prefix under every sandbox hostname on the machine, in the shape
+ * `/.well-known/` established — which is why it is a name no project would pick
+ * for a route of its own. `packages/server/src/auth/routes.ts` repeats this
+ * literal as `HANDSHAKE_PATH`; the dashboard loads the server package
+ * dynamically and core does not import it, so the two ends of this contract are
+ * two constants that have to agree, exactly as `/auth/verify` already is.
+ */
+export const HANDSHAKE_PATH = "/.sandboxr/auth";
+
+/** The handshake router's name. One per machine, on the dashboard's container. */
+export const HANDSHAKE_ROUTER = "sandboxr-handshake";
+
+/**
+ * The priority the handshake rule carries.
+ *
+ * Traefik orders routers by priority and defaults it to the *length of the rule*,
+ * which would decide this by accident: the handshake rule's host pattern is
+ * generic where a sandbox's names its slug and project, so which of the two is
+ * the longer string depends on how long somebody's branch name is. An explicit
+ * value makes the reserved prefix win every time, and high enough to stay ahead
+ * of any rule a future sandbox label adds.
+ */
+export const HANDSHAKE_PRIORITY = 10_000;
+
 export interface RouteLabelInput {
   /** Router and service name. Must be unique across the machine. */
   name: string;
@@ -110,6 +138,14 @@ export interface RouteLabelInput {
   port: number;
   tls: boolean;
   middlewares?: string[] | undefined;
+  /**
+   * An existing service to send this router to, instead of declaring one. Set
+   * when a container needs a second router — Traefik links a lone router to a
+   * lone service on its own, but two routers are ambiguous unless each says.
+   */
+  service?: string | undefined;
+  /** Explicit ordering. Absent, Traefik falls back to the rule's length. */
+  priority?: number | undefined;
 }
 
 /** The Docker labels that make the router serve one container. */
@@ -119,13 +155,41 @@ export function routeLabels(input: RouteLabelInput): Record<string, string> {
     "traefik.enable": "true",
     [`traefik.http.routers.${name}.rule`]: input.rule,
     [`traefik.http.routers.${name}.entrypoints`]: input.tls ? "websecure" : "web",
-    [`traefik.http.services.${name}.loadbalancer.server.port`]: String(input.port),
+    [`traefik.http.routers.${name}.service`]: input.service ?? name,
   };
+  if (!input.service) {
+    labels[`traefik.http.services.${name}.loadbalancer.server.port`] = String(input.port);
+  }
   if (input.tls) labels[`traefik.http.routers.${name}.tls`] = "true";
+  if (input.priority !== undefined) labels[`traefik.http.routers.${name}.priority`] = String(input.priority);
   if (input.middlewares?.length) {
     labels[`traefik.http.routers.${name}.middlewares`] = input.middlewares.join(",");
   }
   return labels;
+}
+
+/**
+ * The rule that puts the handshake path on **every** sandbox hostname.
+ *
+ * One rule for the machine, not one per sandbox, because it has to be there
+ * before the sandbox it is for: the browser arrives at a private app, is sent
+ * round through the dashboard, and comes back to this path — and a rule
+ * reconciled from the sandbox's own labels would work for private projects only,
+ * which is a difference nothing else in the routing has and one more thing to
+ * get wrong when a project's access changes.
+ *
+ * Public projects therefore also route this prefix to the dashboard, where it
+ * answers exactly as it does anywhere else: it needs a ticket, and a ticket is
+ * only ever issued for a hostname the session's grant covers. What it costs a
+ * public project is the prefix itself, which is why the prefix is reserved.
+ *
+ * The host pattern counts labels rather than naming anything: three above the
+ * domain is a sandbox, and the dashboard's own bare domain has none, so this
+ * cannot shadow the control plane.
+ */
+export function handshakeRule(domain: string): string {
+  const host = `HostRegexp(\`^[a-z0-9-]+\\.[a-z0-9-]+\\.[a-z0-9-]+\\.${regexLiteral(domain)}$\`)`;
+  return `${host} && PathPrefix(\`${HANDSHAKE_PATH}\`)`;
 }
 
 /** Every label a sandbox container needs for the router to serve it. */

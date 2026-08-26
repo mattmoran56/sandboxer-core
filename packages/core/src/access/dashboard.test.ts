@@ -1,6 +1,15 @@
+// Tests for the dashboard container's `docker run` arguments:
+// - the mount set, asserted exactly: the socket, SANDBOXR_HOME and the installation, nothing more
+// - the password is passed through, or omitted entirely
+// - Secure cookies are dropped only when there is no TLS to carry them
+// - two Traefik routers onto one service: the bare domain, and the reserved handshake path on any
+//   sandbox hostname
+// - the handshake router outranks a sandbox's own rule and carries no forward-auth middleware
+
 import { describe, expect, it } from "vitest";
 
 import { DASHBOARD_CONTAINER, DASHBOARD_PORT, dashboardArgs } from "./dashboard.js";
+import { AUTH_MIDDLEWARE, HANDSHAKE_PRIORITY, HANDSHAKE_ROUTER, handshakeRule } from "./router.js";
 
 /**
  * The mount set is the dashboard's blast radius.
@@ -14,6 +23,17 @@ import { DASHBOARD_CONTAINER, DASHBOARD_PORT, dashboardArgs } from "./dashboard.
  */
 const mountsOf = (args: string[]): string[] =>
   args.flatMap((arg, index) => (arg === "-v" ? [args[index + 1] as string] : []));
+
+/** The `--label key=value` pairs, as a map. */
+const labelsOf = (args: string[]): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] !== "--label") continue;
+    const [key, ...rest] = (args[i + 1] as string).split("=");
+    out[key as string] = rest.join("=");
+  }
+  return out;
+};
 
 const env = {
   HOME: "/Users/dev",
@@ -63,12 +83,48 @@ describe("dashboardArgs", () => {
     const secure = dashboardArgs({ domain: "sbx.localhost", tls: true, env });
     expect(secure.some((arg) => arg.startsWith("SANDBOXR_INSECURE_COOKIES"))).toBe(false);
   });
+});
 
-  it("answers on the bare domain only", () => {
-    const args = dashboardArgs({ domain: "sbx.localhost", tls: true, env });
-    const rule = args.find((arg) => arg.includes("rule=Host("));
-    expect(rule).toContain("Host(`sbx.localhost`)");
-    expect(args).toContain(`SANDBOXR_PORT=${DASHBOARD_PORT}`);
-    expect(args).toContain(DASHBOARD_CONTAINER);
+describe("the dashboard's two routers", () => {
+  const labels = (tls = true) => labelsOf(dashboardArgs({ domain: "sbx.localhost", tls, env }));
+
+  it("serves the control plane on the bare domain and nowhere else", () => {
+    expect(labels()[`traefik.http.routers.${DASHBOARD_CONTAINER}.rule`]).toBe("Host(`sbx.localhost`)");
+    expect(labels()[`traefik.http.services.${DASHBOARD_CONTAINER}.loadbalancer.server.port`]).toBe(
+      String(DASHBOARD_PORT),
+    );
+    expect(dashboardArgs({ domain: "sbx.localhost", tls: true, env })).toContain(
+      `SANDBOXR_PORT=${DASHBOARD_PORT}`,
+    );
+  });
+
+  // The one deliberate exception to "the dashboard never answers on a sandbox
+  // hostname". The cookie that opens a private app has to be set *on* that app's
+  // hostname, and only something answering there can set it.
+  it("also answers the reserved handshake path on any sandbox hostname", () => {
+    expect(labels()[`traefik.http.routers.${HANDSHAKE_ROUTER}.rule`]).toBe(handshakeRule("sbx.localhost"));
+    // One service, two routers, so each has to say which service it means.
+    expect(labels()[`traefik.http.routers.${HANDSHAKE_ROUTER}.service`]).toBe(DASHBOARD_CONTAINER);
+    expect(labels()[`traefik.http.services.${HANDSHAKE_ROUTER}.loadbalancer.server.port`]).toBeUndefined();
+  });
+
+  it("gives the handshake an explicit priority rather than leaving it to rule length", () => {
+    expect(labels()[`traefik.http.routers.${HANDSHAKE_ROUTER}.priority`]).toBe(String(HANDSHAKE_PRIORITY));
+  });
+
+  // The request whose entire purpose is to obtain a credential cannot be made to
+  // present that credential first.
+  it("puts no forward-auth in front of either router", () => {
+    for (const router of [DASHBOARD_CONTAINER, HANDSHAKE_ROUTER]) {
+      expect(labels()[`traefik.http.routers.${router}.middlewares`], router).toBeUndefined();
+    }
+    expect(Object.values(labels())).not.toContain(AUTH_MIDDLEWARE);
+  });
+
+  it("follows the router onto the web entry point when there is no certificate", () => {
+    for (const router of [DASHBOARD_CONTAINER, HANDSHAKE_ROUTER]) {
+      expect(labels(false)[`traefik.http.routers.${router}.entrypoints`], router).toBe("web");
+      expect(labels(false)[`traefik.http.routers.${router}.tls`], router).toBeUndefined();
+    }
   });
 });

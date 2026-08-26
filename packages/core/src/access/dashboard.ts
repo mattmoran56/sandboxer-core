@@ -30,7 +30,12 @@ import type { Docker } from "../docker.js";
 import { NETWORK } from "../naming.js";
 import { paths } from "../paths.js";
 import { dashboardEntry, installRoot } from "../install.js";
-import { routeLabels } from "./router.js";
+import {
+  HANDSHAKE_PRIORITY,
+  HANDSHAKE_ROUTER,
+  handshakeRule,
+  routeLabels,
+} from "./router.js";
 
 export const DASHBOARD_CONTAINER = "sandboxr-dashboard";
 
@@ -72,17 +77,34 @@ export function dashboardArgs(input: DashboardInput): string[] {
     "sandboxr.role=dashboard",
   ];
 
-  for (const [key, value] of Object.entries(
-    routeLabels({
+  // Two routers onto one service.
+  //
+  // The first is the control plane: the bare domain, and only the bare domain.
+  // The terminal, every action and every page live behind it, which is why the
+  // session cookie can be host-only.
+  //
+  // The second is the private-app login handshake, and it is the one deliberate
+  // exception to "the dashboard never answers on a sandbox hostname". It answers
+  // one reserved path there — see `handshakeRule` — because the cookie that opens
+  // a private app has to be set *on* that app's hostname, and only something
+  // answering there can set it. It carries no forward-auth middleware, or the
+  // request that exists to obtain a credential would need that credential first.
+  for (const [key, value] of Object.entries({
+    ...routeLabels({
       name: DASHBOARD_CONTAINER,
-      // The bare domain, and only the bare domain. The dashboard never answers
-      // on a per-sandbox hostname (contracts §3.2), so the terminal inherits the
-      // control plane's session rather than needing one of its own.
       rule: `Host(\`${input.domain}\`)`,
       port: DASHBOARD_PORT,
       tls: input.tls,
     }),
-  )) {
+    ...routeLabels({
+      name: HANDSHAKE_ROUTER,
+      rule: handshakeRule(input.domain),
+      port: DASHBOARD_PORT,
+      tls: input.tls,
+      service: DASHBOARD_CONTAINER,
+      priority: HANDSHAKE_PRIORITY,
+    }),
+  })) {
     args.push("--label", `${key}=${value}`);
   }
 

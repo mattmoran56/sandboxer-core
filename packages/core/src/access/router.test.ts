@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { portSuffix, regexLiteral, routeLabels, routerArgs, routerPorts, sandboxRouteLabels, sandboxRule } from "./router.js";
+import {
+  HANDSHAKE_PRIORITY,
+  handshakeRule,
+  portSuffix,
+  regexLiteral,
+  routeLabels,
+  routerArgs,
+  routerPorts,
+  sandboxRouteLabels,
+  sandboxRule,
+} from "./router.js";
 
 describe("regexLiteral", () => {
   it.each([
@@ -62,6 +72,60 @@ describe("routeLabels", () => {
         "traefik.http.routers.x.middlewares"
       ],
     ).toBeUndefined();
+  });
+
+  // A second router on a container that already has one: Traefik links a lone
+  // router to a lone service by itself, but two routers are ambiguous unless each
+  // says which service it means.
+  it("points at an existing service instead of declaring another", () => {
+    const labels = routeLabels({ name: "second", rule: "r", port: 1, tls: true, service: "first" });
+    expect(labels["traefik.http.routers.second.service"]).toBe("first");
+    expect(labels["traefik.http.services.second.loadbalancer.server.port"]).toBeUndefined();
+  });
+
+  it("names its own service when it declares one", () => {
+    const labels = routeLabels({ name: "x", rule: "r", port: 8080, tls: false });
+    expect(labels["traefik.http.routers.x.service"]).toBe("x");
+    expect(labels["traefik.http.services.x.loadbalancer.server.port"]).toBe("8080");
+  });
+
+  it("writes a priority only when one is given", () => {
+    expect(routeLabels({ name: "x", rule: "r", port: 1, tls: false, priority: 42 })[
+      "traefik.http.routers.x.priority"
+    ]).toBe("42");
+    expect(routeLabels({ name: "x", rule: "r", port: 1, tls: false })["traefik.http.routers.x.priority"]).toBeUndefined();
+  });
+});
+
+describe("handshakeRule", () => {
+  it("matches the reserved path on any sandbox hostname", () => {
+    expect(handshakeRule("sbx.localhost")).toBe(
+      "HostRegexp(`^[a-z0-9-]+\\.[a-z0-9-]+\\.[a-z0-9-]+\\.sbx\\.localhost$`) && PathPrefix(`/.sandboxr/auth`)",
+    );
+  });
+
+  it("escapes the domain, so a dot in it is not a wildcard", () => {
+    expect(handshakeRule("a.b")).toContain("a\\.b");
+  });
+
+  // Three labels above the domain is a sandbox; the dashboard's own bare domain
+  // has none. So this rule cannot shadow the control plane however it is ordered.
+  it("cannot match the dashboard's own hostname", () => {
+    const pattern = new RegExp(
+      handshakeRule("sbx.localhost").match(/HostRegexp\(`([^`]+)`\)/)?.[1] as string,
+    );
+    expect(pattern.test("tkt-1.web.acme.sbx.localhost")).toBe(true);
+    expect(pattern.test("sbx.localhost")).toBe(false);
+    expect(pattern.test("web.acme.sbx.localhost")).toBe(false);
+    expect(pattern.test("a.tkt-1.web.acme.sbx.localhost")).toBe(false);
+  });
+
+  // Traefik defaults a router's priority to the length of its rule, which would
+  // decide this by accident: whether the handshake rule or a sandbox's own is the
+  // longer string depends on how long somebody's branch name is.
+  it("outranks the rule for the sandbox it sits in front of", () => {
+    expect(HANDSHAKE_PRIORITY).toBeGreaterThan(sandboxRule("tkt-1", "acme", "sbx.localhost").length);
+    expect(HANDSHAKE_PRIORITY).toBeGreaterThan(handshakeRule("sbx.localhost").length);
   });
 });
 
