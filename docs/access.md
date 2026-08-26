@@ -157,6 +157,24 @@ inside it — Auth0, a session of its own, an API key — are independent layers
 valid app token is passed through untouched, and the app answers exactly as it would on a `public`
 project.
 
+### One token per hostname
+
+A sandbox serves a hostname per app label, and each one gets its own cookie the first time you
+open it. Opening `tkt-4821.app.acme.…` does not open `tkt-4821.api.acme.…`; navigating to the
+second runs the handshake again, invisibly, and leaves a second cookie.
+
+That is the point — a token captured from one app is worth nothing at the next — and it has one
+consequence worth knowing before it surprises you:
+
+> [!WARNING] A cross-hostname `fetch` needs that hostname opened once
+> A front-end that calls its API on a **different** hostname gets a `401` until that hostname has
+> been visited in the browser. The request is a subresource, not a navigation, so it is refused
+> rather than redirected — which is correct, and looks like the API being down.
+>
+> The fix is the one already recommended for other reasons: serve the API on the app's **own**
+> hostname with a [`routes`](configuration/sandboxr-yaml.md) prefix. One origin, one token, no
+> CORS — see [why `routes` exists](architecture/request-path.md#why-routes-exists-at-all).
+
 The app cookie lasts an hour by default (`SANDBOXR_APP_SESSION_MINUTES`) rather than the week a
 dashboard session does. It is short because the dashboard cannot clear it: the cookie lives on a
 hostname the dashboard does not answer on, so signing out ends your control session and stops any
