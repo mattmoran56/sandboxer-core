@@ -164,7 +164,7 @@ describe("list", () => {
   it("builds a sandbox from each container's labels", async () => {
     const { docker } = fakeDocker({
       rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
-      exec: () => ({ stdout: "ok\n" }),
+      exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
     });
     const sandboxes = await list({ docker });
     expect(sandboxes).toHaveLength(1);
@@ -174,7 +174,7 @@ describe("list", () => {
   it("filters by project", async () => {
     const { docker, argsOf } = fakeDocker({
       rows: [row(labelsOf("a"), "sandboxr-acme-a"), row(labelsOf("b", "other"), "sandboxr-other-b")],
-      exec: () => ({ stdout: "ok\n" }),
+      exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
     });
     const sandboxes = await list({ docker, project: "acme" });
     expect(sandboxes.map((sandbox) => sandbox.slug)).toEqual(["a"]);
@@ -184,7 +184,7 @@ describe("list", () => {
   it("sorts by project and slug, so the list is stable between runs", async () => {
     const { docker } = fakeDocker({
       rows: [row(labelsOf("b"), "sandboxr-acme-b"), row(labelsOf("a"), "sandboxr-acme-a")],
-      exec: () => ({ stdout: "ok\n" }),
+      exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
     });
     expect((await list({ docker })).map((sandbox) => sandbox.slug)).toEqual(["a", "b"]);
   });
@@ -205,7 +205,7 @@ describe("list", () => {
   it("reports a running sandbox whose migrations failed as degraded", async () => {
     const { docker } = fakeDocker({
       rows: [row(labelsOf("a"), "sandboxr-acme-a")],
-      exec: () => ({ stdout: "failed\n" }),
+      exec: () => ({ stdout: '{"state":"failed","file":"001.sql","error":""}' }),
     });
     expect((await list({ docker }))[0]?.state).toBe("degraded");
   });
@@ -248,7 +248,7 @@ describe("up", () => {
 
   it("writes the environment, labels the container and starts it", async () => {
     const { dir, home } = await worktree();
-    const { docker, argsOf } = fakeDocker({ running: true, exists: false, exec: () => ({ stdout: "ok\n" }) });
+    const { docker, argsOf } = fakeDocker({ running: true, exists: false, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
     const result = await up({
       config: configOf(),
       worktree: dir,
@@ -282,7 +282,7 @@ describe("up", () => {
     // The router's entry for the base certificate is what everything else reads
     // to decide the scheme, so this is the file that has to exist.
     await writeFile(join(home, "state", "dynamic", "cert-sbx.localhost.yml"), "tls: {}\n");
-    const { docker, argsOf } = fakeDocker({ running: true, exists: false, exec: () => ({ stdout: "ok\n" }) });
+    const { docker, argsOf } = fakeDocker({ running: true, exists: false, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
 
     const result = await up({
       config: configOf(),
@@ -301,7 +301,7 @@ describe("up", () => {
   // container comes up serving on port 80 with nothing able to address it.
   it("labels the container for the shared router", async () => {
     const { dir, home } = await worktree();
-    const { docker, argsOf } = fakeDocker({ running: true, exists: false, exec: () => ({ stdout: "ok\n" }) });
+    const { docker, argsOf } = fakeDocker({ running: true, exists: false, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
     await up({
       config: configOf(),
       worktree: dir,
@@ -340,7 +340,7 @@ describe("up", () => {
     const { dir, home } = await worktree();
     await mkdir(join(home, "secrets"), { recursive: true });
     await writeFile(join(home, "secrets", "acme.env"), "API_TOKEN=real\n");
-    const { docker, argsOf } = fakeDocker({ running: true, exec: () => ({ stdout: "ok\n" }) });
+    const { docker, argsOf } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
 
     await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home } });
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
@@ -351,7 +351,7 @@ describe("up", () => {
     const { dir, home } = await worktree();
     await mkdir(join(home, "secrets"), { recursive: true });
     await writeFile(join(home, "secrets", "acme.env"), "API_TOKEN=real\n");
-    const { docker } = fakeDocker({ running: true, exec: () => ({ stdout: "ok\n" }) });
+    const { docker } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
     await expect(
       up({
         config: configOf({ access: { apps: "public", credentials: "real" } }),
@@ -373,7 +373,7 @@ describe("up", () => {
         const joined = cmd.join(" ");
         // The project's own migration command is the thing that fails here.
         if (joined.includes("sh -lc migrate")) return { code: 1, stdout: "error: 001-add-a-column.sql failed" };
-        if (joined.includes("migrate.fail")) return { stdout: "failed\n" };
+        if (joined.includes("migrate.json")) return { stdout: '{"state":"failed","file":"","error":""}' };
         return { stdout: "" };
       },
     });
@@ -391,13 +391,16 @@ describe("up", () => {
     expect(lines.join("\n")).toMatch(/migrations FAILED/i);
     // The failure is written where the sandbox's own state is read from, so
     // `list` and the dashboard agree with what `up` just said.
-    const marked = argsOf("exec").some((args) => (args[1] as string[]).join(" ").includes("migrate.fail"));
+    const marked = argsOf("exec").some((args) => {
+      const joined = (args[1] as string[]).join(" ");
+      return joined.includes("migrate.json") && joined.includes('"state":"failed"');
+    });
     expect(marked).toBe(true);
   });
 
   it("replaces an existing container for the same slug", async () => {
     const { dir, home } = await worktree();
-    const { docker, argsOf } = fakeDocker({ running: true, exists: true, exec: () => ({ stdout: "ok\n" }) });
+    const { docker, argsOf } = fakeDocker({ running: true, exists: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
     await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home } });
     expect(argsOf("rm")[0]?.[0]).toBe("sandboxr-acme-tkt-1");
   });
@@ -416,7 +419,8 @@ describe("reload", () => {
     fakeDocker({
       rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
       running: true,
-      exec: (cmd) => (cmd.join(" ").includes("migrate.fail") ? { stdout: "ok\n" } : { stdout: "" }),
+      exec: (cmd) =>
+        cmd.join(" ").includes("migrate.json") ? { stdout: '{"state":"ok","file":"","error":""}' } : { stdout: "" },
     });
 
   it("builds one backend and restarts it", async () => {
@@ -500,7 +504,7 @@ describe("status", () => {
       running: true,
       exec: (cmd) => {
         const joined = cmd.join(" ");
-        if (joined.includes("migrate.fail")) return { stdout: "ok\n" };
+        if (joined.includes("migrate.json")) return { stdout: '{"state":"ok","file":"","error":""}' };
         if (joined.includes(".built.json")) return { stdout: '{"app":1}' };
         if (joined.includes("curl")) return { code: 0 };
         return { stdout: "" };
@@ -523,7 +527,7 @@ describe("gc", () => {
   it("reaps a sandbox whose worktree is gone", async () => {
     const { docker, argsOf } = fakeDocker({
       rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
-      exec: () => ({ stdout: "ok\n" }),
+      exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
       volumes: ["sandboxr-data-acme-tkt-1"],
       exists: true,
     });
@@ -535,7 +539,7 @@ describe("gc", () => {
   it("removes nothing under dryRun", async () => {
     const { docker, argsOf } = fakeDocker({
       rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
-      exec: () => ({ stdout: "ok\n" }),
+      exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
       volumes: ["sandboxr-data-acme-tkt-1"],
     });
     const plan = await gc({ docker, dryRun: true });

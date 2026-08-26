@@ -38,7 +38,7 @@ import { directoriesOf, paths } from "../paths.js";
 import { containerEnv, labelsOf, renderEnvFile, urlsFor } from "./env.js";
 import { planGc } from "./gc.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
-import { BUILT_MANIFEST, MIGRATE_FAILED, MIGRATE_OK, WWW_DIR } from "./layout.js";
+import { BUILT_MANIFEST, MIGRATE_STATE, WWW_DIR } from "./layout.js";
 import { backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
 import type {
   DownOptions,
@@ -486,12 +486,17 @@ async function readMarkers(
   docker: Docker,
   container: string,
 ): Promise<{ migrateOk?: boolean; migrateFailed?: boolean }> {
-  const result = await docker.exec(container, [
-    "sh",
-    "-lc",
-    `test -f ${MIGRATE_FAILED} && echo failed; test -f ${MIGRATE_OK} && echo ok; true`,
-  ]);
-  return { migrateFailed: result.stdout.includes("failed"), migrateOk: result.stdout.includes("ok") };
+  const result = await docker.exec(container, ["sh", "-lc", `cat ${MIGRATE_STATE} 2>/dev/null || true`]);
+  // Absent means the run has not finished, which is `pending` rather than a
+  // failure: a sandbox is readable while it is still coming up, and calling that
+  // broken would paint every booting sandbox red.
+  try {
+    const state: unknown = JSON.parse(result.stdout);
+    const verdict = (state as { state?: unknown })?.state;
+    return { migrateFailed: verdict === "failed", migrateOk: verdict === "ok" };
+  } catch {
+    return { migrateFailed: false, migrateOk: false };
+  }
 }
 
 async function probe(docker: Docker, container: string, port: number, health?: string): Promise<boolean> {

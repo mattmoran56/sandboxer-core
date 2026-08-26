@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import type { ResolvedConfig } from "../config/types.js";
 import type { ExecResult } from "../docker.js";
-import { MIGRATE_FAILED, MIGRATE_OK, RUN_DIR } from "../sandbox/layout.js";
+import { MIGRATE_STATE, RUN_DIR } from "../sandbox/layout.js";
 import type { DriverContext, MigrateResult } from "./types.js";
 
 export interface MigrationState {
@@ -164,12 +164,21 @@ export async function writeLog(state: MigrationState, output: string): Promise<s
  * of in a second copy on the host.
  */
 export async function markOutcome(ctx: DriverContext, result: MigrateResult): Promise<void> {
-  const marker = result.ok ? MIGRATE_OK : MIGRATE_FAILED;
-  const stale = result.ok ? MIGRATE_FAILED : MIGRATE_OK;
+  // The same file, in the same shape, that `container/scripts/migrate-run.sh`
+  // writes when the container migrates on its own at boot. Two writers of one
+  // fact must produce one file: when this wrote a pair of touch-files instead,
+  // a container-side run left `migrate.json` saying `ok` while the host went on
+  // reading absent markers as `pending`, and every such sandbox was stuck
+  // reporting `starting` forever.
+  const state = JSON.stringify({
+    state: result.ok ? "ok" : "failed",
+    file: result.failed ?? "",
+    error: result.ok ? "" : "See the full log for what went wrong.",
+  });
   await ctx.exec([
     "sh",
     "-lc",
-    `mkdir -p ${RUN_DIR} && rm -f ${stale} && echo ${result.ok ? "ok" : "failed"} > ${marker}`,
+    `mkdir -p ${RUN_DIR} && cat > ${MIGRATE_STATE} <<'SANDBOXR_EOF'\n${state}\nSANDBOXR_EOF`,
   ]);
 }
 

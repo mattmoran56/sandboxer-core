@@ -41,8 +41,17 @@ export const RUN_DIR = "/run/sandboxr";
  * the sandbox list is a function of `docker ps`: a fact written where it happens
  * cannot drift from what is actually true.
  */
-export const MIGRATE_OK = `${RUN_DIR}/migrate.ok`;
-export const MIGRATE_FAILED = `${RUN_DIR}/migrate.fail`;
+/**
+ * The migration verdict, as the container writes it.
+ *
+ * One JSON file and not a pair of touch-files: the container has to record
+ * *which* migration failed and what it said, not merely that something did, and
+ * `container/scripts/migrate-run.sh` composes exactly this — the same file
+ * `status.sh` reads to build `/__sandboxr/status.json`. Reading it here rather
+ * than probing for a second set of markers is what stops the host and the
+ * container from holding two different opinions about the same run.
+ */
+export const MIGRATE_STATE = `${RUN_DIR}/migrate.json`;
 export const READY = `${RUN_DIR}/ready`;
 
 /**
