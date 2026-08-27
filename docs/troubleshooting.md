@@ -209,6 +209,28 @@ Common causes, in order:
 | The router is serving HTTP and you asked for HTTPS | `mkcert -install`, then `sandboxr init` again |
 | The sandbox was started while the router was down | `sandboxr up` again — it warns when the router is not running |
 
+### An `https://` app hostname says the site cannot be reached
+
+Nothing is listening on 443. The router only terminates TLS when a trusted certificate exists
+on the machine, so on one that has never run `mkcert` it listens on port 80 alone — and an
+`https://` URL for it fails to connect before any of sandboxr is involved, which is why the
+browser blames the site rather than the missing certificate.
+
+Check what the router is actually serving:
+
+```bash
+docker port sandboxr-router          # 80 alone, or 80 and 443
+ls ~/.sandboxr/state/dynamic         # cert-<domain>.yml exists only when TLS is configured
+```
+
+Either drop the `s` for now, or set TLS up properly — see the next entry. The dashboard reads
+the scheme off the router rather than assuming one, so once `sandboxr init` has written a
+certificate the links it prints become `https://` on their own.
+
+> [!NOTE]
+> The examples throughout these pages are written `https://`, because that is a machine with a
+> certificate. A machine without one serves the same hostnames over `http://`.
+
 ### The browser warns about the certificate
 
 The router is serving a certificate your machine has no reason to trust.
@@ -418,6 +440,54 @@ two-writer deadlock above. For MySQL, check the disk first.
 The dashboard loads the same `@sandboxr/core` the CLI does, so while a source file is half-saved
 every button fails in whatever way that file fails. Check the CLI works before debugging the
 dashboard.
+
+### The dashboard signs you in and then shows a blank page
+
+The dashboard is a browser app: the server sends an HTML shell and the app itself comes from
+`@sandboxr/web`'s build, under `/assets/`. If that build is missing, the shell still arrives and
+every asset 404s — which renders as an empty page rather than an error, so it does not look like a
+missing build at all.
+
+The browser's network panel is what settles it: a 404 on something under `/assets/` means the
+bundle was never built. `npm run build` at the repository root builds the two packages in the right
+order, because the server depends on the app; building `@sandboxr/server` on its own does not.
+
+### The repository list is empty, and `gh` works fine on this machine
+
+Settings → Projects lists what the **dashboard's** `gh` can reach, and the dashboard runs in a
+container. Your shell's `gh` is not the one being asked.
+
+The usual cause is where the token lives. On macOS `gh auth login` puts it in the login keychain,
+so `~/.config/gh/hosts.yml` names your account and holds no credential — and the dashboard mounts
+that directory. A keychain does not cross into a container, so the container's `gh` has a username,
+no token, and every call comes back `HTTP 401`.
+
+`sandboxr init` handles this: it runs `gh auth token` on the host and passes the value in as
+`GH_TOKEN`. Two things follow from *when* it does that:
+
+- **A dashboard started any other way has no token.** Run `sandboxr init` again.
+- **The token is captured once, at `init`.** Sign in again, or let it expire, and the container is
+  still holding the old one. `sandboxr init` again is the fix there too.
+
+The dashboard's log says which of these you have, because an empty list looks the same either way:
+
+```bash
+docker logs sandboxr-dashboard | grep repositories
+```
+
+| The line says | What it means |
+|---|---|
+| `repositories: gh: Requires authentication (HTTP 401)` | The container has no usable token — the case above |
+| `repositories: there is no gh on this machine` | The dashboard image is not the one sandboxr builds |
+| `repositories: HTTP 403 …` | A token whose scopes do not include `repo` |
+| `repositories could not be listed: …` | Not gh at all — the workspace could not be read |
+
+The reason stays in the log and never reaches the browser, because it can name a config path or an
+account and any signed-in session can open that pane.
+
+The box for pasting a remote works throughout, and is the only route for a repository the listing
+could never return anyway — one in an organisation you can reach but are not a member of, or a
+remote that is not GitHub.
 
 ### git refuses to create a worktree for a branch
 

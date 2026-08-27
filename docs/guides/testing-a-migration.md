@@ -131,4 +131,4 @@ sandboxr db shell
 ## Related
 
 - [Databases](../databases.md) — the four rules every driver obeys
-- [The dashboard](dashboard.md) — the same actions, with the output streamed to a page
+- [The dashboard](dashboard.md) — the same actions, with the output streamed into the browser

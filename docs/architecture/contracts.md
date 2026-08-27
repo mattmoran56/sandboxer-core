@@ -26,7 +26,8 @@ Two audiences, and the split matters:
 ```
 packages/core      @sandboxr/core     Config, drivers, docker orchestration, lifecycle
 packages/cli       @sandboxr/cli      The `sandboxr` command
-packages/server    @sandboxr/server   Web dashboard, auth, terminal, action streaming
+packages/server    @sandboxr/server   The dashboard's server: auth, JSON API, terminal, actions
+packages/web       @sandboxr/web      The dashboard's browser app: React, Tailwind, built by Vite
 packages/docs      @sandboxr/docs     The documentation site (MDX)
 container/         (no package)       What runs INSIDE a sandbox: Dockerfiles, s6, scripts
 examples/          (no package)       Example sandboxr.yaml files
@@ -35,6 +36,16 @@ examples/          (no package)       Example sandboxr.yaml files
 Ownership rule: **only `container/` contains bash.** Everything host-side is TypeScript.
 The container scripts are deliberately shell because they run under s6 with no toolchain
 guarantees, and because they are ported from a working implementation.
+
+The same rule, for the newest package: **`packages/web` holds no logic about what a sandbox
+is.** It renders what the API sends and posts actions back. Which actions apply to a stopped
+sandbox, what makes one degraded, how a slug is derived — every one of those is decided by
+core and reported by the server, and a copy of any of them in the browser is a second
+implementation that drifts.
+
+`@sandboxr/server` depends on `@sandboxr/web` and serves its `dist/`. A root
+`npm run build` orders the two correctly because of that dependency; building the server
+alone leaves it serving an HTML shell with nothing behind it.
 
 ## 3. Naming
 
@@ -75,6 +86,8 @@ Example: `feat-123.app.acme.sbx.lcl`
 The dashboard lives on the bare domain and **never** on a per-sandbox hostname. The
 terminal is a route *within* the dashboard (`/p/<project>/s/<slug>/terminal`), so it
 inherits the dashboard's session automatically. Do not give the terminal its own hostname.
+
+The paths under that one hostname are §7.1.
 
 ### 3.3 Docker names
 
@@ -191,6 +204,33 @@ hostnames and container names are built from (§3.2, §3.3), and the two need no
 `<project>/sandboxr.yaml` is the only file sandboxr itself may put in a project directory, and
 it is put there by hand. It is a fallback for worktrees that carry no config of their own, and
 it never becomes a sandbox's `/workspace` — see §5.6.
+
+#### 4.1.1 What a worktree reports
+
+`Worktree` in `packages/core/src/worktree.ts` is what a listing of `wt/` yields, and it is the
+unit the dashboard's sidebar is built from — a worktree is the thing that persists, and a
+sandbox is something that comes and goes on top of it.
+
+| Field | Meaning | When it cannot be read |
+|---|---|---|
+| `path` | Absolute path to the top of the worktree | — |
+| `branch` | The branch name — never git's literal `HEAD` | `?` |
+| `head` | Short commit sha | `?` |
+| `detached` | Checked out detached, which is how a branch open elsewhere is run | — |
+| `exists` | Whether the directory is really on disk | — |
+| `committed` | ISO 8601 of the **HEAD commit** | `""` |
+| `created` | ISO 8601 of the **directory's creation time**, as the filesystem reports it | `""` |
+
+**`committed` and `created` answer two different questions and must never be blurred into
+"last touched".** `created` is when somebody cut this worktree; `committed` is when work last
+landed on the branch in it. A worktree cut this morning off a branch nobody has touched since
+March is new by one and old by the other, and both readings are wanted — the dashboard groups
+by either. Not every filesystem records a birth time, so `created` is genuinely absent on some
+machines.
+
+Both are `""` rather than a substituted value when unreadable, and that is the contract: a
+fabricated date sorts a worktree somewhere it does not belong, which is worse than an entry the
+reader can see has no date.
 
 ### 4.2 Keep-alive, and where mutable state is allowed to live
 
@@ -510,10 +550,80 @@ One mechanism, used twice.
 Non-negotiables:
 
 - **No action endpoint is reachable without a session.** Not one.
+- **Every route declares its auth.** There is no default, so a route added without a
+  decision does not compile rather than shipping open.
 - The dashboard talks to Docker; treat every request as untrusted input. Slugs, project
   names and branch names are validated against the patterns in this file before they reach
   a command, and commands are executed as argument arrays — never a shell string.
 - Rate-limit the login route.
+- **A content-security policy with no `unsafe-inline` for script, and no external origin.**
+  Nothing executable may be inlined into a page and nothing may be fetched from another host.
+  The browser app's build is configured for that — no inlined assets, one stylesheet, fonts
+  served from this machine rather than from a font CDN — and it is a constraint on the build,
+  not a preference about it.
+
+  There is **no relaxation**, including for the terminal. A dependency that cannot live inside
+  this policy is configured differently rather than let out of it: xterm's default renderer draws
+  by injecting `<style>` elements, so the browser app loads its canvas renderer instead, which
+  injects none. Widening either half of `style-src` needs a reason written down here, and a
+  browser's violation message is not one on its own — it names the directive that refused, not
+  the mechanism that tripped it.
+
+### 7.1 The dashboard's HTTP surface
+
+The dashboard is a **single-page app**. `@sandboxr/server` answers JSON and serves one HTML
+shell; `@sandboxr/web` is the app that shell loads, and it routes in the browser from there.
+
+**The governing rule: the server sends facts and the browser writes sentences.** No field of
+any API response is a rendered string. An expiry is an instant, never `"3h 20m left"`; a state
+is `degraded`, never `"degraded — something failed during boot"`. A page showing a countdown
+has to re-render it every second anyway, so a server-rendered copy of the same wording is only
+a second version to disagree with — which is exactly what it was: the words existed once in a
+template and once in the script that replaced them, each carrying a comment warning that the
+two had to be kept in step.
+
+The corollary is that the *decisions* still belong to the server. Which actions apply to a
+sandbox right now is a field on the response, not a filter the browser derives from the action
+table; so is the sentence a destructive action confirms with, because the table is where what
+is actually lost is known.
+
+**The JSON API.** Every route below requires a session, and every one that names a `:project`
+is additionally checked against the session's grant.
+
+| Route | Answers |
+|---|---|
+| `GET /api/bootstrap` | The domain, the session, the closed action table (§8), and the default lifetime the new-sandbox form offers. What the app needs before it can draw anything |
+| `GET /api/workspace` | Every project, every worktree and every sandbox on the machine, plus a summary. The one call the sidebar and the home view are drawn from |
+| `GET /api/projects/:project` | One project's worktrees, branches and open pull requests |
+| `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its project's config declares |
+| `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
+
+`GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
+part of the contract because each was learnt from the version this replaced: nothing is fetched
+while the tab is hidden or while an action is running, a failed poll leaves the last good answer
+on screen and says it is stale rather than blanking the page, and returning to the tab refreshes
+at once.
+
+**The HTML shell** is served at `/`, `/new`, `/settings`, `/repos`, `/p/:project`,
+`/p/:project/branches`, `/p/:project/w/:slug` and `/p/:project/s/:slug`. Every one of them
+returns the same document; the app decides what to draw. `/assets/*` serves the built bundle.
+
+`/p/<project>/w/<slug>` and `/p/<project>/s/<slug>` are one view — the sandbox is something
+that comes and goes on top of the worktree. The `s` form is kept because it is what an action's
+declared destination (§8) and every existing bookmark already use, and because the log and
+terminal endpoints hang off it.
+
+**Unchanged by the move to a single-page app**, and deliberately so: `/healthz`, `/login`,
+`/auth/*`, the three `POST` action routes (`/actions/:action`, `/p/:project/actions/:action`,
+`/p/:project/s/:slug/actions/:action`), `GET /p/:project/s/:slug/logs`, and the terminal
+WebSocket at `/p/:project/s/:slug/terminal`.
+
+**The login page and the private-app handshake pages stay server-rendered.** Two reasons, both
+hard requirements rather than preferences. The login form must work with JavaScript off, because
+it is the only way back in and a dashboard that cannot be signed into cannot be fixed from
+itself. And it must be a real `<form>` with a real `POST` for the browser's password manager to
+recognise it as one — a form assembled by script after load frequently is not offered a saved
+password at all.
 
 ## 8. Actions
 

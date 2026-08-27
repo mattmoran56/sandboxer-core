@@ -21,7 +21,7 @@ The Workers demo in `examples/demo-worker` has been taken all the way through:
   container, and a file written inside the container appeared in `git status` on the host.
 - `ls`, `logs`, `config` and `doctor` have all been run for real.
 - The dashboard serves, redirects to HTTPS and refuses an unauthenticated request; a browser has
-  loaded the login page.
+  loaded the login page. That was the server-rendered dashboard this one replaced — see below.
 
 ## What is written, tested, and has never been run against a real project
 
@@ -36,7 +36,8 @@ least one thing wrong in the details.
 | **Dependency seeding** | The seed from `/opt/deps`, the lockfile-hash mismatch that falls back to a real install, and the workspace bin re-linking |
 | **Toolchain resolution** | That a prefix such as `1.26` or `24` picks the release a project meant, on both processor architectures |
 | **The service graph under load** | It boots for a two-service plan. Five backends, a dev server and a first-boot restore have not been started together |
-| **The dashboard's actions and terminal** | Its security properties are unit-tested. No action has been driven from a browser against a real sandbox, and the terminal has not been opened in one |
+| **The dashboard's actions and terminal** | Its security properties are unit-tested. The terminal has not been opened against a real sandbox |
+| **The dashboard's browser app** | All of it. `@sandboxr/web` replaced the server-rendered pages wholesale: the sidebar of worktrees and its groupings, the panes, the new-worktree routes, settings, the themes. Its pieces are unit-tested and its API is typed at both ends, but nobody has sat in front of it and taken a project through a day's work |
 | **`sqlite`** | The `d1` path has run; the plain `sqlite` driver has not |
 | **A `private` project** | The forward-auth middleware and the dashboard's `/auth/verify` are both written; the pair has not been exercised together |
 | **A sandbox expiring on its own over a full lifetime** | The reaper runs on a real machine on its timer, and `expire` has stopped and restarted a live sandbox against a clock moved forward by hand. Nothing has yet been stopped by the timer arriving on its own, hours later |
@@ -54,8 +55,9 @@ actually been run, rather than merely written:
   listing worktrees, branches and projects; `loadConfig` reading a config out of a created
   worktree; keep-alive stamping refusing to apply to a rebuilt sandbox with the same slug.
   Cloning, starting a sandbox from a branch and keeping one alive have all been driven from the
-  browser through the dashboard, and the reaper's first pass has been observed in a real container
-  log.
+  browser, and the reaper's first pass has been observed in a real container log — but through the
+  **server-rendered** dashboard, which the browser app has since replaced. The actions and their
+  streams are unchanged; what has not been re-driven is the interface in front of them.
 - **Unit-tested only:** the whole `gh` path, which is driven from recorded output rather than the
   real binary, and cloning or fetching a private repository with the mounted credentials.
 

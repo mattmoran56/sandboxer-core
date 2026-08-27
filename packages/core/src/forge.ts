@@ -21,6 +21,11 @@
  * a pull-request column and a "repositories you could add" list from this, and
  * "there is no forge here" is an ordinary state for a machine to be in — not an
  * error worth losing the page over.
+ *
+ * Not throwing is not the same as saying nothing. `listRemoteRepos` reports why
+ * a listing was empty through its `log`, because the empty list it returns is
+ * the same list a machine with no repositories would get, and an operator needs
+ * to be able to tell those two apart without a debugger.
  */
 
 import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
@@ -56,7 +61,18 @@ export interface RemoteReposOptions {
   run?: Runner | undefined;
   /** How many repositories to keep, newest-updated first. Clamped to `MAX_REPO_LIMIT`. */
   limit?: number | undefined;
-  /** Told when the cap threw some away, so a partial list is never silent. */
+  /**
+   * Told why the list is short, and why it is empty.
+   *
+   * Both, not just the cap: an empty list is this file's answer to every
+   * failure, and the causes want different actions — a machine with no `gh` is
+   * nothing like one whose token has expired, and "no repositories" on a page
+   * cannot tell them apart. Diagnosing that once meant a shell inside the
+   * dashboard's container, which is the work this callback exists to save.
+   *
+   * The line quotes gh, so it can name a path or an account. It belongs in a log
+   * an operator reads, and never in anything served to a browser.
+   */
   log?: ((line: string) => void) | undefined;
 }
 
@@ -381,7 +397,8 @@ export async function mergedBranches(
  *
  * Never throws, for this file's usual reason: an account with no gh simply has
  * no repositories to offer, and "you cannot see a list" is a better page than a
- * stack trace.
+ * stack trace. It does say why, through `log`, so that an empty list is a fact
+ * an operator can act on rather than one they have to guess at.
  */
 export async function listRemoteRepos(options: RemoteReposOptions = {}): Promise<RemoteRepo[]> {
   const limit = clampRepoLimit(options.limit);
@@ -392,10 +409,21 @@ export async function listRemoteRepos(options: RemoteReposOptions = {}): Promise
 
   const result = await attempt(options.run ?? nodeRunner, args);
   // 127 or ENOENT (no gh), 4 (not authenticated), 1 (no network, or a token
-  // without the scope to list repositories) — all of them an empty list.
-  if (!result || result.code !== 0) return [];
+  // without the scope to list repositories) — all of them an empty list, and all
+  // of them reported, because the empty list is the same shape either way.
+  if (!result || result.code !== 0) {
+    options.log?.(ghFailure(result));
+    return [];
+  }
 
   const repos = parseRemoteRepos(result.stdout);
+  // Output that parsed to nothing is not the same as an account with no
+  // repositories, and on the page it looks identical. gh exited 0 and said
+  // something, and none of it was a repository — a proxy's HTML error page is how
+  // this really happens.
+  if (repos.length === 0 && result.stdout.trim() !== "") {
+    options.log?.("gh answered with output that held no repositories");
+  }
   repos.sort((a, b) => b.updated.localeCompare(a.updated) || a.fullName.localeCompare(b.fullName));
 
   if (repos.length > limit) {
@@ -440,6 +468,43 @@ function clampRepoLimit(limit: number | undefined): number {
 function clampLimit(limit: number | undefined): number {
   if (typeof limit !== "number" || !Number.isFinite(limit)) return DEFAULT_LIMIT;
   return Math.min(MAX_LIMIT, Math.max(1, Math.trunc(limit)));
+}
+
+/**
+ * How much of gh's complaint is worth carrying, in characters.
+ *
+ * A failure is often followed by several paragraphs of advice — `gh auth login`
+ * prints a whole block of it — and a log line that long is one nobody reads.
+ */
+const MAX_REASON = 200;
+
+/**
+ * Why a gh call answered with nothing, in one line.
+ *
+ * gh's own first line of stderr, rather than a table mapping exit codes to
+ * sentences: `gh api` exits 1 for an expired token, a missing scope and a
+ * dropped connection alike, so the code distinguishes far less than the message
+ * does. "Requires authentication (HTTP 401)" is the whole diagnosis for the
+ * failure that is hardest to guess at — a dashboard container whose mounted
+ * `~/.config/gh` named an account and carried no credential, because on macOS
+ * the token is in the login keychain and a keychain does not cross into a
+ * container.
+ */
+function ghFailure(result: ExecResult | undefined): string {
+  // A runner that rejected rather than exiting, which `attempt` swallowed.
+  if (!result) return "gh could not be run at all";
+  if (result.code === 127) return "there is no gh on this machine";
+
+  const said = result.stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line !== "");
+  // Nothing on stderr is what a gh that was never spawned looks like from here:
+  // `nodeRunner` reports a failed spawn as an ordinary non-zero result, because
+  // ENOENT arrives as a string error code rather than a number and so cannot be
+  // told from an exit status.
+  if (!said) return `gh exited ${result.code} silently, which is what a missing gh looks like`;
+  return said.length > MAX_REASON ? `${said.slice(0, MAX_REASON)}…` : said;
 }
 
 /**

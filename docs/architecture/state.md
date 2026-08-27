@@ -99,8 +99,9 @@ six failures listed above against it and none of them apply: no lifecycle comman
 `docker rm` leaves a project that correctly now has no sandboxes, and it is outside every
 repository. It is also not a *list* — a project is a directory containing `repo.git`, so the
 listing is a `readdir`, the same shape of answer as `docker ps`. And it may only ever *add*
-projects to the dashboard, never filter them: the page shows the workspace unioned with what is
-running, so nothing running can be hidden by deregistering anything.
+projects to the dashboard, never filter them: the workspace the dashboard answers with is the
+directory listing unioned with what is running, so nothing running can be hidden by deregistering
+anything.
 
 **A keep-alive marker** — `state/keep/<project>/<slug>` — is the harder case, because it is
 genuinely about one container. It is legal only because of one detail: the file contains that

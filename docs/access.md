@@ -252,8 +252,8 @@ export SANDBOXR_PROJECTS_ACME='acme,demo'   # ...or name what it really grants
 ```
 
 **The name in the variable is the project it grants**, not the person it belongs to. The grant is
-checked everywhere: the sandbox list is filtered, actions are refused, the terminal will not open,
-and the private-app check refuses a hostname the session was not granted.
+checked everywhere: the workspace the API answers with is filtered, actions are refused, the
+terminal will not open, and the private-app check refuses a hostname the session was not granted.
 
 Passwords are read once at startup and then **deleted from the environment**, so nothing the
 dashboard spawns inherits them. The table holds a hash and a salt; comparison is timing-safe.

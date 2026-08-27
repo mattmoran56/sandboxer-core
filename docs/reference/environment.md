@@ -95,6 +95,27 @@ Set on the dashboard's own process. `sandboxr init` sets the ones that matter.
 Every `SANDBOXR_PASSWORD*` variable is read once at startup and then **deleted from the
 environment**, so nothing the dashboard spawns inherits it.
 
+#### The one variable that is not ours
+
+| Variable | Default | What it does |
+|---|---|---|
+| `GH_TOKEN` (or `GITHUB_TOKEN`) | whatever `gh auth token` answers on the host | Reads pull requests, lists the repositories Settings → Projects offers, and clones a private one |
+
+`gh`'s own variable, not a sandboxr one, and the dashboard passes it to `gh` and `git` by simply
+being in their environment.
+
+It has to be a **value**, and the reason is easy to trip over. `sandboxr init` mounts the host's
+`~/.config/gh` into the container, but on macOS `gh auth login` keeps the token in the login
+keychain — so the mounted `hosts.yml` names your account and carries no credential, and a keychain
+does not cross into a container. `init` therefore runs `gh auth token` on the host and passes the
+result in. Set the variable yourself when there is no `gh` to ask, which is the ordinary case on a
+server; it wins over `gh auth token` when both are available.
+
+> [!NOTE] The token is captured when `sandboxr init` runs
+> Not read afresh per request. Sign in again on the host, or let the token expire, and the
+> dashboard is still holding the old one until you run `sandboxr init` again. Without a token it
+> still boots, and says so once: private repositories and pull requests are simply not readable.
+
 ## 2. Variables the host passes into a container
 
 Written to `~/.sandboxr/build/<project>/<slug>.env` on every `up` and handed to `docker run`. You

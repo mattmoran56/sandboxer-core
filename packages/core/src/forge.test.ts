@@ -15,6 +15,9 @@
 // - listRemoteRepos: newest-updated first, whatever order gh answered in
 // - listRemoteRepos: the cap keeps the newest and reports that it truncated; the flags are constants
 // - listRemoteRepos: [] for a missing gh, a logged-out gh, no network and unparseable output
+// - listRemoteRepos: why the list is empty, reported through `log` — gh's own message, a missing
+//   gh, a bare non-zero exit, a runner that never spawned it, and a reason too long to keep
+// - listRemoteRepos: output that parsed to nothing is reported; an account with none is not
 // - matchesOrigin / alreadyAdded: ssh and https spellings of one repo, case, and a different repo
 
 import { describe, expect, it } from "vitest";
@@ -465,6 +468,66 @@ describe("listRemoteRepos", () => {
   it("returns [] when the runner itself fails to spawn gh", async () => {
     const { run } = stubRunner({ throws: enoent() });
     await expect(listRemoteRepos({ run })).resolves.toEqual([]);
+  });
+
+  // The empty list above is the same list an account with no repositories gets,
+  // which is why each of these has to say something. The 401 is the case that
+  // prompted it: a dashboard container whose mounted ~/.config/gh named an
+  // account and carried no token, because the token was in the host's keychain.
+  it.each([
+    [
+      "quotes gh when gh explained itself",
+      { code: 1, stderr: "gh: Requires authentication (HTTP 401)" },
+      "gh: Requires authentication (HTTP 401)",
+    ],
+    ["names a missing gh from 127", { code: 127, stderr: "" }, "there is no gh on this machine"],
+    [
+      "names a missing gh from a bare non-zero exit",
+      { code: 1, stderr: "" },
+      "gh exited 1 silently, which is what a missing gh looks like",
+    ],
+    [
+      "skips the blank lines gh puts before its message",
+      { code: 4, stderr: "\n\n  gh auth login to authenticate\n more advice\n" },
+      "gh auth login to authenticate",
+    ],
+  ])("%s", async (_name, reply, want) => {
+    const lines: string[] = [];
+    const { run } = stubRunner(reply);
+    await expect(listRemoteRepos({ run, log: (line) => lines.push(line) })).resolves.toEqual([]);
+    expect(lines).toEqual([want]);
+  });
+
+  it("reports a runner that never spawned gh at all", async () => {
+    const lines: string[] = [];
+    const { run } = stubRunner({ throws: enoent() });
+    await listRemoteRepos({ run, log: (line) => lines.push(line) });
+    expect(lines).toEqual(["gh could not be run at all"]);
+  });
+
+  // gh follows a failure with paragraphs of advice, and a log line that long is
+  // one nobody reads.
+  it("cuts a reason that runs on, and marks that it cut it", async () => {
+    const lines: string[] = [];
+    const { run } = stubRunner({ code: 1, stderr: "x".repeat(500) });
+    await listRemoteRepos({ run, log: (line) => lines.push(line) });
+    expect(lines[0]).toBe(`${"x".repeat(200)}…`);
+  });
+
+  // A proxy's error page, which exits 0 and looks exactly like an empty account.
+  it("reports output that parsed to no repositories at all", async () => {
+    const lines: string[] = [];
+    const { run } = stubRunner({ code: 0, stdout: "<html>504 Gateway Timeout</html>" });
+    await expect(listRemoteRepos({ run, log: (line) => lines.push(line) })).resolves.toEqual([]);
+    expect(lines).toEqual(["gh answered with output that held no repositories"]);
+  });
+
+  // An account really can have no repositories, and that is not worth a line.
+  it("says nothing when gh answered cleanly with nothing", async () => {
+    const lines: string[] = [];
+    const { run } = stubRunner({ code: 0, stdout: "\n" });
+    await expect(listRemoteRepos({ run, log: (line) => lines.push(line) })).resolves.toEqual([]);
+    expect(lines).toEqual([]);
   });
 });
 

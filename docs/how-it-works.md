@@ -10,14 +10,16 @@ Everything else follows from that.
 
 ```mermaid
 flowchart TB
+  web["<b>@sandboxr/web</b><br/>the dashboard in a browser<br/><i>renders what the API sends</i>"]
   subgraph faces["Two faces"]
     cli["<b>@sandboxr/cli</b><br/>the sandboxr command<br/><i>one thing per command, prints the result</i>"]
-    srv["<b>@sandboxr/server</b><br/>the dashboard<br/><i>a web page and a terminal</i>"]
+    srv["<b>@sandboxr/server</b><br/>the dashboard's server<br/><i>JSON, action streams, a terminal</i>"]
   end
   core["<b>@sandboxr/core</b><br/>config loading · Docker orchestration · the lifecycle<br/>database drivers · the router · certificates"]
   yaml["<b>sandboxr.yaml</b><br/>in the project's repo, versioned with its code"]
   plan["<b>plan.json</b><br/>the resolved form"]
   box["<b>One container</b><br/>reads the plan, runs the project"]
+  web -->|"JSON over HTTP"| srv
   cli --> core
   srv --> core
   yaml -->|"loaded and resolved by core"| plan
@@ -34,6 +36,7 @@ flowchart TB
 | **`plan.json`** | The resolved form: every default applied, every path made absolute, every choice already made | The container, and nothing else |
 | **`@sandboxr/core`** | Where all the actual work happens | The CLI and the dashboard |
 | **`@sandboxr/cli` / `@sandboxr/server`** | Two faces on that one library | You |
+| **`@sandboxr/web`** | The dashboard's browser app. Holds no logic about what a sandbox is — it renders what the server sends | Your browser |
 
 ### The CLI and the dashboard cannot disagree
 
@@ -45,6 +48,11 @@ side lands in that file and nowhere else.
 
 So "what is a sandbox", "which seed source wins", "what does `down` delete" have exactly one
 answer, and pressing a button in the dashboard is the same act as typing the command.
+
+The browser app is held to the same rule from the other side: it holds no logic about what a
+sandbox is. Which actions apply to a stopped sandbox, what makes one degraded, how a slug is
+derived — all of that is decided by core, reported by the server, and merely drawn by the app. A
+copy of any of it in the browser would be a third implementation, and the first to drift.
 
 ### Nothing inside a container reads `sandboxr.yaml`
 
@@ -75,7 +83,9 @@ guesses. [plan.json, field by field](architecture/plan-json.md).
 | `secrets.ts` | Importing a project's `.env` files under its own rules |
 
 `@sandboxr/cli` is a switch statement and a printer. `@sandboxr/server` is HTTP, a session
-cookie, a closed table of actions and a terminal.
+cookie, a JSON API, a closed table of actions and a terminal. `@sandboxr/web` is the app the
+server hands the browser, and it decides nothing: the rule there is that **the server sends facts
+and the browser writes sentences** — an expiry crosses as an instant, never as "3h 20m left".
 
 ## The two routers
 

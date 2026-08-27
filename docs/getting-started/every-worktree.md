@@ -106,9 +106,11 @@ are left alone.
 
 ## Doing it from the dashboard instead
 
-The dashboard at `https://sbx.localhost` lists every sandbox on the machine grouped by project,
-and can start one for a branch that has none. For a reviewer who does not want a terminal, that
-is the whole interface. See [the dashboard](../guides/dashboard.md).
+The dashboard at `https://sbx.localhost` lists every **worktree** on the machine — grouped by
+project, or by when each was made, when it last had a commit, or what state it is in — with the
+state of the sandbox on each one shown on its row. It can start a sandbox for a branch that has
+none. For a reviewer who does not want a terminal, that is the whole interface. See
+[the dashboard](../guides/dashboard.md).
 
 ## Related
 
