@@ -271,18 +271,32 @@ than of any project:
 
 ```yaml
 ttl: 12h
+github: none
 projects:
-  acme: { ttl: 3d }
+  acme: { ttl: 3d, github: token }
 ```
 
 The schema is `packages/core/src/config/machine.ts` (Zod, `strictObject`), so a misspelled key is an
-error naming the key. Precedence, most specific first, and this order is the contract:
+error naming the key. Precedence for `ttl`, most specific first, and this order is the contract:
 
 1. `--ttl` on the command (or the dashboard's field)
 2. the project's entry in `config.yaml`
 3. the file's top-level `ttl`
 4. `SANDBOXR_TTL_HOURS` — what a service unit sets
 5. the built-in default, **12h**
+
+`github` is `none` or `token`, and decides whether that project's sandboxes are handed this
+machine's GitHub token (§7). Its ladder is deliberately shorter — the project's entry, then the
+file's top-level value, then the built-in **`none`** — with **no flag and no environment
+variable**. A lifetime is a scheduling preference worth overriding per run; this is a decision
+about which code may act as the person running it, and a decision like that belongs in one file
+somebody can read, not in whatever started the process.
+
+**It lives here and not in `sandboxr.yaml`, and that is a rule rather than a convenience.** The
+token is the operator's, not the project's, and a setting that lives in a repository is a setting a
+repository can ask for: clone something, start a sandbox, and its committed config would have
+helped itself to a credential reaching every repository you can push to. The machine decides which
+projects it trusts with its own credentials. A project never votes on that.
 
 A **missing** file is not an error: it means the defaults. A **malformed** one is, reported by name
 with the path, because silently falling back to a default lifetime after somebody has edited the
@@ -790,6 +804,54 @@ before the handshake completes — the value becomes `--model` on a command line
 container, so this is the same rule the action table follows in §8. `SANDBOXR_CLAUDE_MODEL` sets
 the machine's default, and `GET /api/agent/models` reports what this machine will actually do
 rather than a constant.
+
+### 7.3 Git in a sandbox, and the GitHub token
+
+**Git works inside a sandbox, and making it work is a mount rather than a setting.** A linked
+worktree's `.git` is a *file* naming its repository by absolute path, so a container that has the
+worktree and not the repository fails every git command — `status`, `diff`, `log`, `commit` — with
+one `fatal: not a git repository` naming a host path. The rule, the same one the dashboard's
+workspace mount follows: the worktree **and** the repository it points at are bind-mounted at the
+**identical path inside and out**, on top of the worktree's mount at `/workspace`. `gitMounts` in
+`packages/core/src/git.ts` decides which paths those are; a plain checkout needs neither, and a
+project that is a subdirectory of a larger repository gets neither and is told so once.
+
+Three consequences are part of the contract:
+
+- **The repository mount is read-write**, because `git commit` writes objects and refs into it.
+  So every sandbox of a project shares one object store and one set of refs with the host: a
+  sandbox can move a branch, and a `git gc` in one repacks what all of them read. Read-only was
+  the alternative and is worse — status and log would work and only the commit would fail, from
+  inside git, on a permission error.
+- **The base image pins `gc.worktreePruneExpire` to `never`.** From inside one sandbox every
+  *other* worktree of the project looks prunable, because their paths are not mounted, and
+  `git commit` runs `gc --auto` on its own. Nothing in a sandbox has the information to make that
+  judgement.
+- **The commit identity crosses as `GIT_AUTHOR_*`/`GIT_COMMITTER_*`**, resolved from the host's
+  `git config` (or forwarded to the dashboard at `init`, which has no gitconfig of its own). The
+  host's `~/.gitconfig` is deliberately *not* mounted: it names a credential helper and a signing
+  key that do not exist in the container, so the whole file breaks the operations it would enable.
+
+**The GitHub token is a real widening of the blast radius, and it is off by default.** With
+`github: token` (§4.3) a sandbox is given the value `gh auth token` prints on the host, as
+`GH_TOKEN`, and the base image points git's https credential helper at `gh auth git-credential` —
+so both `gh` and `git push` work, and an agent can open a pull request. What that costs, stated
+plainly:
+
+- The token is in the environment of **every process in that container**, not just an agent's.
+  Project code, a dependency's install script and anything an agent runs can read it.
+- Its scope is typically the person's, not the project's — `repo` across every repository they can
+  reach, plus `gist` and `workflow`. Pushing to an unrelated repository is inside it.
+- Unlike the seed and secret rules in §5.3, this is **not** refused for a `public` project, because
+  nothing serves `GH_TOKEN` over http and reading it needs code execution in the container. A
+  public sandbox is a dev build of an unfinished branch on an open hostname, though, so `up` says
+  once, on the run where it applies, that the two decisions have met.
+
+This is why the switch is the operator's, per project, and defaults to off. It is the same line
+`DEFAULT_ALLOWED_TOOLS` draws for a session's commands: inside a sandbox everything is recoverable
+by deleting it, and that stops being true the moment a command reaches the network with the
+person's credentials. Note that `git push` and `gh` are **not** in that allowlist, so a session
+still has to be granted them.
 
 ## 8. Actions
 

@@ -70,7 +70,7 @@ Everything sandboxr writes at run time is under `SANDBOXR_HOME`, default `~/.san
 | `cache/` | Database seed artifacts, named by content | yes |
 | `logs/<project>/<slug>/` | Per-sandbox logs, and the schema baselines | **yes** — deliberately |
 | `tls/` | Certificates and keys the router serves | yes |
-| `config.yaml` | The machine's own settings — how long a sandbox may sit unused | yes |
+| `config.yaml` | The machine's own settings — how long a sandbox may sit unused, and which projects get this machine's GitHub token | yes |
 | `state/` | Router config, the dynamic config directory, the dashboard's session key | yes |
 | `secrets/<project>.env` | Third-party credentials, mode 0600 | yes |
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
@@ -91,9 +91,11 @@ the first time and never touches it again:
 ```yaml
 # How long a sandbox may sit unused before it is stopped.
 ttl: 12h
+# Whether a sandbox is handed this machine's GitHub token. `none` or `token`.
+github: none
 # Per project, optional.
 projects:
-  acme: { ttl: 3d }
+  acme: { ttl: 3d, github: token }
 ```
 
 A missing file means the defaults. A malformed one is an error naming the file and the key — see

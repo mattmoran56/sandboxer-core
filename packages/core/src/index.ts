@@ -37,13 +37,16 @@ export type { AccessViolation } from "./config/access.js";
 export { configSchema } from "./config/schema.js";
 export {
   DEFAULT_TTL,
+  DEFAULT_GITHUB,
+  GITHUB_MODES,
   MACHINE_CONFIG_EXAMPLE,
   loadMachineConfig,
   machineConfigSchema,
+  resolveGithub,
   resolveTtl,
   writeMachineConfigExample,
 } from "./config/machine.js";
-export type { MachineConfig, TtlInput } from "./config/machine.js";
+export type { GithubInput, GithubMode, MachineConfig, TtlInput } from "./config/machine.js";
 export { compareVersions, parseVersion, satisfies, VersionError } from "./config/version.js";
 export { TOOL_VERSION } from "./tool-version.js";
 
@@ -65,7 +68,7 @@ export {
 } from "./naming.js";
 export type { DeriveSlugInput, HostParts, VolumePurpose } from "./naming.js";
 
-export { WORKTREES_DIR, directoriesOf, paths, type Paths } from "./paths.js";
+export { WORKTREES_DIR, canonicalPath, directoriesOf, isInside, paths, samePath, type Paths } from "./paths.js";
 
 export { docker, createDocker, DockerError, type Docker, type ExecResult } from "./docker.js";
 
@@ -178,7 +181,7 @@ export { InstallError, containerDir, dashboardEntry, installRoot } from "./insta
 export { checkSecrets, importSecrets, filterSecrets, parseEnvFile, matchesAny } from "./secrets.js";
 export type { SecretsCheck, SecretsReport, SecretRules } from "./secrets.js";
 
-export { gitFacts, type GitFacts } from "./git.js";
+export { gitFacts, gitMounts, hostGitIdentity, type GitFacts, type GitIdentity } from "./git.js";
 
 export { MAIN_THREAD } from "./agent/types.js";
 export type {
@@ -186,6 +189,7 @@ export type {
   AgentRun,
   CompactedEvent,
   ErrorEvent,
+  ForkOrigin,
   McpServerState,
   ResultEvent,
   RetryEvent,
@@ -205,8 +209,13 @@ export {
   AGENT_WORKDIR,
   DEFAULT_ALLOWED_TOOLS,
   DEFAULT_PERMISSION_MODE,
+  FORK_ALLOWED_TOOLS,
+  FORK_DISALLOWED_TOOLS,
+  FORK_PERMISSION_MODE,
   agentArgv,
   agentEnv,
+  agentName,
+  interruptArgv,
   agentModelFrom,
   agentPermissionModeFrom,
   agentTokenFrom,
@@ -224,4 +233,5 @@ export {
   refusalFor,
   slashCommandList,
 } from "./agent/commands.js";
-export type { SlashCommand, SlashCommandSource } from "./agent/commands.js";
+export type { SlashCommand, SlashCommandHandler, SlashCommandSource } from "./agent/commands.js";
+export { NOTHING_ASKED, SIDE_QUESTION, sideQuestion, sideQuestionPreamble } from "./agent/btw.js";

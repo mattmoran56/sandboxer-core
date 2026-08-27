@@ -489,6 +489,42 @@ The box for pasting a remote works throughout, and is the only route for a repos
 could never return anyway — one in an organisation you can reach but are not a member of, or a
 remote that is not GitHub.
 
+### `fatal: not a git repository` inside a sandbox
+
+```
+$ sandboxr shell tkt-4821
+# cd /workspace && git status
+fatal: not a git repository: /Users/you/.sandboxr/workspace/acme/repo.git/worktrees/tkt-4821
+```
+
+A linked worktree's `.git` is a *file* holding an absolute path back to its repository, so a
+container that has the worktree and not the repository cannot run any git command at all. sandboxr
+mounts both, at the paths the host calls them, and this should not happen — if it does, the sandbox
+predates that fix and a `sandboxr up` again is the whole of it.
+
+One case is not fixable that way and says so instead: a project that is a **subdirectory of a larger
+repository**. `/workspace` is the project, git's repository is above it, and mounting the enclosing
+repository would make git call every file in the project deleted. `up` prints one line when it
+happens — *this tree is not the top of a git checkout, so git will not work inside the sandbox* —
+and everything else about the sandbox works normally.
+
+### `gh` in a sandbox says it is not logged in
+
+That is the default. A sandbox has `gh` but no credential until you say otherwise, per project, in
+`~/.sandboxr/config.yaml`:
+
+```yaml
+projects:
+  acme: { github: token }
+```
+
+Then start the sandbox again — the token is read at `up` and lives only in the container's
+environment. See [Access and security](access.md#a-sandbox-that-can-open-a-pull-request) for what
+that hands over, because it is more than the one project.
+
+If it is still logged out after that, check `gh auth token` answers on the *host*: that is where
+the value comes from, and a host that is signed out has nothing to pass on.
+
 ### git refuses to create a worktree for a branch
 
 git will not check out one branch in two places, and the branch you want is very often already

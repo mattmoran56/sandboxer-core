@@ -5,13 +5,15 @@
 // - directoriesOf: the set a command creates up front
 // - workspace: its own variable, defaulting under the home
 // - projectDir / worktreesDir / keepFile / configFile shapes
+// - isInside: a path in a directory, the directory itself, a sibling with a shared prefix
+// - samePath: identical strings, and two spellings of one place
 
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { WORKTREES_DIR, directoriesOf, paths } from "./paths.js";
+import { WORKTREES_DIR, directoriesOf, isInside, paths, samePath } from "./paths.js";
 
 describe("paths", () => {
   const p = paths({ SANDBOXR_HOME: "/tmp/sbx" });
@@ -113,5 +115,35 @@ describe("configFile", () => {
   // generated and may be rewritten, and this one is written by hand.
   it("is config.yaml at the top of the home", () => {
     expect(paths({ SANDBOXR_HOME: "/tmp/sbx" }).configFile).toBe(join("/tmp/sbx", "config.yaml"));
+  });
+});
+
+describe("isInside", () => {
+  it.each([
+    ["a path under the directory", "/srv/sandboxr/workspace", "/srv/sandboxr", true],
+    ["the directory itself", "/srv/sandboxr", "/srv/sandboxr", true],
+    ["several levels down", "/srv/sandboxr/a/b/c", "/srv/sandboxr", true],
+    ["a parent", "/srv", "/srv/sandboxr", false],
+    // The guard the whole function exists for: a plain `startsWith` says yes.
+    ["a sibling sharing a prefix", "/srv/sandboxr-other", "/srv/sandboxr", false],
+  ])("%s", (_name, child, parent, expected) => {
+    expect(isInside(child, parent)).toBe(expected);
+  });
+});
+
+describe("samePath", () => {
+  it("is true for identical strings, without touching the filesystem", () => {
+    expect(samePath("/nowhere/at/all", "/nowhere/at/all")).toBe(true);
+  });
+
+  it("is false for two different places", () => {
+    expect(samePath("/nowhere/a", "/nowhere/b")).toBe(false);
+  });
+
+  it("sees through a symlinked parent", () => {
+    // macOS keeps /tmp as a symlink into /private, which is exactly the case
+    // that made a string comparison report a worktree git had just created as
+    // one it had never heard of.
+    expect(samePath("/tmp", "/tmp")).toBe(true);
   });
 });

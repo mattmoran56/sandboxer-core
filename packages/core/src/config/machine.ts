@@ -3,16 +3,25 @@
  *
  * `sandboxr.yaml` (see ./schema.ts) belongs to the project being sandboxed and
  * is versioned with its code. This file belongs to the machine sandboxr runs
- * on, and holds the one thing that is a property of the machine rather than of
- * any project: how long a sandbox may sit unused before it is stopped. A laptop
- * and a shared server want different answers to that, and neither answer
- * belongs in somebody's repository.
+ * on, and holds what is a property of the machine rather than of any project:
+ * how long a sandbox may sit unused before it is stopped, and which projects may
+ * be handed this machine's own credentials. A laptop and a shared server want
+ * different answers to both, and neither answer belongs in somebody's
+ * repository.
  *
  * ```yaml
  * ttl: 12h
+ * github: none
  * projects:
- *   acme: { ttl: 3d }
+ *   acme: { ttl: 3d, github: token }
  * ```
+ *
+ * `github:` is here, and not in `sandboxr.yaml`, on purpose. The token is the
+ * *operator's*, not the project's, and a setting that lives in a repository is a
+ * setting a repository can ask for — clone something, start a sandbox, and its
+ * committed config has helped itself to a credential that reaches every
+ * repository you can push to. The machine decides which projects it trusts with
+ * its own credentials; a project never votes on that.
  *
  * Two rules, both about not destroying work:
  *
@@ -49,13 +58,45 @@ const ttlField = z.string().refine((value) => parseTtl(value) !== undefined, {
 });
 
 /**
+ * Whether a sandbox is handed this machine's GitHub token.
+ *
+ * A closed set rather than a boolean, so the day a project is given a scoped
+ * app installation instead of the operator's own token, the third value has
+ * somewhere to go and the file does not have to change shape.
+ */
+export const GITHUB_MODES = ["none", "token"] as const;
+export type GithubMode = (typeof GITHUB_MODES)[number];
+
+/**
+ * Off, and deliberately off by default.
+ *
+ * `gh auth token` on a developer's laptop is usually a credential with `repo`
+ * across *every* repository they can reach — not this project's. Handing that
+ * to every sandbox on the machine means anything running in one, including a
+ * dependency's install script and an agent executing the branch's own code, can
+ * push and open pull requests as them. `DEFAULT_ALLOWED_TOOLS` in
+ * ../agent/launch.ts already draws this line for a session's commands: inside a
+ * sandbox everything is recoverable by deleting it, "and that stops being true
+ * the moment a command reaches the network with the person's credentials".
+ *
+ * So the widening is opt-in, and forgetting to opt in costs a legible `gh: not
+ * logged in` rather than a silence.
+ */
+export const DEFAULT_GITHUB: GithubMode = "none";
+
+const githubField = z.enum(GITHUB_MODES);
+
+/**
  * Strict, like the project schema and for the same reason: a misspelled key in
  * a file that decides when containers stop must be an error naming the key, not
  * a setting that quietly does nothing.
  */
 export const machineConfigSchema = z.strictObject({
   ttl: ttlField.optional(),
-  projects: z.record(z.string(), z.strictObject({ ttl: ttlField.optional() })).optional(),
+  github: githubField.optional(),
+  projects: z
+    .record(z.string(), z.strictObject({ ttl: ttlField.optional(), github: githubField.optional() }))
+    .optional(),
 });
 
 /**
@@ -80,10 +121,22 @@ export const MACHINE_CONFIG_EXAMPLE = `# sandboxr, machine settings. Edit freely
 # Forms: 30m, 12h, 3d, a plain number of seconds, or never.
 ttl: 12h
 
+# Whether a sandbox is handed this machine's GitHub token, so that \`gh\` and
+# \`git push\` work inside it and an agent can open a pull request.
+#
+# \`none\` (the default) or \`token\`. \`token\` means the credential \`gh auth token\`
+# prints here — usually one that can push to every repository you can — is in
+# the environment of every process in that project's sandboxes, the project's
+# own code included. That is a real widening, which is why it is off until you
+# say otherwise, and why it is set per project rather than machine-wide.
+#
+# git itself works either way: a sandbox can always commit to its own worktree.
+github: none
+
 # Per project, for the ones that want a different answer. Optional — remove the
 # whole block if every project on this machine is the same.
 #projects:
-#  acme: { ttl: 3d }
+#  acme: { ttl: 3d, github: token }
 #  demo: { ttl: never }
 `;
 
@@ -194,4 +247,31 @@ export async function writeMachineConfigExample(env: NodeJS.ProcessEnv = process
   } catch {
     return undefined;
   }
+}
+
+export interface GithubInput {
+  /** Which project the sandbox belongs to, for the per-project entry. */
+  project?: string | undefined;
+  config?: MachineConfig | undefined;
+}
+
+/**
+ * Whether this project's sandboxes may carry the machine's GitHub token.
+ *
+ * Precedence, most specific first, and the order is the contract (§4.3):
+ *
+ * 1. the project's entry in `config.yaml`
+ * 2. the file's top-level `github`
+ * 3. the built-in `DEFAULT_GITHUB`, which is `none`
+ *
+ * Deliberately shorter than `resolveTtl`'s ladder: there is no flag and no
+ * environment variable. A lifetime is a scheduling preference and worth being
+ * able to override per run; this is a decision about which code gets to act as
+ * the person running it, and a decision like that should be written down in one
+ * file that somebody can read, not settable by whatever started the process.
+ */
+export function resolveGithub(input: GithubInput = {}): GithubMode {
+  const config = input.config ?? {};
+  const forProject = input.project === undefined ? undefined : config.projects?.[input.project]?.github;
+  return forProject ?? config.github ?? DEFAULT_GITHUB;
 }

@@ -34,6 +34,12 @@ FROM debian:bookworm-slim
 
 ARG TARGETARCH
 ARG S6_VERSION=3.2.1.0
+# The same pin as dashboard/Dockerfile, deliberately. Two images sandboxr builds
+# itself, both with a `gh` in them, is already one more than anybody wants to
+# reason about; two *versions* of it would mean a pull request that works from
+# the dashboard and not from a sandbox looks like a sandbox bug. Bump both or
+# neither.
+ARG GH_VERSION=2.63.2
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -166,6 +172,75 @@ RUN set -eux; \
 # running. Rebuild the image to move version.
 ENV DISABLE_AUTOUPDATER=1
 
+# --- gh, and a git that works ------------------------------------------------
+#
+# `gh` is in the base for the same reason `claude` is: the point of a sandbox is
+# that the branch in it can be finished, and finishing a branch ends in a pull
+# request. A sandbox that can run the tests and cannot open the PR sends you back
+# to the host for the last step, which is the step you were trying to delegate.
+#
+# The release tarball rather than the apt repository: adding a repository means a
+# key, a sources list and an `apt-get update` layer that invalidates on every
+# rebuild, for one static Go binary. Measured on arm64 the binary is 50 MB and
+# the image goes from 625 MB to 672 MB — the second-largest single thing here,
+# after the ~240 MB `claude` costs.
+#
+# The arch switch is the shape the s6 block explains at length; the value goes
+# straight into a download URL here, so an unresolved one is a 404 rather than an
+# error mentioning architecture.
+RUN set -eux; \
+    ARCH="${TARGETARCH:-}"; \
+    if [ -z "$ARCH" ]; then ARCH="$(uname -m)"; fi; \
+    case "$ARCH" in \
+      arm64|aarch64) GH_ARCH=arm64 ;; \
+      amd64|x86_64)  GH_ARCH=amd64 ;; \
+      *) echo "unsupported arch $ARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" \
+      -o /tmp/gh.tgz; \
+    tar -xzf /tmp/gh.tgz -C /usr/local --strip-components=1 \
+      "gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh"; \
+    rm -f /tmp/gh.tgz
+
+# Send git's https credentials through gh, exactly as dashboard/Dockerfile does.
+#
+# This is the half of "an agent can open a pull request" that is not `gh`: `gh pr
+# create` pushes the branch first, over https, and a `gh` that is logged in does
+# nothing for `git` on its own. `gh auth setup-git` would write this, but it
+# refuses to run without a credential and there is none at build time — so the
+# line it would have written is written here, where it needs no credential of its
+# own. It only says where to go and get one.
+#
+# With no GH_TOKEN in the container the helper simply answers nothing, and a push
+# fails the way an unauthenticated push always did.
+RUN git config --system credential.https://github.com.helper '!gh auth git-credential'
+
+# git refuses to operate on a repository owned by another uid, which is what a
+# bind-mounted worktree looks like from inside a container on Linux: the files
+# belong to the host user and everything here runs as root. Without this, every
+# git command fails with "detected dubious ownership" — which reads like
+# corruption rather than a permission policy, and sends you looking for the wrong
+# bug. (On Docker Desktop's macOS VM the files already appear as root, so this is
+# the line that keeps a Linux host behaving like the laptop it was written on.)
+#
+# Blanket, and deliberately so, for the reason dashboard/Dockerfile gives: the
+# protection waived is against operating on a repository *another user* planted,
+# and the only repository here is the one worktree this sandbox was started for.
+# The container is the boundary, not this setting.
+RUN git config --system --add safe.directory '*'
+
+# Never prune worktree admin entries, whatever their age.
+#
+# A sandbox mounts one worktree and the repository behind it, so from in here
+# every *other* worktree of the same project — all of them alive on the host —
+# has a `gitdir` file pointing at a path that does not exist, which is precisely
+# git's definition of prunable. `git gc` prunes those, and `git commit` runs
+# `gc --auto` on its own, so a single commit inside one sandbox could delete the
+# host's registration of somebody else's worktree once it aged past the
+# three-month default. Nothing in a sandbox has the information to make that
+# judgement, so it never makes it.
+RUN git config --system gc.worktreePruneExpire never
+
 COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 
 # /command is where s6-overlay puts s6-svc, s6-rc and with-contenv. It is on the
@@ -200,7 +275,8 @@ RUN mkdir -p \
       /empty \
  && chmod 555 /empty
 
-RUN caddy version && minio --version | head -1 && jq --version && claude --version && ldd --version | head -1
+RUN caddy version && minio --version | head -1 && jq --version && claude --version \
+ && git --version && gh --version | head -1 && ldd --version | head -1
 
 # STAGE2_FAILS=0 keeps the container alive when a oneshot fails, because a sandbox
 # whose database or migrations broke is precisely the one worth opening a shell in.

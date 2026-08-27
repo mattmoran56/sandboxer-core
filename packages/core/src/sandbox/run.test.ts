@@ -3,6 +3,9 @@
 // - runArgs: one volume per purpose, the data mount per driver, storage only when declared
 // - runArgs: the seed cache is read-only, the secrets file is layered under the generated environment
 // - runArgs: the machine-wide Claude volume is mounted and CLAUDE_CONFIG_DIR points inside it
+// - runArgs: the git mounts land at the identical path inside and out, read-write, and none is /workspace
+// - runArgs: the commit identity is passed as author *and* committer, and omitted when there is none
+// - runArgs: GH_TOKEN only when one was resolved, so opting out leaves no credential in the container
 // - runArgs: no argument is ever a shell string, and a value with a space survives as one argument
 // - memoryFor / toBytes: the largest declared limit wins, because the cgroup total is what the kernel enforces
 // - renderBuild: placeholder substitution, a missing placeholder, and a value that would become shell syntax
@@ -78,6 +81,65 @@ describe("runArgs", () => {
 
   it("bind-mounts the worktree, so a saved file is immediately live inside", () => {
     expect(args).toContain("/repos/tkt-1:/workspace");
+  });
+
+  describe("the mounts git needs", () => {
+    const withGit = runArgs({ ...base, gitMounts: ["/repos/tkt-1", "/repos/acme.git"] });
+
+    // Identical path inside and out, because a linked worktree's `.git` names
+    // its repository by absolute path and nothing rewrites that on the way in.
+    it("puts each one at the path the host calls it", () => {
+      expect(withGit).toContain("/repos/tkt-1:/repos/tkt-1");
+      expect(withGit).toContain("/repos/acme.git:/repos/acme.git");
+    });
+
+    // Read-write is the deliberate half: `git commit` writes objects and refs
+    // into the repository, so `:ro` would break only at the commit.
+    it("mounts them read-write", () => {
+      expect(withGit.join(" ")).not.toContain("/repos/acme.git:/repos/acme.git:ro");
+    });
+
+    it("adds nothing at all when git needs nothing", () => {
+      expect(runArgs({ ...base, gitMounts: [] }).join(" ")).not.toContain("/repos/acme.git");
+    });
+
+    // Docker refuses the whole `run` over two mounts at one destination, so a
+    // host checkout that happens to live at /workspace must not be added twice.
+    it("skips a path that is already the workspace destination", () => {
+      const collision = runArgs({ ...base, worktree: "/workspace", gitMounts: ["/workspace", "/repos/acme.git"] });
+      expect(collision.filter((arg) => arg === "/workspace:/workspace")).toHaveLength(1);
+    });
+  });
+
+  describe("committing from inside", () => {
+    const identified = runArgs({ ...base, gitIdentity: { name: "Ada L", email: "ada@example.com" } });
+
+    // Both pairs: git fails on whichever is missing, so setting only the author
+    // buys an identical second error about the committer.
+    it("sets the author and the committer", () => {
+      expect(identified).toContain("GIT_AUTHOR_NAME=Ada L");
+      expect(identified).toContain("GIT_COMMITTER_NAME=Ada L");
+      expect(identified).toContain("GIT_AUTHOR_EMAIL=ada@example.com");
+      expect(identified).toContain("GIT_COMMITTER_EMAIL=ada@example.com");
+    });
+
+    it("says nothing when the machine has no identity", () => {
+      expect(runArgs({ ...base, gitIdentity: {} }).join(" ")).not.toContain("GIT_AUTHOR");
+      expect(args.join(" ")).not.toContain("GIT_AUTHOR");
+    });
+  });
+
+  describe("the GitHub token", () => {
+    it("is passed as a value, because on macOS there is no file to mount", () => {
+      expect(runArgs({ ...base, ghToken: "gho_example" })).toContain("GH_TOKEN=gho_example");
+    });
+
+    // The opt-out has to be a genuine absence, not an empty string: `gh` reads
+    // an empty GH_TOKEN as a credential and reports itself broken rather than
+    // logged out.
+    it("is absent entirely when the machine did not opt this project in", () => {
+      expect(args.join(" ")).not.toContain("GH_TOKEN");
+    });
   });
 
   it.each([

@@ -6,8 +6,44 @@
  * cache or a certificate.
  */
 
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
+
+/**
+ * The path the filesystem will call this path.
+ *
+ * git records a worktree by its *resolved* path, and so does every mount table,
+ * so on any machine where a parent directory is a symlink — macOS's `/tmp` and
+ * `/var/folders` are both symlinks into `/private`, and plenty of people keep
+ * their code under one — a path handed in never string-matches the path
+ * `worktree list` reports back. That mismatch does not look like a symlink
+ * problem: it looks like git having created a worktree it then denies exists.
+ */
+export function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/** Whether two paths name the same place, symlinks resolved. */
+export function samePath(a: string, b: string): boolean {
+  return a === b || canonicalPath(a) === canonicalPath(b);
+}
+
+/**
+ * Whether one path is the same as, or under, another.
+ *
+ * Path arithmetic with a separator guard rather than `startsWith` alone: a
+ * workspace at `/srv/sandboxr-other` would otherwise count as inside
+ * `/srv/sandboxr` and silently lose its mount.
+ */
+export function isInside(child: string, parent: string): boolean {
+  const rel = relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
 
 /**
  * The directory a project's worktrees are cut into, inside its project

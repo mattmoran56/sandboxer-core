@@ -8,6 +8,7 @@
 // - the handshake router outranks a sandbox's own rule and carries no forward-auth middleware
 // - the agent-session variables are forwarded from the host, and a blank one is omitted rather
 //   than passed through as an empty value
+// - the host's commit identity is forwarded, so a sandbox started from the browser can commit
 
 import { describe, expect, it } from "vitest";
 
@@ -214,5 +215,37 @@ describe("the agent-session variables", () => {
       }),
     );
     expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_SOMETHING_ELSE");
+  });
+});
+
+describe("the commit identity", () => {
+  const env = { SANDBOXR_HOME: "/home/me/.sandboxr", SANDBOXR_INSTALL: "/opt/sandboxr", HOME: "/home/me" };
+
+  const varsOf = (args: string[]): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i] !== "-e") continue;
+      const [key, ...rest] = String(args[i + 1]).split("=");
+      out[String(key)] = rest.join("=");
+    }
+    return out;
+  };
+
+  // The dashboard is a bare `node:` image with nobody's gitconfig in it, so
+  // this is the only way a sandbox it starts can commit at all — without it,
+  // `up` from the browser and `up` from the CLI would disagree about something
+  // as basic as whether git works.
+  it("is forwarded so it can be handed on to every sandbox", () => {
+    const vars = varsOf(
+      dashboardArgs({ domain: "sbx.localhost", tls: true, env, gitIdentity: { name: "Ada L", email: "ada@example.com" } }),
+    );
+    expect(vars.GIT_AUTHOR_NAME).toBe("Ada L");
+    expect(vars.GIT_AUTHOR_EMAIL).toBe("ada@example.com");
+  });
+
+  it("is omitted when this machine has none", () => {
+    const vars = varsOf(dashboardArgs({ domain: "sbx.localhost", tls: true, env }));
+    expect(vars).not.toHaveProperty("GIT_AUTHOR_NAME");
+    expect(vars).not.toHaveProperty("GIT_AUTHOR_EMAIL");
   });
 });

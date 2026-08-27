@@ -57,6 +57,26 @@ export interface RunInput {
   /** Optional runtimes to start, passed to the entrypoint. */
   with?: string[] | undefined;
   /**
+   * Host directories bind-mounted at the identical path inside, so that git
+   * works: a linked worktree's `.git` is a file naming its repository by
+   * absolute path. Resolved by `gitMounts` in ../git.ts, which is where the
+   * whole reasoning lives.
+   */
+  gitMounts?: string[] | undefined;
+  /**
+   * Who a commit made inside the sandbox is by. A sandbox has no `~/.gitconfig`
+   * and git refuses to commit without this — see `hostGitIdentity`.
+   */
+  gitIdentity?: { name?: string | undefined; email?: string | undefined } | undefined;
+  /**
+   * The machine's GitHub token, when `config.yaml` says this project may have it.
+   *
+   * Absent unless the operator opted in (see `resolveGithub`), and passed as a
+   * *value* for the reason access/dashboard.ts records: on macOS `gh` keeps the
+   * token in the login keychain, so there is no file that could be mounted.
+   */
+  ghToken?: string | undefined;
+  /**
    * The labels the shared router reconciles from.
    *
    * Passed in rather than derived here because they depend on the domain and on
@@ -103,6 +123,22 @@ export function runArgs(input: RunInput): string[] {
   // container immediately — and an agent editing inside the container writes to
   // the worktree, so its changes show up in `git status`.
   args.push("-v", `${input.worktree}:${WORKSPACE}`);
+  // …and again at its own path, alongside the repository it was cut from, so
+  // that git works at all. Read-write, and that is the deliberate part: `git
+  // commit` writes objects and refs into the *repository*, so a read-only mount
+  // would leave status and log working and fail only at the commit, with a
+  // permission error from inside git — a newer and more confusing break than the
+  // one this fixes. The cost is that every sandbox of a project shares one
+  // object store and one set of refs with the host: a sandbox can move a branch
+  // another worktree has checked out, and a `git gc` inside one repacks what all
+  // of them read. See `gitMounts` in ../git.ts for the rest.
+  //
+  // `path !== WORKSPACE` because a host checkout that happens to live at
+  // `/workspace` would otherwise be mounted twice at one destination, and Docker
+  // refuses the whole `run` over it rather than ignoring the second.
+  for (const path of input.gitMounts ?? []) {
+    if (path !== WORKSPACE) args.push("-v", `${path}:${path}`);
+  }
   // Read-only: the plan is the host's statement of what this project is, and a
   // container that could rewrite it could change what it claims to be running.
   args.push("-v", `${input.planFile}:${PLAN_FILE}:ro`);
@@ -133,6 +169,27 @@ export function runArgs(input: RunInput): string[] {
   // below is not optional.
   args.push("-v", `${CLAUDE_VOLUME}:${CLAUDE_DIR}`);
   args.push("-e", `CLAUDE_CONFIG_DIR=${CLAUDE_DIR}`);
+
+  // The commit identity, as four variables rather than a mounted gitconfig.
+  //
+  // Author *and* committer, because git needs both and fails on whichever is
+  // missing: setting only the author pair gets you past the first error into an
+  // identical second one about the committer.
+  //
+  // These are `-e` rather than exported by the entrypoint on purpose. `docker
+  // exec` does not inherit what the entrypoint exported — it gets the
+  // container's environment — and every git command that matters here arrives
+  // through an exec: the terminal, and an agent session.
+  const identity = input.gitIdentity;
+  if (identity?.name) args.push("-e", `GIT_AUTHOR_NAME=${identity.name}`, "-e", `GIT_COMMITTER_NAME=${identity.name}`);
+  if (identity?.email) {
+    args.push("-e", `GIT_AUTHOR_EMAIL=${identity.email}`, "-e", `GIT_COMMITTER_EMAIL=${identity.email}`);
+  }
+  // The token, only when the machine opted this project in. `gh` reads GH_TOKEN
+  // on its own, and the base image points git's https credential helper at `gh
+  // auth git-credential`, so this one variable is what makes both the CLI and
+  // `git push` work.
+  if (input.ghToken) args.push("-e", `GH_TOKEN=${input.ghToken}`);
 
   args.push("--entrypoint", ENTRYPOINT, input.image ?? DEFAULT_IMAGE);
   return args;

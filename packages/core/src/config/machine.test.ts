@@ -3,6 +3,8 @@
 // - loadMachineConfig: a misspelled key, a bad ttl and unreadable YAML are errors naming the file and the field
 // - resolveTtl: the precedence chain — --ttl, the project entry, the file, SANDBOXR_TTL_HOURS, the built-in
 // - resolveTtl: an unreadable SANDBOXR_TTL_HOURS falls through instead of failing a start
+// - resolveGithub: the project entry beats the file, which beats the default, which is off
+// - loadMachineConfig: an unknown github mode is an error naming the field
 // - writeMachineConfigExample: writes once, never overwrites, and what it writes parses back
 
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -12,7 +14,14 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { paths } from "../paths.js";
-import { DEFAULT_TTL, loadMachineConfig, resolveTtl, writeMachineConfigExample } from "./machine.js";
+import {
+  DEFAULT_GITHUB,
+  DEFAULT_TTL,
+  loadMachineConfig,
+  resolveGithub,
+  resolveTtl,
+  writeMachineConfigExample,
+} from "./machine.js";
 
 let env: NodeJS.ProcessEnv;
 
@@ -117,7 +126,7 @@ describe("writeMachineConfigExample", () => {
   it("writes a file that loads back as the documented default", async () => {
     const file = await writeMachineConfigExample(env);
     expect(file).toBe(paths(env).configFile);
-    expect(await loadMachineConfig(env)).toEqual({ ttl: DEFAULT_TTL });
+    expect(await loadMachineConfig(env)).toEqual({ ttl: DEFAULT_TTL, github: DEFAULT_GITHUB });
   });
 
   it("says how to change the setting, in the file itself", async () => {
@@ -131,5 +140,51 @@ describe("writeMachineConfigExample", () => {
     await write("ttl: 3d\n");
     expect(await writeMachineConfigExample(env)).toBeUndefined();
     expect(await loadMachineConfig(env)).toEqual({ ttl: "3d" });
+  });
+});
+
+describe("resolveGithub", () => {
+  it("is off when nothing says otherwise", () => {
+    expect(resolveGithub()).toBe("none");
+    expect(DEFAULT_GITHUB).toBe("none");
+  });
+
+  it("takes the file's top-level setting", () => {
+    expect(resolveGithub({ config: { github: "token" } })).toBe("token");
+  });
+
+  it("lets a project entry beat the file, in both directions", () => {
+    expect(resolveGithub({ project: "acme", config: { projects: { acme: { github: "token" } } } })).toBe("token");
+    // The direction that matters: a machine that hands its token to everything
+    // must still be able to withhold it from one project.
+    expect(
+      resolveGithub({ project: "acme", config: { github: "token", projects: { acme: { github: "none" } } } }),
+    ).toBe("none");
+  });
+
+  it("ignores an entry for a different project", () => {
+    expect(resolveGithub({ project: "other", config: { projects: { acme: { github: "token" } } } })).toBe("none");
+  });
+});
+
+describe("loadMachineConfig, the github field", () => {
+  let home: string;
+
+  beforeEach(async () => {
+    home = await mkdtemp(join(tmpdir(), "sandboxr-machine-gh-"));
+  });
+
+  it("reads it at both levels", async () => {
+    await writeFile(paths({ SANDBOXR_HOME: home }).configFile, "github: token\nprojects:\n  acme: { github: none }\n");
+    const config = await loadMachineConfig({ SANDBOXR_HOME: home });
+    expect(config.github).toBe("token");
+    expect(config.projects?.acme?.github).toBe("none");
+  });
+
+  it("refuses a value it does not recognise, rather than reading it as off", async () => {
+    // `github: true` is the obvious thing to write and would silently mean
+    // nothing at all — which for a credential setting is the wrong way to fail.
+    await writeFile(paths({ SANDBOXR_HOME: home }).configFile, "github: yes\n");
+    await expect(loadMachineConfig({ SANDBOXR_HOME: home })).rejects.toThrow(/github/);
   });
 });

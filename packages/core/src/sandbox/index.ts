@@ -16,6 +16,7 @@ import {
   domainOf,
   ensureBaseImage,
   ensureSandboxCertificate,
+  hostGhToken,
   portSuffix,
   routerPorts,
   routerScheme,
@@ -23,7 +24,7 @@ import {
 } from "../access/index.js";
 import { allowsRealCredentials } from "../config/access.js";
 import { loadConfig } from "../config/load.js";
-import { loadMachineConfig, resolveTtl } from "../config/machine.js";
+import { loadMachineConfig, resolveGithub, resolveTtl } from "../config/machine.js";
 import { resolveDeps } from "../config/deps.js";
 import { planFor, writePlan } from "../config/plan.js";
 import type { ResolvedConfig } from "../config/types.js";
@@ -32,7 +33,7 @@ import { driverContext, getDriver } from "../drivers/index.js";
 import { chooseSeed } from "../drivers/seed.js";
 import { describeSeedChoice, mysqlSettings } from "../drivers/mysql.js";
 import type { SeedArtifact } from "../drivers/types.js";
-import { gitFacts } from "../git.js";
+import { gitFacts, gitMounts, hostGitIdentity } from "../git.js";
 import { findProject } from "../workspace.js";
 import { addWorktree } from "../worktree.js";
 import { lastActivity } from "./activity.js";
@@ -193,16 +194,20 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     await docker.rm(container, { force: true });
   }
 
+  // The machine's own settings, read once: they decide both the idle limit and
+  // whether this project's sandboxes may carry this machine's GitHub token. A
+  // malformed config file throws from here rather than being papered over — see
+  // the note at the top of ../config/machine.ts.
+  const machine = await loadMachineConfig(env);
+
   // The idle limit, resolved once here so the CLI and the dashboard cannot
   // disagree about it: `--ttl` beats the project's entry in
   // `~/.sandboxr/config.yaml`, which beats that file's top-level `ttl`, which
-  // beats `SANDBOXR_TTL_HOURS`, which beats the built-in twelve hours. A
-  // malformed config file throws from here rather than being papered over — see
-  // the note at the top of ../config/machine.ts.
+  // beats `SANDBOXR_TTL_HOURS`, which beats the built-in twelve hours.
   const wanted = resolveTtl({
     explicit: options.ttl,
     project: config.project,
-    config: await loadMachineConfig(env),
+    config: machine,
     env,
   });
   // An unreadable ttl is refused by name rather than silently becoming a
@@ -245,6 +250,39 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // sandbox rather than once for the machine.
   await ensureSandboxCertificate({ project: config.project, slug, labels: labelsOf(config), env, log });
 
+  // What git inside the container needs from the host, and who it commits as.
+  // Both are read here rather than in runArgs, which is a pure function over an
+  // input record precisely so every mount can be asserted without a daemon.
+  const gitPaths = await gitMounts(projectRoot);
+  const gitIdentity = await hostGitIdentity(env);
+  if (gitPaths.length === 0) {
+    // Said once, at the only moment somebody can act on it. A sandbox on a
+    // directory that is not the top of a checkout is perfectly runnable — it
+    // just has no working git, and discovering that from `fatal: not a git
+    // repository` three commands into an agent session is the failure this
+    // whole mechanism exists to remove.
+    log("This tree is not the top of a git checkout, so git will not work inside the sandbox.");
+  }
+
+  // The GitHub token, only if this machine opted this project in (§4.3). Not
+  // resolved at all otherwise: `hostGhToken` shells out to `gh` on a machine
+  // that may not have it, and a credential nobody asked for should not even be
+  // read into this process.
+  const ghToken = resolveGithub({ project: config.project, config: machine }) === "token"
+    ? await hostGhToken(env)
+    : undefined;
+  // Not a refusal, unlike the seed and secret rules in ../config/access.ts, and
+  // the difference is worth being clear about. Those exist because *anyone who
+  // can reach a public app* can make it spend the credential; nothing serves
+  // GH_TOKEN over http, so reading it needs code execution in the container.
+  // But a public sandbox is a dev build of an unfinished branch on an open
+  // hostname, and code execution is not a far-fetched thing to find in one — so
+  // an operator who opted this project in is told, on the run where it applies,
+  // that those two decisions have met.
+  if (ghToken && config.access.apps === "public") {
+    log(`${config.project}'s apps are public and it carries this machine's GitHub token.`);
+  }
+
   log(`Starting ${slug} from ${facts.branch}@${facts.commit}${facts.dirty ? " (dirty)" : ""}`);
   await docker.ok(
     runArgs({
@@ -260,6 +298,9 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
       depsHash: deps ? await depsHashFor(projectRoot, deps) : undefined,
       image,
       with: options.with,
+      gitMounts: gitPaths,
+      gitIdentity,
+      ghToken,
       routerLabels: sandboxRouteLabels({
         container,
         slug,

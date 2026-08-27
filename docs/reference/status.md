@@ -130,6 +130,29 @@ dashboard process, which is the only always-on component holding the Docker sock
 whose dashboard is usually stopped, sandboxes live until something stops them. `SANDBOXR_REAP_MINUTES=0`
 is the honest way to say so.
 
+### git and `gh` in a sandbox
+
+Both were run against a real sandbox rather than reasoned about, because the bug being fixed was
+invisible from the host.
+
+- **Run for real:** `git status`, `git log -1`, `git diff --cached` and a genuine `git commit` in a
+  restarted `demo` sandbox, the commit carrying the host's name and address; the commit was then
+  reset and the host's checkout confirmed to agree. `gh --version` and `gh auth status` reported an
+  authenticated account, and `git credential fill` plus an https `ls-remote` proved git's own
+  credential path end to end.
+- **Not run:** an actual `git push` and an actual `gh pr create`. Both were deliberately left
+  undone rather than tested against a real repository, so the last inch — a branch really arriving
+  on a remote from inside a container — is unproven.
+- **Not run:** any of this on a Linux host. The `safe.directory` line in the base image exists for
+  exactly that case (on Docker Desktop's macOS VM the mounted files already appear as root, so it
+  does nothing there), and it has been reasoned about, not exercised.
+- **Unit-tested only:** `gitMounts`'s four cases, the machine-config precedence for `github`, and
+  the mounts and variables `runArgs` produces.
+
+Worth knowing: before this, **no git command worked in any sandbox** — a linked worktree's `.git`
+names its repository by absolute path, and only the worktree was mounted. Agent sessions had been
+allowlisted for `git status`, `git diff`, `git add` and `git commit` the whole time.
+
 ### Fixed after running it against a real project
 
 - **A named sandbox no longer needs `--worktree`.** `status`, `logs`, `shell` and `reload` take the

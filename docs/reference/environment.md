@@ -142,9 +142,20 @@ do not set these.
 | `SANDBOXR_S3_KEY`, `SANDBOXR_S3_SECRET` | `storage: minio` |
 | `SANDBOXR_WITH` | `up --with` was used |
 | `SANDBOXR_SEED` | a seed source was chosen |
+| `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` | this machine has a `git config user.name` and `user.email` |
+| `GH_TOKEN` | `~/.sandboxr/config.yaml` says `github: token` for this project |
 
 The project's secrets file, when one exists and is permitted, is passed as a second `--env-file`
 **underneath** this one, so a generated value always wins over an imported one.
+
+The four `GIT_*` variables are how a sandbox knows who a commit is by. A sandbox has no
+`~/.gitconfig` — and the host's is deliberately not mounted, because it names a credential helper
+and a signing key that do not exist inside a container — so without them `git commit` refuses:
+git tries to invent an address from the hostname, and a container hostname has no domain. Both
+pairs are set, because git fails on whichever is missing.
+
+`GH_TOKEN` is off by default, and turning it on is a decision worth making on purpose — see
+[Access and security](../access.md#a-sandbox-that-can-open-a-pull-request).
 
 ## 3. Variables the sandbox works out for itself
 

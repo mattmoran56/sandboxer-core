@@ -11,13 +11,14 @@
  * The layout is workspace.ts's: `<project>/wt/<slug>`, one directory per branch.
  */
 
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
 import { branchOf } from "./git.js";
 import { sanitizeSlug } from "./naming.js";
+import { samePath } from "./paths.js";
 import type { Project } from "./workspace.js";
 
 export interface Worktree {
@@ -162,28 +163,6 @@ export function parseWorktreeList(porcelain: string): RawWorktree[] {
   }
 
   return entries;
-}
-
-/**
- * The path git will call this path.
- *
- * git records a worktree by its *resolved* path, so on any machine where a
- * parent directory is a symlink — macOS's `/tmp` and `/var/folders` are both
- * symlinks into `/private`, and plenty of people keep their code under one — the
- * path handed in never string-matches the path `worktree list` reports back.
- * That mismatch does not look like a symlink problem: it looks like git having
- * created a worktree it then denies exists.
- */
-function canonical(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-}
-
-function samePath(a: string, b: string): boolean {
-  return a === b || canonical(a) === canonical(b);
 }
 
 function shortSha(head: string): string {

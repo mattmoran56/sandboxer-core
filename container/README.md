@@ -13,7 +13,7 @@ Everything below implements it.
 
 | Path | What it is |
 |---|---|
-| `base/Dockerfile` | The generic base image: s6, Caddy, MinIO, these scripts |
+| `base/Dockerfile` | The generic base image: s6, Caddy, MinIO, `git`, `gh`, `claude`, these scripts |
 | `base/s6/` | The s6 bundle skeleton, copied in at boot and then added to |
 | `project/Dockerfile.template` | The per-project layer, rendered by the host |
 | `scripts/` | Everything the services actually run |
@@ -31,9 +31,13 @@ project: the toolchain versions, the database engine and the `node_modules` were
 all facts about one repository.
 
 - **`base/Dockerfile`** — Debian bookworm, s6-overlay, Caddy, MinIO, `jq`,
-  `envsubst`, and these scripts. Nothing project-specific. Shared by every sandbox
-  of every project on the machine, and it stays small so that adding a project
-  costs one thin layer rather than another few gigabytes.
+  `envsubst`, `git`, `gh`, `claude`, and these scripts. Nothing project-specific.
+  Shared by every sandbox of every project on the machine, and it stays small so
+  that adding a project costs one thin layer rather than another few gigabytes.
+  `claude` and `gh` are the two deliberate exceptions to "small": they are there
+  because the point of a sandbox is that the branch in it can be *finished*, and
+  a sandbox that can run the tests but not open the pull request sends you back
+  to the host for the last step — the step you were trying to delegate.
 - **`project/Dockerfile.template`** — rendered per project into a layer on top,
   adding exactly what that project's `toolchain:` and `database:` blocks declare,
   plus its dependency install.
@@ -196,6 +200,17 @@ Mounts the host is expected to provide:
 | `/srv/www` | the `www` volume |
 | `/workspace/<deps.root>/node_modules` | the shared `deps-<hash>` volume |
 | `/root/.claude` | the machine-wide `sandboxr-claude` volume: Claude Code's state, shared by every sandbox so an MCP server is authorised once per machine rather than once per worktree |
+| `<the worktree's own host path>` | the worktree a second time, at the path the host calls it |
+| `<the repository's own host path>` | the bare repo or `.git` the worktree points at, read-write |
+
+**The last two are what make `git` work in here, and they are mounted at the
+identical path inside and out on purpose.** A linked worktree's `.git` is a file
+holding `gitdir: <repo>/worktrees/<name>` — an absolute host path — so a
+container with only `/workspace` fails every git command with `fatal: not a git
+repository` naming a directory that is not there. The repository mount is
+read-write because `git commit` writes objects and refs into it. Neither is
+present for a plain checkout, whose `.git` is inside `/workspace` already; the
+host decides, in `gitMounts` (packages/core/src/git.ts), which is which.
 
 Environment: `SANDBOXR_SLUG` is required. `SANDBOXR_DOMAIN` (default `sbx.lcl`),
 `SANDBOXR_PROJECT`, `SANDBOXR_WITH`, `SANDBOXR_SEED`, `SANDBOXR_DB_USER`,
@@ -204,6 +219,19 @@ defaults. `CLAUDE_CONFIG_DIR` is set to `/root/.claude` — Claude Code keeps it
 OAuth account and personal MCP servers in `~/.claude.json`, a file *beside* that
 directory, so without this the volume persists the session history and loses the
 login.
+
+`GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and
+`GIT_COMMITTER_EMAIL` carry the host's commit identity. Both pairs, because git
+fails on whichever is missing, and as variables rather than a mounted
+`~/.gitconfig`, which would bring a credential helper and a signing key that do
+not exist in here. Without them git refuses to commit at all: it tries to invent
+an address from the hostname, and a container hostname has no domain.
+
+`GH_TOKEN` is present only when the machine opted this project in (contracts
+§4.3). `gh` reads it by itself, and the image's `/etc/gitconfig` points git's
+https credential helper at `gh auth git-credential`, so that one variable is what
+makes both `gh` and `git push` work. Absent, `gh` reports itself logged out and a
+push fails the way an unauthenticated push always did.
 
 ## Startup
 
