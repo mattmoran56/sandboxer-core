@@ -185,6 +185,12 @@ export function depsVolumeName(lockHash: string): string {
  * carries `org:create_api_key` and reaches every connector on the account. If a
  * later change needs isolation between sandboxes, this is the line to revisit,
  * and the price of revisiting it is logging in once per sandbox again.
+ *
+ * A second, quieter consequence: Claude Code keys its per-project state on the
+ * working directory, and every sandbox's worktree is `/workspace`, so all of
+ * them share one project entry. A locally-scoped MCP server added inside one
+ * sandbox is therefore visible in all of them, which is convenient right up
+ * until someone wonders where a server they never configured came from.
  */
 export const CLAUDE_VOLUME = "sandboxr-claude";
 

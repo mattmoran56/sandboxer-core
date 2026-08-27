@@ -96,7 +96,15 @@ The paths under that one hostname are §7.1.
 - Volumes: `sandboxr-<purpose>-<project>-<slug>` where purpose is one of
   `data` (database), `blob` (object storage), `bin` (built binaries), `www` (built sites).
 - Shared volumes: `sandboxr-deps-<hash>` (node_modules, keyed on lockfile),
-  `sandboxr-gocache`, `sandboxr-gomod`.
+  `sandboxr-gocache`, `sandboxr-gomod`, `sandboxr-claude` (an agent session's credential
+  store, mounted at `/root/.claude` with `CLAUDE_CONFIG_DIR` pointing at it — see §7.2).
+
+`sandboxr-claude` is shared by every sandbox on the machine **on purpose**, and the trade is
+part of the contract rather than an implementation detail: sharing it is what makes an MCP
+server something you sign into once rather than once per worktree, and it means every sandbox
+can read every credential in it. None of these shared volumes is ever reaped by the collector
+when a sandbox is deleted (§ garbage collection); reaping this one would silently sign the
+machine out of every server it had been given.
 
 ### 3.4 Container labels
 
