@@ -209,6 +209,28 @@ Common causes, in order:
 | The router is serving HTTP and you asked for HTTPS | `mkcert -install`, then `sandboxr init` again |
 | The sandbox was started while the router was down | `sandboxr up` again — it warns when the router is not running |
 
+### An `https://` app hostname says the site cannot be reached
+
+Nothing is listening on 443. The router only terminates TLS when a trusted certificate exists
+on the machine, so on one that has never run `mkcert` it listens on port 80 alone — and an
+`https://` URL for it fails to connect before any of sandboxr is involved, which is why the
+browser blames the site rather than the missing certificate.
+
+Check what the router is actually serving:
+
+```bash
+docker port sandboxr-router          # 80 alone, or 80 and 443
+ls ~/.sandboxr/state/dynamic         # cert-<domain>.yml exists only when TLS is configured
+```
+
+Either drop the `s` for now, or set TLS up properly — see the next entry. The dashboard reads
+the scheme off the router rather than assuming one, so once `sandboxr init` has written a
+certificate the links it prints become `https://` on their own.
+
+> [!NOTE]
+> The examples throughout these pages are written `https://`, because that is a machine with a
+> certificate. A machine without one serves the same hostnames over `http://`.
+
 ### The browser warns about the certificate
 
 The router is serving a certificate your machine has no reason to trust.
