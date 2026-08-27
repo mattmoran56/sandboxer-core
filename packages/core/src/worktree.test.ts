@@ -6,6 +6,9 @@
 // - addWorktree: a post-checkout hook that fails after the checkout does not lose the worktree
 // - addWorktree: a branch name beginning "-" or containing ".." is refused
 // - listWorktrees: a directory deleted by hand is still listed, with exists:false
+// - listWorktrees: `committed` is git's own ISO date, and "" for every way reading it can fail
+// - listWorktrees: `created` is the directory's birthtime, or "" where the filesystem has none
+// - listWorktrees: a worktree that is gone is asked for neither date
 // - removeWorktree: the worktree and its admin entry both go
 // - listBranches: local and remote are one branch, named without the origin/ prefix
 //
@@ -22,6 +25,7 @@ import { promisify } from "node:util";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import type { ExecResult, Runner } from "./docker.js";
 import { branchOf } from "./git.js";
 import type { Project } from "./workspace.js";
 import { addWorktree, listBranches, listWorktrees, parseWorktreeList, removeWorktree } from "./worktree.js";
@@ -305,4 +309,94 @@ describe("a post-checkout hook that fails", () => {
     },
     GIT_TIMEOUT,
   );
+});
+
+/**
+ * The two dates, against a stubbed git and real directories.
+ *
+ * Real directories because `exists` is checked on the filesystem and both dates
+ * hang off it; a stubbed git because the interesting cases are the failures — an
+ * unreadable repository, a branch with no commits, a runner that throws — and
+ * none of them is arrangeable on a repository that works.
+ */
+describe("the dates a worktree carries", () => {
+  let root: string;
+  let project: Project;
+  let tree: string;
+
+  const porcelain = (path: string): string =>
+    [`worktree ${path}`, "HEAD abc1234def5678", "branch refs/heads/main", ""].join("\n");
+
+  const ok = (stdout: string): ExecResult => ({ code: 0, stdout, stderr: "" });
+
+  /** A runner that answers the listing, and whatever it is given for `git log`. */
+  const runner =
+    (log: ExecResult | Error): Runner =>
+    async (_bin, args) => {
+      if (args.includes("--porcelain")) return ok(porcelain(tree));
+      if (log instanceof Error) throw log;
+      return log;
+    };
+
+  beforeAll(async () => {
+    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxr-worktree-dates-")));
+    tree = join(root, "wt", "main");
+    await exec("mkdir", ["-p", tree]);
+    project = { name: "demo", repo: join(root, "repo.git"), worktrees: join(root, "wt"), base: "main", origin: "" };
+  });
+
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it.each([
+    // `%cI` keeps the offset the commit was made with, which is the reason to ask
+    // for it rather than for a rendered date: `%cd` follows the machine's own
+    // `log.date` setting, so a gitconfig saying `relative` would have this
+    // answering "3 days ago".
+    ["git's own strict ISO date", ok("2026-08-24T09:00:00+01:00\n"), "2026-08-24T09:00:00+01:00"],
+    ["a UTC one", ok("2026-08-24T09:00:00Z\n"), "2026-08-24T09:00:00Z"],
+    ["a repository git will not read", { code: 128, stdout: "", stderr: "fatal: not a git repository" }, ""],
+    // A branch created and never committed to. git exits zero and prints
+    // nothing, which is neither an error nor a date.
+    ["a branch with no commits", ok("\n"), ""],
+    ["a runner that throws outright", new Error("git is not installed"), ""],
+  ])("reads %s as %j", async (_name, log, expected) => {
+    const [worktree] = await listWorktrees(project, { run: runner(log) });
+    expect(worktree?.committed).toBe(expected);
+  });
+
+  it("still answers a listing when reading the date threw", async () => {
+    await expect(listWorktrees(project, { run: runner(new Error("boom")) })).resolves.toHaveLength(1);
+  });
+
+  // Not asserted as an exact instant: the value comes from the filesystem, and
+  // the filesystems with no birthtime at all are exactly the case the guard
+  // exists for. Either answer is right; a date from 1970 or from next year is
+  // not, and both are what an unguarded `birthtime` hands back.
+  it("stamps the directory's own creation time, or says nothing", async () => {
+    const [worktree] = await listWorktrees(project, { run: runner(ok("2026-08-24T09:00:00Z\n")) });
+    const created = worktree?.created ?? "";
+    if (created === "") return;
+
+    const at = Date.parse(created);
+    expect(Number.isFinite(at)).toBe(true);
+    expect(at).toBeGreaterThan(Date.now() - 600_000);
+    expect(at).toBeLessThanOrEqual(Date.now() + 1000);
+  });
+
+  it("asks for neither date about a worktree that is no longer on disk", async () => {
+    const asked: string[][] = [];
+    const gone = join(root, "wt", "vanished");
+    const run: Runner = async (_bin, args) => {
+      asked.push(args);
+      return args.includes("--porcelain") ? ok(porcelain(gone)) : ok("2026-08-24T09:00:00Z");
+    };
+
+    const [worktree] = await listWorktrees(project, { run });
+    expect(worktree?.exists).toBe(false);
+    expect(worktree?.committed).toBe("");
+    expect(worktree?.created).toBe("");
+    expect(asked.some((args) => args.includes("log"))).toBe(false);
+  });
 });

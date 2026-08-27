@@ -11,7 +11,7 @@
  * The layout is workspace.ts's: `<project>/wt/<slug>`, one directory per branch.
  */
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -31,6 +31,20 @@ export interface Worktree {
   detached: boolean;
   /** Whether the directory is really on disk. */
   exists: boolean;
+  /**
+   * ISO 8601 of the HEAD commit, or `""` when it cannot be read.
+   *
+   * "When did anybody last work on this" is the question a list of worktrees is
+   * really sorted by, and a branch name does not answer it. Empty rather than a
+   * guess: a worktree whose directory has gone has no commit to read, and a
+   * fabricated date would sort it somewhere it does not belong.
+   */
+  committed: string;
+  /**
+   * ISO 8601 of the directory's creation time, or `""` where the filesystem has
+   * no answer. See `createdAt` for why that is a real possibility.
+   */
+  created: string;
 }
 
 export interface Branch {
@@ -216,9 +230,70 @@ async function hydrate(run: Runner, entries: RawWorktree[]): Promise<Worktree[]>
   for (const entry of entries) {
     const exists = existsSync(entry.path);
     const branch = entry.branch === UNKNOWN && exists ? await branchOf(entry.path, run) : entry.branch;
-    out.push({ path: entry.path, branch, head: shortSha(entry.head), detached: entry.detached, exists });
+    out.push({
+      path: entry.path,
+      branch,
+      head: shortSha(entry.head),
+      detached: entry.detached,
+      exists,
+      // Both dates are asked only of a worktree that is really there. A
+      // directory git still lists but nobody can open has no commit to log and
+      // nothing to stat, and asking would spend a process to learn that.
+      committed: exists ? await committedAt(run, entry.path) : "",
+      created: exists ? createdAt(entry.path) : "",
+    });
   }
   return out;
+}
+
+/**
+ * When HEAD was committed, as git formats it.
+ *
+ * `%cI` is git's strict ISO 8601, which is the one format that survives being
+ * parsed by anything else — `%cd` follows the machine's `log.date` setting, so a
+ * developer with `log.date = relative` in their gitconfig would have this
+ * answering "3 days ago". Anything that goes wrong is `""`: `listWorktrees` is
+ * documented never to throw, and a worktree on a commit nobody can read is
+ * still a worktree somebody may want to delete.
+ */
+async function committedAt(run: Runner, dir: string): Promise<string> {
+  try {
+    const result = await git(run, dir, ["log", "-1", "--format=%cI"]);
+    if (result.code !== 0) return "";
+    return result.stdout.trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * How far ahead of now a birthtime may be before it is treated as no answer.
+ *
+ * Not zero, because a worktree on a network mount is stamped by the server's
+ * clock and a few minutes of skew is ordinary. A day is well past skew and well
+ * short of the values a filesystem invents when it has no birthtime at all.
+ */
+const BIRTHTIME_SLACK_MS = 24 * 3600_000;
+
+/**
+ * When the directory was created, as the filesystem reports it.
+ *
+ * Guarded, because plenty of filesystems do not record a birthtime and Node has
+ * to answer something anyway: ext4 without `crtime`, and several network and
+ * container filesystems, report the epoch — and a few report a value from the
+ * future. Either would be rendered as a date, so this answers `""` and lets the
+ * caller say nothing rather than say something wrong.
+ */
+function createdAt(path: string): string {
+  try {
+    const at = statSync(path).birthtime;
+    const ms = at.getTime();
+    if (!Number.isFinite(ms) || ms <= 0) return "";
+    if (ms > Date.now() + BIRTHTIME_SLACK_MS) return "";
+    return at.toISOString();
+  } catch {
+    return "";
+  }
 }
 
 async function localBranchExists(run: Runner, project: Project, branch: string): Promise<boolean> {
