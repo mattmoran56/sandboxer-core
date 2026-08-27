@@ -607,7 +607,7 @@ is additionally checked against the session's grant.
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
 | `GET /api/p/:project/s/:slug/agent/runs` | The agent sessions recorded against one sandbox, newest first. The index only — never message content (§7.2) |
 | `GET /api/agent/models` | The models a session may run on, and the one this machine defaults to. A closed table (§7.2) |
-| `GET /api/p/:project/s/:slug/agent/commands` | The slash commands a session on that sandbox can be offered, each marked sendable or not (§7.2) |
+| `GET /api/p/:project/s/:slug/agent/commands` | The slash commands a session on that sandbox can be offered, each marked sendable or not, and each refused one carrying the sentence it is refused with (§7.2) |
 
 `GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
 part of the contract because each was learnt from the version this replaced: nothing is fetched
@@ -738,15 +738,30 @@ The built-ins are a **closed table** in core, on the same reasoning as the model
 becomes the text of a message sent into a process in a container. Only commands that work without a
 terminal are in it — Claude Code's `-p` mode runs skills, custom commands and a documented subset of
 the built-ins, and a terminal-only one such as `/login` is not an error the person sees but a turn
-spent on nothing.
+spent on nothing. Two free sources say which is which and they agree: the shipped binary marks each
+command `supportsNonInteractive`, and a running session announces the resulting set as
+`slash_commands` on its `system`/`init` line. Neither costs a turn, and the table is worth
+re-checking against them whenever the image's `claude` is upgraded. What `init` does not carry is
+descriptions, which is why the table is written out rather than read off the session.
 
 **`sendable: false` marks a command that is listed and must not be sent, and the socket enforces it
 too.** A `{"t":"send"}` whose first token is one of them is answered with an error frame and never
-forwarded, because a rule enforced only in the browser is not a rule. Three are refused, each for
+forwarded, because a rule enforced only in the browser is not a rule. Four are refused, each for
 its own reason: `/clear` starts a *new* Claude Code session while this run's transcript is still
-being written against the old id; `/login` only exists in a terminal; and `/model` would change a
+being written against the old id; `/login` only exists in a terminal; `/model` would change a
 run's model after the index has recorded it, which is the same promise a joining socket keeps when
-the running session's model wins.
+the running session's model wins; and `/btw` draws a side panel, so a headless session gets a
+synthetic "isn't available in this environment" for it and nothing else. Each refused row carries
+the sentence it is refused with, in `refusal`, and no other row carries one — the reason a command
+is stopped is a fact about what a session does, so the browser says it rather than composing one.
+
+**The table is a menu, not an allowlist.** Those four names are the whole of what the socket
+refuses. Every other message beginning with `/` is forwarded verbatim — a command Claude Code
+gained after this table was written, one of the skills bundled in the binary, a worktree command
+added since the pane loaded, a pasted path, a sentence, a bare slash. A closed table decides what
+sandboxr *offers* and what it *stops*; what a person may type is not sandboxr's to decide, and a
+table one release behind Claude Code has to degrade into "pass it on" rather than into "you may not
+type this".
 
 **The exec has no TTY, and that is not an optimisation.** A TTY echoes what is written to it, so
 a process exchanging newline-delimited JSON would receive its own input back interleaved with
