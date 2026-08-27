@@ -94,17 +94,19 @@ Set on the dashboard's own process. `sandboxr init` sets the ones that matter.
 | `SANDBOXR_CLAUDE_TOKEN` | — |
 | `SANDBOXR_CLAUDE_MCP` | — |
 | `SANDBOXR_CLAUDE_MODEL` | `claude-opus-5` |
+| `SANDBOXR_CLAUDE_PERMISSION_MODE` | `auto` |
 
 Every `SANDBOXR_PASSWORD*` variable is read once at startup and then **deleted from the
 environment**, so nothing the dashboard spawns inherits it.
 
-#### The three for agent sessions
+#### The four for agent sessions
 
 | Variable | What it does |
 |---|---|
 | `SANDBOXR_CLAUDE_TOKEN` | The credential every [agent session](../guides/agent-sessions.md) runs with. Mint it with `claude setup-token` on the host. Passed into the container as `CLAUDE_CODE_OAUTH_TOKEN` for the length of a session and written nowhere. Without it, opening a session fails and says so. `CLAUDE_CODE_OAUTH_TOKEN` is read as a fallback, for a host that already has one set |
 | `SANDBOXR_CLAUDE_MCP` | MCP servers every session is given, as the JSON a `.mcp.json` holds — the whole file or just the `mcpServers` map. This is the *only* route: a setup-token does not load claude.ai connectors, so nothing you added there is visible inside a sandbox. A value that will not parse is treated as no servers rather than stopping the dashboard from booting |
 | `SANDBOXR_CLAUDE_MODEL` | Which model a session runs on when the dashboard does not pick one. It has to be one of the models sandboxr offers — `claude-opus-5`, `claude-sonnet-5`, `claude-opus-4-8`, `claude-haiku-4-5` — and anything else falls back to `claude-opus-5` rather than stopping the dashboard from booting. A session opened on a specific model runs on that one instead; this is only the answer when nothing asks |
+| `SANDBOXR_CLAUDE_PERMISSION_MODE` | Which [permission mode](../guides/agent-sessions.md#permissions) a session *starts* in when the dashboard does not pick one — `auto`, `acceptEdits`, `manual`, `plan` or `dontAsk`. Anything else falls back to `auto` rather than stopping the dashboard from booting, and that includes `bypassPermissions`: it is a spelling of `--dangerously-skip-permissions`, which Claude Code refuses when running as root, and every sandbox is root — so honouring it would give you a dashboard where every session died instantly and silently. It applies to sessions and **never** to a `/btw`. The dropdown beside the model picker changes a running session's mode without restarting it; this is only where one begins |
 
 #### The one variable that is not ours
 

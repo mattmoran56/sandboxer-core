@@ -620,7 +620,9 @@ is additionally checked against the session's grant.
 | `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its project's config declares |
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
 | `GET /api/p/:project/s/:slug/agent/runs` | The agent sessions recorded against one sandbox, newest first. The index only — never message content (§7.2) |
-| `GET /api/agent/models` | The models a session may run on, and the one this machine defaults to. A closed table (§7.2) |
+| `GET /api/agent/models` | The models a session may run on **and the permission modes it may run in**, with the ones this machine defaults to. Two closed tables, one read, because the browser draws two controls that sit side by side (§7.2, §7.2.2) |
+| `GET /api/p/:project/agent/grants` | The standing permissions this project has been granted — the rule as Claude Code will match it, and where it was granted from (§7.2.2) |
+| `DELETE /api/p/:project/agent/grants/:id` | Withdraws one. The only `DELETE` in the API; `SameSite=Lax` on the session cookie is what protects it, as it protects every `POST` beside it. Takes effect on the next session (§7.2.2) |
 | `GET /api/p/:project/s/:slug/agent/commands` | The slash commands a session on that sandbox can be offered, each marked sendable or not, each refused one carrying the sentence it is refused with, and the one sandboxr answers itself marked `handledBy` (§7.2) |
 
 `GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
@@ -685,12 +687,13 @@ protocol repeated:
 
 | Kind | What it says |
 |---|---|
-| `session` | The session opened: model, working directory, tools, and which MCP servers will silently have none |
+| `session` | The session opened: model, working directory, tools, and which MCP servers **failed**. `failed` only: `pending` is the ordinary state of a cached server, and `needs-auth` means somebody added a server and has not signed into it, which is a choice rather than a fault. Both were drawn in the red of a broken thing on every session, naming servers the reader had deliberately not authorised — which is how a warning stops meaning anything. `/mcp` reports the whole picture on demand |
 | `text` | Prose, from either side |
 | `thinking` | The model is reasoning. The text is often empty, and the marker is still worth drawing |
 | `tool` / `tool-result` | One tool call and its answer, rendered as one card. A call that spawned a subagent says so |
 | `result` | The turn ended. The only place cost and duration are stated |
 | `compacted` | History was summarised away, with how many tokens were in play and whether anyone asked |
+| `ask` / `ask-result` | A permission question and what was decided, rendered as one card — the same pairing `tool`/`tool-result` uses. The one event a reader has to *act* on: the turn is stopped until it is answered (§7.2.2) |
 | `retry` | A retryable API failure, on its way to resolving itself or becoming an error |
 | `error` | The session failed — not a tool that did |
 
@@ -813,7 +816,7 @@ it is a real limit. Removing it means running the agent detached *inside* the co
 attaching to its output instead of owning its process.
 
 **The socket** is `/p/:project/s/:slug/agent`, authenticated before the upgrade completes like
-the terminal's (§3.2), with an optional `?resume=<sessionId>` and `?model=<id>`. A socket opened
+the terminal's (§3.2), with an optional `?resume=<sessionId>`, `?model=<id>` and `?mode=<id>`. A socket opened
 on a sandbox that already has a session joins it, and **the running session's model wins over the
 one asked for** — a conversation is a thing one model had, and switching mid-way would make its own
 transcript misleading. Unlike the terminal there are no binary frames at all — both directions are
@@ -821,8 +824,8 @@ JSON text:
 
 | Direction | Frames |
 |---|---|
-| browser → server | `{"t":"send","text":…}`, `{"t":"interrupt"}` (end the turn), `{"t":"stop"}` (end the session), and the three fork frames of §7.2.1 |
-| server → browser | `{"t":"ready",…}`, `{"t":"session",…}`, `{"t":"event","event":…}`, `{"t":"state",…}`, `{"t":"usage","tokens":…}`, `{"t":"error",…}`, plus `{"t":"forks",…}` and `{"t":"fork",…}` (§7.2.1) |
+| browser → server | `{"t":"send","text":…}`, `{"t":"interrupt"}` (end the turn), `{"t":"stop"}` (end the session), `{"t":"answer","id":…,"decision":"allow"\|"always"\|"deny"}` and `{"t":"mode","mode":…}` (§7.2.2), and the three fork frames of §7.2.1 |
+| server → browser | `{"t":"ready",…}`, `{"t":"session",…}`, `{"t":"event","event":…}`, `{"t":"state",…}`, `{"t":"usage","tokens":…}`, `{"t":"error",…}`, plus `{"t":"forks",…}` and `{"t":"fork",…}` (§7.2.1) and `{"t":"asks",…}` and `{"t":"mode",…}` (§7.2.2) |
 
 A reconnect replays the transcript from disk before the live stream starts, so the socket only
 ever carries what happens from now on.
@@ -897,17 +900,16 @@ part of the contract because it is invisible otherwise: **a setup-token does not
 connectors**, so MCP servers are named to the machine (`SANDBOXR_CLAUDE_MCP`) and passed on the
 session's command line rather than inherited from the host's connector list.
 
-**The container is the permission boundary**, and a session runs with `acceptEdits` — *not*
-`bypassPermissions`, which is impossible here rather than merely unwise. `bypassPermissions` is a
-spelling of `--dangerously-skip-permissions`, Claude Code refuses that outright when running as
-root, and sandboxes run as root; a session configured that way exits at once with the refusal on
-stderr and nothing on the event stream. So the default is `acceptEdits` plus a closed allowlist of
-commands (`DEFAULT_ALLOWED_TOOLS`), which is the only arrangement whose behaviour is fully defined
-while nothing on the host can answer a permission prompt. `SANDBOXR_CLAUDE_PERMISSION_MODE`
-overrides it **for sessions, never for a side question** — that setting is an operator's judgement
-about the sessions people work in, and §7.2.1 is the whole of what a fork may do. What contains a
-session is the sandbox: the worktree, the project's own services, and nothing else. When prompts
-become answerable this paragraph changes.
+**The container is the permission boundary**, and what contains a session is the sandbox: the
+worktree, the project's own services, and nothing else. Inside that, §7.2.2 is how a session asks
+and how a person answers.
+
+`bypassPermissions` is impossible here rather than merely unwise, and it is therefore not in the
+table at all. It is a spelling of `--dangerously-skip-permissions`, Claude Code refuses that
+outright when running as root, and sandboxes run as root; a session configured that way exits at
+once with the refusal on stderr and nothing on the event stream. It stays in the `PermissionMode`
+type for the day a sandbox runs as somebody else, and `SANDBOXR_CLAUDE_PERMISSION_MODE` falls back
+to the default rather than honouring it.
 
 **The model is chosen from a closed table**, `AGENT_MODELS` in core, defaulting to Claude Opus 5.
 The browser asks for one with `?model=` on the upgrade and an id outside the table is refused
@@ -915,6 +917,122 @@ before the handshake completes — the value becomes `--model` on a command line
 container, so this is the same rule the action table follows in §8. `SANDBOXR_CLAUDE_MODEL` sets
 the machine's default, and `GET /api/agent/models` reports what this machine will actually do
 rather than a constant.
+
+### 7.2.2 Permission questions, and the modes that produce them
+
+**A session can ask a person for permission, and the person can answer.** That is a change to this
+file rather than an addition to it: the paragraph this replaces said the opposite, and everything
+built under it — the wildcard allowlist, `acceptEdits` as the only workable default — was working
+around a limit that turned out not to exist.
+
+**The mechanism is `--permission-prompt-tool stdio`, and its name is a trap.** Claude Code
+documents the flag as "MCP tool to use for permission prompts", which reads as an instruction to
+stand up a server. It is not. The flag takes one magic value, and with it the CLI asks over the
+stream it is already speaking on. The binary says so itself, in the sentence it prints when a
+cloud session is given anything else: *"--permission-prompt-tool (permission prompts reach the
+host over stdio; an MCP tool cannot answer them here)"*. sandboxr already owns both ends of that
+pipe, so nothing new runs in the container and nothing has to be reachable from it.
+
+| Direction | Frame |
+|---|---|
+| session → host | `{"type":"control_request","request_id":…,"request":{"subtype":"can_use_tool","tool_name":…,"input":{…},"tool_use_id":…,"permission_suggestions":[…],"suppress_always_allow_rule":…,"requires_user_interaction":…}}` |
+| host → session | `{"type":"control_response","response":{"subtype":"success","request_id":…,"response":{"behavior":"allow"\|"deny",…}}}` |
+
+**A request blocks the turn, indefinitely.** The tool does not run, the turn does not continue,
+and nothing times out at either end — an unanswered question sits until stdin closes and then
+fails with `Tool permission stream closed before response received`. Three things follow, and each
+is part of the contract:
+
+- **A pending question belongs to the run, not to the socket.** It is held in the registry,
+  re-announced to whoever attaches, and answerable by any browser on the sandbox. A closed tab
+  must not be able to strand a session mid-turn on a question only it could see.
+- **The run's state becomes `needs-input`** — the value in core's `RunState` that nothing could
+  previously produce, because nothing could ask.
+- **The question travels twice**, and the two say different things. It is an ordinary `ask` event,
+  so a replay draws the card the live stream drew; and the socket's `{"t":"asks","asks":[…]}`
+  frame — re-sent whole on attach and on every change, like `forks` — says which of those cards
+  still has a decision to make. An event cannot carry that: a transcript read next week is all
+  closed questions, and one another browser settled a second ago looks identical to an open one.
+
+**Three answers, and "always" is the one with consequences.** `allow` runs it once. `deny` refuses
+it with a message the model sees. `always` runs it *and* remembers, and where it remembers is the
+design:
+
+- **Not by writing what Claude Code suggests.** Its own `permission_suggestions` arrive with
+  `destination: "localSettings"`, and answering with that verbatim writes
+  `<cwd>/.claude/settings.local.json` — a file on somebody's branch, made by clicking a button in a
+  dashboard, outliving the sandbox that asked for it. Observed, not feared. sandboxr rewrites the
+  destination to `"session"`, which applies the rule for the rest of the run and touches no file.
+- **The grant itself is sandboxr's, and it is scoped to the project**, in
+  `$SANDBOXR_HOME/agent/grants.json`. Not the session, which ends in minutes. Not the sandbox,
+  which is deliberately disposable — a grant you remake on every branch about the same command in
+  the same codebase is one people click through without reading. Not the machine, because the same
+  command means different things in different repositories.
+- **It is applied by going back onto the next session's `--allowedTools`**, which is the mechanism
+  the default allowlist already uses. Claude Code proposed the rule and Claude Code matches it, so
+  there is no matcher of sandboxr's to drift.
+- **It is listed and revocable**, at `GET /api/p/:project/agent/grants` and
+  `DELETE /api/p/:project/agent/grants/:id`, drawn in the permission picker beside the composer. A
+  permission you cannot withdraw is one you should not have given. **Revoking applies to the next
+  session**, not the running one: the rule was handed to Claude Code for the length of that run and
+  there is no control request that takes it back. The answer says so rather than letting "revoked"
+  quietly mean "revoked in a minute".
+
+**Some tools cannot be pre-approved at all, and for those this is the only route.** An MCP tool
+carrying the `anthropic/requiresUserInteraction` annotation asks **even when it is explicitly on
+the allowlist** — verified against a stub server declaring it, with the tool named in
+`--allowedTools`, on every call. Two consequences: a request is authoritative regardless of what
+any rule says, so nothing may suppress a prompt on the grounds that the tool is allowed; and such a
+request arrives with `suppress_always_allow_rule: true` and an empty suggestion list, so **"always
+allow" is not offered on it** rather than offered and silently ineffective.
+
+**`mcp__*` is gone from `DEFAULT_ALLOWED_TOOLS`, because it never worked.** An allow rule matches
+an MCP tool by exact name (`mcp__notion__notion-search`), by server (`mcp__notion`), or by a
+trailing wildcard on the server (`mcp__notion__*`). `mcp__*` matches none of them — the name half
+of a rule is not glob-matched — so the line sat in every session's argv looking like a blanket
+approval that had been granted and granting nothing. Nothing replaces it: a prompt is answerable
+now, and per-call consent is the right trade for servers whose scope, with a subscription login in
+the volume, includes the person's mail and files. An "always" on an MCP call persists a rule of a
+shape Claude Code does match.
+
+**The modes are a closed table**, `PERMISSION_MODES` in core, on the same reasoning as the model
+table. `GET /api/agent/models` carries both, because the picker and the validator must be one
+table. Each was checked against a real headless run rather than inferred from its name:
+
+| Mode | What happens to a tool call no rule settles |
+|---|---|
+| `auto` | **The default.** A classifier reviews it and escalates what it will not vouch for. Costs a model call per unruled tool, and a classifier that cannot be reached *denies* rather than falling back to asking |
+| `acceptEdits` | File writes and the common filesystem commands proceed; everything else asks |
+| `manual` | Everything asks. Announced on the init line as `default` — see the spelling note below |
+| `plan` | Claude works out an approach and puts it up first. A real `--permission-mode` value in a `-p` run, which is why it is offered |
+| `dontAsk` | Refused outright, with `decision_reason_type: "mode"`. The only mode that never reaches a person |
+
+**One mode has two names.** The command line takes `manual`; the control protocol and the
+`system`/`init` line call the same mode `default`. `set_permission_mode` refuses `manual` with
+`Cannot set permission mode: must be one of acceptEdits, auto, bypassPermissions, default,
+dontAsk, plan`, and the session keeps the mode it had with nothing on the conversation to say so.
+`wireMode` is that mapping.
+
+**The mode can be changed on a running session**, which is the one way this picker differs from
+the model picker beside it: `{"t":"mode","mode":…}` on the socket becomes a `set_permission_mode`
+control request, and the very next unruled call is settled by the new mode. Nothing restarts and
+no conversation is lost, so the picker does not borrow "this starts a new session". A socket
+joining a run that is already up keeps *its* mode rather than imposing one, so that opening a
+second tab cannot quietly widen what an agent already working on somebody's branch may do.
+
+**Setting the flag is also a widening, and that is why it is opt-in per launch.** With
+`--permission-prompt-tool stdio` a session is additionally given `AskUserQuestion`, `EnterPlanMode`
+and `ExitPlanMode`, which are absent without it. A session gets it; **a side question never does**
+— `/btw` has no tools by construction, and three tools whose job is to talk to a person would be
+the one route back into a fork being able to do something.
+
+**Both halves of a permission exchange are on the transcript**, which is the one place the
+transcript is not purely "what Claude Code said". The request is a line the session wrote; the
+response is the line the server wrote back on the same pipe, appended at the moment it was
+written. A record holding only the questions replays as a conversation waiting for ever on
+somebody who already answered. A question nobody answered is left as a missing response rather
+than given a synthetic decision — "denied" is something a person did, "unanswered" is something
+that failed to happen, and only one of them was decided by anybody.
 
 ### 7.3 Git in a sandbox, and the GitHub token
 

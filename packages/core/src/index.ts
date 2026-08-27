@@ -187,6 +187,8 @@ export { MAIN_THREAD } from "./agent/types.js";
 export type {
   AgentEvent,
   AgentRun,
+  AskEvent,
+  AskResultEvent,
   CompactedEvent,
   ErrorEvent,
   ForkOrigin,
@@ -205,6 +207,25 @@ export { lineReader, normalise, usageIn } from "./agent/stream.js";
 export type { NormaliseContext } from "./agent/stream.js";
 export { AgentStore, agentPaths } from "./agent/store.js";
 export type { AgentPaths } from "./agent/store.js";
+export { AgentGrants, grantText, grantsPath } from "./agent/grants.js";
+export type { AgentGrant } from "./agent/grants.js";
+export {
+  PERMISSION_MODES,
+  PERMISSION_PROMPT_TOOL,
+  controlErrorIn,
+  isPermissionMode,
+  permissionRequestIn,
+  permissionResponseFrame,
+  ruleText,
+  setPermissionModeFrame,
+  wireMode,
+} from "./agent/permissions.js";
+export type {
+  PermissionDecision,
+  PermissionGrantRule,
+  PermissionModeInfo,
+  PermissionRequest,
+} from "./agent/permissions.js";
 export {
   AGENT_WORKDIR,
   CREDENTIALS_FILE,
