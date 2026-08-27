@@ -184,6 +184,7 @@ export { MAIN_THREAD } from "./agent/types.js";
 export type {
   AgentEvent,
   AgentRun,
+  CompactedEvent,
   ErrorEvent,
   McpServerState,
   ResultEvent,
@@ -214,3 +215,13 @@ export {
 export type { AgentLaunch, PermissionMode } from "./agent/launch.js";
 export { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAgentModel } from "./agent/models.js";
 export type { AgentModel, AgentModelId } from "./agent/models.js";
+export {
+  BUILTIN_COMMANDS,
+  COMMAND_LISTING_ARGV,
+  leadingCommand,
+  nonSendableCommand,
+  parseCommandListing,
+  refusalFor,
+  slashCommandList,
+} from "./agent/commands.js";
+export type { SlashCommand, SlashCommandSource } from "./agent/commands.js";

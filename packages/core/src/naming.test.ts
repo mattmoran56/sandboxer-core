@@ -4,14 +4,17 @@
 // - deriveSlug: the full order of preference, ticket detection in directory and branch, detached HEAD, no input at all
 // - hostFor / urlFor: hostname shape, the default domain, an overridden domain, empty components
 // - containerName / volumeName / depsVolumeName: the shapes fixed by contracts §3.3
+// - SHARED_VOLUMES: the Claude credential volume is listed there, which is what keeps gc off it
 // - parseContainerName: round-trip with and without a known project, and the shapes it refuses to guess at
 // - lockName: identifier folding, determinism, and the 64-character GET_LOCK ceiling
 
 import { describe, expect, it } from "vitest";
 
 import {
+  CLAUDE_VOLUME,
   DEFAULT_DOMAIN,
   NamingError,
+  SHARED_VOLUMES,
   SLUG_MAX,
   containerName,
   depsVolumeName,
@@ -190,6 +193,14 @@ describe("docker names", () => {
 
   it("keys the shared dependency volume on a hash", () => {
     expect(depsVolumeName("abc123")).toBe("sandboxr-deps-abc123");
+  });
+
+  // Membership of this list is the only thing standing between gc and every MCP
+  // credential on the machine, and the name carries no project or slug for gc to
+  // recognise it by.
+  it("counts the Claude credential volume among the machine-wide ones", () => {
+    expect(CLAUDE_VOLUME).toBe("sandboxr-claude");
+    expect(SHARED_VOLUMES).toContain(CLAUDE_VOLUME);
   });
 
   it("round-trips a container name when the project is known", () => {

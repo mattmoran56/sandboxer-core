@@ -2,6 +2,7 @@
 // - runArgs: the container name, the shared network, every label, and the worktree bind mount
 // - runArgs: one volume per purpose, the data mount per driver, storage only when declared
 // - runArgs: the seed cache is read-only, the secrets file is layered under the generated environment
+// - runArgs: the machine-wide Claude volume is mounted and CLAUDE_CONFIG_DIR points inside it
 // - runArgs: no argument is ever a shell string, and a value with a space survives as one argument
 // - memoryFor / toBytes: the largest declared limit wins, because the cgroup total is what the kernel enforces
 // - renderBuild: placeholder substitution, a missing placeholder, and a value that would become shell syntax
@@ -122,6 +123,28 @@ describe("runArgs", () => {
   // A sandbox restores from the cache and never writes to it.
   it("mounts the seed cache read-only", () => {
     expect(args).toContain("/home/.sandboxr/cache:/sandboxr/cache:ro");
+  });
+
+  // Deliberately not named after the project or the slug: an MCP server is
+  // authorised once per machine, and a per-sandbox volume would mean once per
+  // worktree instead.
+  it("mounts one machine-wide Claude volume, shared by every sandbox", () => {
+    expect(args).toContain("sandboxr-claude:/root/.claude");
+
+    const other = runArgs({ ...base, slug: "tkt-2", config: configOf({ project: "other" }) });
+    expect(other).toContain("sandboxr-claude:/root/.claude");
+  });
+
+  // Mounting the directory alone persists the session history and loses the
+  // login, because the OAuth account and the personal MCP servers live in
+  // `~/.claude.json`, a file *beside* the directory. This variable is what puts
+  // that file on the volume too.
+  it("points CLAUDE_CONFIG_DIR at the volume, so ~/.claude.json lands inside it", () => {
+    const index = args.indexOf("CLAUDE_CONFIG_DIR=/root/.claude");
+    expect(index).toBeGreaterThan(-1);
+    expect(args[index - 1]).toBe("-e");
+    // Before the image, or docker reads it as an argument to the entrypoint.
+    expect(index).toBeLessThan(args.indexOf("--entrypoint"));
   });
 
   // The directory holding the lockfile is not always the directory holding the

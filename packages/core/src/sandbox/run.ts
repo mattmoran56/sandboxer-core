@@ -11,12 +11,13 @@
 import { createHash } from "node:crypto";
 
 import type { BackendService, FrontendApp, ResolvedConfig } from "../config/types.js";
-import { NETWORK, containerName, depsVolumeName, volumeName } from "../naming.js";
+import { CLAUDE_VOLUME, NETWORK, containerName, depsVolumeName, volumeName } from "../naming.js";
 import { labelArgs } from "./labels.js";
 import {
   BIN_DIR,
   BLOB_DIR,
   CACHE_DIR,
+  CLAUDE_DIR,
   DATA_DIR,
   LOG_DIR,
   PLAN_FILE,
@@ -125,6 +126,13 @@ export function runArgs(input: RunInput): string[] {
   }
   args.push("-v", `${input.cacheDir}:${CACHE_DIR}:ro`);
   args.push("-v", `${input.logDir}:${LOG_DIR}`);
+  // Not a per-sandbox volume: an MCP server is authorised once per machine with
+  // `claude mcp login`, and the whole point is that the next worktree does not
+  // have to do it again. See CLAUDE_VOLUME for what every sandbox sharing one
+  // credential store costs, and CLAUDE_DIR for why the environment variable
+  // below is not optional.
+  args.push("-v", `${CLAUDE_VOLUME}:${CLAUDE_DIR}`);
+  args.push("-e", `CLAUDE_CONFIG_DIR=${CLAUDE_DIR}`);
 
   args.push("--entrypoint", ENTRYPOINT, input.image ?? DEFAULT_IMAGE);
   return args;

@@ -4,6 +4,7 @@
 // - planGc: a sandbox with no recorded worktree is never reaped for that reason
 // - orphanVolumes: volumes of a reaped sandbox are orphans, volumes of a survivor are not
 // - orphanVolumes: the shared volumes are never orphans, and a mounted volume is never an orphan
+// - orphanVolumes: reaping every sandbox on the machine still leaves the Claude credential volume
 // - orphanVolumes: a dependency volume is left alone unless a mount list proves it unused
 // - orphanVolumes: nothing outside the sandboxr prefix is ever considered
 
@@ -80,6 +81,7 @@ describe("orphan volumes", () => {
     "sandboxr-blob-acme-tkt-1",
     "sandboxr-data-acme-tkt-2",
     "sandboxr-gocache",
+    "sandboxr-claude",
     "postgres-data",
   ];
 
@@ -99,6 +101,21 @@ describe("orphan volumes", () => {
   it("leaves the shared volumes alone", () => {
     const plan = planGc({ sandboxes: [], volumes, worktreeExists: alive });
     expect(plan.volumes).not.toContain("sandboxr-gocache");
+  });
+
+  // The failure this guards against is silent and expensive: the Claude volume
+  // holds every MCP credential authorised on the machine, so reaping it logs the
+  // person out of every server at once, and nothing about deleting a sandbox
+  // would explain why.
+  it("keeps the Claude credential volume even when every sandbox is reaped", () => {
+    const plan = planGc({
+      sandboxes: [sandbox({ slug: "tkt-1" }), sandbox({ slug: "tkt-2" })],
+      volumes,
+      worktreeExists: gone,
+      mountedVolumes: new Set(),
+    });
+    expect(plan.keep).toEqual([]);
+    expect(plan.volumes).not.toContain("sandboxr-claude");
   });
 
   it("ignores anything that is not ours", () => {

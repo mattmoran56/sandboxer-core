@@ -31,6 +31,21 @@ export const BIN_DIR = "/var/lib/sandboxr/bin";
 /** Built static sites, served by the sandbox's own file server. */
 export const WWW_DIR = "/srv/www";
 
+/**
+ * Claude Code's state directory, on the machine-wide `sandboxr-claude` volume.
+ *
+ * `/root` because a sandbox runs as root, and Claude Code reads `$HOME`.
+ *
+ * The container is also told `CLAUDE_CONFIG_DIR=<this>`, and that second half is
+ * load-bearing: Claude Code keeps the token, settings and session history under
+ * `~/.claude`, but keeps the OAuth account, personal MCP servers and per-project
+ * trust in `~/.claude.json` — a *file beside the directory*, not in it. Mounting
+ * the directory alone persists the session history and loses the login, which
+ * looks like the volume not working at all. `CLAUDE_CONFIG_DIR` moves that file
+ * inside the volume so the two halves live and die together.
+ */
+export const CLAUDE_DIR = "/root/.claude";
+
 /** Runtime state, on a tmpfs: gone when the container stops, as it should be. */
 export const RUN_DIR = "/run/sandboxr";
 

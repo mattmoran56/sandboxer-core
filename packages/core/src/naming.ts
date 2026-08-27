@@ -169,8 +169,27 @@ export function depsVolumeName(lockHash: string): string {
   return `sandboxr-deps-${lockHash}`;
 }
 
+/**
+ * Claude Code's state directory, shared by every sandbox on the machine.
+ *
+ * A setup-token authenticates model requests and nothing else, so an MCP server
+ * an agent session needs is authorised per server with `claude mcp login`. That
+ * writes a credential, and with no mount on `/root` the credential died with the
+ * container — every sandbox re-authorising every server, one worktree at a time.
+ * One machine-wide volume makes it once per machine, which is the whole point.
+ *
+ * **The cost of sharing is worth stating plainly**: every sandbox on the machine
+ * reads every credential in here, so one compromised sandbox reaches every
+ * server that has ever been authorised. That is a decision, not an oversight —
+ * the alternative was a full subscription credential in each container, which
+ * carries `org:create_api_key` and reaches every connector on the account. If a
+ * later change needs isolation between sandboxes, this is the line to revisit,
+ * and the price of revisiting it is logging in once per sandbox again.
+ */
+export const CLAUDE_VOLUME = "sandboxr-claude";
+
 /** Volumes shared by every sandbox on the machine, from contracts §3.3. */
-export const SHARED_VOLUMES = ["sandboxr-gocache", "sandboxr-gomod"] as const;
+export const SHARED_VOLUMES = ["sandboxr-gocache", "sandboxr-gomod", CLAUDE_VOLUME] as const;
 
 /** The one shared docker network, from contracts §3.3. */
 export const NETWORK = "sandboxr";

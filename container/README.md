@@ -195,11 +195,15 @@ Mounts the host is expected to provide:
 | `/var/lib/sandboxr/bin` | the `bin` volume |
 | `/srv/www` | the `www` volume |
 | `/workspace/<deps.root>/node_modules` | the shared `deps-<hash>` volume |
+| `/root/.claude` | the machine-wide `sandboxr-claude` volume: Claude Code's state, shared by every sandbox so an MCP server is authorised once per machine rather than once per worktree |
 
 Environment: `SANDBOXR_SLUG` is required. `SANDBOXR_DOMAIN` (default `sbx.lcl`),
 `SANDBOXR_PROJECT`, `SANDBOXR_WITH`, `SANDBOXR_SEED`, `SANDBOXR_DB_USER`,
 `SANDBOXR_DB_PASSWORD`, `SANDBOXR_S3_KEY` and `SANDBOXR_S3_SECRET` all have
-defaults.
+defaults. `CLAUDE_CONFIG_DIR` is set to `/root/.claude` — Claude Code keeps its
+OAuth account and personal MCP servers in `~/.claude.json`, a file *beside* that
+directory, so without this the volume persists the session history and loses the
+login.
 
 ## Startup
 
