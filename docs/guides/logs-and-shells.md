@@ -84,8 +84,9 @@ sandboxr shell -- cat /run/sandboxr/status.json
 
 ## The same three things in a browser
 
-The [dashboard](dashboard.md) streams a sandbox's log on its page and gives you a full terminal
-inside the container over a websocket. Both sit behind the same password as every other control.
+The [dashboard](dashboard.md) streams a sandbox's log in its pane and gives you a full terminal
+inside the container over a websocket. Both sit behind the same password as every other control,
+and the terminal is a route within the dashboard rather than a hostname of its own.
 
 ## Choosing between them
 

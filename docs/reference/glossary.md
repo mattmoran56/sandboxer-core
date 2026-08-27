@@ -147,9 +147,11 @@ toolchains, its database engine, its installed dependencies. Rendered and built 
 
 ## Controlling a sandbox
 
-**The dashboard** — the web page that lists every sandbox on the machine, starts, stops, rebuilds
-and migrates them, and gives you a terminal inside any of them. It calls the same
-`@sandboxr/core` the CLI does, in process, so the two can never disagree. Always behind a password.
+**The dashboard** — the web app that lists every **worktree** on the machine, starts, stops,
+rebuilds and migrates the sandboxes on them, and gives you a terminal inside any one. Two packages:
+`@sandboxr/server` answers JSON and serves one HTML shell, and `@sandboxr/web` is the browser app
+that shell loads. The server calls the same `@sandboxr/core` the CLI does, in process, so the two
+can never disagree. Always behind a password.
 
 **Action** — one thing the dashboard is allowed to do, from a **fixed table** in its source. There
 is no "run this command" box and there must never be one.

@@ -19,6 +19,8 @@ Four separate places, and mixing them up is the most common way to get lost.
 | `packages/core/src/paths.ts` | Every host path is decided here |
 | `packages/cli/src/main.ts` | The whole command surface |
 | `packages/server/src/actions/table.ts` | What the dashboard can run — a closed list |
+| `packages/server/src/api/` | The JSON the dashboard's browser app reads |
+| `packages/web/src/` | The dashboard's browser app, built by Vite and served by the server |
 | `packages/docs/` | The machinery that publishes `docs/` as a site |
 | `container/base/`, `container/project/` | The two images |
 | `container/scripts/` | What a sandbox runs at boot |
@@ -35,6 +37,7 @@ Which file to open for a given question:
 | Where does sandboxr write on my disk? | `packages/core/src/paths.ts` |
 | What does `docker run` get? | `packages/core/src/sandbox/run.ts` |
 | How does the dashboard call core? | `packages/server/src/core/adapter.ts` |
+| What shape does the dashboard's API answer with? | `packages/server/src/api/dto.ts`, mirrored in `packages/web/src/api/types.ts` |
 | What does the container do at boot? | `container/scripts/entrypoint.sh` |
 | How is a database seeded and migrated? | `container/scripts/db/<driver>.sh` |
 

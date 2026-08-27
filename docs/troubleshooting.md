@@ -419,6 +419,17 @@ The dashboard loads the same `@sandboxr/core` the CLI does, so while a source fi
 every button fails in whatever way that file fails. Check the CLI works before debugging the
 dashboard.
 
+### The dashboard signs you in and then shows a blank page
+
+The dashboard is a browser app: the server sends an HTML shell and the app itself comes from
+`@sandboxr/web`'s build, under `/assets/`. If that build is missing, the shell still arrives and
+every asset 404s — which renders as an empty page rather than an error, so it does not look like a
+missing build at all.
+
+The browser's network panel is what settles it: a 404 on something under `/assets/` means the
+bundle was never built. `npm run build` at the repository root builds the two packages in the right
+order, because the server depends on the app; building `@sandboxr/server` on its own does not.
+
 ### git refuses to create a worktree for a branch
 
 git will not check out one branch in two places, and the branch you want is very often already

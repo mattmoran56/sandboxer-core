@@ -228,6 +228,36 @@ everything else. *Why not:* app hostnames are `public` by default, so a terminal
 hostname is one config mistake away from an interactive shell, on the internet, in a container with
 your worktree mounted.
 
+**The dashboard is a single-page app, not a set of documents.** *Obvious:* server-render each page
+and let the browser navigate between them. It is less machinery, it works with JavaScript off, and
+it is what the dashboard was. *Why not:* the sidebar is a list of every worktree on the machine,
+grouped and collapsible, and it is a list somebody keeps their place in while they work through it.
+A full page load puts that list back to the top on every single click, re-collapses nothing and
+re-fetches everything — and the pane you clicked into is the small half of the screen. *Instead:*
+`@sandboxr/server` answers JSON and serves one HTML shell; `@sandboxr/web` is the app that shell
+loads. Clicking a worktree swaps the pane and leaves the sidebar untouched. The URLs are unchanged,
+so a bookmark and an action's declared destination still work.
+
+**The server sends facts; the browser writes the sentences.** *Obvious:* render the words on the
+server, where the data is. *Why not:* anything that changes on a timer then has the same wording
+twice — once in the template that first rendered it, and once in the script that re-renders it
+every second — and the two have to be kept identical by hand. That was literally the case for the
+lifetime countdown, and both copies carried a comment warning about the other. *Instead:* no field
+of any API response is a rendered string. An expiry is an instant; a state is `degraded`. The
+wording exists once, in the browser. *The line this does not cross:* the browser writes sentences,
+it does not make decisions. Which actions apply to a sandbox now, and what a destructive one
+confirms with, are still fields on the response, because those are facts about the machine and a
+second implementation of them in the browser would drift.
+
+**The login page stayed server-rendered.** *Obvious:* it is a form; the app can draw it like every
+other pane. *Why not:* two reasons and both are hard. It is the only way back in, so it must work
+when the bundle does not — a dashboard you cannot sign into cannot be fixed from itself. And a
+browser's password manager recognises a real `<form>` doing a real `POST`; a form assembled by
+script after load frequently is not offered a saved password, and "it stopped filling in my
+password" is a bug nobody reports and everybody works around. *Instead:* `/login` and the
+private-app handshake pages are plain HTML from the server, and the app owns everything behind
+them.
+
 **Public sandboxes are refused, not warned.** *Obvious:* print a warning and let the developer
 decide. *Why not:* neither failure is recoverable — leaked records cannot be un-leaked, spend cannot
 be un-spent — and warnings appear during `up`, a command you run dozens of times a day while
@@ -251,3 +281,5 @@ invisible. [In full](../access.md).
 | Slug derivation | `packages/core/src/naming.ts` |
 | The closed action table | `packages/server/src/actions/table.ts` |
 | Sessions, grants, forward-auth | `packages/server/src/auth/` |
+| The JSON API's shapes | `packages/server/src/api/dto.ts`, mirrored in `packages/web/src/api/types.ts` |
+| The browser app | `packages/web/src/` |
