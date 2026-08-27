@@ -138,8 +138,9 @@ the supervisor, because the supervisor compiles its service list once, before an
 `/__sandboxr/health/<service>`. The state is composed from marker files each writer drops, never
 asserted by one of them.
 
-**Base image** — the small generic image every sandbox shares: supervisor, router, object store,
-`jq`, the container scripts. About 400 MB, one per machine, nothing project-specific.
+**Base image** — the generic image every sandbox shares: supervisor, router, object store, the
+`claude` binary, `jq`, the container scripts. About 600 MB, most of it the object store and the
+agent binary; one per machine, nothing project-specific.
 
 **Project layer** — the thin image on top of the base holding what one project asks for: its
 toolchains, its database engine, its installed dependencies. Rendered and built by the first
@@ -155,6 +156,11 @@ can never disagree. Always behind a password.
 
 **Action** — one thing the dashboard is allowed to do, from a **fixed table** in its source. There
 is no "run this command" box and there must never be one.
+
+**Agent session** — one `claude` process running *inside* a sandbox, on the worktree mounted at
+`/workspace`, started by the dashboard with `docker exec` and talked to from the browser. One per
+sandbox; it ends when the sandbox stops, and its transcript stays on the host under
+`$SANDBOXR_HOME/agent`. See [agent sessions](../guides/agent-sessions.md).
 
 **Forward auth** — how a *private* project's app hostnames are protected without a second login
 system. The shared router asks the dashboard's `GET /auth/verify`, which answers 200 or 401 from

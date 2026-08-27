@@ -76,6 +76,8 @@ Everything sandboxr writes at run time is under `SANDBOXR_HOME`, default `~/.san
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
 | `bin/` | Helper binaries built on the host | yes |
+| `agent/runs.json` | Which agent session belongs to which sandbox, and its session id | yes |
+| `agent/log/<id>.jsonl` | One agent session transcript, append-only | yes |
 | `state/keep/<project>/<slug>` | Keeps one sandbox alive past its idle limit | **no** — see below |
 | `workspace/<project>/` | A project's bare clone and its worktrees | yes |
 | `workspace/<project>/sandboxr.yaml` | Optional: a config for every worktree that has none — see below | yes |

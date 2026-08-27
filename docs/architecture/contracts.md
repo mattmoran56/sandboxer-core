@@ -597,6 +597,7 @@ is additionally checked against the session's grant.
 | `GET /api/projects/:project` | One project's worktrees, branches and open pull requests |
 | `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its project's config declares |
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
+| `GET /api/p/:project/s/:slug/agent/runs` | The agent sessions recorded against one sandbox, newest first. The index only — never message content (§7.2) |
 
 `GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
 part of the contract because each was learnt from the version this replaced: nothing is fetched
@@ -615,8 +616,9 @@ terminal endpoints hang off it.
 
 **Unchanged by the move to a single-page app**, and deliberately so: `/healthz`, `/login`,
 `/auth/*`, the three `POST` action routes (`/actions/:action`, `/p/:project/actions/:action`,
-`/p/:project/s/:slug/actions/:action`), `GET /p/:project/s/:slug/logs`, and the terminal
-WebSocket at `/p/:project/s/:slug/terminal`.
+`/p/:project/s/:slug/actions/:action`), `GET /p/:project/s/:slug/logs`, the terminal
+WebSocket at `/p/:project/s/:slug/terminal`, and the agent WebSocket at
+`/p/:project/s/:slug/agent` (§7.2).
 
 **The login page and the private-app handshake pages stay server-rendered.** Two reasons, both
 hard requirements rather than preferences. The login form must work with JavaScript off, because
@@ -624,6 +626,73 @@ it is the only way back in and a dashboard that cannot be signed into cannot be 
 itself. And it must be a real `<form>` with a real `POST` for the browser's password manager to
 recognise it as one — a form assembled by script after load frequently is not offered a saved
 password at all.
+
+### 7.2 Agent sessions
+
+A sandbox may have a **Claude Code session** running on its worktree. `claude` runs *inside*
+the container, on `/workspace`, started by the server over `docker exec`; the host holds no
+agent process of its own.
+
+**Three nouns, and every screen and every stored file is one of them.**
+
+| Noun | What it is | Keyed by |
+|---|---|---|
+| Run | One `claude` session, in one sandbox | `sessionId`, assigned by Claude Code |
+| Thread | One conversation inside a run — the main one, or a subagent's | `parent_tool_use_id`; `main` for the one nothing spawned |
+| Event | One thing that happened, in order | `uuid`, plus its position in the transcript |
+
+**A run's tree is assembled from two different joins, and only one of them is free.** Inside a
+session, every message carries the id of the tool call that spawned it, so subagents nest at any
+depth with nothing for sandboxr to remember. Across a machine boundary — a session that starts
+another session — there is no such field, and the link has to be written down at the moment it
+is made or it cannot be recovered. Nothing does that yet; when something does, this is the
+sentence it has to satisfy.
+
+**The wire format is Claude Code's, and exactly one file knows it.** `packages/core/src/agent/stream.ts`
+turns `--output-format stream-json` into the event model above; nothing downstream sees a raw
+line. A Claude Code release that renames a field is a change there and nowhere else. A line this
+version does not understand is **dropped, never surfaced** — an unrecognised type is almost
+always a newer Claude Code, and rendering it raw would put JSON in the middle of a conversation.
+
+**Transcripts are files; the index is small.** The raw lines are appended to
+`$SANDBOXR_HOME/agent/log/<sessionId>.jsonl` *before* they are interpreted, so a later renderer
+can re-read a conversation an earlier one recorded. `$SANDBOXR_HOME/agent/runs.json` holds the
+index: which session belongs to which sandbox, its state, and where its transcript is. **Every
+field in the index is derivable by replaying the transcripts**, which is what makes it a cache
+rather than a system of record — and what makes the storage choice a contained one. It is a JSON
+file written by temp-and-rename because the server process is the only writer; the day there are
+two, `store.ts` changes and nothing else does.
+
+`sessionId` is the load-bearing field. It is the only thing that makes `claude --resume` possible
+after a container restart, and it exists nowhere else.
+
+**The socket** is `/p/:project/s/:slug/agent`, authenticated before the upgrade completes like
+the terminal's (§3.2), with an optional `?resume=<sessionId>`. Unlike the terminal there are no
+binary frames at all — both directions are JSON text:
+
+| Direction | Frames |
+|---|---|
+| browser → server | `{"t":"send","text":…}`, `{"t":"interrupt"}` |
+| server → browser | `{"t":"ready",…}`, `{"t":"session",…}`, `{"t":"event","event":…}`, `{"t":"replayed",…}`, `{"t":"state",…}`, `{"t":"error",…}` |
+
+A reconnect replays the transcript from disk before the live stream starts, so the socket only
+ever carries what happens from now on.
+
+**The exec has no TTY, and that is not an optimisation.** A TTY echoes what is written to it, so
+a process exchanging newline-delimited JSON would receive its own input back interleaved with
+its output. The cost is that Docker frames the stream, which `demuxer()` already handles.
+
+**Credentials never reach the worktree.** The session authenticates with an OAuth token from
+`claude setup-token`, held in the server's environment and passed to the exec as
+`CLAUDE_CODE_OAUTH_TOKEN`. It is written to no file inside the container. One consequence is
+part of the contract because it is invisible otherwise: **a setup-token does not load claude.ai
+connectors**, so MCP servers are named to the machine (`SANDBOXR_CLAUDE_MCP`) and passed on the
+session's command line rather than inherited from the host's connector list.
+
+**The container is the permission boundary.** A session runs with `bypassPermissions`, because
+nothing on the host can answer a permission prompt yet — a mode that asks would be a session
+that hangs on its first `npm install`. What contains it is the sandbox: the worktree, the
+project's own services, and nothing else. When prompts become answerable this paragraph changes.
 
 ## 8. Actions
 

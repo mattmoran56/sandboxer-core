@@ -96,8 +96,8 @@ RUN set -eux; \
 # in the base rather than a project layer because a public sandbox writing to
 # production storage is the kind of mistake that must be impossible rather than
 # configurable -- the endpoint the code sees is local whatever the project asked
-# for. The two binaries are the largest thing in this image by a wide margin;
-# that is the price of the guarantee.
+# for. The two binaries are the largest thing in this image after the agent
+# binary below; that is the price of the guarantee.
 #
 # The arch goes straight into the download path here, so an unresolved one is a
 # 404 rather than an error about architecture -- see the note above the s6 block.
@@ -112,6 +112,59 @@ RUN set -eux; \
     curl -fsSL "https://dl.min.io/server/minio/release/linux-${MINIO_ARCH}/minio" -o /usr/local/bin/minio; \
     curl -fsSL "https://dl.min.io/client/mc/release/linux-${MINIO_ARCH}/mc"      -o /usr/local/bin/mc; \
     chmod +x /usr/local/bin/minio /usr/local/bin/mc
+
+# Claude Code, in the base rather than a project layer, because a session runs
+# *inside* the sandbox: the host reaches in with `docker exec` and runs
+# `claude -p --output-format stream-json ...` (see
+# packages/core/src/agent/launch.ts). The binary therefore has to be in every
+# image, not in the ones whose project happened to ask for an agent -- a sandbox
+# that is missing it fails at the moment somebody opens a session, which is the
+# worst possible time to discover a build decision.
+#
+# The native installer, and specifically not `npm install -g
+# @anthropic-ai/claude-code`. This image has no Node and the paragraph at the top
+# of the file is the reason it stays that way; pulling a whole runtime in for one
+# binary that never calls it would undo that for nothing. The native installer
+# ships a self-contained executable -- same binary the npm package downloads,
+# without the runtime around it.
+#
+# No `TARGETARCH` case here, unlike every other download in this file, and that
+# is deliberate rather than an omission: install.sh resolves the platform from
+# `uname -m` itself, and it resolves it correctly under emulation, because a
+# cross-arch buildx build executes this RUN on the target architecture. Passing
+# it an arch is not a thing it accepts.
+#
+# HOME is forced because this is a home-directory installer: it puts a launcher
+# at `$HOME/.local/bin/claude` pointing into `$HOME/.local/share/claude/versions`,
+# and no `.local/bin` is on anyone's PATH here. Left at the default the install
+# succeeds, prints its own warning about PATH, and then `docker exec <container>
+# claude` fails with "executable file not found" -- a missing-binary error for a
+# binary that is present, at the moment somebody opens a session.
+#
+# So: install under /opt, then symlink into /usr/local/bin, which the ENV below
+# keeps on the PATH a non-login `docker exec` gets. A symlink rather than
+# installing straight into /usr/local because the installer owns the shape of
+# that tree -- launcher, `versions/`, whatever it grows next -- and we own one
+# link into it. If the layout changes, the link moves; nothing else here knows
+# what is behind it.
+#
+# The cost is roughly 240 MB, which makes this the largest single thing in the
+# image. It buys a sandbox where a session is already possible rather than one
+# more thing to install first.
+RUN set -eux; \
+    export HOME=/opt/claude-code; \
+    mkdir -p "$HOME"; \
+    curl -fsSL https://claude.ai/install.sh | bash; \
+    ln -sf "$HOME/.local/bin/claude" /usr/local/bin/claude; \
+    rm -rf "$HOME/.claude/downloads"
+
+# An image is a pinned artefact and the agent binary is part of it. Left to
+# itself Claude Code updates in the background, and in a container that update
+# lands under the *session's* HOME (/root), not the /opt tree /usr/local/bin
+# points at -- so it would neither take effect nor survive the container, while
+# two sandboxes built from one image slowly disagreed about what they were
+# running. Rebuild the image to move version.
+ENV DISABLE_AUTOUPDATER=1
 
 COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 
@@ -147,7 +200,7 @@ RUN mkdir -p \
       /empty \
  && chmod 555 /empty
 
-RUN caddy version && minio --version | head -1 && jq --version && ldd --version | head -1
+RUN caddy version && minio --version | head -1 && jq --version && claude --version && ldd --version | head -1
 
 # STAGE2_FAILS=0 keeps the container alive when a oneshot fails, because a sandbox
 # whose database or migrations broke is precisely the one worth opening a shell in.

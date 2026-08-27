@@ -179,3 +179,35 @@ export { checkSecrets, importSecrets, filterSecrets, parseEnvFile, matchesAny } 
 export type { SecretsCheck, SecretsReport, SecretRules } from "./secrets.js";
 
 export { gitFacts, type GitFacts } from "./git.js";
+
+export { MAIN_THREAD } from "./agent/types.js";
+export type {
+  AgentEvent,
+  AgentRun,
+  ErrorEvent,
+  McpServerState,
+  ResultEvent,
+  RetryEvent,
+  RunState,
+  SessionEvent,
+  TextEvent,
+  ThinkingEvent,
+  TokenUsage,
+  ToolEvent,
+  ToolResultEvent,
+} from "./agent/types.js";
+export { lineReader, normalise } from "./agent/stream.js";
+export type { NormaliseContext } from "./agent/stream.js";
+export { AgentStore, agentPaths } from "./agent/store.js";
+export type { AgentPaths } from "./agent/store.js";
+export {
+  AGENT_WORKDIR,
+  DEFAULT_ALLOWED_TOOLS,
+  DEFAULT_PERMISSION_MODE,
+  agentArgv,
+  agentEnv,
+  agentPermissionModeFrom,
+  agentTokenFrom,
+  userMessageFrame,
+} from "./agent/launch.js";
+export type { AgentLaunch, PermissionMode } from "./agent/launch.js";

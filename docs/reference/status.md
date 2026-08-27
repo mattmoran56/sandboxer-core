@@ -38,6 +38,7 @@ least one thing wrong in the details.
 | **The service graph under load** | It boots for a two-service plan. Five backends, a dev server and a first-boot restore have not been started together |
 | **The dashboard's actions and terminal** | Its security properties are unit-tested. The terminal has not been opened against a real sandbox |
 | **The dashboard's browser app** | All of it. `@sandboxr/web` replaced the server-rendered pages wholesale: the sidebar of worktrees and its groupings, the panes, the new-worktree routes, settings, the themes. Its pieces are unit-tested and its API is typed at both ends, but nobody has sat in front of it and taken a project through a day's work |
+| **Agent sessions** | The base image's smoke check runs `claude --version` on the same PATH `docker exec` gets, so an image a session could not start in fails the build; the stream parser, the transcript store and the launch arguments are unit-tested. What a real run would settle: whether a session opened from the dashboard does useful work on a branch, and how much the two known limits — no claude.ai connectors on a setup-token, and no way to answer a permission prompt — cost in practice |
 | **`sqlite`** | The `d1` path has run; the plain `sqlite` driver has not |
 | **A `private` project** | The forward-auth middleware and the dashboard's `/auth/verify` are both written; the pair has not been exercised together |
 | **A sandbox expiring on its own over a full lifetime** | The reaper runs on a real machine on its timer, and `expire` has stopped and restarted a live sandbox against a clock moved forward by hand. Nothing has yet been stopped by the timer arriving on its own, hours later |
@@ -153,9 +154,12 @@ the CLI does not.
 service unit. mkcert is the only certificate issuer. [Running on a server](../running-on-a-server.md)
 is a plan with the arithmetic worked out, not instructions.
 
-**A coding-agent service.** sandboxr does not install, declare or supervise a coding agent inside a
-sandbox. [That page](../guides/agents-in-a-sandbox.md) describes running your own agent against the
-bind mount, which is a way of working rather than a feature.
+**A supervised coding-agent service.** No `sandboxr.yaml` block declares an agent and nothing in a
+sandbox's service tree runs one. What does exist is `claude` in the base image and a dashboard
+session that starts it with `docker exec` — see [agent sessions](../guides/agent-sessions.md), and
+the row for it in the table above. [Agents in a sandbox](../guides/agents-in-a-sandbox.md) describes
+the other arrangement, running your own agent against the bind mount, which is a way of working
+rather than a feature.
 
 **Continuous integration.** Nothing runs the tests, the shell linting or the docs build
 automatically.
