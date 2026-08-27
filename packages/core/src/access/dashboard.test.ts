@@ -6,6 +6,8 @@
 // - two Traefik routers onto one service: the bare domain, and the reserved handshake path on any
 //   sandbox hostname
 // - the handshake router outranks a sandbox's own rule and carries no forward-auth middleware
+// - the agent-session variables are forwarded from the host, and a blank one is omitted rather
+//   than passed through as an empty value
 
 import { describe, expect, it } from "vitest";
 
@@ -145,5 +147,72 @@ describe("the GitHub token", () => {
   it("is omitted entirely when there is none, rather than sent empty", () => {
     const args = dashboardArgs({ domain: "sbx.localhost", tls: true, env });
     expect(args.some((arg) => arg.startsWith("GH_TOKEN="))).toBe(false);
+  });
+});
+
+/**
+ * The agent-session settings reach the container as *values*, because there is
+ * nothing to mount: on macOS `claude` keeps its credential in the login
+ * keychain, so a mounted config directory carries no token at all.
+ *
+ * Blank is treated as absent throughout. An exported-but-empty variable is what
+ * a shell profile that sets something conditionally leaves behind, and passing
+ * it on would turn "this machine has no credential" — which the dashboard can
+ * explain — into "the credential is the empty string", which it cannot.
+ */
+describe("the agent-session variables", () => {
+  const varsOf = (args: string[]): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (let i = 0; i < args.length - 1; i++) {
+      if (args[i] !== "-e") continue;
+      const [key, ...rest] = (args[i + 1] as string).split("=");
+      out[key as string] = rest.join("=");
+    }
+    return out;
+  };
+
+  it("forwards each one the host set", () => {
+    const vars = varsOf(
+      dashboardArgs({
+        domain: "sbx.localhost",
+        tls: true,
+        env: {
+          ...env,
+          SANDBOXR_CLAUDE_TOKEN: "sk-ant-oat01-example",
+          SANDBOXR_CLAUDE_MODEL: "claude-opus-5",
+          SANDBOXR_CLAUDE_MCP: '{"mcpServers":{}}',
+          SANDBOXR_CLAUDE_PERMISSION_MODE: "auto",
+        },
+      }),
+    );
+    expect(vars.SANDBOXR_CLAUDE_TOKEN).toBe("sk-ant-oat01-example");
+    expect(vars.SANDBOXR_CLAUDE_MODEL).toBe("claude-opus-5");
+    expect(vars.SANDBOXR_CLAUDE_MCP).toBe('{"mcpServers":{}}');
+    expect(vars.SANDBOXR_CLAUDE_PERMISSION_MODE).toBe("auto");
+  });
+
+  it("omits one the host never set, and one it set to blank", () => {
+    const vars = varsOf(
+      dashboardArgs({
+        domain: "sbx.localhost",
+        tls: true,
+        env: { ...env, SANDBOXR_CLAUDE_TOKEN: "   " },
+      }),
+    );
+    expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_TOKEN");
+    expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_MODEL");
+  });
+
+  it("forwards nothing else beginning SANDBOXR_CLAUDE", () => {
+    // A named list rather than a prefix match, so a variable a later version
+    // gives a different meaning to is not handed to the container by accident.
+    const vars = varsOf(
+      dashboardArgs({
+        domain: "sbx.localhost",
+        tls: true,
+        env: { ...env, SANDBOXR_CLAUDE_SOMETHING_ELSE: "no" },
+      }),
+    );
+    expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_SOMETHING_ELSE");
   });
 });

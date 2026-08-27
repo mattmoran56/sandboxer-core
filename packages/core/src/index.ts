@@ -196,7 +196,7 @@ export type {
   ToolEvent,
   ToolResultEvent,
 } from "./agent/types.js";
-export { lineReader, normalise } from "./agent/stream.js";
+export { lineReader, normalise, usageIn } from "./agent/stream.js";
 export type { NormaliseContext } from "./agent/stream.js";
 export { AgentStore, agentPaths } from "./agent/store.js";
 export type { AgentPaths } from "./agent/store.js";
@@ -206,8 +206,11 @@ export {
   DEFAULT_PERMISSION_MODE,
   agentArgv,
   agentEnv,
+  agentModelFrom,
   agentPermissionModeFrom,
   agentTokenFrom,
   userMessageFrame,
 } from "./agent/launch.js";
 export type { AgentLaunch, PermissionMode } from "./agent/launch.js";
+export { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAgentModel } from "./agent/models.js";
+export type { AgentModel, AgentModelId } from "./agent/models.js";

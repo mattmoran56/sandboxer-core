@@ -74,6 +74,29 @@ export interface DashboardInput {
 }
 
 /**
+ * The agent-session variables the dashboard inherits, if the host set them.
+ *
+ * A named list rather than "anything starting with SANDBOXR_CLAUDE": a wildcard
+ * would forward a variable a future version means something else by, and the
+ * dashboard is the one container on the machine holding a credential.
+ */
+const AGENT_VARIABLES = [
+  "SANDBOXR_CLAUDE_TOKEN",
+  "SANDBOXR_CLAUDE_MODEL",
+  "SANDBOXR_CLAUDE_MCP",
+  "SANDBOXR_CLAUDE_PERMISSION_MODE",
+] as const;
+
+const agentEnvironment = (env: NodeJS.ProcessEnv): Record<string, string> => {
+  const held: Record<string, string> = {};
+  for (const name of AGENT_VARIABLES) {
+    const value = env[name];
+    if (value !== undefined && value.trim() !== "") held[name] = value;
+  }
+  return held;
+};
+
+/**
  * The `docker run` argument list for the dashboard. Pure, so a test can read
  * every mount and every variable without a daemon.
  */
@@ -167,6 +190,20 @@ export function dashboardArgs(input: DashboardInput): string[] {
     ...(input.tls ? {} : { SANDBOXR_INSECURE_COOKIES: "1" }),
     ...(input.password ? { SANDBOXR_PASSWORD: input.password } : {}),
     ...(input.ghToken ? { GH_TOKEN: input.ghToken } : {}),
+    // The agent-session settings, forwarded from whatever started the dashboard.
+    //
+    // Forwarded rather than mounted, and the reason is the same one the GH_TOKEN
+    // comment gives above: on macOS `claude` keeps its credential in the login
+    // keychain, so there is no file to mount — the only thing that can cross
+    // into the container is a value. `SANDBOXR_CLAUDE_TOKEN` is a long-lived
+    // token from `claude setup-token`, held in the dashboard's environment and
+    // handed to a session's exec; it is written to no file, in the container or
+    // out of it.
+    //
+    // Absent ones are omitted rather than passed empty, so the server's own
+    // defaults apply and "no credential on this machine" stays a distinguishable
+    // state from "a credential that is the empty string".
+    ...agentEnvironment(env),
   };
   for (const [key, value] of Object.entries(environment)) args.push("-e", `${key}=${value}`);
 

@@ -598,6 +598,7 @@ is additionally checked against the session's grant.
 | `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its project's config declares |
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
 | `GET /api/p/:project/s/:slug/agent/runs` | The agent sessions recorded against one sandbox, newest first. The index only — never message content (§7.2) |
+| `GET /api/agent/models` | The models a session may run on, and the one this machine defaults to. A closed table (§7.2) |
 
 `GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
 part of the contract because each was learnt from the version this replaced: nothing is fetched
@@ -666,14 +667,31 @@ two, `store.ts` changes and nothing else does.
 `sessionId` is the load-bearing field. It is the only thing that makes `claude --resume` possible
 after a container restart, and it exists nowhere else.
 
+**A session is keyed by the sandbox, not by the connection watching it.** Sockets subscribe and
+unsubscribe; the process underneath carries on. That is the one place an agent session must differ
+from the terminal, and it is not a preference: a shell dying with its tab is expected, an agent
+dying because somebody looked at another worktree destroys work in progress. It follows that two
+browsers can watch one session, and that closing every browser leaves it running — bounded, because
+an unwatched session is stopped after thirty minutes rather than held open indefinitely against the
+sandbox's own idle reaper.
+
+**What a session does not survive is the dashboard restarting.** The process is a `docker exec`
+this server owns, so it dies with it. That is recoverable rather than fatal — the session id and
+the transcript are on disk, so the next connection continues the conversation with `--resume` — but
+it is a real limit. Removing it means running the agent detached *inside* the container and
+attaching to its output instead of owning its process.
+
 **The socket** is `/p/:project/s/:slug/agent`, authenticated before the upgrade completes like
-the terminal's (§3.2), with an optional `?resume=<sessionId>`. Unlike the terminal there are no
-binary frames at all — both directions are JSON text:
+the terminal's (§3.2), with an optional `?resume=<sessionId>` and `?model=<id>`. A socket opened
+on a sandbox that already has a session joins it, and **the running session's model wins over the
+one asked for** — a conversation is a thing one model had, and switching mid-way would make its own
+transcript misleading. Unlike the terminal there are no binary frames at all — both directions are
+JSON text:
 
 | Direction | Frames |
 |---|---|
-| browser → server | `{"t":"send","text":…}`, `{"t":"interrupt"}` |
-| server → browser | `{"t":"ready",…}`, `{"t":"session",…}`, `{"t":"event","event":…}`, `{"t":"replayed",…}`, `{"t":"state",…}`, `{"t":"error",…}` |
+| browser → server | `{"t":"send","text":…}`, `{"t":"interrupt"}` (end the turn), `{"t":"stop"}` (end the session) |
+| server → browser | `{"t":"ready",…}`, `{"t":"session",…}`, `{"t":"event","event":…}`, `{"t":"state",…}`, `{"t":"usage","tokens":…}`, `{"t":"error",…}` |
 
 A reconnect replays the transcript from disk before the live stream starts, so the socket only
 ever carries what happens from now on.
@@ -689,10 +707,22 @@ part of the contract because it is invisible otherwise: **a setup-token does not
 connectors**, so MCP servers are named to the machine (`SANDBOXR_CLAUDE_MCP`) and passed on the
 session's command line rather than inherited from the host's connector list.
 
-**The container is the permission boundary.** A session runs with `bypassPermissions`, because
-nothing on the host can answer a permission prompt yet — a mode that asks would be a session
-that hangs on its first `npm install`. What contains it is the sandbox: the worktree, the
-project's own services, and nothing else. When prompts become answerable this paragraph changes.
+**The container is the permission boundary**, and a session runs with `acceptEdits` — *not*
+`bypassPermissions`, which is impossible here rather than merely unwise. `bypassPermissions` is a
+spelling of `--dangerously-skip-permissions`, Claude Code refuses that outright when running as
+root, and sandboxes run as root; a session configured that way exits at once with the refusal on
+stderr and nothing on the event stream. So the default is `acceptEdits` plus a closed allowlist of
+commands (`DEFAULT_ALLOWED_TOOLS`), which is the only arrangement whose behaviour is fully defined
+while nothing on the host can answer a permission prompt. `SANDBOXR_CLAUDE_PERMISSION_MODE`
+overrides it. What contains a session is the sandbox: the worktree, the project's own services,
+and nothing else. When prompts become answerable this paragraph changes.
+
+**The model is chosen from a closed table**, `AGENT_MODELS` in core, defaulting to Claude Opus 5.
+The browser asks for one with `?model=` on the upgrade and an id outside the table is refused
+before the handshake completes — the value becomes `--model` on a command line inside the
+container, so this is the same rule the action table follows in §8. `SANDBOXR_CLAUDE_MODEL` sets
+the machine's default, and `GET /api/agent/models` reports what this machine will actually do
+rather than a constant.
 
 ## 8. Actions
 
