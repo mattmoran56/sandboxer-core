@@ -724,7 +724,7 @@ implements the command, not about what the command is for — which is a convers
 from everything said so far and whose answer never comes back. That is a session flag:
 
 ```
-claude -p --resume <parent> --fork-session --session-id <fork> …
+claude -p --resume <parent> --fork-session --session-id <fork> --tools "" --strict-mcp-config …
 ```
 
 A forked session inherits the conversation up to the fork and then diverges. **Nothing is written
@@ -736,9 +736,11 @@ running at once.
 |---|---|
 | Where the process lives | The same registry, under a **suffixed key**: `project/slug` for the sandbox's session, `project/slug#btw:<forkSessionId>` for each fork. One map means one transcript queue, one idle wind-down, one `stopAll`; a second registry would be a second copy of all of it, and the copy that gets forgotten is the one that stops things at shutdown. "One session per worktree" survives as a property the key states: **at most one entry whose key has no fork suffix**, and `running()` only ever answers about that one |
 | The fork's id | Chosen by sandboxr and passed as `--session-id`, so it is a fact before the container is touched. One identity covers the browser's handle, the index row and the transcript filename, which is what lets a fork be found again after a reload. Claude Code's own error message documents the combination: `--session-id` may be used with `--resume` **only** when `--fork-session` is |
-| What it may do | A narrower tool set than the conversation: `FORK_ALLOWED_TOOLS` is read-only — read, search, `git log`/`diff`/`show` — with `Edit`, `Write` and `NotebookEdit` **denied outright** via `--disallowedTools`, and `--permission-mode dontAsk` rather than `acceptEdits`. A side question is a question, not a second worker, and a `/btw` that edits files while somebody is mid-refactor is the trap this closes. The deny list is not redundant with the allowlist: a deny rule is the only thing that outranks a permission mode |
+| What it may do | **Nothing. A fork has no tools at all** — `FORK_TOOLS` is empty, which reaches the command line as `--tools ""`. A `/btw` answers out of the conversation it inherited; a fork that goes and greps the worktree is a second agent doing work on a question somebody asked in passing, and slow, on the one command whose appeal is that it is not. It also closes the older trap more completely than the read-only allowlist it replaces: there is nothing a fork can touch, rather than a list of things it may not |
+| How "no tools" is spelled, and why not the obvious way | `--tools` is the **base set**, not a permission rule, and Claude Code turns it into a deny rule for every built-in it does not name. A deny rule is the only thing that outranks a permission mode, so this holds however the session is otherwise configured — including under an operator's `SANDBOXR_CLAUDE_PERMISSION_MODE`, which a fork does not take in any case. An **empty `--allowedTools` would not work**: an allow list only decides what proceeds *without asking*, so an empty one narrows nothing. Two details are load-bearing in the argv. The empty string is an **argument, not an omission** — `--tools ""` narrows to nothing while a bare `--tools` is an empty list Claude Code skips — and because the flag is variadic, whatever follows the empty string must start with `-` or it is read as a tool name. `--strict-mcp-config` goes with it, because `--tools` narrows the *built-in* set and an MCP server configured on the branch would otherwise be the one route left back in |
+| The mode it still runs in | `--permission-mode dontAsk`, and it decides nothing today. The set of tools Claude Code ships is not sandboxr's to freeze: if a release adds one `--tools` does not narrow, `dontAsk` refuses it where `acceptEdits` would *perform* it — and on a fork that is a file written into a worktree somebody else is mid-refactor on |
 | Its model | The parent's, always. A fork inherits a conversation one model had, and answering on another would make its own transcript misleading — the same promise `/model` is refused to keep |
-| Its lifetime | It ends itself when its answer is finished, so a side question is not an idle `claude` left in the container. Closing the panel does **not** stop it; stopping the parent does, and so does five minutes with nobody watching |
+| Its lifetime | It ends itself when its answer is finished, so a side question is not an idle `claude` left in the container. Dismissing the block does **not** stop it; stopping the parent does, and so does five minutes with nobody watching |
 | How many | Three at once per sandbox. The fourth is refused with a sentence rather than by making the conversation everybody is waiting on slower |
 
 **Interrupting is by tag, not by process name.** Every sandboxr-started session carries
@@ -763,13 +765,38 @@ has not yet been assigned an id, are each answered with their own sentence and f
 A fork's transcript is readable only through the sandbox it belongs to. A session id is a filename
 under `agent/log/`, and uuids being unguessable is not an access rule.
 
-**In the browser it is the subagent idiom, not a third pattern.** A `/btw` leaves a compact marker
-in the conversation at the point it was asked — because the tray has no order and the conversation
-does — and the answer is a chip in the same tray and a sheet over the same side. The marker is
-positioned by **clock time and not by `seq`**: a replay and the live stream are counted by separate
-counters, so `seq` is not comparable across a reconnect. `forkedFrom.afterSeq` records the parent's
-offset anyway, because it is the number a later reader of the two files needs and it cannot be
-recovered afterwards.
+**In the browser a side question replaces the composer, and must be dismissed.** It is a modal
+digression, not a second panel: asking one puts the conversation's composer aside and stands a block
+in its slot holding the question and the answer, and while that block is open **there is nowhere to
+type to the main session at all**. The composer is *removed* rather than disabled, because an
+affordance that is present and refuses is a worse answer than one that is not there. Dismissing it —
+a button, or Escape — gives the composer back and does **not** stop the fork.
+
+This is deliberately not the subagent idiom, which it was at first. A chip in the tray is something
+you come back to while you get on with something else, and that is what a subagent is; a side
+question is something you ask, read and are done with. The tray is therefore subagents only.
+
+Three consequences worth stating, because each is a thing that could be got wrong invisibly:
+
+- **The block survives a reconnect.** A fork is a real run with its own transcript, so a dropped
+  socket must not be able to lose one. The open fork's id is held across the socket's teardown, and
+  the `forks` list that arrives on the new attach is where it is put back — that frame is the first
+  moment a fresh socket can know the fork still exists. Its transcript is discarded and asked for
+  again with `fork-open`, because a replay appended to what is on screen would draw the answer twice.
+  A fork **absent** from that list — its conversation ended, or another browser stopped it — gives
+  the composer back instead.
+- **One at a time**, which follows from there being one composer. The cap of three concurrent forks
+  is still real and still enforced by the server: a fork keeps running after its block is dismissed,
+  and a second browser on the same sandbox can ask its own.
+- **The block knows which fork is its own without a frame for it.** The server subscribes exactly
+  one socket to a fork it did not ask about — the one that asked for it — so a `{"t":"fork","id":…}`
+  for an id the browser never opened is the side question somebody there just asked.
+
+The marker left in the conversation is unchanged and is now the only route back into a finished side
+question. It is positioned by **clock time and not by `seq`**: a replay and the live stream are
+counted by separate counters, so `seq` is not comparable across a reconnect. `forkedFrom.afterSeq`
+records the parent's offset anyway, because it is the number a later reader of the two files needs
+and it cannot be recovered afterwards.
 
 **A session is keyed by the sandbox, not by the connection watching it.** Sockets subscribe and
 unsubscribe; the process underneath carries on. That is the one place an agent session must differ
@@ -846,6 +873,23 @@ to degrade into "pass it on" rather than into "you may not type this".
 a process exchanging newline-delimited JSON would receive its own input back interleaved with
 its output. The cost is that Docker frames the stream, which `demuxer()` already handles.
 
+**A session runs on one of two credentials, and which one decides what it can reach.**
+The default is a `claude setup-token` in `CLAUDE_CODE_OAUTH_TOKEN`: it makes model requests and
+nothing else, and loads no claude.ai connectors. A **subscription login** placed in the shared
+config volume (`sandboxr-claude`, §3.3) reaches every connector on the account instead — including
+the Google and Microsoft ones, which no per-server OAuth can authorise from a container, because
+this is the login that already authorised them rather than a fresh flow.
+
+**They do not compose, and the token wins.** Claude Code ranks an explicit
+`CLAUDE_CODE_OAUTH_TOKEN` above a stored login, so passing both leaves the connectors dark with
+nothing on the stream to say why. The server therefore probes for the login — existence only,
+never its contents — and withholds the token when one is there. A machine that never places a
+login is unaffected.
+
+Placing one is **opt-in and deliberately not the default**: that credential can mint API keys
+against the organisation and reaches the person's mail, files and chat, from a root filesystem in
+a container whose job is executing project code, in a volume every sandbox on the machine shares.
+
 **Credentials never reach the worktree.** The session authenticates with an OAuth token from
 `claude setup-token`, held in the server's environment and passed to the exec as
 `CLAUDE_CODE_OAUTH_TOKEN`. It is written to no file inside the container. One consequence is
@@ -860,8 +904,10 @@ root, and sandboxes run as root; a session configured that way exits at once wit
 stderr and nothing on the event stream. So the default is `acceptEdits` plus a closed allowlist of
 commands (`DEFAULT_ALLOWED_TOOLS`), which is the only arrangement whose behaviour is fully defined
 while nothing on the host can answer a permission prompt. `SANDBOXR_CLAUDE_PERMISSION_MODE`
-overrides it. What contains a session is the sandbox: the worktree, the project's own services,
-and nothing else. When prompts become answerable this paragraph changes.
+overrides it **for sessions, never for a side question** — that setting is an operator's judgement
+about the sessions people work in, and §7.2.1 is the whole of what a fork may do. What contains a
+session is the sandbox: the worktree, the project's own services, and nothing else. When prompts
+become answerable this paragraph changes.
 
 **The model is chosen from a closed table**, `AGENT_MODELS` in core, defaulting to Claude Opus 5.
 The browser asks for one with `?model=` on the upgrade and an id outside the table is refused

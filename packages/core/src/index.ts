@@ -207,11 +207,11 @@ export { AgentStore, agentPaths } from "./agent/store.js";
 export type { AgentPaths } from "./agent/store.js";
 export {
   AGENT_WORKDIR,
+  CREDENTIALS_FILE,
   DEFAULT_ALLOWED_TOOLS,
   DEFAULT_PERMISSION_MODE,
-  FORK_ALLOWED_TOOLS,
-  FORK_DISALLOWED_TOOLS,
   FORK_PERMISSION_MODE,
+  FORK_TOOLS,
   agentArgv,
   agentEnv,
   agentName,
