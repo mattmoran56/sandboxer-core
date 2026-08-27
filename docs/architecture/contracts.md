@@ -621,7 +621,7 @@ is additionally checked against the session's grant.
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
 | `GET /api/p/:project/s/:slug/agent/runs` | The agent sessions recorded against one sandbox, newest first. The index only — never message content (§7.2) |
 | `GET /api/agent/models` | The models a session may run on, and the one this machine defaults to. A closed table (§7.2) |
-| `GET /api/p/:project/s/:slug/agent/commands` | The slash commands a session on that sandbox can be offered, each marked sendable or not, and each refused one carrying the sentence it is refused with (§7.2) |
+| `GET /api/p/:project/s/:slug/agent/commands` | The slash commands a session on that sandbox can be offered, each marked sendable or not, each refused one carrying the sentence it is refused with, and the one sandboxr answers itself marked `handledBy` (§7.2) |
 
 `GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
 part of the contract because each was learnt from the version this replaced: nothing is fetched
@@ -667,10 +667,12 @@ agent process of its own.
 
 **A run's tree is assembled from two different joins, and only one of them is free.** Inside a
 session, every message carries the id of the tool call that spawned it, so subagents nest at any
-depth with nothing for sandboxr to remember. Across a machine boundary — a session that starts
+depth with nothing for sandboxr to remember. Across a session boundary — a session that starts
 another session — there is no such field, and the link has to be written down at the moment it
-is made or it cannot be recovered. Nothing does that yet; when something does, this is the
-sentence it has to satisfy.
+is made or it cannot be recovered. **`forkedFrom` is that link**, and it is the one exception to
+"every field in the index is derivable by replaying the transcripts": a forked session's
+transcript opens with the conversation it inherited and says nothing about having been forked,
+and the parent's says nothing about the fork at all.
 
 **The wire format is Claude Code's, and exactly one file knows it.** `packages/core/src/agent/stream.ts`
 turns `--output-format stream-json` into the event model above; nothing downstream sees a raw
@@ -704,13 +706,70 @@ than a compaction this version declines to report.
 `$SANDBOXR_HOME/agent/log/<sessionId>.jsonl` *before* they are interpreted, so a later renderer
 can re-read a conversation an earlier one recorded. `$SANDBOXR_HOME/agent/runs.json` holds the
 index: which session belongs to which sandbox, its state, and where its transcript is. **Every
-field in the index is derivable by replaying the transcripts**, which is what makes it a cache
-rather than a system of record — and what makes the storage choice a contained one. It is a JSON
+field in the index is derivable by replaying the transcripts — except `forkedFrom`**, which is why
+that one field is written at the moment the fork is made and can be recovered no other way. What is
+left is a cache rather than a system of record — and what makes the storage choice a contained one. It is a JSON
 file written by temp-and-rename because the server process is the only writer; the day there are
 two, `store.ts` changes and nothing else does.
 
 `sessionId` is the load-bearing field. It is the only thing that makes `claude --resume` possible
 after a container restart, and it exists nowhere else.
+
+### 7.2.1 Side questions: `/btw`
+
+**`/btw` is a slash command sandboxr implements itself rather than one it sends or refuses.** In a
+terminal it draws a panel beside the conversation, so it is `local-jsx` and a headless session
+answers one with "isn't available in this environment". That is a fact about how Claude Code
+implements the command, not about what the command is for — which is a conversation that starts
+from everything said so far and whose answer never comes back. That is a session flag:
+
+```
+claude -p --resume <parent> --fork-session --session-id <fork> …
+```
+
+A forked session inherits the conversation up to the fork and then diverges. **Nothing is written
+to the parent**: its process is not spoken to, its transcript gains no line, and it stays usable
+while the fork works — the two are separate processes in the same container and both can be
+running at once.
+
+| Decision | What it is, and why |
+|---|---|
+| Where the process lives | The same registry, under a **suffixed key**: `project/slug` for the sandbox's session, `project/slug#btw:<forkSessionId>` for each fork. One map means one transcript queue, one idle wind-down, one `stopAll`; a second registry would be a second copy of all of it, and the copy that gets forgotten is the one that stops things at shutdown. "One session per worktree" survives as a property the key states: **at most one entry whose key has no fork suffix**, and `running()` only ever answers about that one |
+| The fork's id | Chosen by sandboxr and passed as `--session-id`, so it is a fact before the container is touched. One identity covers the browser's handle, the index row and the transcript filename, which is what lets a fork be found again after a reload. Claude Code's own error message documents the combination: `--session-id` may be used with `--resume` **only** when `--fork-session` is |
+| What it may do | A narrower tool set than the conversation: `FORK_ALLOWED_TOOLS` is read-only — read, search, `git log`/`diff`/`show` — with `Edit`, `Write` and `NotebookEdit` **denied outright** via `--disallowedTools`, and `--permission-mode dontAsk` rather than `acceptEdits`. A side question is a question, not a second worker, and a `/btw` that edits files while somebody is mid-refactor is the trap this closes. The deny list is not redundant with the allowlist: a deny rule is the only thing that outranks a permission mode |
+| Its model | The parent's, always. A fork inherits a conversation one model had, and answering on another would make its own transcript misleading — the same promise `/model` is refused to keep |
+| Its lifetime | It ends itself when its answer is finished, so a side question is not an idle `claude` left in the container. Closing the panel does **not** stop it; stopping the parent does, and so does five minutes with nobody watching |
+| How many | Three at once per sandbox. The fourth is refused with a sentence rather than by making the conversation everybody is waiting on slower |
+
+**Interrupting is by tag, not by process name.** Every sandboxr-started session carries
+`--name sandboxr-<uuid>`, and an interrupt is `pkill -INT -f -- sandboxr-<uuid>` in a second exec.
+`pkill -x claude` was precise while a container held one session; with a fork beside it, "stop this
+turn" would have put both down at once.
+
+**The socket forks whichever way the text arrives.** `{"t":"send","text":"/btw …"}` is intercepted
+and never forwarded, so a client that knows nothing about `handledBy` still gets a fork rather than
+a `/btw` posted into a running session. A `/btw` with nothing after it, and one on a session that
+has not yet been assigned an id, are each answered with their own sentence and fork nothing.
+
+**Four more frames carry it**, and the design is that a fork's stream *is* a session's stream:
+
+| Direction | Frame | What it is |
+|---|---|---|
+| server → browser | `{"t":"forks","forks":[…]}` | Every side question of this run: id, parent, question, state, times. Re-sent whole whenever one changes, to **every** socket on the sandbox |
+| server → browser | `{"t":"fork","id":…,"message":<frame>}` | One fork's own output, wrapped. `message` is an ordinary server frame, so the browser unwraps it and draws the panel with the components that draw the conversation |
+| browser → server | `{"t":"fork-open","id":…}` | Read this one: replay its transcript and subscribe. Only a socket that asks is sent a fork's stream |
+| browser → server | `{"t":"fork-interrupt","id":…}` / `{"t":"fork-stop","id":…}` | End that fork's turn, or that fork |
+
+A fork's transcript is readable only through the sandbox it belongs to. A session id is a filename
+under `agent/log/`, and uuids being unguessable is not an access rule.
+
+**In the browser it is the subagent idiom, not a third pattern.** A `/btw` leaves a compact marker
+in the conversation at the point it was asked — because the tray has no order and the conversation
+does — and the answer is a chip in the same tray and a sheet over the same side. The marker is
+positioned by **clock time and not by `seq`**: a replay and the live stream are counted by separate
+counters, so `seq` is not comparable across a reconnect. `forkedFrom.afterSeq` records the parent's
+offset anyway, because it is the number a later reader of the two files needs and it cannot be
+recovered afterwards.
 
 **A session is keyed by the sandbox, not by the connection watching it.** Sockets subscribe and
 unsubscribe; the process underneath carries on. That is the one place an agent session must differ
@@ -735,8 +794,8 @@ JSON text:
 
 | Direction | Frames |
 |---|---|
-| browser → server | `{"t":"send","text":…}`, `{"t":"interrupt"}` (end the turn), `{"t":"stop"}` (end the session) |
-| server → browser | `{"t":"ready",…}`, `{"t":"session",…}`, `{"t":"event","event":…}`, `{"t":"state",…}`, `{"t":"usage","tokens":…}`, `{"t":"error",…}` |
+| browser → server | `{"t":"send","text":…}`, `{"t":"interrupt"}` (end the turn), `{"t":"stop"}` (end the session), and the three fork frames of §7.2.1 |
+| server → browser | `{"t":"ready",…}`, `{"t":"session",…}`, `{"t":"event","event":…}`, `{"t":"state",…}`, `{"t":"usage","tokens":…}`, `{"t":"error",…}`, plus `{"t":"forks",…}` and `{"t":"fork",…}` (§7.2.1) |
 
 A reconnect replays the transcript from disk before the live stream starts, so the socket only
 ever carries what happens from now on.
@@ -760,22 +819,28 @@ descriptions, which is why the table is written out rather than read off the ses
 
 **`sendable: false` marks a command that is listed and must not be sent, and the socket enforces it
 too.** A `{"t":"send"}` whose first token is one of them is answered with an error frame and never
-forwarded, because a rule enforced only in the browser is not a rule. Four are refused, each for
+forwarded, because a rule enforced only in the browser is not a rule. Three are refused, each for
 its own reason: `/clear` starts a *new* Claude Code session while this run's transcript is still
-being written against the old id; `/login` only exists in a terminal; `/model` would change a
+being written against the old id; `/login` only exists in a terminal; and `/model` would change a
 run's model after the index has recorded it, which is the same promise a joining socket keeps when
-the running session's model wins; and `/btw` draws a side panel, so a headless session gets a
-synthetic "isn't available in this environment" for it and nothing else. Each refused row carries
-the sentence it is refused with, in `refusal`, and no other row carries one — the reason a command
-is stopped is a fact about what a session does, so the browser says it rather than composing one.
+the running session's model wins. Each refused row carries the sentence it is refused with, in
+`refusal`, and no other row carries one — the reason a command is stopped is a fact about what a
+session does, so the browser says it rather than composing one.
 
-**The table is a menu, not an allowlist.** Those four names are the whole of what the socket
-refuses. Every other message beginning with `/` is forwarded verbatim — a command Claude Code
-gained after this table was written, one of the skills bundled in the binary, a worktree command
-added since the pane loaded, a pasted path, a sentence, a bare slash. A closed table decides what
-sandboxr *offers* and what it *stops*; what a person may type is not sandboxr's to decide, and a
-table one release behind Claude Code has to degrade into "pass it on" rather than into "you may not
-type this".
+**`handledBy` is a different question from `sendable`, and exactly one row answers it.** `sendable`
+asks whether this text may be posted to the session; `handledBy` asks who runs the command at all.
+`/btw` is `handledBy: "sandboxr"` — sendable from the composer, never sent to the session, forked
+by the socket (§7.2.1). The field is absent on every row the session runs, so an older browser
+reading a newer server's list is one that does not know sandboxr answers this one; it posts the
+text, and the socket forks anyway.
+
+**The table is a menu, not an allowlist.** Those three refusals and that one interception are the
+whole of what the socket does not forward. Every other message beginning with `/` is passed on
+verbatim — a command Claude Code gained after this table was written, one of the skills bundled in
+the binary, a worktree command added since the pane loaded, a pasted path, a sentence, a bare
+slash. A closed table decides what sandboxr *offers*, what it *stops* and what it *answers itself*;
+what a person may type is not sandboxr's to decide, and a table one release behind Claude Code has
+to degrade into "pass it on" rather than into "you may not type this".
 
 **The exec has no TTY, and that is not an optimisation.** A TTY echoes what is written to it, so
 a process exchanging newline-delimited JSON would receive its own input back interleaved with
