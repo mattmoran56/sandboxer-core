@@ -452,6 +452,43 @@ The browser's network panel is what settles it: a 404 on something under `/asset
 bundle was never built. `npm run build` at the repository root builds the two packages in the right
 order, because the server depends on the app; building `@sandboxr/server` on its own does not.
 
+### The repository list is empty, and `gh` works fine on this machine
+
+Settings → Projects lists what the **dashboard's** `gh` can reach, and the dashboard runs in a
+container. Your shell's `gh` is not the one being asked.
+
+The usual cause is where the token lives. On macOS `gh auth login` puts it in the login keychain,
+so `~/.config/gh/hosts.yml` names your account and holds no credential — and the dashboard mounts
+that directory. A keychain does not cross into a container, so the container's `gh` has a username,
+no token, and every call comes back `HTTP 401`.
+
+`sandboxr init` handles this: it runs `gh auth token` on the host and passes the value in as
+`GH_TOKEN`. Two things follow from *when* it does that:
+
+- **A dashboard started any other way has no token.** Run `sandboxr init` again.
+- **The token is captured once, at `init`.** Sign in again, or let it expire, and the container is
+  still holding the old one. `sandboxr init` again is the fix there too.
+
+The dashboard's log says which of these you have, because an empty list looks the same either way:
+
+```bash
+docker logs sandboxr-dashboard | grep repositories
+```
+
+| The line says | What it means |
+|---|---|
+| `repositories: gh: Requires authentication (HTTP 401)` | The container has no usable token — the case above |
+| `repositories: there is no gh on this machine` | The dashboard image is not the one sandboxr builds |
+| `repositories: HTTP 403 …` | A token whose scopes do not include `repo` |
+| `repositories could not be listed: …` | Not gh at all — the workspace could not be read |
+
+The reason stays in the log and never reaches the browser, because it can name a config path or an
+account and any signed-in session can open that pane.
+
+The box for pasting a remote works throughout, and is the only route for a repository the listing
+could never return anyway — one in an organisation you can reach but are not a member of, or a
+remote that is not GitHub.
+
 ### git refuses to create a worktree for a branch
 
 git will not check out one branch in two places, and the branch you want is very often already
