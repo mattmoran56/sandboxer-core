@@ -1,45 +1,73 @@
 ---
 title: CLI commands
-description: Every sandboxr command, its flags, what it touches and what it returns.
-sidebar:
-  order: 1
+description: Every sandboxr command, every flag, what it touches and what it returns.
 ---
+
+The complete command surface. `sandboxr help` prints the same tree, and the source of truth is
+`packages/cli/src/main.ts`.
 
 ```
 sandboxr <command> [slug] [flags]
 ```
 
-Transcribed from `packages/cli/src/main.ts`, which is the authority. `sandboxr help` prints the
-same tree.
-
 ## Conventions
 
-**The slug is optional everywhere.** Standing in the worktree is enough — sandboxr derives the name
-from a ticket-shaped id in the directory, then in the branch, then the branch itself, then the
-directory. `--slug NAME` and the positional argument are the same thing.
+**The slug is usually optional.** Stand in the worktree and sandboxr works the name out for itself.
+It looks for a ticket-shaped id in the directory name, then in the branch name, then uses the branch,
+then the directory. `--slug NAME` and the bare positional argument mean the same thing.
 
-The exceptions are `stop`, `start`, `keep` and `unkeep`: they act on a sandbox somewhere else on the
-machine rather than the one you are standing in, so they want the slug spelled out.
+Four commands are the exception: `stop`, `start`, `keep` and `unkeep`. They act on a sandbox
+elsewhere on the machine, so they want the slug spelled out.
 
-**Output goes to two streams.** Human-readable text and progress go to **stderr**; `--json` puts
-the result on **stdout**. `sandboxr logs` and `sandboxr db snapshot` put their real output on
-stdout whether or not you asked for JSON, so redirecting either produces the file you expected.
+**Output goes to two streams.** Anything a person reads goes to **stderr**. `--json` puts the result
+on **stdout**. So `sandboxr ls --json | jq` works while you still see the progress.
+
+Two commands break that rule on purpose. `sandboxr logs` and `sandboxr db snapshot` put their real
+output on stdout whether or not you asked for JSON, because `sandboxr db snapshot > before.sql` has
+to produce the file it looks like it produces.
 
 | Exit | Means |
 |---|---|
 | `0` | Fine |
 | `1` | Something failed |
 | `2` | A config error, naming the file and the field |
-| `3` | The sandbox is **degraded** — up, with failed migrations |
+| `3` | The sandbox is [degraded](glossary.md#d) — up, with a failed migration |
 
-## Setup
+<details class="agent">
+<summary><b>Details for an agent</b> — how flags are parsed, and the two spellings that are not interchangeable</summary>
+
+The parser is `packages/cli/src/args.ts`. It is deliberately tiny, and three of its rules bite.
+
+- **Only a fixed list of flags takes the next word as a value**: `--worktree`, `--slug`,
+  `--project`, `--branch`, `--base`, `--name`, `--ttl`, `--seed`, `--tail`, `--timeout`, `--with`,
+  `--bind`, `--http-port`, `--https-port`. Everything else is a boolean.
+- **`--web` and `--go` are not on that list.** `sandboxr reload --web=app` works.
+  `sandboxr reload --web app` does not: `--web` becomes `true`, and `app` is taken as the
+  *positional slug*. Always use the `=` form when naming a target. The same applies to `--backend`.
+- **`--name=value` works for every flag**, so the `=` form is the safe spelling everywhere.
+- `--no-x` sets the boolean `x` to false. That is how `--no-tls` works.
+- A single-dash cluster sets each letter as a boolean: `-f` is follow, `-y` is yes, `-h` is help.
+- Everything after a bare `--` is passed through untouched, which is what makes
+  `sandboxr shell -- go test ./...` work.
+
+`--target`, `--prefer`, `--since` and `--ref` are in the parser's value list and no command reads
+them. They do nothing.
+
+`sandboxr` with no command prints the usage and exits `1`. `sandboxr --help`, `-h` and `help` print
+it and exit `0`. An unrecognised command prints an error, then the usage, and exits `1`.
+
+</details>
+
+## Setting the machine up
 
 ### `sandboxr init`
 
-Sets this machine up: creates `~/.sandboxr` and the shared Docker network, builds the base and
-dashboard images, issues a certificate if one can be trusted, and starts the router and the
-dashboard. Idempotent — it is also how you change the domain, rotate the password, or pick up TLS
-after installing mkcert.
+Sets this machine up. It creates `~/.sandboxr` and the shared Docker network, writes the machine's
+settings file if there is none, builds the base and dashboard images, issues a certificate if one can
+be trusted, then starts the router and the dashboard.
+
+It is idempotent. Running it again is also how you change the domain, rotate the password, or pick up
+TLS after installing mkcert's root.
 
 | Flag | What it does |
 |---|---|
@@ -50,87 +78,200 @@ after installing mkcert.
 | `--http-port N` | Publish HTTP here instead of 80 |
 | `--https-port N` | Publish HTTPS here instead of 443 |
 
-Reads `SANDBOXR_PASSWORD` and passes it to the dashboard. Without one, the dashboard starts and
-admits nobody.
+It reads `SANDBOXR_PASSWORD` and passes it to the dashboard. Without one the dashboard starts and
+admits nobody, and `init` says so.
+
+<details class="agent">
+<summary><b>Details for an agent</b> — what <code>init</code> reports, and the notes it can return</summary>
+
+Prints the domain, the dashboard URL and the hostname shape. `--json` returns the whole report:
+`domain`, `scheme`, `ports`, `dashboardUrl`, `certificate`, `baseImage` and `notes`.
+
+`notes` is a list of things that need a person. Each is printed as a warning:
+
+- `Wrote ~/.sandboxr/config.yaml. Edit it to change how long a sandbox may sit unused.`
+- `mkcert is not installed, so the router serves plain http.`
+- `mkcert's root is not in this machine's trust store, so the router serves plain http.`
+- `mkcert could not issue a certificate, so the router serves plain http.`
+- `The certificate is issued but its root is not trusted.`
+- `No SANDBOXR_PASSWORD is set, so the dashboard will admit nobody.`
+
+The certificate covers the domain and one wildcard under it — which is enough for the dashboard and
+not for a sandbox, since a sandbox hostname is three labels deep. Each sandbox gets its own
+certificate when it starts.
+
+`init` never installs a trust root implicitly. `mkcert -install` is the one step that needs an
+administrator password, so it is left to you.
+
+</details>
 
 ### `sandboxr teardown [--network]`
 
-Stops the router and the dashboard, and with `--network` removes the shared network. **Leaves
-sandboxes running** — those are `down`'s business.
+Stops the router and the dashboard. With `--network` it also removes the shared Docker network.
 
-## Sandboxes
+**It leaves sandboxes running.** Those are `down`'s business, and it says so.
+
+## Running a sandbox
 
 ### `sandboxr up [slug]`
 
-Reads `sandboxr.yaml`, prepares the seed, builds the project image if needed, issues a certificate,
-starts the container, waits for it, provisions the database, prints the URLs.
+Reads `sandboxr.yaml`, prepares the seed, builds the project image if it is not already built, issues
+a certificate, starts the container, waits for it, provisions the database and prints the URLs.
 
 | Flag | Default | What it does |
 |---|---|---|
 | `--worktree PATH` | the current directory | Which worktree to build from |
-| `--project NAME` | — | A project in the workspace, instead of a path. Needs `--branch` |
-| `--branch NAME` | — | Which branch of that project to run. Its worktree is found, or cut |
+| `--project NAME` | — | A project in the workspace, instead of a path |
+| `--branch NAME` | — | Which branch of that project. Its worktree is found, or cut |
 | `--base REF` | — | Create `--branch` off this ref rather than expecting it to exist |
-| `--ttl 12h\|never` | `~/.sandboxr/config.yaml`, else `12h` | Stop the sandbox once it has sat unused this long. `30m`, `12h`, `7d`, `never`. An unreadable value is refused by name |
-| `--slug NAME` | derived | Same as the positional argument |
+| `--ttl 12h\|never` | `config.yaml`, else `12h` | Stop it once it has sat unused this long |
+| `--slug NAME` | derived | The same as the positional argument |
 | `--with a,b` | none | Also start these `optional: true` runtimes |
-| `--seed local\|file\|fixtures` | whatever the config allows | Force the seed source. An unrecognised value is refused by name |
-| `--detach` | off | Do not wait, and skip the database step |
-| `--timeout N` | `180` | Seconds to wait for the container to become ready |
+| `--seed local\|file\|fixtures` | whatever the config allows | Force the seed source |
+| `--detach` | off | Do not wait for it to come up |
+| `--timeout N` | `180` | Seconds to wait for the container to be ready |
 | `--json` | off | The whole result on stdout |
 
-With `--project` there is no config to read until the worktree exists, so the resolution happens in
-core and the config is loaded from the worktree it picked. Without it, nothing changes: the current
-directory, or `--worktree`. See [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+Starting a sandbox that already exists replaces the container and **keeps its volumes**, so the
+database and the uploads survive.
 
-`up` is the only command that **enforces the public-sandbox access rules**; everything else loads
+`up` is the only command that enforces the rules a public sandbox has to obey. Everything else loads
 the config without them, so you can still inspect and clean up a project whose config would be
 refused.
 
-Starting a sandbox that already exists replaces the container and keeps its volumes.
+<details class="agent">
+<summary><b>Details for an agent</b> — refusals, exit codes and what <code>--json</code> returns</summary>
+
+Two flags are checked before any work starts, so a typo costs nothing:
+
+- `--seed X` where X is not `local`, `file` or `fixtures` →
+  `--seed X is not a source — one of local, file, fixtures`, exit `1`.
+- `--ttl X` that is not a duration →
+  `--ttl X is not a duration — a span like 30m, 12h or 7d, or never`, exit `1`.
+
+Exit `3` when the sandbox comes up `degraded` — the container is running and the migration failed.
+The URLs are still printed, and so are the two commands worth running next (`sandboxr logs` and
+`sandboxr db shell`).
+
+`--json` returns `{ sandbox, urls, migrationFailure? }`. `--timeout` is accepted and is not listed
+in `sandboxr help`.
+
+With `--project`, there is no worktree yet, so no config is loaded before core resolves one. Core
+then loads the config from the worktree it picked, so the refusals still happen — one step later.
+
+</details>
 
 ### `sandboxr down [slug] [--keep]`
 
-Removes the container, its certificate and the router's entry for it, and — unless `--keep` — its
-`data`, `blob`, `bin` and `www` volumes. Never touches the worktree, the branch or the source
-database. A sandbox that does not exist is not an error.
+Removes the container and the certificate naming its hostnames. The router's entry goes with the
+container, because the router reconciles from Docker labels. Unless `--keep`, it also removes the
+sandbox's `data`, `blob`, `bin` and `www` volumes — so the database and the uploads go.
+
+It removes the keep-alive marker either way, `--keep` included: the container is gone, and a marker
+for a container that no longer exists means nothing.
+
+It never touches the worktree, the branch, or the database you seeded from. A sandbox that does not
+exist is not an error.
+
+### `sandboxr stop <slug>` and `sandboxr start <slug>`
+
+Stops the container, or starts a stopped one again. Everything else survives: the volumes, the
+database, the worktree. `start` takes seconds where `up` would rebuild and re-seed.
+
+Stopping something that is already stopped is the state you asked for, so it exits `0`. Starting
+something that does not exist cannot be, so it exits `1`.
+
+### `sandboxr keep <slug>` and `sandboxr unkeep <slug>`
+
+Exempts one sandbox from the idle clock, or hands it back.
+
+`pin` and `unpin` are the names these had before the idea was called keep-alive. They still work and
+are not listed in `sandboxr help`.
+
+<details class="agent">
+<summary><b>Details for an agent</b> — why <code>keep</code> can refuse</summary>
+
+The marker is a file at `~/.sandboxr/state/keep/<project>/<slug>`, and it records the container's
+`sandboxr.created` value. A marker whose stamp does not match the live container is ignored, so a
+leftover file cannot silently keep the *next* sandbox to take that slug alive.
+
+That is why two cases are refused rather than written:
+
+- No such sandbox → `no sandbox called <slug> in <project> — keep one that exists`, exit `1`.
+- The sandbox carries no `created` label →
+  `<slug> carries no created label, so a keep-alive could not tell it from its successor`, exit `1`.
+  The fix it prints is `sandboxr down` and `up` again, to relabel it.
+
+`unkeep` just removes the file and always succeeds.
+
+</details>
 
 ### `sandboxr ls [--project NAME]`
 
-Every sandbox on the machine: project, slug, state, ttl, branch, worktree. `*` after a branch means
-the worktree had uncommitted changes when the sandbox started. `list` is an accepted alias.
+Every sandbox on the machine: project, slug, state, ttl, branch, worktree. `list` is an accepted
+alias.
 
-**TTL** is one column for two facts, because they answer the same question — when does this go
-away? It reads `12h`, `never`, `-` for a sandbox with no ttl, or `kept`. `kept` is shown *instead*
-of the ttl rather than beside it: it is what the clock will actually do to that sandbox.
+A `*` after the branch means the worktree had uncommitted changes when the sandbox started. That
+sandbox is not reproducible from its commit alone.
 
-### `sandboxr stop <slug>`, `sandboxr start <slug>`
+The TTL column holds two facts, because they answer one question — when does this go away? It reads a
+duration, `never`, `-` for a sandbox with no ttl, or `kept`. `kept` is shown *instead* of the
+duration, because it is what the clock will actually do.
 
-Stops the container, or starts a stopped one again. Everything else survives — the volumes, the
-database, the worktree — so `start` takes seconds where `up` would rebuild and re-seed.
+### `sandboxr status [slug]`
 
-Stopping something already stopped is the state you asked for, so it exits `0`. Starting something
-that does not exist cannot be, so it exits `1`.
+One sandbox in detail: state, branch and commit, driver, migration verdict, access, worktree, which
+apps have been built, and whether each service answers its health path. Exit `3` if degraded.
 
-### `sandboxr keep <slug>`, `sandboxr unkeep <slug>`
+### `sandboxr logs [slug] [--tail N] [-f]`
 
-Exempts one sandbox from the idle clock, or hands it back. The marker records the sandbox's
-`sandboxr.created` value, so it only counts for the container it was written for: keeping a sandbox
-that is not there is refused rather than left as a file that would silently keep whatever next takes
-the name.
+The container's own log stream. `--tail` defaults to **200**. `-f` or `--follow` streams it.
 
-`pin` and `unpin` are the names these had before, and still work. They are not listed in `--help`.
+It takes no service argument. For one service, read its own file under
+`~/.sandboxr/logs/<project>/<slug>/`.
+
+### `sandboxr shell [slug] [-- command…]`
+
+An interactive shell inside the sandbox, starting in `/workspace`. Defaults to `bash`. Anything after
+a bare `--` is run instead of a login shell.
+
+```bash
+sandboxr shell tkt-4821 -- go test ./...
+```
+
+### `sandboxr reload [slug] …`
+
+Rebuilds something inside a sandbox that is already running, and restarts it. It fails if the sandbox
+is missing or stopped.
+
+| Flag | What it rebuilds |
+|---|---|
+| `--migrate` | Re-runs this sandbox's migrations |
+| `--web` | Every front-end in the build-everything set |
+| `--web=<label>` | One front-end |
+| `--web=built` | Only what this sandbox has already built |
+| `--go` | Every backend |
+| `--go=<name>` | One backend. `--backend=<name>` is an accepted alias |
+
+One kind at a time. If you pass more than one, `--migrate` wins, then `--web`, then `--go`. Passing
+none of them is an error naming the three.
+
+> [!WARNING] Use the `=` form when you name a target
+> `--web app` is parsed as `--web` plus a positional word, and the positional word is read as the
+> slug. `--web=app` is the spelling that does what it looks like.
+
+Exit `1` if any target failed, with the last 20 lines of its output.
+
+## Cleaning up
 
 ### `sandboxr expire [--dry-run] [--project NAME]`
 
-Stops every sandbox that has sat unused past its limit. `--dry-run` prints what would be stopped and
-why without stopping anything.
+Stops every sandbox that has sat unused past its limit. `--dry-run` prints the plan and stops
+nothing.
 
-The clock runs from the later of the container's **current start time** and the last request that
-reached the sandbox through the router — never from when it was created. So using a sandbox buys it
-a full lifetime, and so does pressing `start`. A sandbox that is kept alive, one with no ttl, and
-one Docker cannot give a start time for are all left alone. `--dry-run` lists what would be stopped
-with the reason each was chosen; `--json` adds what was kept, with the reason each survived.
+The clock measures **idleness, not uptime**. The deadline is the later of the container's current
+start time and the last request that reached the sandbox through the router, plus the ttl. So using a
+sandbox buys it a full lifetime, and so does pressing start.
 
 ```
 KEEP  main      — no expiry set
@@ -138,127 +279,141 @@ KEEP  staging   — 3h 25m left, idle 34m
 STOP  tkt-4821  — idle 13h, past its 12h limit
 ```
 
-Last activity is read from the shared router's access log at the moment it is asked for, so nothing
-is stored and nothing can drift. With no router running, no sandbox has a last-activity time and
-every one of them falls back to its start time — a log that cannot be read must never be mistaken
-for "nobody has used anything".
+A sandbox that is kept alive, one with no ttl, and one Docker cannot give a start time for are all
+left alone.
 
-#### The project a slug belongs to
+<details class="agent">
+<summary><b>Details for an agent</b> — where last activity comes from, and what happens without a router</summary>
 
-`stop`, `start`, `keep` and `unkeep` name a sandbox rather than stand in one, so they work out its
-project in this order:
+Last activity is read from the shared router's access log at the moment it is asked for. Nothing is
+stored, so nothing can drift.
 
-1. `--project NAME`, if given.
-2. The one sandbox in `sandboxr ls` with that slug. A slug in two projects is ambiguous and is
-   refused, naming them, rather than picked between.
-3. The config in the current worktree.
+With no router running, no sandbox has a last-activity time and every one of them falls back to its
+start time. A log that cannot be read must never be read as "nobody has used anything" — that would
+stop every sandbox on the machine at once.
 
-### `sandboxr status [slug]`
+The per-sandbox log files are deliberately **not** an activity signal: the dashboard's health probes
+write to them every few seconds, so a timer keyed on them would never fire.
 
-One sandbox in detail: state, branch, driver, migration verdict, access, worktree, which apps have
-been built, and whether each backend answers its health path. Exit `3` if degraded.
+`--dry-run` lists what would be stopped with the reason. `--json` adds what was kept, and why each
+survived.
 
-### `sandboxr logs [slug] [--tail N] [-f]`
-
-The container's own log stream. `--tail` defaults to **200**; `-f` / `--follow` streams. Takes **no**
-service argument — for one service, read its file under
-`~/.sandboxr/logs/<project>/<slug>/`.
-
-### `sandboxr shell [slug] [-- command…]`
-
-An interactive shell inside the sandbox, starting in `/workspace`. With `--` it runs that command
-instead. Defaults to `bash`.
-
-### `sandboxr reload [slug] …`
-
-Rebuilds something inside a running sandbox and restarts it. Throws if the sandbox is missing or
-stopped.
-
-| Flag | What it rebuilds |
-|---|---|
-| `--migrate` | Re-runs this sandbox's migrations |
-| `--web <label\|all\|built>` | A front-end. Bare `--web` means `all` |
-| `--go [name]` | A backend. Bare `--go` means every backend. `--backend` is an accepted alias |
-
-One kind at a time: `--migrate` wins, then `--web`, then `--go`. None of them is an error. Exit `1`
-if any target failed, with the last 20 lines of its output.
+</details>
 
 ### `sandboxr gc [--dry-run]`
 
 Reaps sandboxes whose recorded worktree no longer exists, then removes `sandboxr-` volumes nothing
-owns and nothing has mounted. Shared and `sandboxr-deps-*` volumes are left alone.
+owns and nothing has mounted. The shared volumes and `sandboxr-deps-*` are left alone.
+
+Such a sandbox is unreachable anyway: you cannot rebuild anything in it, because the source it would
+build from is gone.
 
 ### `sandboxr prune [--yes] [--build-cache]`
 
-Reclaims the disk that building sandboxes left behind. **Reports by default and removes only with
-`--yes`** — the opposite way round from `gc --dry-run`, because what this removes costs a toolchain
-rebuild rather than a restart.
+Reclaims the disk that building sandboxes left behind. **It reports by default and removes only with
+`--yes`** — the opposite way round from `gc --dry-run`.
+
+The asymmetry is deliberate. A sandbox removed in error costs a restart; an image removed in error
+costs somebody a toolchain rebuild on their next `up`.
 
 | Flag | What it does |
 |---|---|
-| `--yes` | Remove what was listed. Without it nothing is deleted |
+| `--yes` (or `-y`) | Remove what was listed. Without it nothing is deleted |
 | `--build-cache` | Include Docker's build cache, which sandboxr is not the only writer of |
-| `--json` | The plan, and what was removed, on stdout |
-
-Three kinds of thing, and everything else is protected:
+| `--json` | The plan, and what was actually removed, on stdout |
 
 | Offered | Never offered |
 |---|---|
 | `sandboxr-` volumes no surviving sandbox owns | `sandboxr-claude`, `sandboxr-gocache`, `sandboxr-gomod` |
-| Project images older than that project's newest one | Each project's newest image, so the next `up` is a start rather than a build |
+| Project images older than that project's newest | Each project's newest image, so the next `up` starts rather than builds |
 | Docker's build cache, with `--build-cache` | `sandboxr/base`, `sandboxr/dashboard`, and any image a container holds |
 
-Sizes are the bytes only that object holds, not what `docker images` reports: two project images
-built on the same base share the base layer, and removing one returns the difference rather than
-the total. The build cache is always reported — it is usually the biggest number — and only removed
-when it is asked for.
+<details class="agent">
+<summary><b>Details for an agent</b> — how the sizes are computed, and what a refusal looks like</summary>
+
+Sizes are the bytes only that object holds, not what `docker images` reports. Two project images
+built on the same base share the base layer, so removing one returns the difference rather than the
+total.
+
+The build cache is **always reported**, whether or not it is in scope, because on a full machine it
+is usually the largest number on the page. It is removed only with `--build-cache`.
+
+With `--yes`, anything that could not be removed is named one by one rather than counted: a refusal
+is nearly always a container started against the image since the plan was made. The reclaimed total
+is summed over what actually went, not over the plan.
+
+There is no dashboard action for `prune`. It is a CLI command only — see
+[What is built](status.md).
+
+</details>
 
 [Giving Docker the whole machine](../guides/docker-capacity.md) is the guide.
 
 ## Projects and worktrees
 
-The workspace is the repositories sandboxr keeps for itself, so a sandbox can be a branch you pick
-rather than a worktree you made.
-[Projects, worktrees and lifetimes](../guides/managed-sandboxes.md) is the guide; these are the
-commands.
+The workspace is the set of repositories sandboxr keeps for itself, so a sandbox can be a branch you
+pick rather than a worktree you made by hand.
+[Several repositories at once](../setups/many-projects.md) is the guide; these are the commands.
 
 | Command | What it does |
 |---|---|
-| `sandboxr project ls` | Every project in the workspace: name, base branch, origin |
-| `sandboxr project available` | Repositories your `gh` can reach, newest-updated first. `added` marks the ones already in the workspace; `*` after a name means a fork |
-| `sandboxr project clone <url> [--name NAME]` | Clone one in, as a bare mirror. `--name` overrides the name taken from the url |
+| `sandboxr project ls` | Every project in the workspace: name, base branch, origin. `list` is an alias |
+| `sandboxr project available` | Repositories your `gh` can reach, newest first |
+| `sandboxr project clone <url> [--name NAME]` | Clone one in as a bare mirror |
 | `sandboxr project fetch <name>` | Update its remote-tracking branches. Never touches local work |
-| `sandboxr project prs <name>` | Open pull requests, as `gh` reports them. `*` after a number means draft |
-| `sandboxr worktree ls <project>` | Every worktree cut from it. `~` after a branch means detached, `(GONE)` means the directory is not there |
-| `sandboxr worktree add <project> <branch> [--base REF]` | Cut one for a branch, or hand back the one already there |
-| `sandboxr worktree rm <project> <branch> [--force]` | Remove it. `--force` for a worktree with uncommitted work in it |
+| `sandboxr project prs <name>` | Open pull requests, as `gh` reports them |
+| `sandboxr worktree ls <project>` | Every worktree cut from it. `list` is an alias |
+| `sandboxr worktree add <project> <branch> [--base REF]` | Cut one, or hand back the one already there |
+| `sandboxr worktree rm <project> <branch> [--force]` | Remove it. `remove` is an alias |
 
-`project prs` reads GitHub through `gh`, and an empty answer has more than one cause — so it says
-which: not a GitHub repo, no `gh` or a `gh` that is not logged in, or genuinely nothing open.
+Marks in the output: `*` after a repository name means a fork; `*` after a pull-request number means
+draft; `~` after a branch means the worktree is detached, because that branch is checked out
+somewhere else; `(GONE)` means the directory is not on disk.
 
-`project available` reads GitHub through `gh` too, so it is the same story: with no `gh`, or one
-that is not logged in, it says so in a sentence and exits `0` — an empty list is an ordinary answer,
-and `project clone <url>` still works. It lists the 200 most recently updated repositories and says
-so when there were more, because a repository missing from a list you are picking from otherwise
-reads as one `gh` cannot see.
+Naming a project that is not in the workspace exits `1` and says so. It never clones one by accident.
 
+<details class="agent">
+<summary><b>Details for an agent</b> — what an empty list means, and what <code>--force</code> costs</summary>
+
+`project available` and `project prs` both read GitHub through `gh`, and an empty answer has several
+causes. Both commands say which, in a sentence, and exit `0` — an empty list is an ordinary answer,
+and `project clone <url>` still works on a machine with no `gh`.
+
+- `gh is not installed here, or is not logged in, so there are no repositories to list.`
+- `gh can see no repositories for this account.`
+- `<project> is not a GitHub repo (<origin>), so there are no pull requests to read.`
+- `No open pull requests on <project>.`
+
+`project available` lists the 200 most recently updated repositories and warns when there were more.
 A repository counts as `added` when a project in the workspace was cloned from it, whichever way
-each of them spells the URL — a project cloned over ssh and a listing giving https are one
-repository, not two.
+each spells the URL — ssh and https are one repository, not two.
 
-Naming a project that is not in the workspace exits `1` and says so; it never clones one by
-accident.
+`worktree rm` looks the branch up in the listing rather than rebuilding a path from the name, so a
+worktree added by hand is still removable. `--force` removes one with uncommitted work in it, and
+that work is gone.
+
+</details>
 
 ## Databases
 
 | Command | What it does | Needs a running sandbox |
 |---|---|---|
 | `sandboxr db seed [--seed SOURCE]` | Produce or refresh the seed artifact | no |
-| `sandboxr db migrate [slug]` | Run the project's migration command. Exit `1` on failure, and it prints the baseline's path | yes |
+| `sandboxr db migrate [slug]` | Run the project's migration command | yes |
 | `sandboxr db snapshot [slug]` | Print the schema to **stdout** | yes |
 | `sandboxr db shell [slug]` | An interactive database prompt. Read-only for `d1` | yes |
 
-There is no `db diff` and no `db reset`: two snapshots and `diff`, and `down` then `up`.
+`db migrate` exits `1` on failure. It leaves the database exactly as it is, for you to inspect, and
+prints where the schema baseline was taken.
+
+There is no `db diff` and no `db reset`. Comparing before and after is two snapshots and `diff`;
+starting clean is `down` then `up`.
+
+> [!WARNING] A `sqlite` shell is writable
+> The `d1` shell opens the file read-only, because the owning service holds it while it runs. The
+> plain `sqlite` shell does not, so it is a second writer — which is the deadlock described in
+> [Troubleshooting](../troubleshooting.md#a-d1-or-sqlite-migration-hangs). Close it before a
+> migration runs.
 
 ## Secrets
 
@@ -267,28 +422,40 @@ There is no `db diff` and no `db reset`: two snapshots and `diff`, and `down` th
 | `sandboxr secrets import` | Read the project's `.env` files and write `~/.sandboxr/secrets/<project>.env` |
 | `sandboxr secrets check` | Say which credentials are missing, by name. Exit `1` if any is |
 
-Both print **names only, never values**.
+Both print **names only, never values**, so the output is safe to paste anywhere. See
+[Secrets](../configuration/secrets.md).
 
 ## Working out what is wrong
 
 ### `sandboxr doctor`
 
-Checks, in order: Docker is running; the base image exists; the router is running; the dashboard is
-running; whether the router is serving HTTP or HTTPS and why; `SANDBOXR_PASSWORD` is set; a config
-was found; the config resolves; a file database is pointed at the sandbox's state directory; the
-project's secrets are present; where `SANDBOXR_HOME` is; how many sandboxes exist.
+Checks the local setup and names the fix for anything it finds. Exit `1` if it finds anything.
 
-Exit `1` if it finds anything. Every finding names the fix.
+It checks, in order:
+
+1. Docker is running.
+2. The base image exists.
+3. The router is running.
+4. The dashboard is running.
+5. Whether the router serves HTTP or HTTPS, and why.
+6. `SANDBOXR_PASSWORD` is set.
+7. A config was found.
+8. The config resolves.
+9. A file-backed database is pointed at the sandbox's own state directory.
+10. The project's credentials are present.
+11. Where `SANDBOXR_HOME` is.
+12. How many sandboxes exist.
 
 ### `sandboxr config`
 
-Which config was used and what it resolved to — project, file, root, origin, driver, access,
-backends, front-ends. Exit `2` if there is no config here or in any parent. `--json` prints the
-whole resolved config, which is the fastest way to see what a default became.
+Which config was used, and what it resolved to: project, file, root, origin, driver, access,
+backends, front-ends. Exit `2` if there is no config here or in any parent directory.
 
-`file` is the file the settings came from and `root` is the directory they resolve against — the
-one mounted at `/workspace`. They are the same directory for a project that describes itself at its
-own repo root, and `origin` says when they are not:
+`--json` prints the whole resolved config, which is the fastest way to see what a default became.
+
+`file` is where the settings came from. `root` is the directory they resolve against — the one
+mounted at `/workspace`. They are the same directory for a project that describes itself at its own
+repository root, and `origin` says when they are not:
 
 ```
 demo
@@ -298,10 +465,13 @@ demo
    ! this worktree has no sandboxr.yaml of its own, so the project-level one applies
 ```
 
-That is a [project-level config](../guides/managed-sandboxes.md#a-config-for-a-project-that-has-not-committed-one),
-the fallback for a worktree that carries none. `sandboxr doctor` names it too.
+That is a project-level config, the fallback for a worktree that carries none. See
+[Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
 
-### `sandboxr version`, `sandboxr help`
+### `sandboxr version` and `sandboxr help`
+
+`version` prints `{ "version": "0.1.0" }` on stdout, with or without `--json`. `help` prints the
+usage tree on stderr.
 
 ## What each command touches
 
@@ -310,26 +480,37 @@ the fallback for a worktree that carries none. `sandboxr doctor` names it too.
 | `init` | machine | Replaces the router and dashboard containers |
 | `teardown` | machine | Removes them. Leaves sandboxes alone |
 | `up` | one sandbox | Replaces the container; **keeps** its volumes |
-| `down` | one sandbox | Removes the container, database and uploads |
+| `down` | one sandbox | Removes the container, the database and the uploads |
 | `ls`, `status`, `logs`, `config`, `doctor`, `version` | — | No |
 | `stop`, `start` | one sandbox | No — the container only |
 | `keep`, `unkeep` | one sandbox | No — one file under `~/.sandboxr/state/keep/` |
-| `expire` | machine | Stops **every** sandbox past its idle limit. Nothing is removed |
-| `project ls`, `project available`, `project prs`, `worktree ls` | workspace | No |
-| `project clone`, `project fetch` | workspace | Writes a project directory; a fetch never touches local work |
-| `worktree add` | one project | Creates a checkout |
-| `worktree rm` | one project | Removes a checkout, and with `--force` any uncommitted work in it |
-| `shell` | one sandbox | Whatever you run |
-| `reload` | one sandbox | Rebuilds; touches data only with `--migrate` |
+| `expire` | machine | Stops **every** sandbox past its idle limit. Removes nothing |
 | `gc` | machine | Reaps **every** sandbox whose worktree is gone |
 | `prune` | machine | Nothing without `--yes`; then images and volumes, never a shared volume |
+| `shell` | one sandbox | Whatever you run |
+| `reload` | one sandbox | Rebuilds; touches data only with `--migrate` |
 | `db seed` | project | Rewrites the shared seed artifact |
 | `db migrate` | one sandbox | That sandbox's database only |
 | `db snapshot`, `db shell` | one sandbox | `shell` is interactive |
 | `secrets import` | project | Writes the project's secrets file |
+| `project ls`, `project available`, `project prs`, `worktree ls` | workspace | No |
+| `project clone`, `project fetch` | workspace | Writes a project directory; a fetch never touches local work |
+| `worktree add` | one project | Creates a checkout |
+| `worktree rm` | one project | Removes a checkout, and with `--force` any uncommitted work in it |
 
-## Related
+## How a slug is resolved to a project
 
-- [Start, stop, list, clean up](../guides/lifecycle.md) — the same commands, with context
-- [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md) — the workspace, lifetimes and keep-alive
-- [Environment variables](environment.md)
+`stop`, `start`, `keep` and `unkeep` name a sandbox rather than stand in one, so they work its
+project out in this order:
+
+1. `--project NAME`, if you gave one.
+2. The one sandbox in `sandboxr ls` with that slug. A slug in two projects is ambiguous, and is
+   refused naming both rather than picked between.
+3. The config in the current worktree.
+
+Slugs come from ticket ids, so two projects sharing a `tkt-4821` is ordinary rather than exotic.
+
+---
+
+**Next:** [Cheat sheet](cheat-sheet.md) for the one-line version, or
+[Start, stop, list, clean up](../guides/lifecycle.md) for the same commands with context.
