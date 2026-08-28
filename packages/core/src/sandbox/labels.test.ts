@@ -33,6 +33,7 @@ describe("LABELS", () => {
       "created",
       "dirty",
       "driver",
+      "env",
       "project",
       "slug",
       "ttl",
@@ -121,6 +122,7 @@ describe("sandboxFromLabels", () => {
       access: "public",
       created: "2026-08-25T09:00:00.000Z",
       ttl: "never",
+      env: "",
       state: "running",
       container: "sandboxr-acme-tkt-1",
     });

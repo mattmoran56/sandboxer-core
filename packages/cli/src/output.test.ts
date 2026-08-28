@@ -22,6 +22,7 @@ describe("Output", () => {
   // the progress, and an agent reads stdout without stripping decoration out.
   it.each([
     ["line", (out: Output) => out.line("hello")],
+    ["prompt", (out: Output) => out.prompt("hello")],
     ["step", (out: Output) => out.step("hello")],
     ["ok", (out: Output) => out.ok("hello")],
     ["warn", (out: Output) => out.warn("hello")],
@@ -34,6 +35,14 @@ describe("Output", () => {
     write(new Output(sink));
     expect(sink.stdout).toBe("");
     expect(sink.stderr).toContain("hello");
+  });
+
+  // A prompt has to leave the cursor where the answer is typed, so it is the one
+  // thing here that does not end its own line.
+  it("prompt writes exactly what it was given, with no newline", () => {
+    const sink = recorder();
+    new Output(sink).prompt("value for KEY: ");
+    expect(sink.stderr).toBe("value for KEY: ");
   });
 
   it("data writes JSON to stdout and nothing to stderr", () => {

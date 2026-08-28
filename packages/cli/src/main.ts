@@ -6,7 +6,12 @@
  * whole surface can be driven from a test without ending the test run.
  */
 
-import { basename } from "node:path";
+import { spawn } from "node:child_process";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname } from "node:path";
+import { createInterface } from "node:readline";
+import type { Readable } from "node:stream";
+import { Writable } from "node:stream";
 
 import {
   CONFIG_FILENAME,
@@ -14,13 +19,18 @@ import {
   TOOL_VERSION,
   accessStatus,
   addWorktree,
+  allowsRealCredentials,
   checkSecrets,
   cloneProject,
   containerName,
+  declaredNames,
+  describeProjectSecrets,
   deriveSlug,
   docker,
   down,
   driverContext,
+  editProjectSecrets,
+  envNameRefusal,
   expire,
   fetchProject,
   findProject,
@@ -41,10 +51,12 @@ import {
   loadConfig,
   locateConfig,
   matchesOrigin,
+  parseEnvFile,
   parseTtl,
   paths,
   persistenceAdvice,
   prune,
+  readProjectSecrets,
   reload,
   removeKeep,
   removeWorktree,
@@ -126,8 +138,17 @@ DATABASE
   db shell [slug]              An interactive database shell
 
 SECRETS
-  secrets import               Build the project's secrets file from its .env files
+  secrets list                 Every credential the project carries, by name
+  secrets set NAME             Set one; the value is read from a prompt or stdin
+  secrets unset NAME           Remove one
+  secrets edit                 Open the whole file in $EDITOR, checked on save
+  secrets import               Merge the project's .env files into the file
+     --replace                 Build the file from them instead, discarding
+                               anything set by hand or by an earlier import
   secrets check                Say which credentials are missing, by name
+
+No secrets command prints a value. list gives a name, the last four characters
+and the length; edit is the exception, and opens the file in your own editor.
 
 OTHER
   config                       Where the config is, and what it resolved to
@@ -147,7 +168,24 @@ export interface RunContext {
   /** The directory commands resolve a config from. */
   cwd?: string | undefined;
   env?: NodeJS.ProcessEnv | undefined;
+  /**
+   * Where `secrets set` reads a value from, defaulting to the process's stdin.
+   *
+   * Injected for the same reason `writer` is: the one command that reads a
+   * credential has to be drivable from a test, and the real stream cannot be
+   * reattached once a test run has taken it.
+   */
+  stdin?: Stdin | undefined;
 }
+
+/**
+ * Just enough of `process.stdin` for `secrets set`.
+ *
+ * `isTTY` decides which of the two ways in is being used — a person typing, or
+ * a script piping — and it is optional because a plain `Readable` (a test, a
+ * closed stdin) has neither the property nor a terminal behind it.
+ */
+export type Stdin = Readable & { isTTY?: boolean | undefined };
 
 export async function main(argv: string[], context: RunContext = {}): Promise<number> {
   const args = parseArgs(argv);
@@ -214,7 +252,7 @@ export async function main(argv: string[], context: RunContext = {}): Promise<nu
       case "db":
         return await cmdDb(args, out, cwd, env);
       case "secrets":
-        return await cmdSecrets(args, out, cwd, env);
+        return await cmdSecrets(args, out, cwd, env, context.stdin ?? process.stdin);
       case "init":
         return await cmdInit(args, out, env);
       case "teardown":
@@ -1057,16 +1095,40 @@ async function cmdDb(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.Pro
   }
 }
 
-async function cmdSecrets(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
+/* --- secrets ------------------------------------------------------------------
+ *
+ * The rule the whole group is built around: **no command here prints a value.**
+ * `revealProjectSecret` exists in core and is deliberately never called from the
+ * CLI, because this is the surface that gets run in a screen share, pasted into
+ * a ticket, and handed to an agent whose transcript nobody reads. `list` prints
+ * the name, the last four characters and the length — enough to tell two keys
+ * apart and to spot a paste that lost its tail.
+ *
+ * `edit` is the one exception, and it is a different kind of act: it opens the
+ * file in the editor the person already uses, which is the same trust as opening
+ * that file by hand. Nothing is printed, so nothing lands in a transcript.
+ */
+
+async function cmdSecrets(
+  args: ParsedArgs,
+  out: Output,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  stdin: Stdin,
+): Promise<number> {
   const sub = args.positional[0] ?? "";
   const config = await loadConfig(flagString(args, "worktree") ?? cwd, { enforceAccess: false, env });
 
   if (sub === "import") {
-    const report = await importSecrets(config, { env });
+    // A merge by default. `--replace` is the old whole-file behaviour, which now
+    // has to be asked for: the file holds hand-set values too, and rebuilding it
+    // from .env files would drop every one of them without saying so.
+    const replace = flagBoolean(args, "replace");
+    const report = await importSecrets(config, { env, replace });
     if (out.json) out.data(report);
     for (const file of report.sources) out.ok(`read ${file}`);
     for (const file of report.missing) out.warn(`not found: ${file}`);
-    out.ok(`wrote ${report.count} credential(s) to ${report.file}`);
+    out.ok(`${replace ? "wrote" : "merged"} ${report.count} credential(s) into ${report.file}`);
     // Names only, never values: this output is meant to be safe to show anyone.
     out.line("  imported (names only):");
     for (const name of report.names) out.line(`      ${name}`);
@@ -1077,7 +1139,13 @@ async function cmdSecrets(args: ParsedArgs, out: Output, cwd: string, env: NodeJ
     const check = await checkSecrets(config, { env });
     if (out.json) out.data(check);
     if (!check.exists) {
-      out.warn(`no secrets file yet — run: sandboxr secrets import`);
+      // Both ways in, because `import` alone is the wrong advice for the case
+      // this feature exists for: a fresh checkout whose `.env` files are all
+      // `.env.example` has nothing to import *from*, and being told to run a
+      // command that reads nothing is worse than being told nothing.
+      out.warn("no secrets file yet");
+      out.dim("      set one by hand:            sandboxr secrets set " + (check.absent[0] ?? "NAME"));
+      out.dim("      or take them from .env:     sandboxr secrets import");
       return 1;
     }
     for (const name of check.present) out.ok(name);
@@ -1085,8 +1153,329 @@ async function cmdSecrets(args: ParsedArgs, out: Output, cwd: string, env: NodeJ
     return check.absent.length === 0 ? 0 : 1;
   }
 
-  out.error("usage: sandboxr secrets import|check");
+  if (sub === "list" || sub === "ls") {
+    const view = await describeProjectSecrets(config.project, config, { env });
+    if (out.json) out.data(view);
+
+    out.bold(view.file);
+    if (view.vars.length === 0) {
+      out.line(view.exists ? "  no credentials in it yet" : "  no secrets file yet");
+    } else {
+      out.table(
+        ["NAME", "ENDS", "CHARS"],
+        // The tail, never the value. `-` for a value too short to spare four
+        // characters, which core decides rather than this table.
+        view.vars.map((entry) => [entry.name, entry.hint ? `…${entry.hint}` : "-", String(entry.chars)]),
+      );
+    }
+
+    for (const name of view.absent) out.warn(`${name} is declared in ${CONFIG_FILENAME} and not set`);
+    if (view.absent.length > 0) out.dim(`      sandboxr secrets set ${view.absent[0] ?? "NAME"}`);
+    warnShadowed(out, view.shadowed);
+    warnIfNotEditable(out, config, view.exists);
+
+    // A listing, so an empty one succeeds — `secrets check` is the command whose
+    // exit code is meant to be read, and it is the one `doctor` and CI call.
+    return 0;
+  }
+
+  if (sub === "set") {
+    const name = args.positional[1];
+    if (name === undefined) {
+      out.error("usage: sandboxr secrets set NAME   (the value is read from a prompt or stdin)");
+      return 1;
+    }
+    // Refused on the name alone before anything is asked for: making somebody
+    // type a key in and then telling them the name was never allowed is the
+    // one ordering that wastes a paste from a password manager.
+    const nameRefusal = envNameRefusal(name, "", config);
+    if (nameRefusal !== undefined) {
+      out.error(`${name} ${nameRefusal}`);
+      return 1;
+    }
+
+    const value = await readSecretValue(stdin, out, name);
+    if (value === "") {
+      // An empty value is not "set to nothing": the file's reader drops a blank
+      // name, so it would look like the command had silently done nothing.
+      out.error(`no value given, so ${name} is unchanged`);
+      return 1;
+    }
+
+    // Checked here rather than left to the write: core collects a refusal and
+    // saves the rest, which is right for a pasted file and wrong for one typed
+    // name — it would leave a secrets file that exists and holds nothing, and
+    // "no secrets file yet" is a different sentence from "nothing in it".
+    const refusal = envNameRefusal(name, value, config);
+    if (refusal !== undefined) {
+      out.error(`${name} ${refusal}`);
+      return 1;
+    }
+
+    const report = await editProjectSecrets(config.project, config, { set: { [name]: value } }, { env });
+    if (out.json) out.data(report);
+
+    const entry = report.vars.find((candidate) => candidate.name === name);
+    const shape = entry ? ` — ${entry.chars} chars${entry.hint ? `, ends …${entry.hint}` : ""}` : "";
+    out.ok(`${report.updated.includes(name) ? "updated" : "set"} ${name} in ${report.file}${shape}`);
+    warnShadowed(out, report.shadowed.filter((shadow) => shadow === name));
+    warnIfNotEditable(out, config, true);
+    return 0;
+  }
+
+  if (sub === "unset") {
+    const name = args.positional[1];
+    if (name === undefined) {
+      out.error("usage: sandboxr secrets unset NAME");
+      return 1;
+    }
+
+    // Asked first rather than after the write, for two reasons: an edit that
+    // removes nothing would still rewrite the file — creating one where there
+    // was none — and the report could not tell "removed" from "was never there".
+    const current = await readProjectSecrets(config.project, { env });
+    if (!current.has(name)) {
+      const file = paths(env).secretsFile(config.project);
+      if (out.json) out.data({ file, name, removed: false });
+      out.warn(`${name} is not set in ${file}, so there was nothing to remove`);
+      // Not a failure: the file is in the state that was asked for, and a script
+      // clearing a list of names should not have to know which were set.
+      return 0;
+    }
+
+    const report = await editProjectSecrets(config.project, config, { unset: [name] }, { env });
+    if (out.json) out.data(report);
+    out.ok(`removed ${name} from ${report.file}`);
+    return 0;
+  }
+
+  if (sub === "edit") {
+    return await editSecretsFile(config, out, env);
+  }
+
+  out.error("usage: sandboxr secrets list|set|unset|edit|import|check");
   return 1;
+}
+
+/**
+ * Says which of these names the project's own `env:` map will overwrite.
+ *
+ * A warning rather than a refusal, because core reports it as one and is right
+ * to: the value is not wrong, it is simply not the one the sandbox will use.
+ * Said out loud here because nothing else will say it — the variable has a
+ * value, nothing fails, and it is the wrong value.
+ */
+function warnShadowed(out: Output, shadowed: string[]): void {
+  for (const name of shadowed) {
+    out.warn(`${name} is also in this project's env: map, which is exported last — the value here is ignored`);
+  }
+}
+
+/**
+ * Says when a file of real credentials is the thing stopping `up`.
+ *
+ * A public project may not carry them, and core enforces that by refusing to
+ * start at all (sandbox/index.ts) rather than by quietly substituting dummies.
+ * So the moment to say so is here, while somebody is putting a key in — not
+ * later, as a sandbox that will not start for a reason two commands away.
+ */
+function warnIfNotEditable(out: Output, config: ResolvedConfig, exists: boolean): void {
+  if (!exists || allowsRealCredentials(config)) return;
+  out.warn(`${config.project} serves public apps, so \`up\` refuses to start while this file exists`);
+  out.dim(`      set access.credentials to real, or access.apps to private, in ${CONFIG_FILENAME}`);
+}
+
+/**
+ * One credential, from a person or from a pipe.
+ *
+ * Never from argv, which is the whole point: an argument is in the shell history
+ * and in every `ps` on the machine for as long as the command runs. A pipe is
+ * the form a server operator actually uses — `printf '%s' "$KEY" | sandboxr
+ * secrets set ORQ_API_KEY` — so a non-terminal stdin is read rather than
+ * refused.
+ */
+async function readSecretValue(stdin: Stdin, out: Output, name: string): Promise<string> {
+  if (stdin.isTTY !== true) return stripOneNewline(await readAll(stdin));
+
+  out.prompt(`value for ${name} (not shown): `);
+  // readline echoes what is typed to its `output`; a sink that throws the echo
+  // away is what makes this hidden, because while readline holds a terminal it
+  // puts it in raw mode and the terminal is not echoing either.
+  const discard = new Writable({ write: (_chunk, _encoding, done) => done() });
+  const reader = createInterface({ input: stdin, output: discard, terminal: true });
+  try {
+    // No newline to strip on this path: readline hands over the line without the
+    // ending that finished it.
+    return await new Promise<string>((resolve) => {
+      // Ctrl-C and Ctrl-D close the reader instead of answering it. Resolving
+      // empty rather than rejecting sends both down the same path as an empty
+      // answer, which the caller already reports as "nothing changed".
+      reader.on("close", () => resolve(""));
+      reader.question("", resolve);
+    });
+  } finally {
+    reader.close();
+    // The Enter that ended the read was not echoed, so the next line of output
+    // would otherwise start halfway along the prompt.
+    out.line();
+  }
+}
+
+async function readAll(input: Readable): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of input) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/**
+ * Removes the line ending a pipe added, and nothing else.
+ *
+ * One newline, because `echo` adds exactly one and a credential that ends in a
+ * newline is not the credential. Everything else is left alone: leading and
+ * trailing spaces can be part of a value, and guessing costs more than it saves.
+ * The `\r` goes with the `\n` it belongs to — a value carrying one would be
+ * refused by core, with a message about a name rather than about line endings.
+ */
+function stripOneNewline(value: string): string {
+  return value.replace(/\r?\n$/, "");
+}
+
+/**
+ * Opens the project's secrets file in the person's editor.
+ *
+ * The exception to "nothing prints a value", and it is a different act: this is
+ * the file, in the editor they would have opened it in by hand, with the same
+ * trust. Nothing goes through the terminal, so nothing lands in a transcript.
+ *
+ * The editor is given a copy rather than the file itself, so that the save can
+ * be *checked*: a refused name has to stay out of the file, and editing in place
+ * would mean it was already in it by the time anything looked. The copy lives
+ * beside the real file, not in the system temporary directory — it holds the
+ * same values, and it should be under the same 0600 directory rather than
+ * somewhere every process on the machine can read.
+ */
+async function editSecretsFile(config: ResolvedConfig, out: Output, env: NodeJS.ProcessEnv): Promise<number> {
+  const file = paths(env).secretsFile(config.project);
+  const before = await readProjectSecrets(config.project, { env });
+  const draft = `${file}.editing`;
+
+  const starting = await startingText(file, config, before.size);
+  await mkdir(dirname(draft), { recursive: true });
+  // 0600, because the draft holds exactly what the file holds. Core writes the
+  // real file the same way, and a draft anyone could read would undo that.
+  await writeFile(draft, starting, { encoding: "utf8", mode: 0o600 });
+
+  let edited: string;
+  try {
+    const editor = editorCommand(env);
+    out.dim(`      ${editor.join(" ")} — names are sorted and comments are dropped when it is saved`);
+    const code = await runEditor(editor, draft, env);
+    if (code !== 0) {
+      out.error(`${editor[0]} exited ${code}, so nothing was changed`);
+      return 1;
+    }
+    edited = await readFile(draft, "utf8");
+  } finally {
+    await unlink(draft).catch(() => undefined);
+  }
+
+  if (edited === starting) {
+    out.ok(`no changes to ${file}`);
+    return 0;
+  }
+
+  const kept = parseEnvFile(edited);
+  const report = await editProjectSecrets(
+    config.project,
+    config,
+    // A name the editor no longer has is a removal — including one left with an
+    // empty value, which the file's own reader drops anyway, so `NAME=` and a
+    // deleted line mean the same thing here as they do in an import.
+    { text: edited, unset: [...before.keys()].filter((name) => !kept.has(name)) },
+    { env },
+  );
+  if (out.json) out.data(report);
+
+  // Named, not dropped: a refused line stays in the person's head as "I typed
+  // that", and a save that quietly kept nineteen of twenty names is worse than
+  // one that says which one it would not take.
+  for (const refusal of report.refused) out.error(`${refusal.name} ${refusal.reason}`);
+  for (const name of report.added) out.ok(`set ${name}`);
+  for (const name of report.updated) out.ok(`updated ${name}`);
+  for (const name of report.removed) out.ok(`removed ${name}`);
+  out.ok(`${report.vars.length} credential(s) in ${file}`);
+  warnShadowed(out, report.shadowed);
+  warnIfNotEditable(out, config, report.exists);
+  return report.refused.length === 0 ? 0 : 1;
+}
+
+/**
+ * What the editor opens with.
+ *
+ * An existing file is offered exactly as it is. An empty one gets the names the
+ * project declares, commented out, because the case `edit` exists for is a fresh
+ * checkout whose `.env` files are all examples: there is nothing to import from,
+ * and a blank buffer does not say which keys the project is waiting for.
+ */
+async function startingText(file: string, config: ResolvedConfig, count: number): Promise<string> {
+  if (count > 0) {
+    try {
+      return await readFile(file, "utf8");
+    } catch {
+      // Unreadable but non-empty cannot happen in practice; falling through to
+      // the template is still better than failing to open an editor at all.
+    }
+  }
+
+  const declared = declaredNames(config);
+  return [
+    `# ${config.project}'s third-party credentials, for sandboxr. NAME=value, one per line.`,
+    "#",
+    "# Comments and order are not kept: the file is rewritten sorted by name.",
+    "# Nothing describing where a service runs belongs here — a sandbox works out",
+    "# its own database, storage and inter-service URLs.",
+    ...(declared.length > 0
+      ? ["#", `# ${CONFIG_FILENAME} says this project needs:`, ...declared.map((name) => `${name}=`)]
+      : []),
+    "",
+  ].join("\n");
+}
+
+/**
+ * The editor to open, in the order a Unix machine expects to be asked.
+ *
+ * `VISUAL` before `EDITOR` because the two mean "full-screen editor" and "line
+ * editor", and this is a file somebody is reading. `vi` last because it is the
+ * one editor POSIX requires to exist, so the fallback cannot itself fail.
+ *
+ * Split on whitespace rather than run through a shell: `EDITOR="code -w"` has to
+ * work, and a value containing a shell metacharacter must not be interpreted.
+ */
+function editorCommand(env: NodeJS.ProcessEnv): string[] {
+  const chosen = (env.VISUAL ?? env.EDITOR ?? "").trim();
+  return chosen === "" ? ["vi"] : chosen.split(/\s+/);
+}
+
+/**
+ * Runs the editor attached to this terminal, and waits for it to be closed.
+ *
+ * Given the environment the command itself was given rather than the process's,
+ * so that the editor an injected env names is the editor that runs — the same
+ * seam every other command reads `SANDBOXR_HOME` through.
+ */
+async function runEditor(command: string[], file: string, env: NodeJS.ProcessEnv): Promise<number> {
+  const [program, ...rest] = command as [string, ...string[]];
+  return await new Promise<number>((resolve, reject) => {
+    const child = spawn(program, [...rest, file], { stdio: "inherit", env });
+    // A clearer failure than "spawn code ENOENT", which reads as a bug in
+    // sandboxr rather than as a variable pointing at something not installed.
+    child.on("error", () =>
+      reject(new Error(`could not start ${program} — set VISUAL or EDITOR to an editor on this machine`)),
+    );
+    // A killed editor has no exit code. Counted as a failure rather than as a
+    // save, because there is nothing to say the buffer was written.
+    child.on("close", (code) => resolve(code ?? 1));
+  });
 }
 
 /**
@@ -1268,7 +1657,10 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
           : {
               ok: false,
               text: `missing credentials: ${check.absent.join(", ")}`,
-              fix: "sandboxr secrets import",
+              // Named by name, and `set` first: a project with no `.env` files
+              // on disk has nothing to import from, which is exactly the case a
+              // missing credential is most likely to be.
+              fix: `sandboxr secrets set ${check.absent[0] ?? "NAME"}, or sandboxr secrets import`,
             },
       );
     } catch (error) {

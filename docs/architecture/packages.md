@@ -63,7 +63,7 @@ that file is a contract.
 | `docker.ts` | A typed wrapper over the `docker` CLI. Arguments are arrays, never shell strings, and the runner is injectable |
 | `image.ts` | Rendering the project Dockerfile template, staging manifests, and the content-addressed tag |
 | `install.ts` | Where this installation of sandboxr lives, so the dashboard can mount it |
-| `secrets.ts` | Importing, filtering and checking a project's third-party credentials |
+| `secrets.ts` | Reading, editing, importing, filtering and checking a project's third-party credentials |
 | `git.ts` | `gitFacts`, `gitMounts`, `hostGitIdentity` — what makes git work inside a container |
 | `forge.ts` | Everything that shells out to `gh`: repositories, pull requests, merged branches |
 | `workspace.ts` | The managed workspace: `cloneProject`, `listProjects`, `findProject`, `fetchProject` |

@@ -25,6 +25,7 @@ sandboxr.driver     the database driver
 sandboxr.created    ISO 8601, UTC
 sandboxr.access     public or private
 sandboxr.ttl        seconds it may sit unused for, or "never"
+sandboxr.env        a digest of the environment it was created with — a record, not a comparison
 ```
 
 The shared router and the dashboard carry `sandboxr.role=router` and `sandboxr.role=dashboard`
@@ -38,6 +39,9 @@ instead. Neither has a slug label, so neither can ever appear in a sandbox listi
 - **The filter that finds every sandbox is `label=sandboxr.slug`**, whatever project it belongs to.
 - **A branch or commit that cannot be resolved is recorded as `?`**, never omitted. A missing label
   and an unknown branch would otherwise read the same, and only one of them is a bug.
+- **`sandboxr.env` records the past and must not be read as a live answer.** It is a digest of
+  the project's credentials and its `env:` map as they were when the container was created. An
+  empty one means *unknown*, never *unchanged*.
 - **An absent `sandboxr.ttl` reads as `never`.** Anything the expiry planner cannot parse has to
   fail closed. A sandbox started before this label existed and coming out as "already expired"
   would be stopped the first time the reaper ran.
@@ -62,9 +66,17 @@ runs. So anything that changes at runtime is **derived at read time** instead.
 | `running` / `degraded` / `stopped` / `starting` | computed from Docker's state plus those markers |
 | When a sandbox expires | `max(startedAt, lastActive) + sandboxr.ttl`, computed per read |
 | When a sandbox was last used | the shared router's access log, read at the moment it is asked for |
+| Whether it has read the current credentials | the secrets file's mtime against the container's `StartedAt` |
 
 A label recording "running" would be a second source of truth that goes stale the moment a process
 dies. That is exactly the drift this design exists to avoid.
+
+The last row is `sandboxr.env`'s twin, and the difference between them is a bug that has already
+been made. The label says what the environment *was* when the container was created, and Docker
+will not let a label be changed after that — so a sandbox restarted to pick up a rotated credential
+kept the label it started life with. The badge stayed lit, the button appeared to do nothing, and
+pressing it again did nothing again. Comparing times answers the question actually being asked, and
+it clears itself, because a restart moves `StartedAt`.
 
 The case that matters most is `degraded`. A failed migration deliberately leaves the container
 running, so anything reading only Docker's state reports a degraded sandbox as healthy.
@@ -235,7 +247,7 @@ Some things must **outlive** a container. Those live under `SANDBOXR_HOME`, whic
 | `cache/` | Seed artifacts, shared between sandboxes and expensive to rebuild |
 | `logs/<project>/<slug>/` | Survive the container on purpose — the logs from a sandbox you just deleted are the ones you want |
 | `tls/`, `state/` | Machine-level, not per-sandbox |
-| `secrets/<project>.env` | Per project, mode 0600, and must never be in an image |
+| `secrets/<project>.env` | Per project, mode 0600, edited by hand, and must never be in an image |
 | `build/<project>/<slug>.env`, `build/<project>/<slug>.plan.json` | Regenerated on every `up` |
 | `bin/` | Host-built helper binaries |
 | `workspace/<project>/` | The repositories themselves — an original, not a copy |

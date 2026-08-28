@@ -10,17 +10,24 @@
 // - project available: a machine with no gh says so in one sentence and still exits 0
 // - the commands that name a sandbox say how they are used when given no slug
 // - prune advertises `--yes` rather than `--dry-run`, because its default is the opposite of gc's
+// - secrets: every subcommand, driven against a real SANDBOXR_HOME, and in particular
+//   that none of them ever prints a value — the property the whole group exists for
+// - secrets set reads the value from stdin rather than argv, and strips one newline
+// - secrets unset says so rather than claiming a removal, and writes no file
+// - secrets edit applies the editor's save, names what it refused, and leaves no draft
 //
 // The commands that talk to Docker are not driven here: `docker` is a module
 // singleton rather than an injected dependency, so nothing below reaches it.
 
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { main, USAGE } from "./main.js";
+import { main, USAGE, type Stdin } from "./main.js";
 import type { Writer } from "./output.js";
 
 function recorder(): Writer & { stdout: string; stderr: string } {
@@ -39,9 +46,16 @@ function recorder(): Writer & { stdout: string; stderr: string } {
 }
 
 /** Runs the CLI against a directory, with nothing written to the real streams. */
-async function run(argv: string[], cwd: string, env?: NodeJS.ProcessEnv) {
+async function run(argv: string[], cwd: string, env?: NodeJS.ProcessEnv, stdin?: Stdin) {
   const writer = recorder();
-  const code = await main(argv, { writer, cwd, env: env ?? { SANDBOXR_HOME: join(cwd, "home") } });
+  const code = await main(argv, {
+    writer,
+    cwd,
+    env: env ?? { SANDBOXR_HOME: join(cwd, "home") },
+    // Closed by default, so a command that reads stdin can never sit waiting for
+    // one that the test run has no way to answer.
+    stdin: stdin ?? Readable.from([]),
+  });
   return { code, stdout: writer.stdout, stderr: writer.stderr };
 }
 
@@ -323,5 +337,228 @@ describe("subcommands", () => {
     expect(result.stderr).toContain("--go");
     expect(result.stderr).toContain("--web");
     expect(result.stderr).toContain("--migrate");
+  });
+});
+
+// The whole secrets group, driven against a real SANDBOXR_HOME with nothing
+// mocked: these write and read the file the command itself uses. The property
+// asserted over and over is the negative one — the value does not appear in the
+// output — because that is the reason the group is shaped the way it is.
+describe("secrets", () => {
+  const SECRETS_CONFIG = `project: acme
+sandboxr: ">=0.1.0"
+access:
+  apps: private
+secrets:
+  read: [.env]
+  keep: [ORQ_API_KEY, STRIPE_SECRET_KEY, SENTRY_DSN]
+  never: ["DB_*"]
+`;
+
+  // Writes the file it was given aside, then replaces it: one script covers a
+  // name added, a name dropped, and a name the project refuses.
+  const EDITOR_SCRIPT = `import { readFileSync, writeFileSync } from "node:fs";
+const file = process.argv[2];
+writeFileSync(process.env.SEEN, readFileSync(file));
+writeFileSync(file, "SENTRY_DSN=https://abc@example.test/42\\nDB_HOST=prod.internal\\n");
+`;
+
+  let root: string;
+  let home: string;
+  let env: NodeJS.ProcessEnv;
+
+  const secretsFile = () => join(home, "secrets", "acme.env");
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "sbx-secrets-"));
+    home = join(root, "home");
+    await writeFile(join(root, "sandboxr.yaml"), SECRETS_CONFIG);
+    env = { SANDBOXR_HOME: home };
+  });
+
+  /** An editor of our own, so `edit` can be driven without a terminal. */
+  async function editorEnv(script = EDITOR_SCRIPT): Promise<NodeJS.ProcessEnv> {
+    const file = join(root, "editor.mjs");
+    await writeFile(file, script);
+    // Two words, which also covers `EDITOR="code -w"`: the command is split on
+    // whitespace rather than handed to a shell. PATH comes along because the
+    // editor is run with the environment the command was given, which is the
+    // only reason a test can name an editor at all.
+    return { ...env, PATH: process.env.PATH ?? "", EDITOR: `node ${file}`, SEEN: join(root, "seen.env") };
+  }
+
+  it("lists what the project declares and has not got, and succeeds", async () => {
+    const result = await run(["secrets", "list"], root, env);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("no secrets file yet");
+    expect(result.stderr).toContain(`ORQ_API_KEY is declared in sandboxr.yaml`);
+  });
+
+  it("says how the group is used when given no subcommand it knows", async () => {
+    const result = await run(["secrets", "frobnicate"], root, env);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("usage: sandboxr secrets list|set|unset|edit|import|check");
+  });
+
+  describe("set", () => {
+    const VALUE = "sk-live-abcdefghij0123456789";
+
+    it("reads the value from stdin, strips one newline, and prints none of it", async () => {
+      const set = await run(["secrets", "set", "ORQ_API_KEY"], root, env, Readable.from([`${VALUE}\n`]));
+      expect(set.code).toBe(0);
+      expect(set.stderr).not.toContain(VALUE);
+      expect(set.stderr).toContain("set ORQ_API_KEY");
+
+      // The length is the assertion that exactly one newline came off: a value
+      // one character longer would mean the newline was kept.
+      const listed = await run(["secrets", "list", "--json"], root, env);
+      expect(JSON.parse(listed.stdout).vars).toEqual([{ name: "ORQ_API_KEY", hint: "6789", chars: VALUE.length }]);
+      expect(listed.stderr).not.toContain(VALUE);
+      expect(listed.stdout).not.toContain(VALUE);
+    });
+
+    // The reason `set` takes no value argument at all: an argument is in the
+    // shell history and in every `ps` on the machine while the command runs. So
+    // a stray word must not be treated as the value even by accident.
+    it("ignores a value given as an argument", async () => {
+      const result = await run(["secrets", "set", "ORQ_API_KEY", VALUE], root, env);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("no value given");
+      expect(existsSync(secretsFile())).toBe(false);
+    });
+
+    it("refuses a reserved name without reading anything", async () => {
+      const stdin = Readable.from(["never-read\n"]);
+      const result = await run(["secrets", "set", "SANDBOXR_DB_HOST"], root, env, stdin);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("works out for itself");
+      expect(stdin.readableEnded).toBe(false);
+    });
+
+    it("refuses a name the project's never patterns cover, by pattern", async () => {
+      const result = await run(["secrets", "set", "DB_PASSWORD"], root, env, Readable.from(["pw\n"]));
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain('never pattern "DB_*"');
+    });
+
+    // Only the newline a pipe added comes off, so a second line is a refusal
+    // rather than a value silently cut in half.
+    it("refuses a value with a newline inside it", async () => {
+      const result = await run(["secrets", "set", "ORQ_API_KEY"], root, env, Readable.from(["one\ntwo\n"]));
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("newline");
+      expect(existsSync(secretsFile())).toBe(false);
+    });
+
+    it("names the argument it wants when given no name", async () => {
+      const result = await run(["secrets", "set"], root, env);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("usage: sandboxr secrets set NAME");
+    });
+
+    // Core reports this rather than refusing it, and it is the shape of bug that
+    // costs an afternoon: the variable has a value, and it is the wrong one.
+    it("warns when the project's env map already claims the name", async () => {
+      await writeFile(join(root, "sandboxr.yaml"), `${SECRETS_CONFIG}env:\n  SENTRY_DSN: https://in-the-map/0\n`);
+      const result = await run(["secrets", "set", "SENTRY_DSN"], root, env, Readable.from(["https://typed/1\n"]));
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain("SENTRY_DSN is also in this project's env: map");
+    });
+  });
+
+  describe("unset", () => {
+    it("removes a name that is set", async () => {
+      await run(["secrets", "set", "ORQ_API_KEY"], root, env, Readable.from(["value-here\n"]));
+      const result = await run(["secrets", "unset", "ORQ_API_KEY"], root, env);
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain("removed ORQ_API_KEY");
+      expect(JSON.parse((await run(["secrets", "list", "--json"], root, env)).stdout).vars).toEqual([]);
+    });
+
+    // Saying "removed" would be a lie, and writing the file would turn "no
+    // secrets file yet" into "a file with nothing in it", which reads differently
+    // everywhere else.
+    it("says there was nothing to remove, and writes no file", async () => {
+      const result = await run(["secrets", "unset", "ORQ_API_KEY"], root, env);
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain("nothing to remove");
+      expect(result.stderr).not.toContain("removed ORQ_API_KEY");
+      expect(existsSync(secretsFile())).toBe(false);
+    });
+  });
+
+  describe("edit", () => {
+    it("applies the save, names what it refused, and leaves no draft behind", async () => {
+      await run(["secrets", "set", "ORQ_API_KEY"], root, env, Readable.from(["dropped-by-the-editor\n"]));
+      const result = await run(["secrets", "edit"], root, await editorEnv());
+
+      expect(result.stderr).toContain("set SENTRY_DSN");
+      expect(result.stderr).toContain("removed ORQ_API_KEY");
+      expect(result.stderr).toContain('DB_HOST matches this project\'s never pattern "DB_*"');
+      // A refusal is the whole reason for the exit code: the save was partly
+      // applied, and a script must not read that as a clean edit.
+      expect(result.code).toBe(1);
+      // Only the file, never the copy the editor was given.
+      expect(await readdir(join(home, "secrets"))).toEqual(["acme.env"]);
+    });
+
+    it("offers the declared names to an editor opening on nothing", async () => {
+      await run(["secrets", "edit"], root, await editorEnv());
+      const seen = await readFile(join(root, "seen.env"), "utf8");
+      expect(seen).toContain("ORQ_API_KEY=");
+      expect(seen).toContain("STRIPE_SECRET_KEY=");
+      expect(seen).toContain("sandboxr.yaml says this project needs");
+    });
+
+    it("says nothing changed when the editor saved nothing", async () => {
+      const result = await run(["secrets", "edit"], root, await editorEnv("process.exit(0);\n"));
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain("no changes to");
+    });
+
+    // An editor that exits non-zero is how `git commit` is abandoned, so it has
+    // to mean the same here: the file is not touched.
+    it("changes nothing when the editor fails", async () => {
+      const result = await run(["secrets", "edit"], root, await editorEnv("process.exit(3);\n"));
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("exited 3, so nothing was changed");
+      expect(existsSync(secretsFile())).toBe(false);
+    });
+
+    it("names the editor rather than reporting a failed spawn", async () => {
+      const result = await run(["secrets", "edit"], root, { ...env, EDITOR: "no-such-editor-here" });
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("could not start no-such-editor-here");
+    });
+  });
+
+  describe("import", () => {
+    beforeEach(async () => {
+      await writeFile(join(root, ".env"), "STRIPE_SECRET_KEY=from-the-env-file\nDB_HOST=localhost\n");
+    });
+
+    it("merges into what is already there", async () => {
+      await run(["secrets", "set", "ORQ_API_KEY"], root, env, Readable.from(["set-by-hand\n"]));
+      const result = await run(["secrets", "import"], root, env);
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain("merged 1 credential(s)");
+      expect(JSON.parse((await run(["secrets", "list", "--json"], root, env)).stdout).vars).toHaveLength(2);
+    });
+
+    // The old whole-file behaviour, and the reason it now has to be asked for:
+    // it discards everything that came from anywhere but these files.
+    it("--replace discards what was set by hand", async () => {
+      await run(["secrets", "set", "ORQ_API_KEY"], root, env, Readable.from(["set-by-hand\n"]));
+      const result = await run(["secrets", "import", "--replace"], root, env);
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain("wrote 1 credential(s)");
+      const view = JSON.parse((await run(["secrets", "list", "--json"], root, env)).stdout);
+      expect(view.vars.map((entry: { name: string }) => entry.name)).toEqual(["STRIPE_SECRET_KEY"]);
+    });
+
+    it("says in the usage what --replace discards", () => {
+      expect(USAGE).toContain("--replace");
+      expect(USAGE).toContain("anything set by hand or by an earlier import");
+    });
   });
 });

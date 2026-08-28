@@ -24,6 +24,7 @@ export const LABELS = {
   created: "sandboxr.created",
   access: "sandboxr.access",
   ttl: "sandboxr.ttl",
+  env: "sandboxr.env",
 } as const;
 
 /**
@@ -56,6 +57,18 @@ export interface LabelInput {
   created?: Date | undefined;
   /** Seconds the sandbox may run for, or the word `never`. */
   ttl?: string | undefined;
+  /**
+   * A digest of the environment this sandbox was started with — the project's
+   * secrets file and the plan's `env` map together (`envDigest` in
+   * ../secrets.ts).
+   *
+   * Here rather than in a file beside the container for the reason §3.4 gives
+   * for every other label: the container is the record. Comparing it against
+   * today's digest is how the dashboard can say a sandbox was started before a
+   * credential was rotated, and an absent label reads as *unknown*, not as
+   * stale — every sandbox running before this existed has none.
+   */
+  env?: string | undefined;
 }
 
 export function labelsFor(input: LabelInput): Record<string, string> {
@@ -75,6 +88,11 @@ export function labelsFor(input: LabelInput): Record<string, string> {
     // Absent means never: a sandbox nobody gave a lifetime to is not one the
     // clock gets to decide about.
     [LABELS.ttl]: input.ttl === undefined || input.ttl === "" ? "never" : input.ttl,
+    // Written even when it is the digest of nothing, because "this sandbox
+    // started with no credentials and none are set" and "this sandbox is from
+    // before sandboxr stamped this" are different facts and only one of them
+    // means the dashboard has to keep quiet.
+    [LABELS.env]: input.env ?? "",
   };
 }
 
@@ -121,6 +139,11 @@ export function sandboxFromLabels(
     driver: labels[LABELS.driver] ?? "none",
     access: labels[LABELS.access] === "private" ? "private" : "public",
     created: labels[LABELS.created] ?? "",
+    // Empty means unknown, and a caller must read it that way rather than as
+    // "no environment": a sandbox started before this label existed has none,
+    // and reporting that as a mismatch would light up every long-running
+    // sandbox on the machine as needing a restart it does not need.
+    env: labels[LABELS.env] ?? "",
     // A container started before this label existed has no ttl, and must read
     // as `never` rather than as an empty string: anything the expiry planner
     // cannot parse has to fail closed, and an unlabelled sandbox that came out

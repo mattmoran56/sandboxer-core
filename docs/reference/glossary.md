@@ -255,8 +255,10 @@ or a served front-end. Exactly three, and none is a variation on another. See
 
 ## S
 
-**Secrets** — third-party credentials a project needs, imported from its own `.env` files under
-rules that refuse anything describing *where* something runs. Names are printed; values never are.
+**Secrets** — third-party credentials a project needs, kept in one file per project that you edit
+by hand, from the CLI or from the dashboard, and can import its own `.env` files into under rules
+that refuse anything describing *where* something runs. The file is mounted read-only into every
+sandbox of the project. Names are printed; values never are, except when you ask for one.
 See [Secrets](../configuration/secrets.md).
 
 **Storage** — the S3-compatible object store inside each sandbox, so uploads never reach a real

@@ -262,7 +262,8 @@ The seed refusals are checked when the config is read:
 > `anonymised: true` beside the file if it is anonymised, or set access.apps to private
 
 The credentials refusal is checked when a sandbox starts rather than when the config is
-read, because it depends on whether a secrets file exists on this machine:
+read, because it depends on whether this machine's secrets file for the project **holds
+anything**. An empty file carries no credentials and is not refused:
 
 ```
 acme serves public apps, so it may not carry the real credentials in
@@ -346,7 +347,7 @@ Two more file-level errors: `is not valid YAML: …` and `is empty`.
 | `d1`/`sqlite` with 2+ runtimes names an `owner` | `database.owner` | yes | config read |
 | `owner` names a declared runtime | `database.owner` | yes | config read |
 | Public project has a permissible seed | `database.seed_from.local` / `.file` | yes | config read |
-| Public project has no real credentials file | — | yes | `sandboxr up` |
+| Public project's secrets file holds nothing | — | yes | `sandboxr up` |
 | `root` is not a workspace project directory | — | yes | config read |
 | File is valid, non-empty YAML | — | yes | config read |
 | Front-end build fits the sandbox's memory | — | yes | build time, in the container |

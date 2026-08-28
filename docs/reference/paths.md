@@ -37,7 +37,7 @@ Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.
 | `tls/` | Certificates and keys the router serves | yes |
 | `state/` | Router config, the dynamic config directory, the dashboard's session key | yes |
 | `state/keep/<project>/<slug>` | Keeps one sandbox alive past its idle limit | **no** — see below |
-| `secrets/<project>.env` | Third-party credentials, mode 0600 | yes |
+| `secrets/<project>.env` | Third-party credentials, mode 0600. **A file you edit** — see below | yes |
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
 | `bin/` | Helper binaries built on the host | yes |
@@ -55,7 +55,7 @@ the ones you wanted.
 > `git clean -xdf` is an ordinary thing to run, and it would destroy the seed cache, the certificates
 > and every sandbox's logs.
 
-### The one file you edit
+### The two files you edit
 
 `config.yaml` holds what belongs to the machine rather than to any project. `sandboxr init` writes a
 commented example the first time and never touches it again.
@@ -73,6 +73,13 @@ projects:
 A missing file means the defaults. A malformed one is an error naming the file and the key — because
 silently applying a default lifetime to a machine where somebody has just written down the lifetime
 they wanted is how a week of work gets stopped after twelve hours.
+
+`secrets/<project>.env` is the other one. It holds a project's third-party credentials, at mode
+`0600`, as `NAME="value"` one per line. It is **edited, not generated**: `sandboxr secrets set`,
+`sandboxr secrets edit` and the dashboard's Environment panel all author it directly, and
+`sandboxr secrets import` merges a project's own `.env` files into whatever is already there. It is
+mounted read-only into every sandbox of the project, so an edit reaches a running one on a restart.
+See [Secrets](../configuration/secrets.md).
 
 ### The keep-alive marker
 
@@ -119,6 +126,7 @@ the state somewhere nobody looks.
 |---|---|---|
 | `/workspace` | Your worktree | read-write |
 | `/sandboxr/plan.json` | The plan | read-only |
+| `/sandboxr/secrets.env` | The project's third-party credentials — only when it has a secrets file | read-only |
 | `/sandboxr/cache/` | The host's seed cache | read-only |
 | `/sandboxr/seed/<name>` | A seed file you declared with `seed_from.file` — that one file, from wherever you keep it | read-only |
 | `/var/lib/sandboxr/data` | The database | the `data` volume |

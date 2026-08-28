@@ -313,14 +313,18 @@ describe("runArgs", () => {
     expect(runArgs({ ...base, depsHash: "abc123" }).join(" ")).not.toContain("sandboxr-deps-");
   });
 
-  // A credential may come from outside; a redirection of the sandbox's database
-  // or storage may not.
-  it("layers the secrets file under the generated environment", () => {
+  // Mounted, never a second `--env-file`. An env-file is read once by `docker
+  // run`, so an edited credential could not reach a running sandbox at all —
+  // which is the whole reason this is a mount. See the note in run.ts.
+  it("mounts the secrets file read-only rather than passing it as an env-file", () => {
     const withSecrets = runArgs({ ...base, secretsFile: "/home/.sandboxr/secrets/acme.env" });
-    const secretsAt = withSecrets.indexOf("/home/.sandboxr/secrets/acme.env");
-    const envAt = withSecrets.indexOf(base.envFile);
-    expect(secretsAt).toBeGreaterThan(-1);
-    expect(secretsAt).toBeLessThan(envAt);
+    expect(withSecrets).toContain("/home/.sandboxr/secrets/acme.env:/sandboxr/secrets.env:ro");
+    expect(withSecrets.filter((argument) => argument === "--env-file")).toEqual(["--env-file"]);
+    expect(withSecrets[withSecrets.indexOf("--env-file") + 1]).toBe(base.envFile);
+  });
+
+  it("mounts nothing when the project has no secrets file", () => {
+    expect(runArgs(base).join(" ")).not.toContain("/sandboxr/secrets.env");
   });
 
   it("passes optional runtimes to the entrypoint", () => {

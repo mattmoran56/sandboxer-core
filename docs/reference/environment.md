@@ -16,6 +16,10 @@ flowchart LR
 Group 1 is yours. Group 2 is written for you on every `sandboxr up`. Group 3 never leaves the
 container until your `env:` block gives it one of your project's names.
 
+One thing is in none of the three: your project's own third-party credentials, which arrive as a
+file mounted into the container. They get a section of their own, after group 2, along with the
+order everything above is applied in.
+
 ## 1. Variables you set
 
 ### On any machine
@@ -247,8 +251,8 @@ do not set these.
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` | the host has a `git config user.name` and `user.email` | the host's identity |
 | `GH_TOKEN` | `config.yaml` says `github: token` for this project | the host's token |
 
-The project's secrets file, when one exists and is permitted, is passed as a second `--env-file`
-**underneath** this one — so a generated value always wins over an imported one.
+That is the whole of what `docker run` is told. **The project's own credentials are not in it.**
+They arrive as a file mounted into the container instead — see below.
 
 <details class="agent">
 <summary><b>Why it works this way</b> — the four <code>GIT_*</code> variables, and why the scheme comes from the host</summary>
@@ -274,6 +278,46 @@ and loses the login, which looks like the volume not working at all.
 [Access and security](../access.md).
 
 </details>
+
+## The project's credentials, which are none of those three
+
+`~/.sandboxr/secrets/<project>.env` is **bind-mounted read-only** at `/sandboxr/secrets.env`, and
+the container reads it before it derives anything of its own. It is not an `--env-file` and it is
+not in `docker inspect`.
+
+Three things follow from it being a file the container reads rather than something `docker run` was
+told:
+
+- **An edited credential reaches a running sandbox on a restart.** `sandboxr stop` then `start`, or
+  Restart services in the dashboard.
+- **A value baked into a front-end bundle at build time needs a rebuild as well** — a `VITE_*`, a
+  `NEXT_PUBLIC_*`. It is already in the built files.
+- **The names the sandbox derives for itself are refused in that file**, on the host, when you set
+  them. Nothing else would stop an imported `DB_HOST` from pointing a disposable copy at a real
+  database, because the file is read first.
+
+[Secrets](../configuration/secrets.md) is how the file is written.
+
+### The order of precedence, in full
+
+Lowest to highest. This is the whole answer for any name set twice:
+
+1. **the project's secrets file** — mounted, read first, and every name already set is left alone;
+2. **what the host passes in** — the generated `<slug>.env` above, plus the git identity and any
+   GitHub token;
+3. **what the sandbox derives for itself** — `SANDBOXR_DB_*`, `SANDBOXR_S3_*`, `SANDBOXR_URL_*`,
+   group 3 below;
+4. **the project's `env:` map**, expanded with `envsubst` against everything above it.
+
+Two of those orderings have a failure that looks nothing like its cause.
+
+**(3) beating (1) is what stops anything outside a sandbox redirecting it at something that is not
+its own.** A `DB_HOST` in a secrets file cannot win, whatever it says.
+
+> [!WARNING] A credential under a name the `env:` map also defines is silently overwritten
+> The map is expanded last. Nothing fails, the variable has a value, and it is the map's rather
+> than yours. `sandboxr secrets list` and the dashboard's Environment panel both name which
+> variables those are, because nothing else would.
 
 ## 3. Variables the sandbox works out for itself
 
@@ -355,4 +399,5 @@ directory puts the state somewhere nobody looks. See
 ---
 
 **Next:** [Paths](paths.md) for where each of these ends up on disk, or
-[Secrets](../configuration/secrets.md) for what your project may and may not import.
+[Secrets](../configuration/secrets.md) for the one file that holds your project's credentials, and
+how you edit it.

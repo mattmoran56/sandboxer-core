@@ -330,6 +330,12 @@ secrets:
 Note the asymmetry: `never` is matched as a glob, `keep` is matched literally.
 `keep: [ANALYTICS_*]` matches a variable actually called `ANALYTICS_*` and nothing else.
 
+This block governs **importing**. The credentials themselves live in one file per project,
+`~/.sandboxr/secrets/<project>.env`, which you also edit directly — `sandboxr secrets set`,
+`sandboxr secrets edit`, or the dashboard. A project with no `.env` files to import from needs
+no `read` list at all, only `keep`, which doubles as its statement of which credentials it
+needs.
+
 Full rules, and why `never` matters more than it looks: [Secrets](secrets.md).
 
 ## `storage`
@@ -422,7 +428,11 @@ itself.
 
 Substitution, never a shell — a value is data. Nothing here can point at a real service,
 because the only variables available are the sandbox's own. Anything genuinely secret comes
-from the `secrets` block instead and never appears here.
+from the project's secrets file instead and never appears here.
+
+**This map is expanded last, so it beats everything else**, the secrets file included. A
+credential set under a name this map also defines is silently replaced by the map's value —
+`sandboxr secrets list` and the dashboard both say which names those are.
 
 The full list of what a sandbox computes:
 [Environment variables](../reference/environment.md).

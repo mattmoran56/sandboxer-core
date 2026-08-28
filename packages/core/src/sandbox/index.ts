@@ -44,10 +44,11 @@ import { ensureProjectImage } from "../image.js";
 import { NETWORK, containerName, deriveSlug, volumeName } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { containerEnv, labelsOf, renderEnvFile, urlsFor } from "./env.js";
+import { envDigest, readProjectSecrets } from "../secrets.js";
 import { planGc } from "./gc.js";
 import { planPrune, type PruneResult } from "./prune.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
-import { BUILT_MANIFEST, MIGRATE_STATE, WWW_DIR, seedMount } from "./layout.js";
+import { BUILT_MANIFEST, MIGRATE_STATE, WITH_ENV, WWW_DIR, seedMount } from "./layout.js";
 import { backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
 import type {
   DownOptions,
@@ -124,7 +125,16 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   }
 
   const secretsFile = p.secretsFile(config.project);
-  const hasSecrets = existsSync(secretsFile);
+  const fileExists = existsSync(secretsFile);
+  // Read here rather than beside the label below, because the same read answers
+  // three questions and the file is the one thing in this function that a person
+  // may be editing while it runs. One read, one answer.
+  const secrets = fileExists ? await readProjectSecrets(config.project, { env }) : new Map<string, string>();
+  // Whether it *holds* anything, not whether it is there. A file with a header
+  // and no values carries no credentials, and keying the refusal below on mere
+  // existence made an empty one enough to stop a public project starting — with
+  // a message naming "the real credentials" in a file that had none.
+  const hasSecrets = secrets.size > 0;
   // A public sandbox gets dummy credentials unless the config opts in: anyone
   // who can drive a public app can otherwise make it send real email and spend
   // real credit. A refusal rather than a warning, with both ways out named.
@@ -234,6 +244,11 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     dirty: facts.dirty,
     worktree: projectRoot,
     ttl: ttl === "never" ? "never" : String(ttl),
+    // Both halves of the environment, so that either one changing marks this
+    // sandbox as started before it: the credentials it carries, and the project's
+    // own names for what the sandbox computes. A rotated key and a renamed
+    // `VITE_*` are the same problem to whoever has to press the button.
+    env: envDigest(secrets, config.env),
   });
 
   // The project's own image layer: the base image carries no toolchain and no
@@ -304,7 +319,11 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
       worktree: projectRoot,
       labels,
       envFile,
-      secretsFile: hasSecrets ? secretsFile : undefined,
+      // `fileExists`, not `hasSecrets`: an empty file is harmless to mount, and
+      // mounting whatever is there is what lets a later edit reach the sandbox
+      // on a restart. A file that does not exist at `up` cannot be mounted at
+      // all — Docker answers a missing bind source by creating a directory.
+      secretsFile: fileExists ? secretsFile : undefined,
       planFile,
       cacheDir: p.cache,
       seedFile: mount?.bind ? { host: mount.bind, inside: mount.inside } : undefined,
@@ -489,7 +508,13 @@ export async function reload(project: string, slug: string, options: ReloadOptio
     for (const backend of targets) {
       const build = backendBuild(backend);
       log(`Rebuilding ${backend.name}`);
-      const result = await docker.exec(container, ["sh", "-lc", build.command], { workdir: build.workdir });
+      // `WITH_ENV` because this is the project's own build command: it reads the
+      // project's variable names, which the plan's `env:` map only creates when
+      // the container's shell library has been sourced. A `docker exec` sees
+      // none of that on its own — see the constant. It mattered less while the
+      // secrets file was a `--env-file`, which at least reached a bare exec;
+      // now nothing does.
+      const result = await docker.exec(container, [WITH_ENV, "sh", "-lc", build.command], { workdir: build.workdir });
       output += result.stdout + result.stderr;
       if (result.code === 0) {
         built.push(backend.name);
@@ -516,9 +541,13 @@ export async function reload(project: string, slug: string, options: ReloadOptio
     }
     const build = frontendBuild(config, app);
     log(`Building ${app.label} (types are not checked here; CI does that)`);
+    // `WITH_ENV` for the same reason as the backend build above, and it bites
+    // harder here: a front-end bakes its configuration into the bundle, so a
+    // build without the project's environment produces an app that loads and
+    // then talks to nothing.
     const result = await docker.exec(
       container,
-      ["sh", "-lc", `${build.command} && mkdir -p ${build.served} && cp -a ${build.output}/. ${build.served}/`],
+      [WITH_ENV, "sh", "-lc", `${build.command} && mkdir -p ${build.served} && cp -a ${build.output}/. ${build.served}/`],
       { workdir: build.workdir },
     );
     output += result.stdout + result.stderr;

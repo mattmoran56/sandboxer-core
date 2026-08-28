@@ -34,6 +34,9 @@ you found. Do not start, stop or remove anything. Stop and tell me if Docker is 
 | Re-run the migrations | `sandboxr reload <slug> --migrate` |
 | Open the database | `sandboxr db shell <slug>` |
 | Print the schema | `sandboxr db snapshot <slug> > before.sql` |
+| See a project's credentials, by name | `sandboxr secrets list` |
+| Set one without it reaching the shell history | `printf '%s' "$KEY" \| sandboxr secrets set NAME` |
+| Deliver a changed credential to a running sandbox | `sandboxr stop <slug>` then `sandboxr start <slug>` |
 | Stop it, keep everything | `sandboxr stop <slug>` |
 | Start it again | `sandboxr start <slug>` |
 | Exempt it from the idle clock | `sandboxr keep <slug>` |
@@ -106,7 +109,12 @@ Inside the sandbox, `/__sandboxr/status.json` reports `booting`, `ok` or `degrad
 All durable state, and there is no manifest file anywhere.
 
 `sandboxr.project` · `sandboxr.slug` · `sandboxr.branch` · `sandboxr.commit` · `sandboxr.dirty` ·
-`sandboxr.worktree` · `sandboxr.driver` · `sandboxr.created` · `sandboxr.access` · `sandboxr.ttl`
+`sandboxr.worktree` · `sandboxr.driver` · `sandboxr.created` · `sandboxr.access` · `sandboxr.ttl` ·
+`sandboxr.env`
+
+`sandboxr.env` is a digest of the environment the sandbox was **created** with. Whether a running
+one has read the current credentials is a comparison of the secrets file's mtime against the
+container's start time, never that label.
 
 Runtime state is derived at read time and never written back. [Why](../architecture/state.md).
 
@@ -120,7 +128,7 @@ logs/<project>/<slug>/            per-sandbox logs — survive `down`
 tls/                              certificate and key
 state/                            router config, dashboard session secret
 state/keep/<project>/<slug>       keep-alive marker
-secrets/<project>.env             third-party credentials, mode 0600
+secrets/<project>.env             third-party credentials, mode 0600 — you edit this
 build/<project>/<slug>.env        the generated per-sandbox environment
 build/<project>/<slug>.plan.json  the plan for one sandbox
 bin/                              host-built helper binaries
@@ -139,6 +147,7 @@ Full list, including inside a container: [Paths](paths.md).
 |---|---|
 | `/workspace` | your worktree, read-write |
 | `/sandboxr/plan.json` | the plan, read-only |
+| `/sandboxr/secrets.env` | the project's credentials, read-only |
 | `/sandboxr/cache`, `/sandboxr/seed` | seed artifacts, read-only |
 | `/var/lib/sandboxr/{data,blob,bin}` | database, uploads, binaries |
 | `/srv/www` | built sites, one directory per label |

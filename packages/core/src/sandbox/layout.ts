@@ -12,8 +12,51 @@ import { basename, resolve, sep } from "node:path";
 /** The worktree, bind-mounted read-write so a saved file is live inside. */
 export const WORKSPACE = "/workspace";
 
+/**
+ * Where the image installs `container/scripts/`.
+ *
+ * Not a mount — it is part of the image — but it belongs here for the same
+ * reason the mounts do: it is a path both sides have to spell identically, and
+ * the container half already spells it once, as `SANDBOXR_SCRIPTS`'s default in
+ * `container/scripts/lib.sh`.
+ */
+export const SCRIPTS_DIR = "/opt/sandboxr/scripts";
+
+/**
+ * The prefix that gives a command the environment the sandbox computed for
+ * itself (`container/scripts/with-env`).
+ *
+ * Needed because `docker exec` gets the container's *configured* environment and
+ * never sees what the entrypoint exported — /init inherits those and
+ * `S6_KEEP_ENV=1` passes them to every supervised service, but a process the host
+ * reaches in and starts is not supervised. Each script under `SCRIPTS_DIR` sources
+ * the library itself and so needs nothing; a command that is not one of them, and
+ * `claude` above all, has no way to.
+ *
+ * It became necessary when the secrets file stopped being a `--env-file`: an
+ * env-file *was* the container's configured environment, so it reached such a
+ * process by accident. A mount does not, and without this prefix everything an
+ * agent session ran would run without the project's credentials.
+ */
+export const WITH_ENV = `${SCRIPTS_DIR}/with-env`;
+
 /** The plan: the container's only view of the project, mounted read-only. */
 export const PLAN_FILE = "/sandboxr/plan.json";
+
+/**
+ * The project's third-party credentials, mounted read-only.
+ *
+ * A mount and not a `--env-file`, and the difference is the whole reason this
+ * constant exists. `--env-file` is read once by `docker run` and baked into the
+ * container's configuration, so an edited credential could not reach a sandbox
+ * without recreating the container — which made "Restart services" a button that
+ * appeared to apply a rotated key and did not. A mounted file is re-read every
+ * time `env.sh` is sourced, so a restart or a rebuild picks it up.
+ *
+ * Read-only for the reason `PLAN_FILE` is, and one further one: the values also
+ * stop appearing in `docker inspect`, which they did as an env-file.
+ */
+export const SECRETS_FILE = "/sandboxr/secrets.env";
 
 /** The host seed cache, mounted read-only: a sandbox restores, never writes. */
 export const CACHE_DIR = "/sandboxr/cache";

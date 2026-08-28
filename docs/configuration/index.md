@@ -327,8 +327,13 @@ Keys must match `^[A-Za-z_][A-Za-z0-9_]*$`. Values are plain strings.
 
 The map is carried into `plan.json` untouched. Substitution happens **inside the
 container**, in `container/scripts/env.sh`, through `envsubst` — which expands `${...}`
-against what the entrypoint already exported and against the secrets the host passed in,
+against what the entrypoint already exported and against the project's mounted secrets file,
 and **does not run a shell**. A value is data, never a command.
+
+The map is expanded **last**, so a name it defines beats the same name in the secrets file.
+That is worth knowing before you put a credential under a name this map also claims: nothing
+fails, the variable has a value, and it is this one. See
+[Environment variables](../reference/environment.md).
 
 An unset name expands to the empty string rather than failing.
 
@@ -426,9 +431,10 @@ env:
   VITE_APP_URL: "${SANDBOXR_URL_APP}"
 ```
 
-Four things you have not met yet round out the schema. `secrets` imports a project's `.env`
-files. `storage` runs object storage inside the sandbox. A `frontends` entry can run as a
-server rather than building to a directory. And `database` has driver-specific corners.
+Four things you have not met yet round out the schema. `secrets` says which of a project's
+`.env` file entries may be imported into the one file that holds its credentials. `storage`
+runs object storage inside the sandbox. A `frontends` entry can run as a server rather than
+building to a directory. And `database` has driver-specific corners.
 
 All four are in [the field-by-field reference](sandboxr-yaml.md).
 

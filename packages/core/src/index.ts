@@ -197,7 +197,32 @@ export type { BuiltImage, RenderInput, StagedFile } from "./image.js";
 
 export { InstallError, containerDir, dashboardEntry, installRoot } from "./install.js";
 
-export { checkSecrets, importSecrets, filterSecrets, parseEnvFile, matchesAny } from "./secrets.js";
+export {
+  checkSecrets,
+  importSecrets,
+  filterSecrets,
+  parseEnvFile,
+  matchesAny,
+  declaredNames,
+  writeSecretsFile,
+  readProjectSecrets,
+  describeProjectSecrets,
+  revealProjectSecret,
+  editProjectSecrets,
+  envNameRefusal,
+  isReservedEnvName,
+  hintFor,
+  envDigest,
+  RESERVED_ENV_NAMES,
+  RESERVED_ENV_PREFIXES,
+} from "./secrets.js";
+export type {
+  SecretVar,
+  SecretsView,
+  SecretsEdit,
+  SecretsEditReport,
+  SecretRefusal,
+} from "./secrets.js";
 export type { SecretsCheck, SecretsReport, SecretRules } from "./secrets.js";
 
 export { gitFacts, gitMounts, hostGitIdentity, type GitFacts, type GitIdentity } from "./git.js";

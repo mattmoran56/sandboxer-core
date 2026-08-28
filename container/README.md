@@ -17,6 +17,7 @@ Everything below implements it.
 | `base/s6/` | The s6 bundle skeleton, copied in at boot and then added to |
 | `project/Dockerfile.template` | The per-project layer, rendered by the host |
 | `scripts/` | Everything the services actually run |
+| `scripts/with-env` | An argv prefix that gives any command the computed environment |
 | `scripts/db/<driver>.sh` | One file per database driver |
 | `examples/*.plan.json` | Two worked plans, used to exercise the generators |
 
@@ -213,6 +214,65 @@ router serves `/api` on the app's own hostname, which keeps the bundle free of
 cross-origin requests and takes CORS out of the picture entirely — but cross-app
 navigation needs an absolute, slug-bearing URL.
 
+#### Four sources, in one order
+
+More than one of them can name the same variable, so the order is fixed.
+Contracts §5.2 states it; `env.sh` is where it happens. Weakest first:
+
+1. **The project's secrets**, read line by line out of `/sandboxr/secrets.env`
+   (`SANDBOXR_SECRETS` overrides the path). Read first and therefore weakest: a
+   name that is **already set is left alone**, whoever set it. Values are read as
+   **data** — no `source`, no expansion, so a value containing `$(...)` stays
+   literal. Exactly one layer of matching quotes comes off, because the host
+   writes every value quoted; the other half of that is `quoteSecret` in
+   `packages/core/src/secrets.ts`, and if the two ever disagree every credential
+   arrives with the quotes still around it and fails as an authentication error.
+2. **What the host passes in** — the generated `--env-file` and the `-e`
+   arguments below: the slug, the domain, the git identity, `GH_TOKEN`,
+   `CLAUDE_CONFIG_DIR`. The host's own statement about this sandbox, so a file
+   the project supplies must not be able to replace one. Nothing on the host side
+   guards this: its reserved-name list covers the names the *sandbox* derives and
+   has no opinion on `GIT_AUTHOR_EMAIL`. Step 1 skipping a name that is set is
+   the whole of the protection.
+3. **What the sandbox derives for itself** — the table above. Each one is
+   `${X:-default}`, so a value from step 2 stands. A *secret* cannot reach one of
+   these names at all: the host refuses to store a name the sandbox derives
+   (`isReservedEnvName`). Docker used to settle that argument by layering two
+   `--env-file`s, and nothing does now.
+4. **The plan's `env` map**, applied last, and therefore the winner. Values go
+   through `envsubst`, which can expand a secret as readily as a derived name —
+   which is what makes `secrets.rename` worth having: rename a vendor's variable
+   to a name of your own, then point the project's own name at it from the plan.
+   It is also the way to override one of the names in step 2 on purpose.
+
+Read first also means read *every time*. The secrets are a mounted file rather
+than a `docker run --env-file`, so a rotated credential reaches a sandbox on the
+next `stop`/`start` — the entrypoint runs again and reads the file again. An
+env-file is read once, when the container is created, so the value in the file
+and the value in the sandbox could disagree indefinitely with nothing saying so.
+A *service* restarted inside the container is a different matter: it inherits the
+environment `/init` was given at boot, `SANDBOXR_ENV_READY` included, so it keeps
+the values it started with.
+
+#### `docker exec` inherits none of it
+
+The entrypoint's exports reach every *supervised* service, because `/init`
+inherits them and `S6_KEEP_ENV=1` hands them on. A `docker exec` gets the
+container's **configured** environment instead, which never saw them. Every
+script in `scripts/` sources `lib.sh` and so recomputes it for itself; anything
+that is not one of those scripts has to be run through `scripts/with-env`:
+
+```bash
+docker exec <container> /opt/sandboxr/scripts/with-env npm test
+```
+
+An argv prefix and not a shell string, so an argument that is deliberately an
+empty string survives being wrapped. The host uses it for an agent session —
+whose process is a bare `claude` argv — and for the project's own build commands.
+It was not needed for the credentials while they arrived as an `--env-file`,
+because an env-file *is* the configured environment; with the mount it is the
+only thing that carries them into a command the host reaches in and starts.
+
 ### Container inputs
 
 Mounts the host is expected to provide:
@@ -221,6 +281,7 @@ Mounts the host is expected to provide:
 |---|---|
 | `/workspace` | the worktree, bind-mounted read-write |
 | `/sandboxr/plan.json` | the plan, read-only |
+| `/sandboxr/secrets.env` | the project's third-party credentials, read-only — only when the project has a secrets file and the machine lets this project use it |
 | `/sandboxr/cache` | the seed artifact cache, read-only |
 | `/sandboxr/seed/<name>` | a declared `database.seed_from.file`, that one file, read-only — only when the project has one and it is not in the cache |
 | `/var/log/sandboxr` | per-sandbox logs, so they survive the container |
@@ -554,8 +615,10 @@ wrong here.
   having never run any of it.
 - **Per-app environment file generation.** It wrote a `.env.local` into each
   package with a fixed list of framework-prefixed variables. Those names are the
-  project's, so the plan's `env` map now carries them and the build simply inherits
-  the container environment.
+  project's, so the plan's `env` map now carries them and the build reads them off
+  the environment. "Inherits" is the word to be careful with: a build under
+  supervision inherits them, and a build the host starts with `docker exec` does
+  not — that one goes through `scripts/with-env`, and the host's rebuild does.
 - **The docker CLI in the image.** It was there because the dashboard ran from the
   same image and shelled out to the CLI. Here the dashboard is a host-side Node
   service, so the sandbox has no reason to talk to Docker at all.
@@ -566,12 +629,13 @@ A real image build is slow and network-heavy. Everything below runs in seconds a
 covers the parts most likely to be wrong.
 
 ```bash
-# syntax
-find container/scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
+# syntax. `with-env` has no extension, so it needs naming: it is a script like
+# any other, and a check that silently skipped one would be worse than no check.
+find container/scripts \( -name '*.sh' -o -name with-env \) -print0 | xargs -0 -n1 bash -n
 
 # lint (follows the sourced library, so LOG_TAG and the helpers resolve)
 docker run --rm -v "$PWD/container:/c:ro" koalaman/shellcheck-alpine:stable \
-  sh -c 'cd /c && find scripts -name "*.sh" | sort | xargs shellcheck -x -S warning'
+  sh -c 'cd /c && find scripts \( -name "*.sh" -o -name with-env \) | sort | xargs shellcheck -x -S warning'
 
 # the generators, against both example plans, in a scratch directory
 #   SANDBOXR_SCRIPTS / _RUN / _LOGS / _STATE / _WWW / _S6_DIR / _S6_SKEL
@@ -585,6 +649,13 @@ docker run --rm -v "$PWD/out:/w:ro" caddy:2-alpine \
 ### What has been verified
 
 - `bash -n` and `shellcheck -x -S warning` are clean across every script.
+- `env.sh` reads a secrets file exactly as the host writes one, driven from
+  `packages/core/src/secrets-container.test.ts`: a value containing ` # `, one
+  containing `$(...)`, significant edge spaces and a leading quote all survive the
+  round trip; a hand-edited unquoted line works; a comment, a blank line, a line
+  with no `=`, an unusable name and a missing final newline are each handled; a
+  name the host already set is not replaced; and a plan `env` value can expand a
+  secret. Real bash, jq and envsubst, under `set -euo pipefail`.
 - Both example plans generate a service tree and a router config, and both
   generated Caddyfiles pass `caddy validate`.
 - Served for real: a built app serves, a deep path falls back to `index.html`, an

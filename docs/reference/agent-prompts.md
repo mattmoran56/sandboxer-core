@@ -415,18 +415,22 @@ that is the expensive kind and I may want it marked optional.
 
 ### Secrets
 
-Writes the `secrets` block and imports the project's credentials.
+Writes the `secrets` block and gets the project's credentials into sandboxr.
 
-**Needs first:** The project's `.env` files.  
+**Needs first:** The project's `.env` files, or the values themselves if it has none.  
 **From:** [Secrets](../configuration/secrets.md)
 
 ```prompt
-Set up this project's secrets block and import its credentials.
+Set up this project's secrets block and get its credentials into sandboxr.
 
 Read docs/configuration/secrets.md. Find the project's .env files, then write a `secrets`
 block listing them under `read`, an exact-name allowlist under `keep`, and glob patterns
 under `never` for anything describing where something runs. Then run
 `sandboxr secrets import` and `sandboxr secrets check`.
+
+If `check` still names something as missing, the value is on no file on this machine: tell
+me which names those are and ask me for each one, then set it with
+`printf '%s' "$VALUE" | sandboxr secrets set NAME` so it never reaches the shell history.
 
 Never print a value from a .env file, in any output, for any reason. Stop and ask me if a
 name could plausibly be either a credential or an address.

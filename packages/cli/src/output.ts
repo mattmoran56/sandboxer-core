@@ -50,6 +50,17 @@ export class Output {
     this.writer.err(`${text}\n`);
   }
 
+  /**
+   * A question, on stderr and with no newline, so the answer is typed after it.
+   *
+   * Separate from `line` because the cursor has to stay on the same line: a
+   * prompt for a credential that scrolled its own answer onto the next line
+   * reads as if the command had already moved on.
+   */
+  prompt(text: string): void {
+    this.writer.err(text);
+  }
+
   /** A step that is starting. */
   step(text: string): void {
     this.writer.err(`${this.paint("blue", "==>")} ${text}\n`);

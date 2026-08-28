@@ -183,11 +183,25 @@ export async function findGoModule(worktree: string, workdir?: string): Promise<
  * The image tag for a project.
  *
  * Content-addressed on everything the build reads — the rendered Dockerfile, the
- * staged manifests, and this tool's version — so an image is rebuilt exactly when
- * one of those changes and reused otherwise.
+ * staged manifests, this tool's version, and **the base image it is built on** —
+ * so an image is rebuilt exactly when one of those changes and reused otherwise.
+ *
+ * The base image belongs in here and was missing from it, which is a bug worth
+ * recording because of how quietly it failed. The project layer is `FROM` the
+ * base, so its contents are the base's contents plus a toolchain — but the base
+ * tag arrives as a `--build-arg` rather than in the Dockerfile text, so nothing
+ * in this hash saw it. A base rebuilt with new container scripts therefore left
+ * every project image on the machine pinned to the old one, and `up` reported
+ * "Image sandboxr/acme:… is current" while starting a sandbox that did not have
+ * the scripts the host was relying on.
  */
-export async function imageTag(project: string, dockerfile: string, staged: StagedFile[]): Promise<string> {
-  const hash = createHash("sha256").update(TOOL_VERSION).update("\0").update(dockerfile);
+export async function imageTag(
+  project: string,
+  dockerfile: string,
+  staged: StagedFile[],
+  baseImage = "",
+): Promise<string> {
+  const hash = createHash("sha256").update(TOOL_VERSION).update("\0").update(baseImage).update("\0").update(dockerfile);
   for (const file of staged) {
     hash.update("\0").update(file.target).update("\0");
     hash.update(await readFile(file.source));
@@ -249,7 +263,7 @@ export async function ensureProjectImage(options: BuildImageOptions): Promise<Bu
     ...gomod.map((file) => ({ source: file.source, target: join("gomod", file.target) })),
   ];
 
-  const tag = await imageTag(config.project, dockerfile, staged);
+  const tag = await imageTag(config.project, dockerfile, staged, options.baseImage ?? "");
   if (!options.rebuild && (await docker.imageExists(tag))) {
     log(`Image ${tag} is current`);
     return { tag, built: false, dockerfile };

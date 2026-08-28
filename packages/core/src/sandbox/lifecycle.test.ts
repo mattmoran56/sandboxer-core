@@ -367,6 +367,21 @@ describe("up", () => {
     ).rejects.toThrow(/access\.credentials to real.*access\.apps to private/s);
   });
 
+  // Whether the file *holds* anything, not whether it is there. Keying this on
+  // existence made an empty file — which a save that changed nothing used to
+  // create — enough to stop a public project starting, and the message named
+  // "the real credentials" in a file that had none.
+  it("is not stopped by a secrets file that holds nothing", async () => {
+    const { dir, home } = await worktree();
+    await mkdir(join(home, "secrets"), { recursive: true });
+    await writeFile(join(home, "secrets", "acme.env"), "# a header and no values\n");
+    const { docker } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
+
+    await expect(
+      up({ config: configOf({ access: { apps: "public" } }), worktree: dir, docker, env: { SANDBOXR_HOME: home } }),
+    ).resolves.toBeDefined();
+  });
+
   it("lets a private sandbox carry them", async () => {
     const { dir, home } = await worktree();
     await mkdir(join(home, "secrets"), { recursive: true });
@@ -375,7 +390,22 @@ describe("up", () => {
 
     await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home } });
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
-    expect(runArguments).toContain(join(home, "secrets", "acme.env"));
+    expect(runArguments).toContain(`${join(home, "secrets", "acme.env")}:/sandboxr/secrets.env:ro`);
+  });
+
+  // The digest is what lets the dashboard say a sandbox started before a
+  // credential was rotated, so it has to be a fact about the container rather
+  // than something recomputed from a file that may have changed since.
+  it("stamps the environment it started with on the container", async () => {
+    const { dir, home } = await worktree();
+    await mkdir(join(home, "secrets"), { recursive: true });
+    await writeFile(join(home, "secrets", "acme.env"), "API_TOKEN=real\n");
+    const { docker, argsOf } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
+
+    await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home } });
+    const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
+    const stamped = runArguments.find((argument) => argument.startsWith("sandboxr.env="));
+    expect(stamped).toMatch(/^sandboxr\.env=[0-9a-f]{16}$/);
   });
 
   it("opts in when the config says the credentials may be real", async () => {
@@ -541,7 +571,19 @@ describe("status", () => {
         return { stdout: "" };
       },
     });
-    const result = await status("acme", "tkt-1", { docker, config: configOf(), env: { SANDBOXR_DOMAIN: "sbx.localhost" } });
+    // `SANDBOXR_HOME` and not just the domain, and it is load-bearing: the URL a
+    // status reports is https or http depending on whether the router found a
+    // certificate, which `routerScheme` decides by looking for one under the
+    // home. Without a home of its own this read the developer's real
+    // `~/.sandboxr` — so the test passed on a machine with no mkcert and failed
+    // on one with it, which is a test asserting a fact about the laptop it ran
+    // on rather than about the code.
+    const home = await mkdtemp(join(tmpdir(), "sbx-status-"));
+    const result = await status("acme", "tkt-1", {
+      docker,
+      config: configOf(),
+      env: { SANDBOXR_DOMAIN: "sbx.localhost", SANDBOXR_HOME: home },
+    });
     expect(result.migrations).toBe("ok");
     expect(result.built).toEqual(["app"]);
     expect(result.services[0]).toMatchObject({ name: "api", up: true, url: "http://tkt-1.api.acme.sbx.localhost" });

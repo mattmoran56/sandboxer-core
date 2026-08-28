@@ -158,9 +158,21 @@ State lives **only** in Docker labels. There is no manifest file, no database of
 | `sandboxr.created` | ISO 8601 UTC |
 | `sandboxr.access` | `public` / `private` — whether app hostnames need auth |
 | `sandboxr.ttl` | seconds the sandbox may sit unused for, or `never` |
+| `sandboxr.env` | digest of the environment the sandbox was created with — see §5.2. A record, not a comparison; empty means *unknown* |
 
 **Labels hold durable state only.** Everything above is fixed when the sandbox is created
-and does not change while it runs. Runtime state — whether it is starting, running or
+and does not change while it runs — and `sandboxr.env` is worth a note, because it is a label
+that deliberately records the *past* and must not be mistaken for a live answer.
+
+It says what the environment was when the container was created. It is **not** what decides
+whether a running sandbox is out of date, and the difference is a bug that has already been made
+once: Docker will not let a label be changed after a container exists, so a sandbox restarted to
+pick up a rotated credential kept the label it was created with. The badge stayed lit, the button
+appeared to do nothing, and pressing it again did nothing again.
+
+**Whether a running sandbox has read the current credentials is a comparison of times**: the
+secrets file's mtime against the container's own `StartedAt`. That answers the question actually
+being asked, and it clears itself, because a restart moves `StartedAt`. Runtime state — whether it is starting, running or
 degraded — is **derived at read time** from the container and its status surface, never
 written back to a label. A label recording "running" would be a second source of truth that
 goes stale the moment a process dies, which is exactly the drift this design avoids.
@@ -203,7 +215,7 @@ machine at once.
   logs/<project>/<slug>/ per-sandbox logs, survive the container
   tls/                   certificate and key
   state/                 router config, dashboard session secret
-  secrets/<project>.env  third-party credentials, mode 0600
+  secrets/<project>.env  third-party credentials, mode 0600 — edited, not generated (§5.2)
   build/<project>/<slug>.env  the generated per-sandbox environment
   bin/                   host-built helper binaries
   config.yaml            the machine's own settings — see §4.3
@@ -392,7 +404,21 @@ toolchain: { go: "1.26.6", node: "24.18" }
 access:
   apps: public                 # public | private
   controls: password           # password (only option today)
+  credentials: dummy           # dummy | real — see §5.3
+
+env:                           # the project's own names for what the sandbox computes
+  DB_HOST: "${SANDBOXR_DB_HOST}"
+  VITE_API_URL: "${SANDBOXR_URL_API}"
 ```
+
+The `env:` map is the join between the two halves of a sandbox's environment, and it is the
+half a project cannot do without. The sandbox works out *where* everything is — its own
+database, its own object storage, each app's own hostname — and exports those under a
+`SANDBOXR_` prefix; only the project knows what its own code calls the same things, so it says
+so here. Values are expanded by **substitution, never by a shell**, so a value is data.
+
+It is also the last word. The map is exported after everything else inside the container, so a
+name it defines wins over the same name from the secrets file — see §5.2.
 
 ### 5.1 Three runtime kinds, not two
 
@@ -441,14 +467,87 @@ whether an unrelated front-end has been built.
 
 ### 5.2 Secrets rules
 
-- **Names only, never values, are ever printed or logged.** The import reports a count and
-  a list of names, so it is safe to run with someone watching.
-- Anything describing *where* something runs — `DB_*`, object storage, inter-service URLs —
-  is **never** imported. A sandbox computes those itself. Importing them would point a
-  sandbox at the developer's own database or at real cloud storage.
+`~/.sandboxr/secrets/<project>.env`, mode 0600, is the one file sandboxr keeps that holds real
+values. **It is a file people edit.** Two things write it and they must not fight:
+
+- `secrets import` reads the `.env` files the config names and **merges** them in. A name it
+  imports replaces that name and touches nothing else. It used to rewrite the whole file, which
+  silently dropped every credential that came from anywhere else.
+- The dashboard and `secrets set` author it directly. That route is not a convenience: a project
+  whose `.env` files are all `.env.example` has nothing to import from, so without it nothing
+  reaches a sandbox at all.
+
+There is deliberately **one** file, and no second hand-edited one layered over the imported one.
+Two files holding the same name is two answers to "what is this project's API key", and the one
+that loses is invisible.
+
+- **Names only, never values, are printed or logged**, with exactly one exception. Every listing
+  reports names, a short tail of the value, and its length — enough to tell two keys apart and to
+  spot a truncated paste — so it is safe to run with someone watching, to paste into a ticket, or
+  to hand to an agent. The exception is the dashboard's *reveal*, which is a request of its own,
+  about one variable, made by a person who is looking at the file's own project. **No command-line
+  verb prints a value.**
+- Anything describing *where* something runs — `DB_*`, object storage, inter-service URLs — is
+  **never** imported. A sandbox computes those itself. Importing them would point a sandbox at the
+  developer's own database or at real cloud storage.
+- **The names a sandbox derives for itself are refused outright**, whoever typed them, whatever the
+  project's own rules say. That set is `SANDBOXR_SLUG`, `SANDBOXR_PROJECT`, `SANDBOXR_DOMAIN`,
+  `SANDBOXR_ACCESS`, `SANDBOXR_SCHEME`, `SANDBOXR_PUBLIC_PORT`, `SANDBOXR_WITH`, `SANDBOXR_SEED`,
+  `SANDBOXR_PLAN`, `SANDBOXR_SCRIPTS`, `SANDBOXR_SANDBOX`, `SANDBOXR_ENV_READY`, and the whole of
+  `SANDBOXR_DB_*`, `SANDBOXR_S3_*`, `SANDBOXR_D1_*`, `SANDBOXR_URL_*` and `SANDBOXR_PORT_*`. A
+  project's *own* `SANDBOXR_`-prefixed names are fine, and are the reason this is a list rather than
+  the prefix: `rename` legitimately carries a browser-side Auth0 domain across to
+  `SANDBOXR_AUTH0_SPA_DOMAIN`, which is a value only the project can supply.
 - `rename` exists because the same value legitimately has two names in different files, and
-  because some pairs must **not** be merged (a browser-side Auth0 domain and a server-side
-  one can differ, and merging them makes every API call 401).
+  because some pairs must **not** be merged (a browser-side Auth0 domain and a server-side one can
+  differ, and merging them makes every API call 401).
+
+#### The file format
+
+`NAME="value"`, one per line. **Values are written quoted, always, with nothing escaped.** Written
+raw they do not survive being read back: the reader trims a value and strips a trailing ` #`
+comment from an unquoted one — both right for a `.env` somebody wrote by hand, and wrong for a
+credential, because a password containing ` #` came back truncated at the hash with nothing
+reporting it. Quoting unconditionally is lossless for any single-line value, so **a value may not
+contain a newline** and one is refused by name.
+
+Every reader strips exactly one layer of matching quotes. There are two of them — the host's and
+`container/scripts/env.sh` — and if they ever disagree, every credential reaches the application
+with quotes around it, which fails as an authentication error and looks nothing like a parsing
+problem.
+
+#### How it reaches a sandbox, and what wins
+
+The file is **bind-mounted read-only** at `/sandboxr/secrets.env`. It must not be passed to
+`docker run` as an `--env-file`: an env-file is read once and baked into the container's
+configuration, so an edited credential cannot reach a running sandbox at all — `restart` and
+`stop`/`start` keep the environment the container was created with, and only recreating it picks
+up a new value. Mounted, `env.sh` re-reads it every time it is sourced, so a restart applies a
+rotated credential and a rebuild applies a changed build-time one. The values also stop appearing
+in `docker inspect`.
+
+The container reads it **first**, before it derives anything, which fixes the order of precedence
+for the whole environment — lowest to highest:
+
+1. the project's secrets file;
+2. what the host passes in (`--env-file` for the generated per-sandbox environment, and `-e` for
+   the git identity and any GitHub token);
+3. what the sandbox derives for itself — `SANDBOXR_DB_*`, `SANDBOXR_S3_*`, `SANDBOXR_URL_*`;
+4. the project's `env:` map, expanded with `envsubst` against all of the above.
+
+Two consequences worth stating plainly, because each one has a failure mode that does not resemble
+its cause. Nothing outside a sandbox can redirect it at something that is not its own, which is
+what (3) beating (1) is for. And a credential typed under a name the `env:` map also defines is
+**overwritten** by the map: nothing fails, the variable has a value, and it is the wrong one. A
+tool must say which names those are rather than leaving it to be discovered.
+
+#### What a project needs, and what it has
+
+`keep` does double duty and both jobs matter. It is the allow-list an import filters against, and
+it is the project's statement of which credentials it needs at all. The second is what makes
+"declared, and not set" a thing a person can be shown — and it has to be shown, because a
+front-end built without its API key does not fail. It falls back to whatever its code defaults to,
+and a default is often a production URL.
 
 ### 5.3 Public sandboxes have two hard requirements
 
@@ -515,6 +614,12 @@ container is a generic runtime and the plan is its only input.
 **The authoritative specification of `plan.json` is `container/README.md` ("The plan"),
 with two worked examples in `container/examples/*.plan.json`.** Treat those as the contract
 for this boundary and keep the emitter in step with them.
+
+The plan is not the container's *only* mounted input, and the distinction is about secrecy. The
+plan is written at ordinary permissions and carries addresses, never values — so the project's
+credentials arrive as a second, 0600 file mounted at `/sandboxr/secrets.env` (§5.2), and the
+plan's `env:` map refers to them by name. Both are read-only: a container that could rewrite
+either could change what it claims to be running or what it is authorised to reach.
 
 ### 5.6 The project-level config, and why `file` is not always inside `root`
 

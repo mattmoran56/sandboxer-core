@@ -332,11 +332,17 @@ access:
   credentials: dummy    # the default
 ```
 
-With `credentials: dummy` and a secrets file present, `sandboxr up` refuses to start and
-names both ways out: `credentials: real`, or `apps: private`.
+With `credentials: dummy` and a secrets file that **holds something**, `sandboxr up` refuses
+to start and names both ways out: `credentials: real`, or `apps: private`. What matters is
+whether anything is in the file, not whether the file is there — an empty one carries no
+credentials and is no reason to refuse.
 
 Anyone who can drive a public app can make it send real email or spend real credit. Supply
-harmless values through `env:` instead. See [Secrets](configuration/secrets.md).
+harmless values through `env:` instead.
+
+The dashboard says the same thing earlier. A project in this state gets a **read-only**
+Environment panel naming both ways out, rather than a table that would only build a file no
+sandbox could start with. See [Secrets](configuration/secrets.md).
 
 ### Why refusals and not warnings
 
@@ -424,5 +430,5 @@ unit. [On a server, for a team](setups/shared-server.md) says what that costs.
 | A sandbox reaching GitHub as you, until you opt in | A project you *have* opted in, where the token is readable by anything running in the container |
 
 **Next:** [The dashboard](guides/dashboard.md) for the closed action table behind the
-password, or [Secrets](configuration/secrets.md) for what may and may not be imported into a
-sandbox.
+password, or [Secrets](configuration/secrets.md) for what may and may not reach a sandbox, and
+how the one file that holds it is edited.

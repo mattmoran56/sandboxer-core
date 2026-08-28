@@ -189,6 +189,37 @@ read a run script.
 
 </details>
 
+### A credential was changed and the sandbox still uses the old one
+
+**Restart the sandbox.** The project's secrets file is mounted into the container, and the
+container reads it when it sets its environment up — which happens at start, not continuously.
+
+```bash
+sandboxr stop <slug> && sandboxr start <slug>
+```
+
+If the value is one a front-end reads — a `VITE_*`, a `NEXT_PUBLIC_*` — **rebuild it as well**:
+
+```bash
+sandboxr reload <slug> --web
+```
+
+The dashboard marks running sandboxes that started before the last change and offers both
+buttons beside each one.
+
+<details class="failure">
+<summary><b>If it goes wrong</b> — the restart worked and the front-end still shows the old value</summary>
+
+A build-time variable is not read at run time. It was substituted into the bundle when the app
+was built, so it is in the files on disk and no environment can reach back into them. The
+restart applied it to every process that reads its environment, which is every backend and
+every served front-end — and to nothing already compiled.
+
+If a rebuild does not fix it either, the name is probably one the project's own `env:` map also
+defines. That map is expanded last and wins. `sandboxr secrets list` names those.
+
+</details>
+
 ### Login succeeds and then every API call returns 401
 
 **Two identity settings were merged that must not be.** Rename them apart:
