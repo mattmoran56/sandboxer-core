@@ -1,73 +1,147 @@
 ---
 title: Start, stop, list, clean up
-description: up, ls, status, down, gc and prune — what each one really removes, and why deleting a sandbox can never lose your work.
-sidebar:
-  order: 1
+description: The nine commands that create, inspect and remove sandboxes, what each one really removes, and why none of them can lose your work.
 ---
+
+Nine commands do almost everything: `up`, `ls`, `status`, `stop`, `start`, `down`, `expire`,
+`gc` and `prune`. This page says what each one does and, more importantly, what each one
+removes.
+
+Start with the reassuring part. **Deleting a sandbox cannot lose your work.** Your
+[worktree](../reference/glossary.md) — your branch, your commits, the file you have not
+saved yet — lives on your own disk and is only *mounted* into the container. Removing the
+container removes a copy of a running system. The code was never in there.
+
+```prompt
+Show me the sandboxes on this machine and explain what state each one is in.
+
+Read docs/guides/lifecycle.md first. Run `sandboxr ls`, then `sandboxr status <slug>`
+for anything that is not `running`, and tell me in plain words what is wrong with it.
+
+Do not run `sandboxr down`, `sandboxr gc` or `sandboxr prune --yes` without asking me
+first — those three remove things. Stop and tell me if Docker is not running.
+```
+
+Every command takes an optional **slug** — the short name a sandbox is known by. You rarely
+type it. Standing in the worktree is enough, so `sandboxr down` run from
+`.worktrees/tkt-4821` and `sandboxr down tkt-4821` run from anywhere are the same command.
+
+## `up` — start one
+
+`sandboxr up` reads the project's `sandboxr.yaml`, prepares a copy of the database, builds
+the project's image layer if it is not already there, starts one container, waits for it to
+come up, and prints one URL per app.
 
 ```bash
 cd .worktrees/tkt-4821
-sandboxr up          # start a sandbox from this worktree
-sandboxr ls          # every sandbox on this machine
-sandboxr status      # this one, in detail
-sandboxr down        # remove it, and its database and uploads
-sandboxr gc          # reap sandboxes whose worktree is gone
-sandboxr prune       # what disk could be handed back, and how much
+sandboxr up
 ```
 
-Every one takes an optional **slug**. You rarely type it: standing in the worktree is enough.
-`sandboxr down tkt-4821` and `sandboxr down` run from `.worktrees/tkt-4821` are the same command.
+**Starting a sandbox that already exists is not an error.** The container is replaced from
+the current config and the current commit. Its volumes are untouched, so the database, the
+uploads and anything already built carry over. That makes `up` the right command after you
+edit `sandboxr.yaml`, and after a dependency change — the shared dependency volume is named
+after a hash of the lockfile, so a new lockfile means a different volume, and only a fresh
+container can pick it up.
 
-## `up`
+> [!NOTE] The source database is only ever read
+> Wherever the data comes from, sandboxr copies it first and works on the copy. Nothing a
+> sandbox does can reach back into the database it was copied from.
 
-Reads `sandboxr.yaml`, prepares a copy of the database, builds the project's image layer if it is
-not already there, starts the container, waits for it, and prints one URL per app.
+<details class="agent">
+<summary><b>Details for an agent</b> — every flag <code>sandboxr up</code> accepts, and its exit codes</summary>
 
 | Flag | Default | What it does |
 |---|---|---|
-| *(positional)* `slug` | derived | The sandbox's name. Also `--slug NAME` |
+| *(positional)* `slug` | derived | The sandbox's name. `--slug NAME` is the same thing |
 | `--worktree PATH` | the current directory | Which worktree to build from |
-| `--with a,b` | none | Start these `optional: true` runtimes as well |
+| `--project NAME` | — | Start from a project in the managed workspace instead of a directory. Requires `--branch` |
+| `--branch NAME` | — | Which branch of that project. The worktree is found or cut |
+| `--base REF` | — | Create that branch off this ref first |
+| `--ttl 12h\|never` | `12h` | How long it may sit **unused** before something stops it |
+| `--with a,b` | none | Also start these `optional: true` runtimes |
 | `--seed local\|file\|fixtures` | whatever the config allows | Force the seed source |
-| `--detach` | off | Do not wait, and skip the database step |
-| `--timeout N` | `180` | Seconds to wait for the container to become ready |
+| `--detach` | off | Do not wait for it, and skip the database provisioning step |
+| `--timeout N` | `180` | Seconds to wait for the container. Accepted but not listed in `sandboxr help` |
 | `--json` | off | The whole result as JSON on stdout |
 
 | Exit | Means |
 |---|---|
 | `0` | Started |
-| `2` | A config error, naming the file and the field |
-| `3` | Started **degraded** — up, with failed migrations |
 | `1` | Anything else |
+| `2` | A config error. The message names the file and the field |
+| `3` | Started **degraded** — up, with failed migrations |
 
-`--with` exists because some things are too expensive to run for everybody. A live dev server
-holds hundreds of megabytes for as long as the container lives, whether or not anyone opens it,
-so a runtime declared `optional: true` starts only when asked for by name.
+Order of operations, from `up()` in `packages/core/src/sandbox/index.ts`:
 
-**Starting a sandbox that already exists is not an error.** The container is replaced from the
-current config and the current commit; its volumes are untouched, so the database, the uploads
-and the built apps carry over. That makes `up` the right command after editing `sandboxr.yaml`,
-and after a dependency change — the dependency volume is named after a lockfile hash, so a new
-lockfile means a different volume, and only a fresh container can pick it up.
+1. Resolve the worktree.
+2. Load the config.
+3. Derive the slug.
+4. Refuse if Docker is not running.
+5. Refuse if the project serves public apps and a real secrets file exists.
+6. Create the host directories and the `sandboxr` network.
+7. Warn if the shared router is not running.
+8. Produce the seed artifact, **on the host**.
+9. Write `~/.sandboxr/build/<project>/<slug>.env`.
+10. Write the plan.
+11. Replace any existing container.
+12. Resolve the ttl.
+13. Build or reuse the project image.
+14. Issue this sandbox's certificate.
+15. `docker run`.
+16. Wait for the container to answer.
+17. Provision the database and run migrations.
 
-> [!NOTE] The source database is only ever read
-> Wherever the data comes from, sandboxr copies it first and works on the copy. Nothing a sandbox
-> does can reach back into the database it was copied from.
+Two refusals happen before any work is done, so a typo costs nothing: an unreadable
+`--seed` value, and an unreadable `--ttl`.
 
-## `ls`
+`--ttl` is only the first step of a precedence chain that also reads
+`~/.sandboxr/config.yaml` and `SANDBOXR_TTL_HOURS`. The rules are in
+[Projects, worktrees and lifetimes](managed-sandboxes.md).
+
+The URLs `up` prints are `<slug>.<label>.<project>.<domain>`, with the domain defaulting to
+`sbx.localhost` — see [How it works, in five steps](../how-it-works.md). Every field the
+config may declare is in [sandboxr.yaml, field by field](../configuration/sandboxr-yaml.md),
+and every command's full flag list is in [CLI commands](../reference/cli.md).
+
+</details>
+
+<details class="failure">
+<summary><b>If it goes wrong</b> — the three refusals <code>up</code> makes by name</summary>
+
+**"Docker is not running."** Nothing has been done. Start Docker and run it again.
+
+**"`<project>` serves public apps, so it may not carry the real credentials in
+`~/.sandboxr/secrets/<project>.env`."** A refusal, not a warning: anyone who can reach a
+public app could make it send real email or spend real credit. The two ways out are named
+in the message — set `access.credentials` to `real`, or set `access.apps` to `private`. See
+[Access and security](../access.md).
+
+**"Cannot read `<x>` as a lifetime."** `--ttl` takes `30m`, `12h`, `7d`, a plain number of
+seconds, or `never`. It never guesses, because silently substituting a lifetime nobody asked
+for is the one mistake here that destroys work.
+
+A fourth case is not a refusal at all: *"The shared router is not running, so this sandbox
+will have no hostname."* The sandbox still starts and is still worth having. Run `sandboxr
+init` to fix the hostname.
+
+</details>
+
+## `ls` — every sandbox on the machine
 
 ```
-PROJECT  SLUG       STATE     BRANCH             WORKTREE
-acme     tkt-4821   running   tkt-4821           /home/dev/acme/.worktrees/tkt-4821
-acme     tkt-4907   running   tkt-4907*          /home/dev/acme/.worktrees/tkt-4907
-acme     fix-nav    degraded  fix/nav-overflow   /home/dev/acme/.worktrees/fix-nav
+PROJECT  SLUG       STATE     TTL    BRANCH             WORKTREE
+acme     tkt-4821   running   12h    tkt-4821           /home/dev/acme/.worktrees/tkt-4821
+acme     tkt-4907   running   kept   tkt-4907*          /home/dev/acme/.worktrees/tkt-4907
+acme     fix-nav    degraded  never  fix/nav            /home/dev/acme/.worktrees/fix-nav
 
 * uncommitted changes when the sandbox started
 ```
 
-`list` is accepted as well as `ls`; `--project NAME` narrows it. This table is a pure function of
-`docker ps` — every column is read from a label on the container, so nothing can drift out of
-sync. [State lives in labels](../architecture/state.md).
+`list` works as well as `ls`, and `--project NAME` narrows it. Every column is read from a
+label on the container, so this table is a pure function of `docker ps` and nothing can
+drift out of sync with what is actually running. See [State lives in
+labels](../architecture/state.md).
 
 | State | Means |
 |---|---|
@@ -76,66 +150,145 @@ sync. [State lives in labels](../architecture/state.md).
 | `degraded` | Up, and its **migrations failed** |
 | `stopped` | The container exists but is not running |
 
-`degraded` is deliberate rather than a half-failure: looking at a migration that has just failed
-is one of the main reasons to have a sandbox.
+`degraded` is a deliberate outcome rather than a half-failure. Looking at a migration that
+has just failed is one of the main reasons to have a sandbox at all, so the sandbox stays up
+and says so.
 
-## `status`
+The `TTL` column shows one of three things: the sandbox's configured limit, `kept` if
+somebody exempted it from the clock, or `-` if the limit cannot be read. It is the limit
+itself, not the time remaining — `sandboxr expire --dry-run` is what reports how long each
+sandbox has left.
 
-One sandbox in detail, including which of its backends actually answer. It probes each backend's
-declared health path from inside the container, so "up" means the process responded, not that
-Docker thinks it is running.
+## `status` — one sandbox in detail
 
 ```
 acme/tkt-4821  running
-  branch      tkt-4821 (clean)
+  branch      tkt-4821@a1b2c3d
   driver      mysql
   migrations  ok
-  access      apps public
+  access      public
   worktree    /home/dev/acme/.worktrees/tkt-4821
   built       app, admin
 
-  api         up
-  admin-api   up
-  jobs        down
+  up    api              https://tkt-4821.api.acme.sbx.localhost
+  up    admin-api        https://tkt-4821.admin.acme.sbx.localhost
+  down  jobs             https://tkt-4821.jobs.acme.sbx.localhost
 ```
 
-Exit code `3` if the sandbox is degraded.
+`up` here means the process answered its declared health path, not that Docker thinks the
+container is alive. `status` exits `3` if the sandbox is degraded, so a script can branch on
+it.
 
-## `down`
+`worktree` gains `(GONE)` when the directory it names is no longer on disk. That is the
+condition `gc` reaps on, further down this page.
+
+## `stop` and `start` — pause without deleting
 
 ```bash
-sandboxr down            # container, database, storage, built binaries, built apps
-sandboxr down --keep     # container only; the volumes stay
+sandboxr stop tkt-4821
+sandboxr start tkt-4821
 ```
 
-| What it removes | What it never touches |
+`stop` stops the container and nothing else. The labels survive, so the sandbox still
+appears in `ls` and can be started again. The volumes survive, so its database is exactly
+where it was and coming back costs a start rather than a re-seed.
+
+**Stopping frees memory and CPU. It frees no disk at all.** That surprises people often
+enough that it has its own page: [Giving Docker the whole
+machine](docker-capacity.md).
+
+<details class="agent">
+<summary><b>Details for an agent</b> — the two exit codes, and why they differ</summary>
+
+Both take `<slug>` and an optional `--project NAME`. Both resolve the slug against
+`sandboxr ls` first and fall back to the config in the current directory, so they work from
+anywhere. A slug that matches sandboxes in two projects is an error naming both; `--project`
+is the way out.
+
+`stop` on an already-stopped sandbox exits **0**. That is the state you asked for, so it
+succeeded.
+
+`start` on a sandbox that does not exist exits **1**. That state cannot be reached, so it
+failed.
+
+</details>
+
+## `down` — remove it
+
+```bash
+sandboxr down            # the container and everything it owned
+sandboxr down --keep     # the container only; the volumes stay
+```
+
+| What `down` removes | What `down` never touches |
 |---|---|
-| The container | Your worktree |
-| `sandboxr-data-*` — the database | Your branch, your commits, your uncommitted changes |
-| `sandboxr-blob-*` — file storage | The database it was seeded from |
-| `sandboxr-bin-*` — built binaries | The seed cache |
-| `sandboxr-www-*` — built front-ends | The shared dependency volume |
-| Its certificate and the router's entry for it | Other sandboxes |
+| The container | Your worktree, branch, commits and uncommitted changes |
+| `sandboxr-data-…` — the database | The database it was seeded from |
+| `sandboxr-blob-…` — file storage | The seed cache in `~/.sandboxr/cache` |
+| `sandboxr-bin-…` — built binaries | The shared dependency volume |
+| `sandboxr-www-…` — built front-ends | The project's image, and Go's caches |
+| This sandbox's certificate | Its logs in `~/.sandboxr/logs/<project>/<slug>/` |
+| Its keep-alive marker, if it had one | Any other sandbox |
 
-A sandbox that does not exist is not an error — `down` says so and returns.
+Removing the certificate matters: it names this sandbox's hostnames and nothing else's, so
+leaving it behind would have the router offering a certificate for a host that no longer
+answers.
 
-`--keep` is for when you want a fresh container against the same database: the next `up` restores
-nothing and starts in seconds.
+`down` on a sandbox that does not exist is not an error. It says so and returns `0`.
 
-## `gc`
+`--keep` is for when you want a fresh container against the same database. The next `up`
+restores nothing and starts in seconds.
+
+## `expire` — stop whatever has gone idle
+
+```bash
+sandboxr expire --dry-run
+sandboxr expire
+```
+
+Each sandbox carries a lifetime, and the lifetime measures **idleness rather than uptime**.
+`expire` stops every sandbox that has sat unused past its own limit.
+
+**`expire` only ever stops a sandbox. It never removes one.** So it hands back memory and
+CPU and no disk. `--project NAME` limits it to one project.
+
+The rules for how the deadline is worked out, where the ttl comes from, and how to exempt a
+sandbox with `keep`, are all in [Projects, worktrees and
+lifetimes](managed-sandboxes.md).
+
+## `gc` — reap sandboxes whose work is over
 
 ```bash
 sandboxr gc --dry-run
 sandboxr gc
 ```
 
-Reaps a sandbox when its recorded worktree no longer exists on disk, then removes any
-`sandboxr-` volume that no surviving sandbox owns and nothing has mounted. Shared volumes and
-`sandboxr-deps-*` volumes are left alone.
+`gc` reaps a sandbox when the worktree it was started from **no longer exists on disk**. You
+deleted the branch's directory; the sandbox for it is now pointing at nothing. `gc` runs
+`down` on it, which means the database goes too.
 
-`--dry-run` prints the plan and changes nothing.
+It then removes any `sandboxr-` volume that no surviving sandbox owns and nothing has
+mounted. The shared volumes are never offered — `sandboxr-claude` holds credentials an agent
+session was given, and `sandboxr-gocache` and `sandboxr-gomod` are an expensive rebuild.
 
-## `prune`
+<details class="why">
+<summary><b>Why it works this way</b> — the filesystem is asked, not git</summary>
+
+Whether a worktree still exists is checked on the filesystem, not with `git worktree list`.
+A worktree removed with a plain `rm -rf` leaves a stale entry in git's admin files, and that
+entry would keep the sandbox looking alive for ever.
+
+Orphaned volumes are found by asking which volumes the *survivors* would have, and removing
+what is left over. They are never found by parsing volume names. Both a project name and a
+slug may contain dashes, so `sandboxr-data-acme-web-tkt-4821` cannot be split back into its
+parts unambiguously — and a wrong split here deletes somebody's database.
+
+Core can also reap a sandbox whose branch has been merged. No CLI flag exposes that yet, so
+from the command line `gc` reaps on the missing worktree alone.
+
+</details>
+
+## `prune` — reclaim what building left behind
 
 ```bash
 sandboxr prune                      # a report; removes nothing
@@ -143,24 +296,73 @@ sandboxr prune --yes                # remove what it listed
 sandboxr prune --build-cache --yes  # and Docker's build cache with it
 ```
 
-`gc` reclaims what a *sandbox* held. `prune` reclaims what *building* them left behind: the project
-images a newer build replaced, plus any orphaned volume, plus — only when asked — Docker's build
-cache. Neither of the first two is freed by stopping a container, and on a machine that has run out
-of room they are usually most of the problem.
+`gc` reclaims what a *sandbox* held. `prune` reclaims what *building* them left behind:
 
-**It removes nothing without `--yes`**, which is the other way round from `gc --dry-run`. What `gc`
-removes costs a restart; what `prune` removes costs a toolchain rebuild on the next `up`, so the
-safe answer is the one you get by typing nothing extra.
+- **Orphaned per-sandbox volumes** — the same ones `gc` finds.
+- **Superseded project images** — for each project, everything older than its newest image.
+- **Docker's build cache**, only with `--build-cache`, because sandboxr is not its only
+  writer. Every project on the same Docker daemon built into it.
 
-Each project's newest image always survives, and the shared volumes — `sandboxr-claude` and the Go
-caches — are never offered at all.
+Each project's newest image always survives. Its tag is a content hash, so the next `up`
+finds it and starts in seconds instead of rebuilding a toolchain — which is the only reason
+to keep an image at all. `sandboxr/base` and `sandboxr/dashboard` are never removed as
+superseded either: they are tagged by version rather than by content, so "older tag" does
+not mean "replaced".
 
-[Giving Docker the whole machine](docker-capacity.md) covers where the space went, and the blunter
-Docker commands for when this is not enough.
+```
+WOULD REMOVE  NAME                        SIZE    WHY
+image         sandboxr/acme:40ed880f9db8  5.3 GB  sandboxr/acme:48273eacdece replaced it
+image         sandboxr/demo:664cb3e82b64  452 MB  sandboxr/demo:de1aab947f66 replaced it
 
-## Related
+About 5.8 GB in total. Add --yes to remove it.
+```
 
-- [Giving Docker the whole machine](docker-capacity.md) — when the disk is the problem
-- [The edit–reload loop](edit-and-reload.md) — what to run after you change a file
-- [Every worktree at once](../getting-started/every-worktree.md)
-- [CLI reference](../reference/cli.md) — every command, every flag
+> [!IMPORTANT] `sandboxr prune --yes` has never removed anything
+> The report has been run against a live Docker daemon and its figures match `docker system
+> df`. The removal path is unit-tested only, against a fake daemon. What a real run would
+> settle is that `docker image rm` accepts the references the plan builds, and that the space
+> the report promised is the space that comes back. See [what is
+> built](../reference/status.md).
+
+## The asymmetry, and why it is deliberate
+
+`gc` and `expire` **act by default** and take `--dry-run` to hold back. `prune` **reports by
+default** and acts only with `--yes`. That looks like an inconsistency and is not.
+
+It follows from the cost of being wrong.
+
+- A sandbox stopped or removed in error costs you a **restart**. Annoying, seconds to
+  minutes, and the worktree it was built from is untouched.
+- An image removed in error costs a **toolchain rebuild** — and it is not paid now, it is
+  paid on somebody's next `up`, which is the worst possible moment to discover it. On a
+  large project that is tens of minutes.
+
+So the command whose mistakes are cheap does the thing and lets you ask it not to. The
+command whose mistakes are expensive tells you first.
+
+<details class="facts">
+<summary><b>Fact sheet</b> — what each verb removes, in one table</summary>
+
+| Verb | Container | Volumes | Image | Acts by default? |
+|---|---|---|---|---|
+| `stop` | stopped, kept | kept | kept | yes |
+| `start` | started | kept | kept | yes |
+| `expire` | stopped, kept | kept | kept | yes — `--dry-run` to preview |
+| `down` | removed | **removed** | kept | yes |
+| `down --keep` | removed | kept | kept | yes |
+| `gc` | removed, if its worktree is gone | **removed** | kept | yes — `--dry-run` to preview |
+| `prune` | never touched | orphans only | **superseded ones** | **no** — `--yes` to act |
+| `prune --build-cache` | never touched | orphans only | superseded ones, plus Docker's build cache | **no** — `--yes` to act |
+
+Never removed by anything sandboxr does: your worktree; the seed cache; `~/.sandboxr/logs`;
+`sandboxr-claude`; `sandboxr-gocache`; `sandboxr-gomod`; `sandboxr-deps-<hash>` while any
+container has it mounted; `sandboxr/base`; `sandboxr/dashboard`.
+
+Volume names, from `packages/core/src/naming.ts`:
+`sandboxr-<data|blob|bin|www>-<project>-<slug>`.
+
+</details>
+
+**Next:** [The edit–reload loop](edit-and-reload.md) is what you do between an `up` and a
+`down`. [Giving Docker the whole machine](docker-capacity.md) is the page for when `prune`
+was not enough and the disk is still full.

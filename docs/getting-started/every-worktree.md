@@ -1,11 +1,28 @@
 ---
 title: Every worktree at once
-description: Running all your branches side by side, each as its own sandbox on its own hostname — what it costs and what is shared.
-sidebar:
-  order: 3
+description: All your branches running side by side, each on its own hostname — what is shared between them, what is not, and what it costs.
 ---
 
-One sandbox is convenient. **All of them at once is the reason the tool exists.**
+One sandbox is convenient. **All of them at once is the reason the tool exists.** This page starts
+several, then explains what they share and what they keep to themselves.
+
+You want [Your first sandbox](first-sandbox.md) working before this.
+
+```prompt
+Start a sandbox for every worktree of this project and report the URLs.
+
+Read docs/getting-started/every-worktree.md and follow it. Start one sandbox per worktree, then run
+`sandboxr ls` and give me the table plus one URL per sandbox.
+
+Stop and ask me if:
+- Any sandbox comes up degraded (exit code 3). Report which and show me its logs.
+- There are more than five worktrees. Tell me how many and wait — each one costs memory.
+- Docker reports it is out of disk or memory.
+
+Do not run `sandboxr down` or `sandboxr gc` on anything. Both delete databases.
+```
+
+## Start them all
 
 ```bash
 for wt in .worktrees/*/; do
@@ -15,10 +32,12 @@ sandboxr ls
 ```
 
 ```
-PROJECT  SLUG       STATE     BRANCH             WORKTREE
-acme     tkt-4821   running   tkt-4821           /home/dev/acme/.worktrees/tkt-4821
-acme     tkt-4907   running   tkt-4907*          /home/dev/acme/.worktrees/tkt-4907
-acme     fix-nav    degraded  fix/nav-overflow   /home/dev/acme/.worktrees/fix-nav
+PROJECT  SLUG      STATE     TTL    BRANCH            WORKTREE
+acme     fix-nav   degraded  12h    fix/nav           /home/dev/acme/.worktrees/fix-nav
+acme     tkt-4821  running   kept   tkt-4821          /home/dev/acme/.worktrees/tkt-4821
+acme     tkt-4907  running   12h    tkt-4907*         /home/dev/acme/.worktrees/tkt-4907
+
+* uncommitted changes when the sandbox started
 ```
 
 Three branches, three URLs, three databases, all live at the same time:
@@ -29,91 +48,173 @@ https://tkt-4907.app.acme.sbx.localhost
 https://fix-nav.app.acme.sbx.localhost
 ```
 
+The first one was slow. The rest were not — the expensive work was already done and shared, which
+is the next section.
+
 ## What that gets you
 
 | | Without sandboxr | With every worktree running |
 |---|---|---|
 | Comparing two branches | Stash, checkout, rebuild, look, repeat | Two tabs |
 | Testing a migration | The shared database has already run it once | Each sandbox migrates its own copy |
-| Reviewing a pull request | Check it out, hope the dependencies match | Open the URL |
-| Three agents working unsupervised | They fight over one dev server and one database | Three sandboxes, three URLs, nothing shared |
-| A branch that breaks the database | You spend the afternoon repairing it | `sandboxr down`, `sandboxr up` |
+| Reviewing a pull request | Check it out and hope the dependencies match | Open the URL |
+| Three agents working unsupervised | They fight over one dev server and one database | Three sandboxes, three URLs |
+| A branch that corrupts the database | You spend the afternoon repairing it | `sandboxr down`, `sandboxr up` |
 
 ## What is shared, and what is not
+
+The rule is simple, and everything below follows from it.
+
+**Anything a branch could damage is private to its sandbox. Anything expensive to produce is
+shared.**
 
 ```mermaid
 flowchart TB
   subgraph shared["Shared across every sandbox"]
     img["The base image and the project's image layer"]
-    dep[("Installed dependencies<br/>one volume per lockfile hash")]
-    seed[("The seed cache<br/>keyed on the source's content")]
-    rt["The Traefik router and the dashboard"]
+    dep[("node_modules — one volume per lockfile hash")]
+    go[("Go's build and module caches")]
+    seed[("The seed cache, keyed on the source's content")]
+    rt["The shared router and the dashboard"]
   end
   subgraph s1["tkt-4821"]
-    d1[("database")]
-    b1[("storage · built apps")]
+    d1[("its database")]
+    b1[("its uploads, its builds")]
   end
   subgraph s2["tkt-4907"]
-    d2[("database")]
-    b2[("storage · built apps")]
+    d2[("its database")]
+    b2[("its uploads, its builds")]
   end
   shared -.-> s1
   shared -.-> s2
 ```
 
-Everything a branch can damage is private to its sandbox. Everything expensive to produce is
-shared, which is why the second sandbox on a project starts far faster than the first:
+### Shared
 
-- The **project image** is content-addressed on the toolchain and the lockfile, so branches that
-  have not changed either share one image and build nothing.
-- The **dependency volume** is named after a hash of the lockfile. Branches with matching
-  lockfiles share one `node_modules`; a branch that changes its dependencies transparently gets
-  its own.
-- The **seed cache** is keyed on the source database's content, so it is produced once and every
-  sandbox restores from it.
+- **The base image.** Built once by `sandboxr init`, used by every sandbox on the machine.
+- **The project's image layer** — its toolchains and its installed dependencies. Its tag is a hash
+  of what went into it, so two branches that changed neither the toolchain nor the lockfile use the
+  same image and build nothing at all.
+- **`node_modules`, as one volume per lockfile.** The volume is named after a hash of the lockfile,
+  so every branch with matching dependencies shares one install. A branch that changes its
+  dependencies transparently gets its own volume and a real install.
+- **Go's two caches**, one pair for the whole machine. Both are content-addressed by Go itself, so
+  two sandboxes read the same entry only when the thing cached was identical anyway.
+- **The seed cache.** Keyed on the content of the source database, so a dump or a fork is produced
+  once and every sandbox restores its own copy from it.
+- **The shared router and the dashboard.** One of each, for every sandbox and every project.
+- **The git repository.** A worktree's `.git` points at the repository it was cut from, so that is
+  mounted too, read-write, or nothing in git would work inside the sandbox. The cost is real: a
+  sandbox can move a branch another worktree has checked out.
+
+### Private to each sandbox
+
+- **The container**, and the memory limit on it.
+- **The database.** Its own volume, its own copy, its own migrations.
+- **Object storage** — anything uploaded.
+- **Built backend binaries**, and **built front-ends**.
+- **The generated environment file, the plan, the log directory and the TLS certificate**, all
+  named after the project and the slug.
+
+So `sandboxr down` on one branch destroys that branch's data and nothing else. Nothing has to be
+repaired afterwards.
+
+<details class="agent">
+<summary><b>Details for an agent</b> — the exact names of every shared and private resource</summary>
+
+**Volumes**
+
+| Name | Scope | Holds |
+|---|---|---|
+| `sandboxr-data-<project>-<slug>` | one sandbox | the database, or a file driver's private copy |
+| `sandboxr-blob-<project>-<slug>` | one sandbox | object storage, when storage is declared |
+| `sandboxr-bin-<project>-<slug>` | one sandbox | built backend binaries |
+| `sandboxr-www-<project>-<slug>` | one sandbox | built front-ends |
+| `sandboxr-deps-<lockfile hash>` | every sandbox on that lockfile | `node_modules` |
+| `sandboxr-gocache` | the machine | Go's build cache |
+| `sandboxr-gomod` | the machine | Go's module cache |
+| `sandboxr-claude` | the machine | Claude Code's own state |
+
+**Images**: `sandboxr/base:<tool version>` and `sandboxr/dashboard:<tool version>` are the machine's,
+and are never reclaimed as superseded. `sandboxr/<project>:<content hash>` is a project's layer.
+
+**Containers**: `sandboxr-router`, `sandboxr-dashboard`, and one per sandbox.
+
+**Host paths, all under `~/.sandboxr`**: `cache/` is the seed cache, mounted read-only into every
+sandbox. `build/<project>/<slug>.plan.json` and `build/<project>/<slug>.env` are per sandbox.
+`logs/<project>/<slug>/` is per sandbox and outlives the container. `tls/` holds certificates.
+Full list in [Paths](../reference/paths.md).
+
+**Mount modes worth knowing**: the worktree is read-write at `/workspace`. `plan.json` is
+read-only, because a container that could rewrite it could change what it claims to be running. The
+seed cache is read-only. The git repository is read-write, because `git commit` writes objects and
+refs into the repository rather than the worktree.
+
+</details>
 
 ## What it costs
 
-**Memory is the limit that matters.** Each sandbox gets one cgroup covering everything inside
-it: the largest `memory:` any single runtime in the project declares, with a floor of **4 GB**.
+**Memory is the limit that matters.** Each sandbox gets one limit covering everything inside it:
+the largest `memory:` any single runtime in the project declares, with a floor of **4 GB**.
 
-That is a *ceiling*, not a reservation. A container capped at 4 GB using 500 MB is using 500 MB,
-so the number that decides how many fit is real usage, not the cap. Divide your Docker VM's
-memory by what a sandbox actually uses.
+That is a *ceiling*, not a reservation. A container capped at 4 GB using 500 MB is using 500 MB. So
+the number that decides how many fit is real usage, not the cap — and real usage for a small
+service on a file database is tens of megabytes.
 
-| Project shape | Roughly, per sandbox |
-|---|---|
-| A Worker or a single Node service on a file database | tens of megabytes |
-| Several compiled services on a file database | a few hundred megabytes |
-| The same with a MySQL server of its own | add several hundred megabytes, and seconds to start |
+The cap only bites when something spikes, which in practice means a large front-end build. A build
+killed for memory reports nothing but an exit code, so sandboxr names the cause for you when it
+sees one.
 
-The cap only bites at the moment something spikes, which in practice means a large front-end
-build. If one app needs more, declare `memory:` on it — and note that raising it raises the
-ceiling for the *whole* sandbox, because the kernel enforces the container total.
+Raising `memory:` on one app raises the ceiling for the **whole** sandbox, because the kernel
+enforces the container total. [Giving Docker the whole machine](../guides/docker-capacity.md) has
+the sizing arithmetic.
 
 ## Keeping the set tidy
 
-A worktree you delete leaves a sandbox behind. `gc` reaps them:
+Three commands, and they do genuinely different things.
 
 ```bash
-sandboxr gc --dry-run    # say what would go
-sandboxr gc              # do it
+sandboxr expire --dry-run   # which sandboxes have sat unused past their limit
+sandboxr gc --dry-run       # which sandboxes have lost their worktree
+sandboxr prune              # what disk could be handed back
 ```
 
-It removes sandboxes whose recorded worktree no longer exists on disk, and then any
-`sandboxr-` volume nothing owns and nothing has mounted. Shared volumes and dependency volumes
-are left alone.
+**`expire` stops sandboxes that have sat idle.** The [ttl](../reference/glossary.md) measures
+idleness, not uptime. The deadline is the later of "when it started" and "when a request last
+arrived", plus its ttl, and last-activity comes from the shared router's own access log. Expiring only ever **stops** a
+sandbox. It never removes one, so it reclaims memory and CPU and does nothing about disk.
+
+> [!IMPORTANT] Nothing enforces a lifetime while the dashboard is not running
+> The reaper lives in the dashboard process, which is the only always-on component holding the
+> Docker socket. On a laptop whose dashboard is usually stopped, sandboxes live until something
+> stops them. `SANDBOXR_REAP_MINUTES=0` is the honest setting there — see
+> [Just the CLI, on my laptop](../setups/cli-only.md).
+
+**`gc` reaps sandboxes whose worktree is gone.** Delete a worktree and its sandbox is left behind;
+`gc` removes those, and then any `sandboxr-` volume nothing owns and nothing has mounted. Shared
+volumes and dependency volumes are left alone.
+
+**`prune` reclaims disk.** It reports by default and removes only with `--yes` — the opposite way
+round from `gc --dry-run`, deliberately, because the cost of taking an image somebody still wanted
+is a twenty-minute rebuild. It targets project images a newer build has replaced, and orphaned
+volumes. `--build-cache` adds Docker's build cache, which is not only ours.
+
+> [!NOTE] `prune` has removed nothing for real yet
+> Its report has been run against a live daemon and its figures match `docker system df`. The
+> removal path is tested against a fake daemon only. [What is built](../reference/status.md) keeps
+> the detail.
+
+Keep one sandbox out of the clock's reach with `sandboxr keep <slug>`, and hand it back with
+`sandboxr unkeep <slug>`. A kept sandbox shows `kept` in the TTL column instead of its limit.
+`sandboxr expire --dry-run` is where you see how much idle time each one has left.
 
 ## Doing it from the dashboard instead
 
-The dashboard at `https://sbx.localhost` lists every **worktree** on the machine — grouped by
-project, or by when each was made, when it last had a commit, or what state it is in — with the
-state of the sandbox on each one shown on its row. It can start a sandbox for a branch that has
-none. For a reviewer who does not want a terminal, that is the whole interface. See
-[the dashboard](../guides/dashboard.md).
+The dashboard at `https://sbx.localhost` lists every **worktree** on the machine, grouped by
+project, with the state of the sandbox on each row. It can start a sandbox for a branch that has
+none. For a reviewer who does not want a terminal, that is the whole interface — see
+[The dashboard](../guides/dashboard.md).
 
-## Related
-
-- [Start, stop, list, clean up](../guides/lifecycle.md)
-- [Agents in a sandbox](../guides/agents-in-a-sandbox.md)
-- [Running on a server](../running-on-a-server.md) — the same thing, for a team
+**Next:** [Start, stop, list, clean up](../guides/lifecycle.md) — the day-to-day commands in full.
+Or [One repo, many branches](../setups/one-repo-many-worktrees.md), which takes this case further:
+how slugs collide, and how many sandboxes fit on a machine.

@@ -1,156 +1,173 @@
 ---
-title: Introduction
-description: What sandboxr is, the two things people use it for, and the cases where it is the wrong tool.
-sidebar:
-  order: 1
+title: What sandboxr is
+description: The problem sandboxr solves, the two things people use it for, and the cases where it is the wrong tool.
 ---
 
-Some changes cannot be reviewed by reading them. A change that moves a field between two
-services, or adds a column and then uses it, is only really checked by running the thing.
+This page is for deciding whether sandboxr is worth your time. No setup, no commands to run,
+one example.
 
-sandboxr runs the thing. **One git worktree becomes one container holding the whole project** —
-every service, every front-end, its own database already loaded, its own file storage — reachable
-in a browser at an address of its own.
+```prompt
+Explain sandboxr to me and tell me whether it fits this repository.
 
-## The two cases it is for
+Read docs/introduction.md and docs/how-it-works.md. Then look at this repository and tell me
+which services and front-ends a sandbox would need to run, and whether it uses a database
+sandboxr supports. Stop and say so plainly if you think this project is a poor fit.
+```
 
-### 1. One worktree, one container
+## The problem
 
-The everyday case. You are on a branch and you want to see it working.
+Some changes cannot be reviewed by reading them.
+
+A change that moves a field between two services is one of those. So is one that adds a
+database column and then starts using it. You can read the diff and still not know whether the
+thing works. To know, somebody has to run it.
+
+Running it is the awkward part. The change lives on a branch. Your machine runs one copy of the
+project at a time, pointed at one database. Trying the branch means stopping what you were
+doing, switching, migrating the database, and then undoing all of that afterwards. Most people
+do it once and not again.
+
+## The idea
+
+**sandboxr turns a git worktree into a running copy of your whole project, on its own
+hostname.** One container holds every service, every front-end, its own database and its own
+file storage. Several run at once, so two branches can be open in two browser tabs.
+
+A [worktree](reference/glossary.md) is git's own way of having two branches checked out in two
+directories at the same time. sandboxr takes one of those directories and starts it.
 
 ```bash
 cd .worktrees/tkt-4821
 sandboxr up
 ```
 
-Half a minute later the project is serving at
-`https://tkt-4821.app.acme.sbx.localhost`, with a database of its own that your branch's
-migrations have already run against. Break it however you like; `sandboxr down` throws away the
-container, the database and the uploads, and never touches your worktree.
+A short while later the project is serving at
+`https://tkt-4821.app.acme.sbx.localhost`. It has a database of its own, and your branch's
+migrations have already run against it. Break it however you like. `sandboxr down` throws away
+the container, the database and the uploaded files, and never touches the worktree itself.
 
-### 2. Every worktree at once
+That address has a shape, and the shape is the same for every project.
+[How it works, in five steps](how-it-works.md) explains it.
 
-The case that makes the tool worth having. Each worktree gets its own sandbox on its own
-hostname, and they all run side by side.
+The worktree is not copied. It is mounted, live and in both directions. A file you save in your
+editor is inside the container immediately, and a file the container writes shows up in your
+`git status`.
 
-```mermaid
-flowchart LR
-  b["Browser"]
-  r["The shared router<br/>one per machine"]
-  s1["tkt-4821.app.acme.…<br/>its own database"]
-  s2["fix-nav.app.acme.…<br/>its own database"]
-  s3["main.app.acme.…<br/>its own database"]
-  b --> r
-  r --> s1
-  r --> s2
-  r --> s3
-```
+## The two things people use it for
 
-Two branches compared without stashing anything. A migration running in one while the old schema
-still serves in another. Three agents working unsupervised in three worktrees, each with a URL
-you can refresh to see what it has done. Nothing is shared between them except a cache of
-installed dependencies, so one cannot break another.
+### One branch, running
 
-## What is actually inside one
+The everyday case. You are on a branch and you want to see it working, without disturbing
+anything else you have set up.
 
-```mermaid
-flowchart TB
-  subgraph host["Your machine"]
-    wt["The worktree<br/>on your disk"]
-    subgraph box["One container"]
-      ws["/workspace<br/>a live link to the worktree"]
-      cad["The sandbox's own router<br/>hostname and path to a process"]
-      be["The project's services"]
-      fe["The project's apps"]
-      db[("Its own database<br/>seeded and migrated")]
-      blob[("Its own file storage")]
-    end
-    deps[("Installed dependencies<br/>shared between sandboxes")]
-  end
-  wt <-.->|"live, both directions"| ws
-  deps -.-> ws
-  ws --> be
-  ws --> fe
-  cad --> be
-  cad --> fe
-  be --> db
-  be --> blob
-```
+Everything the project needs comes up together: the API, the front-end, the database with data
+already in it, somewhere to put uploaded files. The point is that you did not have to arrange
+any of that.
 
-The worktree is bind-mounted, not copied. A file you save on the host is inside the container
-immediately, and a file the container writes shows up in your `git status`.
+### Every branch at once
 
-## The words this site uses precisely
+The case that makes the tool worth having. Each worktree gets a sandbox of its own, at an
+address of its own, and they all run side by side.
 
-| Word | Means |
+That buys you things that were previously not worth the trouble:
+
+- Two versions of a page compared in two tabs, with nothing stashed.
+- A risky migration running in one sandbox while the old schema still serves in another.
+- Three agents working in three worktrees, each with a URL you can refresh to see what it has
+  actually done.
+
+Each sandbox has its own container, its own database and its own file storage. A few things are
+shared on purpose, because copying them would be wasteful: the installed dependencies for a
+given lockfile, the Go build caches, and the git repository itself.
+[Every worktree at once](getting-started/every-worktree.md) says exactly what is shared and
+what is not.
+
+<details class="facts">
+<summary><b>Fact sheet</b> — what one sandbox contains, and what it costs</summary>
+
+One sandbox is one Docker container, plus a few Docker volumes. Inside it:
+
+| | |
 |---|---|
-| **Sandbox** | One container, made from one worktree, with its own database and storage |
-| **Slug** | The sandbox's short name — `tkt-4821`. It appears in the hostname, the container name and the volume names |
-| **Project** | A repository with a `sandboxr.yaml` at its root. Several can run side by side |
-| **Label** | The per-app part of a hostname: `app`, `api`, `admin` |
-| **Driver** | Which kind of database the project uses: `mysql`, `d1`, `sqlite` or `none` |
-| **Degraded** | A sandbox that started, but whose migrations failed. It stays up deliberately |
+| The code | your worktree, mounted live at `/workspace` |
+| The project's services | as declared in its config — an API, a worker, a dev server |
+| The project's front-ends | built on demand, served as static files |
+| A database | its own, created and migrated at startup: `mysql`, `d1`, `sqlite` or `none` |
+| File storage | its own S3-compatible bucket, for uploads |
+| A small router | inside the container, deciding which app answers which hostname |
 
-Longer list: [the glossary](reference/glossary.md).
+Sandbox containers publish no ports on the host. They join one shared Docker network, and a
+single router in front of them handles every hostname.
 
-## The hostnames
+Give Docker at least 8 GB of memory and 40 GB of disk. Each sandbox costs roughly a database
+engine plus whatever the project's own services cost. See
+[Giving Docker the whole machine](guides/docker-capacity.md).
 
-```
-https://tkt-4821.app.acme.sbx.localhost      the main app
-https://tkt-4821.api.acme.sbx.localhost      the service behind it
-https://sbx.localhost                        the dashboard, for every sandbox on the machine
-```
+</details>
 
-Read one as `<slug>.<label>.<project>.<domain>`. The slug comes from the branch or the worktree
-directory, the label from the project's config, the project from its `project:` field, and the
-domain from `SANDBOXR_DOMAIN` — which defaults to `sbx.localhost`. Every current browser resolves
-anything under `.localhost` to the loopback address by itself, so there is no DNS to configure.
+## Who reaches what
 
-The dashboard is the exception: it sits on the **bare domain**, never on a per-sandbox hostname,
-so the thing that can start and stop containers is never one label away from an app anyone can
-reach.
+There are two halves to that question, and they have different answers.
 
-## Two tiers of access
+**The apps** a sandbox serves are public by default. Anyone who can reach the machine sees a
+preview of unreleased work. Set `access.apps: private` and they sit behind the same password as
+everything else.
 
-| | Default | Can it be turned off? |
-|---|---|---|
-| **The apps** a sandbox serves | Public — anyone who can reach the machine sees a preview | Yes: `access.apps: private` |
-| **The controls** — dashboard, terminal, start, stop, migrate | Behind a password | **No** |
+**The controls** — the dashboard, the terminal, start, stop, rebuild, migrate — are always
+behind a password. That cannot be turned off.
 
 > [!CAUTION] The controls are not negotiable
-> The dashboard talks to the Docker socket. A control endpoint reachable without a password is
-> not a misconfigured page — it is the ability to run anything on the host.
+> The thing that starts and stops containers talks to the Docker socket. A control page reachable
+> without a password is not a cosmetic mistake. It is the ability to run anything on the host.
 > [Access and security](access.md) is the whole story.
 
-Making the apps public brings two refusals with it: the database may not be a copy of live data
-unless the dump is marked anonymised, and real third-party credentials may not be present unless
-the config opts in. sandboxr refuses to start rather than warning, because neither failure can be
-undone.
+Making a project's apps public brings two refusals with it. The database may not be a copy of
+live customer data, unless the dump is marked as anonymised. Real third-party credentials may not
+be present, unless the config explicitly opts in.
 
-## Do not use one when
+sandboxr refuses to start rather than printing a warning. Neither of those mistakes can be undone
+afterwards.
+
+## When not to use it
 
 | Situation | Do this instead |
 |---|---|
-| You want the page to update as you type | There is no hot reload. Run that one app's dev server locally and keep the sandbox for checking the whole thing works together |
-| A unit test would answer the question | Run the test |
-| You need to reproduce something on real production data | A sandbox starts from fixtures or an anonymised dump. Debugging one customer's record is a different job with different rules |
-| You are measuring performance | Several sandboxes share one machine's processors and one Docker VM's memory. Numbers from a sandbox mean nothing |
-| The machine has under 8 GB available to Docker | Below that you spend your time having things killed for memory |
+| You want the page to update as you type | There is no hot reload. Run that one app's dev server locally, and keep the sandbox for checking the whole thing works together |
+| A unit test would answer the question | Run the test. It is faster and it is repeatable |
+| You need to reproduce a bug on real production data | A sandbox starts from fixtures or an anonymised dump. Debugging one customer's record is a different job, with different rules |
+| You are measuring performance | Several sandboxes share one machine's processors and one Docker VM's memory. Numbers taken from a sandbox mean nothing |
+| Docker has under 8 GB of memory | Below that you spend your time having things killed for memory, and the thing the kernel picks may not be the sandbox |
+| The project cannot be started by a script | sandboxr runs what the project's config declares. If nobody can write down how the project starts, sandboxr cannot start it either |
 
-## The honest limits
+## The limits, stated plainly
 
-- **No hot reload.** The loop is edit, rebuild the thing you touched, refresh.
-  See [the edit–reload loop](guides/edit-and-reload.md).
-- **Front-ends are built on demand, never at startup.** A sandbox that has just come up has built
-  nothing; each app answers `503` with a page naming the command that builds it.
-- **A heavy front-end build needs headroom.** A static site rendering thousands of pages is killed
-  part-way through without it, reported by npm as nothing but `code 137`. Declare `memory:` on
-  that app.
-- **A failed migration leaves the sandbox running.** That is intended, but "the sandbox is up" is
-  not the same as "the database is what you expected". Check for `degraded`.
+These are not bugs. They are how it behaves, and knowing them early saves an afternoon.
+
+- **No hot reload.** The loop is: edit, rebuild the thing you touched, refresh. See
+  [The edit–reload loop](guides/edit-and-reload.md).
+- **Front-ends are built on demand, never at startup.** A sandbox that has just come up has
+  built nothing. Each app answers `503` with a page naming the command that builds it.
+- **A heavy front-end build needs headroom.** A static site rendering thousands of pages gets
+  killed part-way through without it, and npm reports nothing more useful than `code 137`.
+  Declare `memory:` on that app.
+- **A failed migration leaves the sandbox running**, and marks it `degraded`. That is
+  deliberate — inspecting a failed migration is one of the reasons a sandbox exists — but "the
+  sandbox is up" is not the same as "the database is what I expected".
 - **One writer per file-backed database.** Two processes opening the same D1 or SQLite file
   deadlock, so exactly one service may own it.
+- **Nothing enforces a lifetime while the dashboard is not running.** The part that stops idle
+  sandboxes lives inside the dashboard process. On a laptop whose dashboard is usually off,
+  sandboxes live until something stops them.
 
-What has and has not been run for real: [what is built](reference/status.md).
+## One more thing, before you invest an afternoon
 
-**Next:** [how it works](how-it-works.md), or [getting started](getting-started/index.md).
+sandboxr is early software. One path has been run end to end: the Workers demo in
+`examples/demo-worker`, which is why the docs use it as the "does my machine work" check. Plenty
+else is written, unit-tested, and has never met a real project. Remote deployment does not exist
+at all.
+
+[What is built](reference/status.md) is the full inventory, kept honest on purpose. Read it
+before you plan a team around this. No other page repeats this warning.
+
+**Next:** [How it works, in five steps](how-it-works.md) for the mental model, or
+[Start here](getting-started/index.md) to try it.

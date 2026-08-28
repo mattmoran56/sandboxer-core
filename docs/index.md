@@ -1,76 +1,53 @@
 ---
-title: sandboxr documentation
-description: Turn any git worktree into a running copy of a whole project, on its own hostname.
+title: Welcome
+description: sandboxr turns a git worktree into a running copy of your whole project, on its own hostname.
 tableOfContents: false
 ---
 
-**sandboxr turns a git worktree into a running copy of a whole project, on its own hostname.**
-
-One container per worktree. Inside it: every service the project declares, every front-end, its
-own database and its own file storage. Several run at once, and each is reachable in a browser
-at an address of its own.
+**sandboxr turns a git worktree into a running copy of your whole project, on its own
+hostname.** One container holds every service, every front-end, its own database and its own
+file storage. Several run at once, so two branches can be open in two browser tabs.
 
 ```bash
 cd .worktrees/tkt-4821
 sandboxr up
 # https://tkt-4821.app.acme.sbx.localhost
-# https://tkt-4821.api.acme.sbx.localhost
 ```
 
-## Start with what you came to do
+## Hand this to your agent
+
+```prompt
+Install sandboxr on this machine, then start a sandbox for the git worktree I am in.
+
+Read docs/getting-started/install.md and work through it, then do the same with
+docs/getting-started/first-sandbox.md. Stop and tell me if Docker is not running, if Docker
+has under 8 GB of memory available, or if this worktree has no sandboxr.yaml at its root.
+```
+
+## What do you want to do?
 
 | I want to… | Go to |
 |---|---|
-| Understand what this is | [Introduction](introduction.md) |
-| Understand how it works inside | [How it works](how-it-works.md) |
-| Try it on my own machine | [Getting started](getting-started/index.md) |
-| Use it day to day | [Guides](guides/index.md) |
-| Describe my project to it | [Configuring a project](configuration/index.md) |
-| Give my project a database | [Databases](databases.md) |
-| Know who can reach what | [Access and security](access.md) |
-| Look up a command, a field, a variable | [Reference](reference/index.md) |
-| Work out why something broke | [Troubleshooting](troubleshooting.md) |
+| Understand what this is, in plain words | [What sandboxr is](introduction.md) |
+| Understand how it works before I install it | [How it works, in five steps](how-it-works.md) |
+| Get it running on my machine | [Start here](getting-started/index.md) |
+| Work out which arrangement suits me | [Which setup is yours](setups/index.md) |
+| Use it for a day's work | [Day to day](guides/index.md) |
+| Describe my own project to it | [Build your config, step by step](configuration/index.md) |
+| Look up a command, a path or a hostname | [Cheat sheet](reference/cheat-sheet.md) |
+| Find the right prompt for my agent | [Every agent prompt](reference/agent-prompts.md) |
+| See how the thing is built | [The shape of it](architecture/index.md) |
+| Fix something that broke | [Troubleshooting](troubleshooting.md) |
+| Look up a word I do not recognise | [Glossary](reference/glossary.md) |
 
-## Everything, in order
+## Two things worth knowing on the way in
 
-**Start here** — [introduction](introduction.md) · [how it works](how-it-works.md)
+The apps a sandbox serves are **public by default**, and the controls that start, stop and
+rebuild sandboxes are **always behind a password**. That second half cannot be switched off.
+[Access and security](access.md) explains both.
 
-**Getting started** — [install it](getting-started/install.md) ·
-[your first sandbox](getting-started/first-sandbox.md) ·
-[every worktree at once](getting-started/every-worktree.md)
+sandboxr is early software, and the docs say so where it matters rather than everywhere.
+[What is built](reference/status.md) is the honest inventory of what has been run for real.
 
-**Guides** — [start, stop, list, clean up](guides/lifecycle.md) ·
-[the edit–reload loop](guides/edit-and-reload.md) ·
-[logs, shells and terminals](guides/logs-and-shells.md) ·
-[the dashboard](guides/dashboard.md) ·
-[projects, worktrees and lifetimes](guides/managed-sandboxes.md) ·
-[testing a migration](guides/testing-a-migration.md) ·
-[agents in a sandbox](guides/agents-in-a-sandbox.md) ·
-[agent sessions](guides/agent-sessions.md)
-
-**Configuring a project** — [sandboxr.yaml, field by field](configuration/sandboxr-yaml.md) ·
-[three runtime kinds](configuration/runtime-kinds.md) ·
-[secrets](configuration/secrets.md) ·
-[two worked examples](configuration/examples.md)
-
-**Databases and access** — [databases](databases.md) · [access and security](access.md)
-
-**Architecture** — [how a request arrives](architecture/request-path.md) ·
-[the startup graph](architecture/startup.md) ·
-[plan.json](architecture/plan-json.md) ·
-[state lives in labels](architecture/state.md) ·
-[design decisions](architecture/decisions.md) ·
-[the contract](architecture/contracts.md)
-
-**Reference** — [CLI commands](reference/cli.md) ·
-[environment variables](reference/environment.md) ·
-[paths](reference/paths.md) · [glossary](reference/glossary.md) ·
-[what is built](reference/status.md)
-
-**Elsewhere** — [running on a server](running-on-a-server.md) ·
-[troubleshooting](troubleshooting.md)
-
-> [!NOTE] The one document that outranks this site
-> [`docs/architecture/contracts.md`](architecture/contracts.md) is the source of truth for every
-> boundary in sandboxr: naming, paths, the configuration schema, the driver interface, access
-> control. Where this site disagrees with it, this site is wrong.
+**Next:** [What sandboxr is](introduction.md) if you are deciding whether this helps you, or
+[Start here](getting-started/index.md) if you already know and want it running.

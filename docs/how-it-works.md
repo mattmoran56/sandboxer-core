@@ -1,203 +1,205 @@
 ---
-title: How it works
-description: The four layers of sandboxr — the config a project writes, the plan it resolves to, the library that does the work, and the two faces on top of it.
-sidebar:
-  order: 2
+title: How it works, in five steps
+description: The mental model, in order — a worktree, a config, a plan, a container, and one router in front of everything.
 ---
 
-sandboxr is one library with two faces on it, and one file between the host and the container.
-Everything else follows from that.
+This page is the mental model. Read it once and the rest of the documentation stops needing
+explanation, because every page is describing one of these five steps in more detail.
 
 ```mermaid
 flowchart TB
-  web["<b>@sandboxr/web</b><br/>the dashboard in a browser<br/><i>renders what the API sends</i>"]
-  subgraph faces["Two faces"]
-    cli["<b>@sandboxr/cli</b><br/>the sandboxr command<br/><i>one thing per command, prints the result</i>"]
-    srv["<b>@sandboxr/server</b><br/>the dashboard's server<br/><i>JSON, action streams, a terminal</i>"]
-  end
-  core["<b>@sandboxr/core</b><br/>config loading · Docker orchestration · the lifecycle<br/>database drivers · the router · certificates"]
-  yaml["<b>sandboxr.yaml</b><br/>in the project's repo, versioned with its code"]
-  plan["<b>plan.json</b><br/>the resolved form"]
-  box["<b>One container</b><br/>reads the plan, runs the project"]
-  web -->|"JSON over HTTP"| srv
-  cli --> core
-  srv --> core
-  yaml -->|"loaded and resolved by core"| plan
-  core --> plan
-  plan -->|"mounted read-only"| box
-  core -->|"docker run"| box
+  a["<b>1. A worktree</b><br/>a directory on your disk"]
+  b["<b>2. A config</b><br/>sandboxr.yaml, in the project"]
+  c["<b>3. A plan</b><br/>plan.json, resolved on the host"]
+  d["<b>4. A container</b><br/>one per sandbox"]
+  e["<b>5. A router</b><br/>one per machine"]
+  a --> b --> c --> d --> e
+  e -->|"https://tkt-4821.app.acme.sbx.localhost"| f["A browser"]
 ```
 
-## The four layers
+## Step 1 — A worktree
 
-| Layer | What it is | Who reads it |
-|---|---|---|
-| **`sandboxr.yaml`** | How a project describes itself. Lives at the project's repo root, versioned with its code | `@sandboxr/core`, on the host, only |
-| **`plan.json`** | The resolved form: every default applied, every path made absolute, every choice already made | The container, and nothing else |
-| **`@sandboxr/core`** | Where all the actual work happens | The CLI and the dashboard |
-| **`@sandboxr/cli` / `@sandboxr/server`** | Two faces on that one library | You |
-| **`@sandboxr/web`** | The dashboard's browser app. Holds no logic about what a sandbox is — it renders what the server sends | Your browser |
+Everything starts from a directory.
 
-### The CLI and the dashboard cannot disagree
+A [worktree](reference/glossary.md) is git's own feature for having more than one branch checked
+out at once, each in its own directory. You run `sandboxr up` inside one of them. That directory,
+and the branch it is on, are the whole input.
 
-This is the point of the shape. `@sandboxr/server` does **not** shell out to the `sandboxr`
-command. It loads `@sandboxr/core` and calls it in process — see
-`packages/server/src/core/adapter.ts`, the one file in that package that knows how core is
-really called. Everything else in the dashboard talks to an interface, so a change on core's
-side lands in that file and nowhere else.
+From it sandboxr works out a **slug**: a short name for this sandbox. A worktree at
+`.worktrees/tkt-4821` gets the slug `tkt-4821`. The slug turns up everywhere afterwards — in the
+hostname, in the container's name, in the names of its volumes — so it is worth knowing that it
+came from your directory or your branch, and nowhere else.
 
-So "what is a sandbox", "which seed source wins", "what does `down` delete" have exactly one
-answer, and pressing a button in the dashboard is the same act as typing the command.
+<details class="agent">
+<summary><b>Details for an agent</b> — exactly how a slug is derived</summary>
 
-The browser app is held to the same rule from the other side: it holds no logic about what a
-sandbox is. Which actions apply to a stopped sandbox, what makes one degraded, how a slug is
-derived — all of that is decided by core, reported by the server, and merely drawn by the app. A
-copy of any of it in the browser would be a third implementation, and the first to drift.
+In order of preference, stopping at the first that applies:
 
-### Nothing inside a container reads `sandboxr.yaml`
+1. An explicit argument (`sandboxr up my-name`).
+2. A ticket-style id anywhere in the worktree **directory** name, matching `/[a-z]+-[0-9]+/i`.
+3. That same pattern in the **branch** name.
+4. The branch name itself. A detached worktree reports `HEAD`, which names nothing and is
+   skipped.
+5. The worktree directory name.
 
-The container never sees the project's config. It is handed `plan.json` — mounted read-only at
-`/sandboxr/plan.json` — and that file is its entire view of the project.
+Then sanitised: lowercased, every character outside `[a-z0-9-]` replaced with `-`, runs of `-`
+collapsed, leading and trailing `-` stripped.
 
-That boundary is deliberate. A container that parsed YAML would need the schema, the defaults
-and the version rules inside the image, so a change to any of them would mean rebuilding every
-image. Resolving on the host means the image knows nothing about the project, and a plan is a
+**The ceiling is 31 characters.** Over that, the result is the first 22 characters, a `-`, and
+the first 8 hex characters of the SHA-256 of the *raw* input. It is hashed rather than truncated
+because a slug ends up inside a database advisory lock name, and two long branch names often
+share a prefix — truncation would let two sandboxes collide on one lock.
+
+Source: `packages/core/src/naming.ts`. Depth on collisions and how many worktrees fit on one
+machine: [One repo, many branches](setups/one-repo-many-worktrees.md).
+
+</details>
+
+## Step 2 — A config
+
+The project says what it is, once, in a file it keeps.
+
+That file is `sandboxr.yaml`, at the root of the repository, committed alongside the code. It
+names the project, its front-ends, its services, which database it wants, how to install
+dependencies, and which toolchains it needs. sandboxr has no built-in knowledge of any project.
+If it is not in the config, it does not happen.
+
+Because the file is committed, it travels with the branch. A branch that adds a new service adds
+it to the config too, and a sandbox on that branch gets the new service without anyone
+configuring anything.
+
+You do not need to write the whole file at once.
+[Build your config, step by step](configuration/index.md) starts from an empty file and adds one
+block at a time.
+
+## Step 3 — A plan
+
+The config is written for people. The container needs something simpler.
+
+So before anything starts, sandboxr reads the config on your machine and resolves it into
+`plan.json`: every default filled in, every path made absolute, every choice already made. The
+plan is the container's entire view of the project. It is mounted read-only, and nothing inside a
+container ever reads `sandboxr.yaml`.
+
+<details class="why">
+<summary><b>Why it works this way</b> — the container knows nothing about your config format</summary>
+
+If the container parsed the YAML itself, the image would have to carry the schema, the defaults
+and the version rules. Changing any of them would mean rebuilding every image on the machine.
+
+Resolving on the host instead means the image knows nothing about any project, and the plan is a
 flat, already-decided document that a shell script can read with `jq`.
 
 The container hard-fails at startup if the plan is missing or is not valid JSON. It never
-guesses. [plan.json, field by field](architecture/plan-json.md).
+guesses. Field by field: [plan.json](architecture/plan-json.md).
 
-## Where the work happens
+</details>
 
-`@sandboxr/core` is the only package with real logic in it.
+## Step 4 — A container
 
-| Module | Job |
+One sandbox is one container, started from that plan.
+
+Inside it, a supervisor reads the plan and starts what it names: the project's services, its
+database, an S3-compatible bucket for uploaded files, and a small router of its own that decides
+which app answers which request. The database is created, seeded and migrated as part of coming
+up.
+
+Your worktree is **mounted**, not copied. A file you save in your editor is inside the container
+immediately, and a file the container writes appears in your `git status`.
+
+The container publishes no ports on your machine. Nothing about it is reachable directly, which
+is what step 5 is for.
+
+<details class="agent">
+<summary><b>Details for an agent</b> — the names and paths one sandbox occupies</summary>
+
+| Thing | Value |
 |---|---|
-| `config/` | Load and validate `sandboxr.yaml` (zod), apply defaults, resolve the plan, enforce the access rules |
-| `drivers/` | One module per kind of database: `mysql`, `d1`, `sqlite`, `none` |
-| `access/` | The shared Traefik router, per-sandbox certificates, the dashboard container |
-| `sandbox/` | The lifecycle: `up`, `down`, `list`, `status`, `reload`, `gc` — and the `docker run` argument list |
-| `image.ts` | Renders and builds the project's own image layer on top of the base image |
-| `naming.ts` | Slugs, hostnames, container and volume names — the single source of the naming scheme |
-| `paths.ts` | Every host path sandboxr owns, all under `SANDBOXR_HOME` |
-| `secrets.ts` | Importing a project's `.env` files under its own rules |
+| Container | `sandboxr-<project>-<slug>` |
+| Docker network | `sandboxr` — one, shared by every sandbox and the router |
+| The worktree, inside | `/workspace`, read-write bind mount |
+| The plan, inside | `/sandboxr/plan.json`, read-only |
+| Host state | everything under `SANDBOXR_HOME`, default `~/.sandboxr` |
 
-`@sandboxr/cli` is a switch statement and a printer. `@sandboxr/server` is HTTP, a session
-cookie, a JSON API, a closed table of actions and a terminal. `@sandboxr/web` is the app the
-server hands the browser, and it decides nothing: the rule there is that **the server sends facts
-and the browser writes sentences** — an expiry crosses as an instant, never as "3h 20m left".
+`SANDBOXR_HOME` sits deliberately outside any repository, so `git clean` cannot destroy a seed
+cache or a certificate. Full list: [Paths](reference/paths.md).
 
-## The two routers
+Two images are involved, not one. `sandboxr/base` carries the operating system, the supervisor
+and the shared pieces, and is built once per machine by `sandboxr init`. `sandboxr/<project>`
+adds that project's toolchains and dependencies, and is built by its first `sandboxr up`.
 
-A sandbox URL passes through two routers, and telling them apart is most of what makes a routing
-problem quick to fix.
+There is no manifest of sandboxes anywhere. Durable facts — project, slug, branch, commit,
+worktree, driver — live as labels on the container, and `sandboxr ls` is a pure function of
+`docker ps`. Nothing on the host can drift out of sync with what is running.
+[State lives in labels](architecture/state.md).
 
-```mermaid
-flowchart LR
-  b["Browser"]
-  t["<b>The shared router</b><br/>Traefik, one per machine<br/><i>which sandbox?</i>"]
-  c["<b>The sandbox's own router</b><br/>Caddy, inside the container<br/><i>which app?</i>"]
-  p["A process, or built files"]
-  b -->|"https://tkt-4821.app.acme.sbx.localhost"| t
-  t -->|"by container name, on the sandboxr network"| c
-  c --> p
+</details>
+
+## Step 5 — A router
+
+One router sits in front of every sandbox on the machine, and decides which one a request is for.
+
+It is a single container, started by `sandboxr init`, and it is the only thing listening on your
+machine's ports. It works out where a request belongs from the **hostname**. Sandboxes do not
+have to be registered with it: it watches Docker and reconciles from the labels on each sandbox
+container, so starting or stopping a sandbox never edits a config file and never triggers a
+reload.
+
+### The shape of a hostname
+
+Every sandbox address in these docs has the same four parts, in the same order:
+
+```
+<slug>.<label>.<project>.<domain>
 ```
 
-| | The shared router | The sandbox's own router |
+Read left to right, it narrows:
+
+| Part | What it is | Where it comes from |
 |---|---|---|
-| What | One Traefik container per machine, started by `sandboxr init` | Caddy inside every sandbox |
-| Question it answers | Which sandbox? | Which app, and which path? |
-| Configured by | Docker labels on each sandbox container | Generated from `plan.json` at every boot |
-| Terminates TLS | Yes, when a trusted certificate exists | No — plain HTTP on port 80 |
+| **slug** | which sandbox | your branch or worktree directory (step 1) |
+| **label** | which app inside that sandbox | the project's config: `app`, `api`, `admin` |
+| **project** | which project | the `project:` field in `sandboxr.yaml` |
+| **domain** | this machine's sandbox domain | `SANDBOXR_DOMAIN`, default `sbx.localhost` |
 
-Sandbox containers publish **no host ports at all**. They join one shared Docker network called
-`sandboxr`, and the router reaches them by container name. Only the router publishes anything.
-
-Because the shared router reconciles from Docker labels, starting or stopping a sandbox never
-writes a config file and never triggers a reload. [How a request arrives](architecture/request-path.md)
-has the detail.
-
-## The life of a sandbox
-
-What `sandboxr up` actually does, in order.
-
-```mermaid
-flowchart TB
-  a["<b>1.</b> Load sandboxr.yaml from the worktree<br/>derive the slug from the branch or directory"]
-  b["<b>2.</b> Refuse if a public project would carry real credentials"]
-  c["<b>3.</b> Prepare the seed on the host<br/>dump the source once, cache it by content"]
-  d["<b>4.</b> Write the per-sandbox environment file and plan.json"]
-  e["<b>5.</b> Build the project's own image layer if it is not already there"]
-  f["<b>6.</b> Issue a certificate for this sandbox's hostnames"]
-  g["<b>7.</b> docker run — mounts, labels, memory limit, router labels"]
-  h["<b>8.</b> Inside: generate the router config and the service tree, then start"]
-  i["<b>9.</b> Restore the seed, run the project's migrations, apply fixtures"]
-  j["<b>10.</b> Print one URL per app"]
-  a --> b --> c --> d --> e --> f --> g --> h --> i --> j
-```
-
-Two things about that order are load-bearing:
-
-- **The seed is made on the host, before the container starts.** A sandbox restores from the
-  host cache rather than carrying data in its image, so the image never needs rebuilding when
-  the source database changes. The cache is keyed on the source's *content*, so the second
-  sandbox on a project skips step 3 entirely.
-- **The certificate is issued before the container starts**, so the router already holds one by
-  the time a browser asks. It is per sandbox rather than per machine: a sandbox hostname is
-  three labels above the domain, and a DNS wildcard matches exactly one label, so no wildcard
-  certificate can reach it.
-
-Step 9 can fail without stopping anything. A failed migration marks the sandbox **degraded** and
-the services boot anyway — inspecting a failed migration is one of the reasons a sandbox exists.
-
-## There is no list of sandboxes
-
-`sandboxr ls` is a pure function of `docker ps`. There is no manifest file, no database of
-sandboxes, and nothing on the host that can drift out of sync with what is running. Every column
-comes from a label on the container.
+So one sandbox of the `acme` project, with two apps in it, serves two hostnames on a machine
+using the default domain:
 
 ```
-sandboxr.project   sandboxr.slug     sandboxr.branch   sandboxr.commit
-sandboxr.dirty     sandboxr.worktree sandboxr.driver   sandboxr.created
-sandboxr.access
+https://tkt-4821.app.acme.sbx.localhost      the front-end
+https://tkt-4821.api.acme.sbx.localhost      the service behind it
 ```
 
-Labels hold **durable** state only — facts fixed when the sandbox started. Runtime state
-(`running`, `degraded`, `stopped`) is derived at read time from Docker's own state plus marker
-files the container writes as it comes up. [State lives in labels](architecture/state.md).
+There is no DNS to set up. Every current browser, and macOS's own resolver, answer any name
+under `.localhost` with the loopback address by themselves.
 
-## What lives where
+### The dashboard is the exception
 
-| | On the host | Inside the container |
-|---|---|---|
-| The project's code | your worktree | `/workspace`, bind-mounted read-write |
-| The plan | `~/.sandboxr/build/<project>/<slug>.plan.json` | `/sandboxr/plan.json`, read-only |
-| Seed artifacts | `~/.sandboxr/cache` | `/sandboxr/cache`, read-only |
-| A seed file you declared | wherever you keep it | `/sandboxr/seed/<name>`, that one file, read-only |
-| Logs | `~/.sandboxr/logs/<project>/<slug>` | `/var/log/sandboxr` |
-| The database | a Docker volume | `/var/lib/sandboxr/data` |
-| File storage | a Docker volume | `/var/lib/sandboxr/blob` |
-| Built front-ends | a Docker volume | `/srv/www` |
-| Built binaries | a Docker volume | `/var/lib/sandboxr/bin` |
+The dashboard sits on the **bare domain** — `https://sbx.localhost` — and never on a per-sandbox
+hostname.
 
-Everything on the host hangs off `SANDBOXR_HOME` (default `~/.sandboxr`), which is deliberately
-outside any repository so `git clean` cannot destroy a seed cache or a certificate.
-[The full path list](reference/paths.md).
+That is deliberate. The dashboard can start and stop containers, so it must never be one guessed
+label away from an app that anyone can reach. It is also always behind a password.
+[Access and security](access.md).
 
-## Two images, not one
+> [!NOTE] HTTP or HTTPS depends on your machine
+> The router serves HTTPS only when the machine already trusts a local certificate authority.
+> Without one, everything still works over `http://`. Installing that authority is the one step
+> that needs an administrator password, so it is never done implicitly.
+> [Install it](getting-started/install.md) covers both cases.
 
-| Image | What it holds | Built by |
-|---|---|---|
-| `sandboxr/base` | Debian, s6, Caddy, MinIO, and nothing project-specific | `sandboxr init` |
-| `sandboxr/<project>` | The base plus the project's toolchain: Go, Node, a MySQL server, its dependencies | the first `sandboxr up` |
+## That is the whole model
 
-The base image knows nothing about any project, so it is built once per machine and shared. The
-project layer is rendered from `container/project/Dockerfile.template` — only the blocks the
-project's plan actually needs are included, so a Node-only project carries no Go and no MySQL.
+Worktree, config, plan, container, router. Every page in these docs is one of those five in more
+detail:
 
-## Where to go next
+| Step | Where it goes deeper |
+|---|---|
+| The worktree and its slug | [One repo, many branches](setups/one-repo-many-worktrees.md) |
+| The config | [sandboxr.yaml, field by field](configuration/sandboxr-yaml.md) |
+| The plan | [plan.json](architecture/plan-json.md) |
+| The container coming up | [The startup graph](architecture/startup.md) |
+| The router, in full | [How a request arrives](architecture/request-path.md) |
 
-- **Try it:** [getting started](getting-started/index.md).
-- **Describe your project:** [sandboxr.yaml, field by field](configuration/sandboxr-yaml.md).
-- **The reasoning behind each choice:** [design decisions](architecture/decisions.md).
-- **The authority:** [`docs/architecture/contracts.md`](architecture/contracts.md).
+**Next:** [Start here](getting-started/index.md) to put this on your machine, or
+[The shape of it](architecture/index.md) for how the code itself is arranged.

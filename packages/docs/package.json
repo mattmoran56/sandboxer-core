@@ -2,19 +2,39 @@
   "name": "@sandboxr/docs",
   "version": "0.1.0",
   "private": true,
-  "description": "The sandboxr documentation site.",
+  "description": "The sandboxr documentation site: React, TypeScript and Tailwind, built by Vite into static HTML.",
   "type": "module",
+  "license": "MIT",
   "scripts": {
-    "dev": "astro dev",
-    "start": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
-    "check": "astro check"
+    "dev": "vite",
+    "build": "vite build && vite build --ssr src/entry-server.tsx --outDir dist-ssr && node build/prerender.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.30.0",
-    "astro": "^5.1.0",
+    "@sandboxr/web": "0.1.0",
+    "marked": "^16.4.2",
     "mermaid": "^11.17.2",
-    "sharp": "^0.33.5"
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.1.0",
+    "jsdom": "^30.0.1",
+    "shiki": "^4.4.3",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.7.2",
+    "vite": "^8.2.0",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
