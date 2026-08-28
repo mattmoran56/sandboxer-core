@@ -433,6 +433,22 @@ export interface SecretsView {
   vars: SecretVar[];
   /** Names the project declares it needs that the file does not have. */
   absent: string[];
+  /**
+   * Names in the file that the project's `env:` map also defines, whose value
+   * will therefore be ignored.
+   *
+   * Worth reporting rather than refusing, and worth reporting *loudly*: the
+   * `env:` map is exported last inside the container, so a credential typed here
+   * under a name the map already claims is simply overwritten. Nothing fails,
+   * the variable has a value, and it is the wrong one — which is the shape of
+   * bug that costs an afternoon. A real project's map runs to forty names, so
+   * this collision is not a corner case.
+   *
+   * It is also the reassuring answer in the other direction. A name that *is*
+   * shadowed cannot point the sandbox anywhere: whatever was typed, the map's
+   * `${SANDBOXR_...}` wins.
+   */
+  shadowed: string[];
 }
 
 /**
@@ -493,6 +509,7 @@ export async function describeProjectSecrets(
       return hint === undefined ? { name, chars: value.length } : { name, hint, chars: value.length };
     }),
     absent: declared.filter((name) => !have.has(name)),
+    shadowed: config ? [...have.keys()].filter((name) => Object.hasOwn(config.env, name)).sort() : [],
   };
 }
 

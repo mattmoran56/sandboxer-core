@@ -11,7 +11,8 @@
 //   a malformed name, a value with a newline in it, and what still applies with no config
 // - hintFor: the tail of a long value, nothing at all for a short one, at the boundary
 // - describeProjectSecrets: names, hints and lengths but never a value; what is declared and absent;
-//   configKnown; not editable for a public project that has not opted in
+//   what the project's env map will overwrite; configKnown; not editable for a public project
+//   that has not opted in
 // - revealProjectSecret: the one function that answers with a value
 // - editProjectSecrets: add/update/remove, 0600, a refusal beside the names it did apply,
 //   set beating text and unset beating both, an awkward value round-tripping unevaluated
@@ -395,6 +396,33 @@ describe("describeProjectSecrets", () => {
     const view = await describeProjectSecrets("acme", config, { env });
     expect(view.absent).toEqual(["PUBLIC_TOKEN", "VENDOR_KEY"]);
     expect(view.configKnown).toBe(true);
+  });
+
+  // The `env:` map is exported last inside the container, so a credential typed
+  // under a name the map already claims is simply overwritten. Nothing fails and
+  // the variable has a value — the wrong one. A real project's map runs to forty
+  // names, so this is not a corner case.
+  it("names a variable the project's env map will overwrite", async () => {
+    const env = { SANDBOXR_HOME: await home() };
+    const config = resolveConfig(
+      {
+        project: "acme",
+        sandboxr: ">=0.1.0",
+        access: { apps: "private" },
+        env: { DB_HOST: "${SANDBOXR_DB_HOST}" },
+      },
+      "/nowhere/sandboxr.yaml",
+    );
+    await editProjectSecrets("acme", config, { set: { DB_HOST: "10.0.0.1", API_TOKEN: "t" } }, { env });
+
+    const view = await describeProjectSecrets("acme", config, { env });
+    expect(view.shadowed).toEqual(["DB_HOST"]);
+  });
+
+  it("shadows nothing when it had no config to compare against", async () => {
+    const env = { SANDBOXR_HOME: await home() };
+    await editProjectSecrets("acme", null, { set: { DB_HOST: "10.0.0.1" } }, { env });
+    expect((await describeProjectSecrets("acme", null, { env })).shadowed).toEqual([]);
   });
 
   it("says so when it had no config, rather than presenting a guess", async () => {
