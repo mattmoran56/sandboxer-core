@@ -417,13 +417,27 @@ starting clean is `down` then `up`.
 
 ## Secrets
 
+One file per project, `~/.sandboxr/secrets/<project>.env`, and six verbs over it.
+
 | Command | What it does |
 |---|---|
-| `sandboxr secrets import` | Read the project's `.env` files and write `~/.sandboxr/secrets/<project>.env` |
+| `sandboxr secrets list` | Every credential the project carries: the name, the last four characters, the length |
+| `sandboxr secrets set NAME` | Set one. **The value is never an argument** — it is read from a hidden prompt, or from stdin |
+| `sandboxr secrets unset NAME` | Remove one. Exit `0` when it was not there |
+| `sandboxr secrets edit` | Open the whole file in `$EDITOR`, checked on save |
+| `sandboxr secrets import` | **Merge** the project's `.env` files in. `--replace` rebuilds the file from them instead |
 | `sandboxr secrets check` | Say which credentials are missing, by name. Exit `1` if any is |
 
-Both print **names only, never values**, so the output is safe to paste anywhere. See
-[Secrets](../configuration/secrets.md).
+```bash
+printf '%s' "$STRIPE_KEY" | sandboxr secrets set STRIPE_SECRET_KEY
+```
+
+An argument would be in your shell history and in every `ps` on the machine for as long as the
+command runs, so `set` does not take one.
+
+**No command here prints a value**, so the output is safe to paste anywhere. `edit` is the
+exception, and it is a different act: it opens the file in the editor you already use, and
+prints nothing. See [Secrets](../configuration/secrets.md).
 
 ## Working out what is wrong
 
@@ -442,7 +456,7 @@ It checks, in order:
 7. A config was found.
 8. The config resolves.
 9. A file-backed database is pointed at the sandbox's own state directory.
-10. The project's credentials are present.
+10. The project's credentials are present — the same check as `secrets check`.
 11. Where `SANDBOXR_HOME` is.
 12. How many sandboxes exist.
 
@@ -492,7 +506,8 @@ usage tree on stderr.
 | `db seed` | project | Rewrites the shared seed artifact |
 | `db migrate` | one sandbox | That sandbox's database only |
 | `db snapshot`, `db shell` | one sandbox | `shell` is interactive |
-| `secrets import` | project | Writes the project's secrets file |
+| `secrets list`, `secrets check` | project | No |
+| `secrets set`, `secrets unset`, `secrets edit`, `secrets import` | project | Writes the project's secrets file. Running sandboxes pick the change up on a restart |
 | `project ls`, `project available`, `project prs`, `worktree ls` | workspace | No |
 | `project clone`, `project fetch` | workspace | Writes a project directory; a fetch never touches local work |
 | `worktree add` | one project | Creates a checkout |

@@ -21,6 +21,9 @@ The Workers demo in `examples/demo-worker` has been taken all the way through.
 - Bidirectional editing was checked. A file changed on the host appeared instantly inside the
   container. A file written inside the container appeared in `git status` on the host.
 - `ls`, `logs`, `config` and `doctor` have all been run for real.
+- **The mounted secrets file has been run end to end on a live sandbox.** A credential in
+  `~/.sandboxr/secrets/<project>.env` reached a running application process, did not appear in
+  `docker inspect`, and a changed value was picked up by a restart.
 - The dashboard serves, redirects to HTTPS and refuses an unauthenticated request. A browser has
   loaded the login page. **That was the server-rendered dashboard this one replaced** — see below.
 

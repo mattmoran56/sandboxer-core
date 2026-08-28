@@ -63,7 +63,8 @@ a sandbox you start from the terminal serves on its real URL whether or not anyt
 | Stop everything past its idle limit, now | `sandboxr expire` |
 | Reap sandboxes whose worktree is gone | `sandboxr gc` |
 | Reclaim disk from old images and volumes | `sandboxr prune` |
-| Load a project's credentials | `sandboxr secrets import`, `secrets check` |
+| Edit a project's credentials | `sandboxr secrets list`, `set`, `unset`, `edit` |
+| Load them from the project's own `.env` files | `sandboxr secrets import`, then `secrets check` |
 | See which config resolved, and to what | `sandboxr config` |
 | Check the machine | `sandboxr doctor` |
 
@@ -143,7 +144,7 @@ Verbs, with the flags that matter here:
 | `gc` | `--dry-run` |
 | `prune` | `--yes`, `--build-cache` |
 | `db` | `seed [--seed SOURCE]`, `migrate [slug]`, `snapshot [slug]`, `shell [slug]` |
-| `secrets` | `import`, `check` |
+| `secrets` | `list`, `set NAME`, `unset NAME`, `edit`, `import [--replace]`, `check` |
 | `config`, `doctor`, `version`, `help` | — |
 
 `--json` puts machine-readable output on stdout on every command; human output goes to stderr.

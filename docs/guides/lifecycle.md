@@ -78,7 +78,7 @@ Order of operations, from `up()` in `packages/core/src/sandbox/index.ts`:
 2. Load the config.
 3. Derive the slug.
 4. Refuse if Docker is not running.
-5. Refuse if the project serves public apps and a real secrets file exists.
+5. Refuse if the project serves public apps and its secrets file holds any credential.
 6. Create the host directories and the `sandboxr` network.
 7. Warn if the shared router is not running.
 8. Produce the seed artifact, **on the host**.

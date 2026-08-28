@@ -165,9 +165,12 @@ so a `sandboxr db seed` takes effect without regenerating the plan.
 
 ### `env` is for addresses, not secrets
 
-Anything genuinely secret comes from the project's secrets file, which the host passes separately
-and which never appears in the plan. The plan is written at ordinary file permissions and is
-readable by anyone who can read the sandbox's configuration.
+Anything genuinely secret comes from the project's secrets file, which the host mounts read-only at
+`/sandboxr/secrets.env` at mode `0600` and which never appears in the plan. The plan is written at
+ordinary file permissions and is readable by anyone who can read the sandbox's configuration, so it
+carries addresses and never values — the `env:` map refers to a credential by name. Both mounts are
+read-only: a container that could rewrite either could change what it claims to be running or what
+it is authorised to reach.
 
 Values are expanded with `envsubst`, which substitutes `${...}` and does not run a shell. A value
 is data, and never a command.
