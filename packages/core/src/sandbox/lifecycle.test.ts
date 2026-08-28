@@ -367,6 +367,21 @@ describe("up", () => {
     ).rejects.toThrow(/access\.credentials to real.*access\.apps to private/s);
   });
 
+  // Whether the file *holds* anything, not whether it is there. Keying this on
+  // existence made an empty file — which a save that changed nothing used to
+  // create — enough to stop a public project starting, and the message named
+  // "the real credentials" in a file that had none.
+  it("is not stopped by a secrets file that holds nothing", async () => {
+    const { dir, home } = await worktree();
+    await mkdir(join(home, "secrets"), { recursive: true });
+    await writeFile(join(home, "secrets", "acme.env"), "# a header and no values\n");
+    const { docker } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
+
+    await expect(
+      up({ config: configOf({ access: { apps: "public" } }), worktree: dir, docker, env: { SANDBOXR_HOME: home } }),
+    ).resolves.toBeDefined();
+  });
+
   it("lets a private sandbox carry them", async () => {
     const { dir, home } = await worktree();
     await mkdir(join(home, "secrets"), { recursive: true });

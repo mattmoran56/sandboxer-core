@@ -622,7 +622,20 @@ export async function editProjectSecrets(
     .filter((name) => before.has(name) && before.get(name) !== next.get(name))
     .sort();
 
-  await writeSecretsFile(paths(options.env).secretsFile(project), next, authoredHeader(project));
+  // Nothing changed, so nothing is written — and this is a refusal to create a
+  // file rather than a saving of one write. An edit that applies nothing used to
+  // write anyway, which had two consequences worth naming:
+  //
+  //   - it created an *empty* secrets file where there had been none, and `up`
+  //     refuses to start a public project that has one. A no-op save in the
+  //     dashboard could therefore stop a project starting, with a message about
+  //     "the real credentials" in a file holding none.
+  //   - it moved the file's mtime, which is what marks every running sandbox as
+  //     needing a restart. A save that changed nothing would have asked everyone
+  //     to restart for it.
+  if (added.length > 0 || updated.length > 0 || removed.length > 0) {
+    await writeSecretsFile(paths(options.env).secretsFile(project), next, authoredHeader(project));
+  }
 
   return {
     ...(await describeProjectSecrets(project, config, options)),

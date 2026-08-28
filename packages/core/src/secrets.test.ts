@@ -474,6 +474,29 @@ describe("editProjectSecrets", () => {
     expect((await editProjectSecrets("acme", null, { unset: ["NEVER_SET"] }, options)).removed).toEqual([]);
   });
 
+  // An edit that applies nothing used to write anyway, which created an *empty*
+  // secrets file — and `up` refuses to start a public project that has one. A
+  // no-op save in the dashboard could therefore stop a project starting, with a
+  // message about "the real credentials" in a file holding none.
+  it("writes no file at all for an edit that changes nothing", async () => {
+    const options = await fresh();
+    const report = await editProjectSecrets("acme", null, { unset: ["NEVER_SET"] }, options);
+    expect(report.exists).toBe(false);
+    await expect(stat(report.file)).rejects.toThrow();
+  });
+
+  // The other half of the same rule: a save that changes nothing must not move
+  // the mtime, because that is what marks every running sandbox as needing a
+  // restart. A save that changed nothing would have asked everyone to restart.
+  it("leaves the file untouched when an edit sets what is already there", async () => {
+    const options = await fresh();
+    const report = await editProjectSecrets("acme", null, { set: { A: "1" } }, options);
+    const before = (await stat(report.file)).mtimeMs;
+
+    await editProjectSecrets("acme", null, { set: { A: "1" } }, options);
+    expect((await stat(report.file)).mtimeMs).toBe(before);
+  });
+
   it("writes the file readable only by its owner", async () => {
     const options = await fresh();
     const report = await editProjectSecrets("acme", null, { set: { A: "1" } }, options);

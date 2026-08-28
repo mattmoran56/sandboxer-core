@@ -125,11 +125,16 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   }
 
   const secretsFile = p.secretsFile(config.project);
-  const hasSecrets = existsSync(secretsFile);
+  const fileExists = existsSync(secretsFile);
   // Read here rather than beside the label below, because the same read answers
-  // two questions and the file is the one thing in this function that a person
+  // three questions and the file is the one thing in this function that a person
   // may be editing while it runs. One read, one answer.
-  const secrets = hasSecrets ? await readProjectSecrets(config.project, { env }) : new Map<string, string>();
+  const secrets = fileExists ? await readProjectSecrets(config.project, { env }) : new Map<string, string>();
+  // Whether it *holds* anything, not whether it is there. A file with a header
+  // and no values carries no credentials, and keying the refusal below on mere
+  // existence made an empty one enough to stop a public project starting — with
+  // a message naming "the real credentials" in a file that had none.
+  const hasSecrets = secrets.size > 0;
   // A public sandbox gets dummy credentials unless the config opts in: anyone
   // who can drive a public app can otherwise make it send real email and spend
   // real credit. A refusal rather than a warning, with both ways out named.
@@ -314,7 +319,11 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
       worktree: projectRoot,
       labels,
       envFile,
-      secretsFile: hasSecrets ? secretsFile : undefined,
+      // `fileExists`, not `hasSecrets`: an empty file is harmless to mount, and
+      // mounting whatever is there is what lets a later edit reach the sandbox
+      // on a restart. A file that does not exist at `up` cannot be mounted at
+      // all — Docker answers a missing bind source by creating a directory.
+      secretsFile: fileExists ? secretsFile : undefined,
       planFile,
       cacheDir: p.cache,
       seedFile: mount?.bind ? { host: mount.bind, inside: mount.inside } : undefined,
