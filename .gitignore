@@ -9,6 +9,5 @@ dist/
 secrets/*.env
 !secrets/.gitkeep
 
-# Docs site build output
-docs/.next/
-docs/out/
+# Wrangler's dev-server scratch, in any example that really runs.
+.wrangler/
