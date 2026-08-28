@@ -2,6 +2,7 @@
 // - runArgs: the container name, the shared network, every label, and the worktree bind mount
 // - runArgs: one volume per purpose, the data mount per driver, storage only when declared
 // - runArgs: the seed cache is read-only, the secrets file is layered under the generated environment
+// - runArgs: the machine-wide Go caches are mounted for a Go project and absent for one without the toolchain
 // - runArgs: the machine-wide Claude volume is mounted and CLAUDE_CONFIG_DIR points inside it
 // - runArgs: the host's login is one file mounted read-write over the volume, never the directory, and absent without one
 // - runArgs: the git mounts land at the identical path inside and out, read-write, and none is /workspace
@@ -186,6 +187,32 @@ describe("runArgs", () => {
   // A sandbox restores from the cache and never writes to it.
   it("mounts the seed cache read-only", () => {
     expect(args).toContain("/home/.sandboxr/cache:/sandboxr/cache:ro");
+  });
+
+  // Unmounted, both of these live in the container's writable layer. `up`
+  // replaces the container, so every start re-downloaded the module graph and
+  // recompiled every dependency — and stayed just as slow on the second start,
+  // which is what made it read as "sandboxes are slow" rather than as a cache
+  // being thrown away.
+  describe("Go's caches", () => {
+    const go = runArgs({ ...base, config: configOf({ toolchain: { go: "1.25" } }) });
+
+    it("mounts both on machine-wide volumes, at the paths the image sets GOCACHE and GOPATH to", () => {
+      expect(go).toContain("sandboxr-gocache:/go/cache");
+      expect(go).toContain("sandboxr-gomod:/go/pkg/mod");
+    });
+
+    it("shares them across projects, so the second project on a machine compiles less", () => {
+      const other = runArgs({ ...base, slug: "tkt-2", config: configOf({ project: "other", toolchain: { go: "1.25" } }) });
+      expect(other).toContain("sandboxr-gocache:/go/cache");
+      expect(other).toContain("sandboxr-gomod:/go/pkg/mod");
+    });
+
+    // Two mounts nothing would ever read, on a sandbox that has no Go in it.
+    it("adds neither when the project declares no Go toolchain", () => {
+      expect(args.join(" ")).not.toContain("sandboxr-gocache");
+      expect(args.join(" ")).not.toContain("sandboxr-gomod");
+    });
   });
 
   // Deliberately not named after the project or the slug: an MCP server is

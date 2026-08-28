@@ -52,14 +52,17 @@ export { TOOL_VERSION } from "./tool-version.js";
 
 export {
   DEFAULT_DOMAIN,
+  IMAGE_NAMESPACE,
   NETWORK,
   NamingError,
+  PROTECTED_IMAGES,
   SHARED_VOLUMES,
   SLUG_MAX,
   containerName,
   depsVolumeName,
   deriveSlug,
   hostFor,
+  imageRepository,
   lockName,
   parseContainerName,
   sanitizeSlug,
@@ -71,18 +74,32 @@ export type { DeriveSlugInput, HostParts, VolumePurpose } from "./naming.js";
 export { WORKTREES_DIR, canonicalPath, directoriesOf, isInside, paths, samePath, type Paths } from "./paths.js";
 
 export { docker, createDocker, DockerError, type Docker, type ExecResult } from "./docker.js";
+export type { BuildCacheRow, DiskUsage, ImageRow, VolumeRow } from "./docker.js";
 
 export type { DatabaseDriver, DriverContext, MigrateResult, SeedArtifact } from "./drivers/types.js";
 export { DriverError, driverContext, getDriver, driverNames } from "./drivers/index.js";
 export type { ContextOptions } from "./drivers/index.js";
 
-export { activityFor, down, expire, gc, list, reload, startSandbox, status, stopSandbox, up } from "./sandbox/index.js";
+export {
+  activityFor,
+  down,
+  expire,
+  gc,
+  list,
+  prune,
+  reload,
+  startSandbox,
+  status,
+  stopSandbox,
+  up,
+} from "./sandbox/index.js";
 export type {
   DownOptions,
   ExpireOptions,
   GcOptions,
   GcPlan,
   ListOptions,
+  PruneOptions,
   ReloadOptions,
   Sandbox,
   SandboxState,
@@ -92,6 +109,8 @@ export type {
 
 export { deadlineOf, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
 export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.js";
+export { formatBytes, planPrune } from "./sandbox/prune.js";
+export type { PrunableImage, PrunableVolume, PruneInput, PrunePlan, PruneResult } from "./sandbox/prune.js";
 export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js";
 export { DEFAULT_ACTIVITY_WINDOW, lastActivity, parseAccessLog } from "./sandbox/activity.js";
 export type { ActivityOptions } from "./sandbox/activity.js";

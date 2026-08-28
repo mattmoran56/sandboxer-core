@@ -1,5 +1,5 @@
 /**
- * The sandbox lifecycle: up, down, list, status, reload, gc.
+ * The sandbox lifecycle: up, down, list, status, reload, gc, prune.
  *
  * Everything here reads and writes only the labels in contracts §3.4, so `list`
  * and `gc` are functions of `docker ps` and there is no state on the host that
@@ -45,6 +45,7 @@ import { NETWORK, containerName, deriveSlug, volumeName } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { containerEnv, labelsOf, renderEnvFile, urlsFor } from "./env.js";
 import { planGc } from "./gc.js";
+import { planPrune, type PruneResult } from "./prune.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
 import { BUILT_MANIFEST, MIGRATE_STATE, WWW_DIR } from "./layout.js";
 import { backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
@@ -55,6 +56,7 @@ import type {
   GcPlan,
   ListOptions,
   CommonOptions,
+  PruneOptions,
   ReloadOptions,
   ReloadResult,
   Sandbox,
@@ -713,6 +715,54 @@ export async function gc(options: GcOptions = {}): Promise<GcPlan> {
 }
 
 /**
+ * Reclaims the disk that building sandboxes left behind.
+ *
+ * Reports by default and removes only with `apply`, which is the opposite way
+ * round from `gc` and `expire`. Those two act on things whose loss costs a
+ * restart; this one removes images, and an image nobody meant to lose is a
+ * toolchain rebuild the next `up` pays for.
+ */
+export async function prune(options: PruneOptions = {}): Promise<PruneResult> {
+  const docker = options.docker ?? defaultDocker;
+  const log = options.log ?? noop;
+
+  const sandboxes = await list({ docker, env: options.env });
+  const usage = await docker.diskUsage();
+  const plan = planPrune({
+    sandboxes,
+    volumes: usage.volumes,
+    images: usage.images,
+    buildCache: usage.buildCache,
+    mountedVolumes: await mountedVolumes(docker, sandboxes),
+    includeBuildCache: options.buildCache,
+  });
+
+  const removed = { volumes: [] as string[], images: [] as string[], buildCacheBytes: 0 };
+  if (!options.apply) return { ...plan, applied: false, removed };
+
+  for (const volume of plan.volumes) {
+    if (await docker.volumeRm(volume.name)) removed.volumes.push(volume.name);
+  }
+  for (const image of plan.images) {
+    if (await docker.imageRm(image.reference)) removed.images.push(image.reference);
+  }
+  if (plan.buildCache.inScope) {
+    log("Pruning the build cache");
+    // `all`, not the default: without it docker keeps every unused-but-not-
+    // dangling record, and the plan's figure — which is `docker system df`'s —
+    // would name disk this call had no intention of returning.
+    removed.buildCacheBytes = await docker.builderPrune({ all: true });
+  }
+
+  if (removed.volumes.length > 0) log(`Removed ${removed.volumes.length} orphaned volume(s)`);
+  if (removed.images.length > 0) log(`Removed ${removed.images.length} superseded image(s)`);
+  if (removed.volumes.length === 0 && removed.images.length === 0 && removed.buildCacheBytes === 0) {
+    log("Nothing to reclaim");
+  }
+  return { ...plan, applied: true, removed };
+}
+
+/**
  * Whether the artifact about to be restored is one a public sandbox may use.
  *
  * A fixtures-only start has nothing real in it by construction; a dump is only
@@ -851,3 +901,4 @@ async function tryLoad(worktree: string, env?: NodeJS.ProcessEnv | undefined): P
 
 export { WWW_DIR };
 export { planGc } from "./gc.js";
+export { formatBytes, planPrune } from "./prune.js";

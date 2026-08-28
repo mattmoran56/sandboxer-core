@@ -44,6 +44,7 @@ least one thing wrong in the details.
 | **A `private` project** | The forward-auth middleware and the dashboard's `/auth/verify` are both written; the pair has not been exercised together |
 | **A sandbox expiring on its own over a full lifetime** | The reaper runs on a real machine on its timer, and `expire` has stopped and restarted a live sandbox against a clock moved forward by hand. Nothing has yet been stopped by the timer arriving on its own, hours later |
 | **A full idle period against the router's log** | Last activity is read from the live router and moves when a real request arrives (below). What has not been watched is a sandbox going quiet for a whole ttl and being stopped for it, with no clock moved by hand |
+| **`sandboxr prune --yes`** | The report has been run against a live daemon with two projects and 440 build cache records on it, and its figures match `docker system df`. **Nothing has been removed by it.** The removal path is unit-tested against a fake daemon; what a real run would settle is that `docker image rm` accepts the references the plan builds, and that the space the report promised is the space that comes back |
 | **`gh` against a private repository** | Pull requests list against a public repo. Cloning and fetching a private one from inside the dashboard container, using the mounted `gh` credentials, has not been done |
 
 ## The managed layer, as of this change
@@ -123,8 +124,12 @@ Two limits worth stating plainly rather than discovering later:
 
 **Expiry only ever stops a sandbox; it never removes one.** That reclaims memory and CPU and does
 nothing about disk — the container and its volumes remain, so a machine left alone still
-accumulates. `gc` is what reclaims disk, and it is still manual. Automating it means destroying
-databases automatically, which is not a thing to switch on untested.
+accumulates. `gc` and `prune` are what reclaim disk, and both are still manual. Automating `gc`
+means destroying databases automatically, which is not a thing to switch on untested; `prune` is
+the safer of the two to put on a timer, because everything it removes is rebuildable.
+
+**`prune` has no dashboard action.** `gc` and `expire` are buttons; this is a CLI command only. The
+decision lives in core, so a dashboard action is a small addition, but it has not been made.
 
 **Nothing enforces a lifetime while the dashboard is not running.** The reaper lives in the
 dashboard process, which is the only always-on component holding the Docker socket. On a laptop

@@ -110,6 +110,28 @@ One path inside that volume comes from the host rather than from the volume: whe
 `~/.claude/.credentials.json` exists on the host it is bind-mounted read-write over the volume's
 copy, so a login is shared with every sandbox rather than duplicated into each. See §7.2.
 
+Images are named under one namespace, and the split between them decides what may be reclaimed:
+
+- Project layer: `sandboxr/<project>:<12 hex>`, the hash covering the tool version, the rendered
+  Dockerfile and every staged manifest. Content-addressed, so every sandbox of a project shares one
+  image and a rebuild is triggered by exactly the things the build reads.
+- The machine's own: `sandboxr/base` and `sandboxr/dashboard`, tagged by tool version and by
+  `latest`. Built by `init`.
+
+**Reclamation is a contract, not a heuristic.** `gc` removes sandboxes and the volumes they owned.
+`prune` removes what building left behind, and is bound by three rules:
+
+- The shared volumes above are never removed, by either. Taking `sandboxr-claude` would sign the
+  machine out of every MCP server it has been given.
+- `sandboxr/base` and `sandboxr/dashboard` are never removed as superseded: they are tagged by
+  version rather than by content, so "older tag" does not mean "replaced".
+- Of each project's images, the newest survives. A content-addressed tag means the next `up` finds
+  it and starts rather than rebuilding, and that is the reason the image is kept at all.
+
+`prune` reports by default and acts only when told to, which is the reverse of `gc` and `expire`.
+The asymmetry follows from the cost of being wrong: a sandbox removed in error costs a restart, an
+image removed in error costs a toolchain rebuild on somebody else's next `up`.
+
 ### 3.4 Container labels
 
 State lives **only** in Docker labels. There is no manifest file, no database of sandboxes.

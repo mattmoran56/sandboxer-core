@@ -1,6 +1,6 @@
 ---
 title: Start, stop, list, clean up
-description: up, ls, status, down and gc — what each one really removes, and why deleting a sandbox can never lose your work.
+description: up, ls, status, down, gc and prune — what each one really removes, and why deleting a sandbox can never lose your work.
 sidebar:
   order: 1
 ---
@@ -12,6 +12,7 @@ sandboxr ls          # every sandbox on this machine
 sandboxr status      # this one, in detail
 sandboxr down        # remove it, and its database and uploads
 sandboxr gc          # reap sandboxes whose worktree is gone
+sandboxr prune       # what disk could be handed back, and how much
 ```
 
 Every one takes an optional **slug**. You rarely type it: standing in the worktree is enough.
@@ -134,8 +135,32 @@ Reaps a sandbox when its recorded worktree no longer exists on disk, then remove
 
 `--dry-run` prints the plan and changes nothing.
 
+## `prune`
+
+```bash
+sandboxr prune                      # a report; removes nothing
+sandboxr prune --yes                # remove what it listed
+sandboxr prune --build-cache --yes  # and Docker's build cache with it
+```
+
+`gc` reclaims what a *sandbox* held. `prune` reclaims what *building* them left behind: the project
+images a newer build replaced, plus any orphaned volume, plus — only when asked — Docker's build
+cache. Neither of the first two is freed by stopping a container, and on a machine that has run out
+of room they are usually most of the problem.
+
+**It removes nothing without `--yes`**, which is the other way round from `gc --dry-run`. What `gc`
+removes costs a restart; what `prune` removes costs a toolchain rebuild on the next `up`, so the
+safe answer is the one you get by typing nothing extra.
+
+Each project's newest image always survives, and the shared volumes — `sandboxr-claude` and the Go
+caches — are never offered at all.
+
+[Giving Docker the whole machine](docker-capacity.md) covers where the space went, and the blunter
+Docker commands for when this is not enough.
+
 ## Related
 
+- [Giving Docker the whole machine](docker-capacity.md) — when the disk is the problem
 - [The edit–reload loop](edit-and-reload.md) — what to run after you change a file
 - [Every worktree at once](../getting-started/every-worktree.md)
 - [CLI reference](../reference/cli.md) — every command, every flag

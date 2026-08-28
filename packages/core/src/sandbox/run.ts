@@ -11,7 +11,15 @@
 import { createHash } from "node:crypto";
 
 import type { BackendService, FrontendApp, ResolvedConfig } from "../config/types.js";
-import { CLAUDE_VOLUME, NETWORK, containerName, depsVolumeName, volumeName } from "../naming.js";
+import {
+  CLAUDE_VOLUME,
+  GOCACHE_VOLUME,
+  GOMOD_VOLUME,
+  NETWORK,
+  containerName,
+  depsVolumeName,
+  volumeName,
+} from "../naming.js";
 import { labelArgs } from "./labels.js";
 import {
   BIN_DIR,
@@ -20,6 +28,8 @@ import {
   CLAUDE_DIR,
   CREDENTIALS_FILE,
   DATA_DIR,
+  GOCACHE_DIR,
+  GOMOD_DIR,
   LOG_DIR,
   PLAN_FILE,
   WORKSPACE,
@@ -168,6 +178,13 @@ export function runArgs(input: RunInput): string[] {
   if (input.depsHash && deps) {
     const root = deps.root === "." ? WORKSPACE : `${WORKSPACE}/${deps.root}`;
     args.push("-v", `${depsVolumeName(input.depsHash)}:${root}/node_modules`);
+  }
+  // Go's two caches, shared by every sandbox on the machine (contracts §3.3).
+  // Only for a project that declares the toolchain: a sandbox with no Go in it
+  // would otherwise carry two mounts nothing ever reads.
+  if (config.toolchain.go) {
+    args.push("-v", `${GOCACHE_VOLUME}:${GOCACHE_DIR}`);
+    args.push("-v", `${GOMOD_VOLUME}:${GOMOD_DIR}`);
   }
   args.push("-v", `${input.cacheDir}:${CACHE_DIR}:ro`);
   args.push("-v", `${input.logDir}:${LOG_DIR}`);

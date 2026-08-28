@@ -38,15 +38,25 @@ afternoon on recovery procedures for a disk problem.
 
 Check the disk before you believe anything else a failing database tells you.
 
+```bash
+sandboxr prune          # what could be handed back, and how much. Removes nothing
+```
+
 | What grows | Reclaimed by |
 |---|---|
-| The base image (~400 MB, once per machine) | `docker image rm sandboxr/base:latest` |
-| Project image layers | `docker image prune` |
+| **Project images a newer build replaced** | `sandboxr prune --yes` |
+| Volumes no sandbox owns any more | `sandboxr prune --yes`, or `sandboxr gc` |
 | A sandbox's volumes (a few hundred MB each) | `sandboxr down <slug>` |
-| **Docker's build cache — the thing that actually fills the disk** | `docker builder prune` |
+| **Docker's build cache — the thing that actually fills the disk** | `sandboxr prune --build-cache --yes`, or `docker builder prune -a` |
+| The base image (~670 MB, once per machine) | `docker image rm sandboxr/base:latest`, and `sandboxr init` to get it back |
 
-`sandboxr gc` reaps sandboxes whose worktree is gone and removes orphaned volumes. It does **not**
-prune the build cache, and never will: sandboxr deletes what it created, not what Docker created.
+`sandboxr prune` reports before it removes and never offers the shared volumes — `sandboxr-claude`
+holds an agent session's credentials, and the Go caches are expensive to rebuild. The build cache is
+the exception it asks about rather than assumes: sandboxr is not its only writer, so it is included
+only with `--build-cache`.
+
+[Giving Docker the whole machine](guides/docker-capacity.md) has the rest — where Docker's storage
+actually is, and why the answer differs between a laptop and a server.
 
 ### An image build fails and the first line is a deprecation notice
 

@@ -21,6 +21,7 @@ import { dirname, join, relative } from "node:path";
 
 import type { ResolvedConfig } from "./config/types.js";
 import { archBuildArgs, docker as defaultDocker, type Docker } from "./docker.js";
+import { imageRepository } from "./naming.js";
 import { containerDir } from "./install.js";
 import { TOOL_VERSION } from "./tool-version.js";
 
@@ -191,7 +192,7 @@ export async function imageTag(project: string, dockerfile: string, staged: Stag
     hash.update("\0").update(file.target).update("\0");
     hash.update(await readFile(file.source));
   }
-  return `sandboxr/${project}:${hash.digest("hex").slice(0, 12)}`;
+  return `${imageRepository(project)}:${hash.digest("hex").slice(0, 12)}`;
 }
 
 export interface BuildImageOptions {

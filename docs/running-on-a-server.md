@@ -20,7 +20,7 @@ sidebar:
 | Resource | Guidance |
 |---|---|
 | **Memory** | A sandbox's container limit is the largest limit any one of the project's apps declares, floor **4 GB**. Budget at least that per concurrently running sandbox, plus 2 GB for the host and the dashboard. Four sandboxes of a project whose heaviest build asks for 6 GB wants 26 GB, not 16 |
-| **Disk** | 40 GB floor. The base image is around 400 MB; each project's layer adds its toolchains and dependency tree; each sandbox adds a few hundred MB of volumes; Docker's build cache will take everything you leave it |
+| **Disk** | 40 GB floor. The base image is around 670 MB; each project's layer adds its toolchains and dependency tree, and a large one measured 6 GB; each sandbox adds a few hundred MB of volumes; Docker's build cache will take everything you leave it |
 | **CPU** | Builds are the only bursty part. Four cores suits a small team; two feels slow the moment two people rebuild at once |
 | **Swap** | Some. It converts a hard out-of-memory kill into slowness, which is a much better failure |
 
@@ -33,8 +33,13 @@ usage. Measure your own project before planning a fleet.
 > scheduled with room rather than discovering the limit as `code 137` halfway through a build.
 
 **Disk is the constraint that bites first**, and Docker's build cache is the fastest-growing thing
-on the machine. `sandboxr gc` does **not** prune it — `docker builder prune` is what reclaims build
-cache. Put both on a timer.
+on the machine. On Linux there is no allocation to raise: the daemon writes to `/var/lib/docker` on
+the host's own filesystem, so the sizing decision is which disk that is — `data-root` in
+`/etc/docker/daemon.json` — rather than any Docker Desktop setting. Put `sandboxr prune
+--build-cache --yes` and `sandboxr gc` on a timer.
+
+[Giving Docker the whole machine](guides/docker-capacity.md) has the arithmetic: what accumulates,
+what stopping a container does and does not free, and which reclaim commands cost what.
 
 ## DNS: a wildcard per project
 
@@ -137,7 +142,8 @@ The Docker socket must not be exposed to the network under any circumstances.
 - [ ] No project seeds from `local`; every `file` seed is genuinely anonymised.
 - [ ] `access.credentials` is `dummy` unless you have a reason.
 - [ ] The firewall opens 80 and 443 only.
-- [ ] `sandboxr gc` and `docker builder prune` are on a timer.
+- [ ] `data-root` points at the disk with the room on it.
+- [ ] `sandboxr gc` and `sandboxr prune --build-cache --yes` are on a timer.
 - [ ] `sandboxr doctor` is clean.
 
 ## What sandboxr is not
@@ -151,6 +157,7 @@ different rules.
 
 ## Related
 
+- [Giving Docker the whole machine](guides/docker-capacity.md)
 - [Access and security](access.md)
 - [Every worktree at once](getting-started/every-worktree.md)
 - [What is built](reference/status.md)

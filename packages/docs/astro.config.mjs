@@ -53,6 +53,7 @@ export default defineConfig({
             { label: "Testing a migration", slug: "guides/testing-a-migration" },
             { label: "Agents in a sandbox", slug: "guides/agents-in-a-sandbox" },
             { label: "Agent sessions", slug: "guides/agent-sessions" },
+            { label: "Giving Docker the whole machine", slug: "guides/docker-capacity" },
           ],
         },
         {

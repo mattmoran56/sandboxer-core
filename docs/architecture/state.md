@@ -178,11 +178,18 @@ nothing else it could be.
 | Container | `sandboxr-<project>-<slug>` |
 | Network | `sandboxr` — one, shared |
 | Per-sandbox volumes | `sandboxr-<purpose>-<project>-<slug>`, purpose one of `data`, `blob`, `bin`, `www` |
-| Shared volumes | `sandboxr-deps-<lockfile hash>`, `sandboxr-gocache`, `sandboxr-gomod` |
+| Shared volumes | `sandboxr-deps-<lockfile hash>`, `sandboxr-gocache`, `sandboxr-gomod`, `sandboxr-claude` |
+| Project image | `sandboxr/<project>:<content hash>` — the hash covers the tool version, the rendered Dockerfile and the staged manifests |
+| The machine's own images | `sandboxr/base` and `sandboxr/dashboard`, tagged by tool version |
 
 `gc` reads the sandbox list and the volume list, reaps a sandbox whose `sandboxr.worktree` no
-longer exists on disk, and removes any `sandboxr-` volume no surviving sandbox has mounted. It does
-**not** prune Docker's build cache; `docker builder prune` is what does that.
+longer exists on disk, and removes any `sandboxr-` volume no surviving sandbox has mounted.
+
+`prune` reads `docker system df` instead, and reclaims what building left behind: orphaned volumes,
+project images older than that project's newest one, and — only when asked — Docker's build cache.
+It removes nothing without `--yes`. Because the image tag is a content hash, every base image
+rebuild and every tool version bump orphans a project's previous image, which is where a machine's
+disk actually goes.
 
 ## Related
 

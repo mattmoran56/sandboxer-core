@@ -188,6 +188,33 @@ if any target failed, with the last 20 lines of its output.
 Reaps sandboxes whose recorded worktree no longer exists, then removes `sandboxr-` volumes nothing
 owns and nothing has mounted. Shared and `sandboxr-deps-*` volumes are left alone.
 
+### `sandboxr prune [--yes] [--build-cache]`
+
+Reclaims the disk that building sandboxes left behind. **Reports by default and removes only with
+`--yes`** — the opposite way round from `gc --dry-run`, because what this removes costs a toolchain
+rebuild rather than a restart.
+
+| Flag | What it does |
+|---|---|
+| `--yes` | Remove what was listed. Without it nothing is deleted |
+| `--build-cache` | Include Docker's build cache, which sandboxr is not the only writer of |
+| `--json` | The plan, and what was removed, on stdout |
+
+Three kinds of thing, and everything else is protected:
+
+| Offered | Never offered |
+|---|---|
+| `sandboxr-` volumes no surviving sandbox owns | `sandboxr-claude`, `sandboxr-gocache`, `sandboxr-gomod` |
+| Project images older than that project's newest one | Each project's newest image, so the next `up` is a start rather than a build |
+| Docker's build cache, with `--build-cache` | `sandboxr/base`, `sandboxr/dashboard`, and any image a container holds |
+
+Sizes are the bytes only that object holds, not what `docker images` reports: two project images
+built on the same base share the base layer, and removing one returns the difference rather than
+the total. The build cache is always reported — it is usually the biggest number — and only removed
+when it is asked for.
+
+[Giving Docker the whole machine](../guides/docker-capacity.md) is the guide.
+
 ## Projects and worktrees
 
 The workspace is the repositories sandboxr keeps for itself, so a sandbox can be a branch you pick
@@ -295,6 +322,7 @@ the fallback for a worktree that carries none. `sandboxr doctor` names it too.
 | `shell` | one sandbox | Whatever you run |
 | `reload` | one sandbox | Rebuilds; touches data only with `--migrate` |
 | `gc` | machine | Reaps **every** sandbox whose worktree is gone |
+| `prune` | machine | Nothing without `--yes`; then images and volumes, never a shared volume |
 | `db seed` | project | Rewrites the shared seed artifact |
 | `db migrate` | one sandbox | That sandbox's database only |
 | `db snapshot`, `db shell` | one sandbox | `shell` is interactive |

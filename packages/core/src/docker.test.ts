@@ -8,6 +8,10 @@
 // - containerExists / containerRunning / available: the exit code and field each reads
 // - volumes / volumeRm / ensureNetwork / imageExists: the arguments and the answers
 // - parseLabelPairs and parseLabelLines: pairs, empty input, a missing separator
+// - parseDockerSize: decimal and binary units, and zero for anything unreadable
+// - parseDockerTime: docker's offset-plus-abbreviation stamps, and nanoseconds
+// - parseDiskUsage: the three arrays, and why an uncounted container reads as one rather than none
+// - diskUsage / imageRm / builderPrune: the arguments, and the bytes a prune reports back
 
 import { describe, expect, it } from "vitest";
 
@@ -15,9 +19,13 @@ import {
   DockerError,
   archBuildArgs,
   createDocker,
+  parseDiskUsage,
+  parseDockerSize,
+  parseDockerTime,
   parseLabelLines,
   parseLabelPairs,
   parsePsJson,
+  parseReclaimed,
   type Runner,
 } from "./docker.js";
 
@@ -254,5 +262,115 @@ describe("archBuildArgs", () => {
     // one is a 404 in the middle of a build. The Dockerfile's own `uname -m`
     // fallback is a better answer than anything this could invent.
     expect(archBuildArgs("ppc64")).toEqual([]);
+  });
+});
+
+describe("parseDockerSize", () => {
+  it.each([
+    ["6.01GB", 6.01e9],
+    ["679.3MB", 679.3e6],
+    ["51.8kB", 51_800],
+    ["0B", 0],
+    ["512", 512],
+    ["1GiB", 1024 ** 3],
+  ])("reads %s", (input, want) => {
+    expect(parseDockerSize(input)).toBeCloseTo(want, 0);
+  });
+
+  // Zero rather than a guess: these numbers are added up and shown as "this
+  // much would come back", and a misread unit is the difference between
+  // megabytes and gigabytes in a sentence someone acts on.
+  it.each(["N/A", "", "lots", "12 parsecs"])("reads %s as nothing", (input) => {
+    expect(parseDockerSize(input)).toBe(0);
+  });
+});
+
+describe("parseDockerTime", () => {
+  it("reads a stamp carrying both an offset and a zone abbreviation", () => {
+    expect(parseDockerTime("2026-08-28 07:43:32 +0100 BST")?.toISOString()).toBe("2026-08-28T06:43:32.000Z");
+  });
+
+  it("reads a build cache record's nanoseconds", () => {
+    expect(parseDockerTime("2023-09-06 16:26:48.746507788 +0000 UTC")?.toISOString()).toBe(
+      "2023-09-06T16:26:48.746Z",
+    );
+  });
+
+  // Undefined rather than the epoch: callers order by this to decide what to
+  // delete, and 1970 sorts a perfectly good image to the front of that queue.
+  it.each(["", "not a date"])("gives up on %s rather than guessing", (input) => {
+    expect(parseDockerTime(input)).toBeUndefined();
+  });
+});
+
+describe("parseDiskUsage", () => {
+  const stdout = JSON.stringify({
+    Images: [
+      {
+        Repository: "sandboxr/acme",
+        Tag: "48273eacdece",
+        ID: "sha256:222110270923",
+        CreatedAt: "2026-08-28 07:43:32 +0100 BST",
+        Size: "6.01GB",
+        SharedSize: "671.9MB",
+        UniqueSize: "5.34GB",
+        Containers: "1",
+      },
+    ],
+    Volumes: [{ Name: "sandboxr-data-acme-tkt-1", Size: "412MB", Links: "0" }],
+    BuildCache: [
+      { ID: "abc", Size: "1.5GB", InUse: "false", Shared: "true", LastUsedAt: "2026-08-27 09:00:00 +0000 UTC" },
+    ],
+  });
+
+  it("reads each kind, and strips the digest algorithm off an image id", () => {
+    const usage = parseDiskUsage(stdout);
+    expect(usage.images[0]).toMatchObject({ repository: "sandboxr/acme", id: "222110270923", containers: 1 });
+    expect(usage.images[0]?.uniqueSize).toBeCloseTo(5.34e9, 0);
+    expect(usage.volumes[0]).toMatchObject({ name: "sandboxr-data-acme-tkt-1", links: 0 });
+    expect(usage.buildCache[0]).toMatchObject({ id: "abc", inUse: false, shared: true });
+  });
+
+  // "Unknown" must not become zero. Zero containers is what licenses a
+  // deletion, and docker writes `N/A` for a count it did not take.
+  it("treats an uncounted container as one rather than none", () => {
+    const usage = parseDiskUsage(JSON.stringify({ Images: [{ Repository: "a", Tag: "b", Containers: "N/A" }] }));
+    expect(usage.images[0]?.containers).toBe(1);
+  });
+
+  it("answers with nothing rather than throwing on output it cannot read", () => {
+    expect(parseDiskUsage("not json")).toEqual({ images: [], volumes: [], buildCache: [] });
+  });
+});
+
+describe("reclaiming", () => {
+  it("asks for the verbose, machine-readable form", async () => {
+    const { calls, run } = recorder([{ stdout: "{}" }]);
+    await createDocker(run).diskUsage();
+    expect(calls[0]?.args).toEqual(["system", "df", "-v", "--format", "{{json .}}"]);
+  });
+
+  it("removes an image by reference, and reports a refusal as false", async () => {
+    const { calls, run } = recorder([{ code: 1, stderr: "image is being used" }]);
+    expect(await createDocker(run).imageRm("sandboxr/acme:old")).toBe(false);
+    expect(calls[0]?.args).toEqual(["image", "rm", "sandboxr/acme:old"]);
+  });
+
+  it("prunes the build cache and reads back what docker says it reclaimed", async () => {
+    const { calls, run } = recorder([{ stdout: "Deleted build cache objects:\nTotal reclaimed space: 5.156GB\n" }]);
+    expect(await createDocker(run).builderPrune({ all: true })).toBeCloseTo(5.156e9, 0);
+    expect(calls[0]?.args).toEqual(["builder", "prune", "--force", "--all"]);
+  });
+
+  // A daemon with no builder answers non-zero, and "there was no cache" is not
+  // a reason to abandon the rest of a housekeeping run.
+  it("reports nothing reclaimed rather than throwing when there is no builder", async () => {
+    const { run } = recorder([{ code: 1, stderr: "no builder" }]);
+    expect(await createDocker(run).builderPrune()).toBe(0);
+  });
+
+  it("finds the reclaimed line wherever it sits in the output", () => {
+    expect(parseReclaimed("nothing here")).toBe(0);
+    expect(parseReclaimed("Total reclaimed space: 0B")).toBe(0);
   });
 });

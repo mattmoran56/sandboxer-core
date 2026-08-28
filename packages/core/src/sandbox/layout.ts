@@ -28,6 +28,26 @@ export const BLOB_DIR = "/var/lib/sandboxr/blob";
 /** Built binaries, on a volume so a rebuild survives a restart. */
 export const BIN_DIR = "/var/lib/sandboxr/bin";
 
+/**
+ * Go's caches, on machine-wide volumes.
+ *
+ * These two paths are `GOPATH=/go` and `GOCACHE=/go/cache` as the project
+ * Dockerfile sets them, and they must keep agreeing with it: Go is told where
+ * its caches are by the image, and mounting a volume anywhere else leaves the
+ * real cache in the container's writable layer where it dies with the container.
+ *
+ * That is exactly what used to happen, and the symptom did not look like a
+ * missing mount. `up` *replaces* the container, so every start began with an
+ * empty module cache and an empty build cache: each one re-downloaded the module
+ * graph the image had already downloaded at build time, then recompiled every
+ * dependency from source. On a six-service Go monorepo that was three minutes of
+ * a three-and-a-half minute boot, and it stayed three minutes on the second and
+ * third start — which reads as "sandboxes are just slow" rather than as a cache
+ * that is thrown away.
+ */
+export const GOCACHE_DIR = "/go/cache";
+export const GOMOD_DIR = "/go/pkg/mod";
+
 /** Built static sites, served by the sandbox's own file server. */
 export const WWW_DIR = "/srv/www";
 

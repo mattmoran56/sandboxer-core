@@ -56,7 +56,11 @@ export function planGc(input: GcInput): GcPlan {
  * cannot be split back into its parts unambiguously — and a wrong split here
  * deletes someone's database.
  */
-export function orphanVolumes(input: GcInput & { survivors: Sandbox[] }): string[] {
+export function orphanVolumes(input: {
+  volumes: string[];
+  survivors: Sandbox[];
+  mountedVolumes?: Set<string> | undefined;
+}): string[] {
   const owned = new Set<string>(SHARED_VOLUMES);
   for (const sandbox of input.survivors) {
     for (const purpose of PURPOSES) owned.add(volumeName(purpose, sandbox.project, sandbox.slug));
