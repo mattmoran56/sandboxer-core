@@ -145,6 +145,30 @@ export interface SecretsOptions {
   from?: string | undefined;
 }
 
+/**
+ * Wraps a value in double quotes, always.
+ *
+ * Not a choice about tidiness — a value written raw does not survive being read
+ * back. `parseEnvFile` trims a value and strips a trailing ` #` comment from an
+ * unquoted one, both of which are right for a `.env` somebody wrote by hand and
+ * wrong for a credential: a password containing ` #` came back truncated at the
+ * hash, silently, with no error anywhere.
+ *
+ * Quoting unconditionally, with nothing escaped, is lossless for any value that
+ * has no newline in it — and `envNameRefusal` refuses those. Both readers strip
+ * exactly one layer of matching quotes, so whatever went in comes back: a value
+ * that is itself `"abc` is written `""abc"`, and stripping one layer leaves
+ * `"abc` again.
+ *
+ * **The container's reader has to agree.** `container/scripts/env.sh` strips the
+ * same single layer. If that stops being true, every quoted credential reaches
+ * the application with quotes around it, which fails as an authentication error
+ * rather than as anything resembling a parsing problem.
+ */
+function quoteSecret(value: string): string {
+  return `"${value}"`;
+}
+
 /** The comment at the top of a secrets file, which is now a file people edit. */
 function authoredHeader(project: string): string {
   return [
@@ -174,9 +198,11 @@ export async function writeSecretsFile(
   header?: string,
 ): Promise<void> {
   const names = [...secrets.keys()].sort();
-  const body = [...(header ? [header, ""] : []), ...names.map((name) => `${name}=${secrets.get(name) ?? ""}`), ""].join(
-    "\n",
-  );
+  const body = [
+    ...(header ? [header, ""] : []),
+    ...names.map((name) => `${name}=${quoteSecret(secrets.get(name) ?? "")}`),
+    "",
+  ].join("\n");
 
   await mkdir(dirname(file), { recursive: true });
   const temporary = `${file}.partial`;
