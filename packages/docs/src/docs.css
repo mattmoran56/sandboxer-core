@@ -1,0 +1,989 @@
+/*
+ * The documentation site's own layer over the shared design system.
+ *
+ * The palette, the three colour schemes, the fonts, the light/dark mechanism, the
+ * page wash, the focus ring and the named utilities all come from
+ * `@sandboxr/web/tokens.css`, imported below. **Nothing colour-shaped belongs in
+ * this file.** Somebody with the dashboard in one tab and the documentation in the
+ * other has to see one product, and a hex written here would be invisible to the
+ * dashboard — which is exactly how two halves of one product come apart.
+ *
+ * What is left is what a documentation site has and a dashboard does not: long-form
+ * prose, and the five markup conventions the Markdown pipeline emits.
+ *
+ * Prose is not dashboard text, and that is the whole reason this file exists rather
+ * than the site reusing the dashboard's base layer. A dashboard is scanned: dense,
+ * 12px and 13px, tight leading, headings that label a panel. These pages are read
+ * top to bottom by a person deciding whether the tool helps them, so the measure is
+ * about 50rem, the leading is 1.7 rather than 1.5, and the space above a heading is
+ * much larger than the space below it — which is what makes a heading read as
+ * belonging to what follows it rather than floating between two sections.
+ */
+
+@import "@sandboxr/web/tokens.css";
+
+/*
+ * Tailwind scans the package that imports it, and the import above happens to live
+ * in another one. Without this line every utility in `src/components` would be
+ * absent from the built stylesheet and the whole site would render unstyled — a
+ * failure with no error attached to it, which is the same trap `app.css` documents
+ * for the server's templates.
+ */
+@source "./";
+
+/* --- the reading column ------------------------------------------------- */
+
+@layer base {
+  /*
+   * About 50rem of text, and about 1.7 of leading.
+   *
+   * 50rem is the measure the previous site set and it was right: at this size it
+   * is roughly 80 characters a line, which is the top of the range prose stays
+   * comfortable at. Wider and a reader loses their place returning to the left
+   * edge — the column is set on the layout, in `App.tsx`, because it has to be the
+   * grid that is 50rem and not just the paragraphs.
+   */
+  .sbx-prose {
+    font-size: 1rem;
+    line-height: 1.7;
+    color: var(--sb-ink);
+  }
+
+  /*
+   * The vertical rhythm, as one rule: a block gets space above it when something
+   * precedes it.
+   *
+   * Repeated for the containers that also hold prose, and that repetition is the
+   * bug it fixes. With only `.sbx-prose > * + *` the paragraphs inside a
+   * `<details>` body and inside a blockquote had no space between them at all —
+   * they are not direct children of the wrapper, and a `<details>` body on a
+   * reference page is often five paragraphs and a table.
+   */
+  .sbx-prose > * + *,
+  .sbx-prose .sbx-detail__body > * + *,
+  .sbx-prose blockquote > * + *,
+  .sbx-prose li > * + * {
+    margin-top: 1.15em;
+  }
+
+  .sbx-prose p {
+    max-width: 46rem;
+  }
+
+  /* --- headings --------------------------------------------------------- */
+
+  /*
+   * The serif is the display face in both apps, and here it does the work of
+   * telling a reader where they are in a long page. Set at a real size rather than
+   * a dashboard's `1.35rem`: on a page of prose a heading has to be findable while
+   * scrolling past it.
+   */
+  .sbx-prose :is(h2, h3, h4) {
+    color: var(--sb-ink);
+    font-family: var(--font-serif);
+    font-weight: 400;
+    letter-spacing: 0;
+    scroll-margin-top: 5rem; /* clears the sticky header when an anchor is followed */
+  }
+
+  .sbx-prose h2 {
+    margin-top: 3rem;
+    margin-bottom: 0.65rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--sb-line);
+    font-size: 1.9rem;
+    line-height: 1.2;
+  }
+
+  .sbx-prose h3 {
+    margin-top: 2.25rem;
+    margin-bottom: 0.4rem;
+    font-size: 1.4rem;
+    line-height: 1.3;
+  }
+
+  /*
+   * `h4` is sans and bold rather than a smaller serif.
+   *
+   * Four levels of the same face is three levels nobody can tell apart. At this
+   * depth the job is no longer "find me in the page" but "label this paragraph",
+   * so it changes family instead of shrinking again.
+   */
+  .sbx-prose h4 {
+    margin-top: 1.75rem;
+    margin-bottom: 0.3rem;
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  /* The first heading of a body has nothing above it to be separated from. */
+  .sbx-prose > :is(h2, h3, h4):first-child {
+    margin-top: 0;
+  }
+
+  /*
+   * The self-link on a heading.
+   *
+   * Invisible until the heading is hovered or the link itself is focused. Present
+   * in the tab order all the same, because copying the address of a section is one
+   * of the things a reader of a reference page most wants and the mouse-only
+   * version of it helps nobody on a keyboard.
+   */
+  .sbx-anchor {
+    margin-left: 0.4rem;
+    color: var(--sb-brand);
+    font-family: var(--font-mono);
+    font-size: 0.75em;
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity 150ms;
+  }
+
+  .sbx-prose :is(h2, h3, h4):hover .sbx-anchor,
+  .sbx-anchor:focus-visible {
+    opacity: 1;
+  }
+
+  /* --- inline ----------------------------------------------------------- */
+
+  .sbx-prose strong {
+    color: var(--sb-ink);
+    font-weight: 600;
+  }
+
+  .sbx-prose a {
+    color: var(--sb-brand);
+    text-decoration: underline;
+    /* Far enough off the baseline that a descender is not struck through. */
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 1px;
+  }
+
+  .sbx-prose a:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  /*
+   * A link that leaves the site says so, with an arrow after the text.
+   *
+   * The pipeline marks off-site links with `target="_blank"`, and a link that
+   * opens a new tab without warning is a link that loses the reader's place. This
+   * is the warning, and it is drawn with a border rather than an image because the
+   * dashboard's Content-Security-Policy forbids `data:` in a stylesheet and the two
+   * apps share this token layer.
+   */
+  .sbx-prose a[target="_blank"]::after {
+    content: "";
+    display: inline-block;
+    width: 0.42em;
+    height: 0.42em;
+    margin-left: 0.3em;
+    border-top: 1.5px solid currentColor;
+    border-right: 1.5px solid currentColor;
+    transform: translateY(-0.15em) rotate(45deg);
+  }
+
+  /*
+   * Inline code, and the two things that keep it out of the way.
+   *
+   * `0.875em` and not `0.875rem`: inside a heading it then scales with the
+   * heading instead of collapsing to body size. And no backticks — the tint and
+   * the mono face already say what it is, and the previous site's quoted form
+   * turned every path in a table into six characters of punctuation.
+   */
+  .sbx-prose :not(pre) > code {
+    padding: 0.12em 0.34em;
+    border-radius: 0.35rem;
+    background: var(--sb-sunken);
+    color: var(--sb-ink);
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    letter-spacing: -0.01em;
+    word-break: break-word;
+  }
+
+  .sbx-prose a code {
+    color: inherit;
+  }
+
+  .sbx-prose kbd {
+    padding: 0.15em 0.4em;
+    border: 1px solid var(--sb-line-strong);
+    border-bottom-width: 2px;
+    border-radius: 0.3rem;
+    background: var(--sb-surface);
+    color: var(--sb-ink);
+    font-family: var(--font-mono);
+    font-size: 0.8em;
+  }
+
+  /* --- lists ------------------------------------------------------------ */
+
+  .sbx-prose :is(ul, ol) {
+    padding-left: 1.35rem;
+  }
+
+  .sbx-prose ul {
+    list-style: disc;
+  }
+
+  .sbx-prose ol {
+    list-style: decimal;
+  }
+
+  .sbx-prose li::marker {
+    color: var(--sb-ink-subtle);
+  }
+
+  /* Tighter than between paragraphs: the items of one list are one thought. */
+  .sbx-prose li + li {
+    margin-top: 0.4rem;
+  }
+
+  .sbx-prose li > :is(ul, ol) {
+    margin-top: 0.4rem;
+  }
+
+  /*
+   * A GFM task list is a list of checkboxes and needs no bullet beside them.
+   * `docs/reference/status.md` is entirely made of these.
+   */
+  .sbx-prose li:has(> input[type="checkbox"]) {
+    list-style: none;
+    margin-left: -1.35rem;
+  }
+
+  .sbx-prose li > input[type="checkbox"] {
+    margin-right: 0.5rem;
+    accent-color: var(--sb-brand);
+  }
+
+  /* --- tables ----------------------------------------------------------- */
+
+  /*
+   * Reference tables in these docs are dense — every flag, every field, every
+   * environment variable — and the previous site's two decisions about them were
+   * right: **smaller than the prose, and top-aligned.** A five-line "what it
+   * means" cell centred against a one-word name reads as though the two are not on
+   * the same row.
+   */
+  .sbx-prose table {
+    width: 100%;
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--sb-line);
+    border-collapse: collapse;
+    background: var(--sb-surface);
+    font-size: 0.875rem;
+    line-height: 1.55;
+  }
+
+  .sbx-prose :is(th, td) {
+    padding: 0.6rem 0.85rem;
+    vertical-align: top;
+    text-align: left;
+  }
+
+  .sbx-prose thead th {
+    border-bottom: 1px solid var(--sb-line-strong);
+    background: var(--sb-sunken);
+    color: var(--sb-ink);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .sbx-prose tbody tr + tr :is(th, td) {
+    border-top: 1px solid var(--sb-line);
+  }
+
+  /* A row's first cell is usually the name of the thing the row is about. */
+  .sbx-prose tbody th {
+    font-weight: 600;
+  }
+
+  .sbx-prose td p {
+    max-width: none;
+  }
+
+  /*
+   * On a narrow screen the table itself becomes the scroller.
+   *
+   * A `<table>` cannot scroll — the overflow has to be on a block — so below this
+   * width it is made one, and the browser wraps its rows in an anonymous table box
+   * that keeps the layout intact. The alternative is a page body that scrolls
+   * sideways, which takes the header and the navigation with it; the CLI reference
+   * has a four-column table that does exactly that on a phone.
+   *
+   * A wrapper element would be tidier, but the markup is the pipeline's and the
+   * vocabulary it emits has no wrapper in it. See the note in the report.
+   */
+  @media (max-width: 48rem) {
+    .sbx-prose table {
+      display: block;
+      overflow-x: auto;
+    }
+  }
+
+  /* --- the rest of the vocabulary --------------------------------------- */
+
+  .sbx-prose blockquote {
+    padding-left: 1rem;
+    border-left: 3px solid var(--sb-brand-line);
+    color: var(--sb-ink-muted);
+    font-style: italic;
+  }
+
+  .sbx-prose hr {
+    margin-top: 2.5rem;
+    margin-bottom: 2.5rem;
+    border: 0;
+    border-top: 1px solid var(--sb-line);
+  }
+
+  .sbx-prose img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-card);
+  }
+
+  /*
+   * A footnote list, which `marked` puts at the foot of the body.
+   *
+   * Quieter and smaller than the prose it annotates, and the back-reference is
+   * left as the link it is.
+   */
+  .sbx-prose .footnotes {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--sb-line);
+    color: var(--sb-ink-muted);
+    font-size: 0.875rem;
+  }
+}
+
+/* --- 1. alerts ---------------------------------------------------------- */
+
+/*
+ * A callout, in one of five kinds.
+ *
+ * One hue each, from the shared status tokens: `note` is the informational blue,
+ * `tip` the green, `important` the brand, `warning` the amber and `caution` the
+ * rose. Nothing here is a hex — see the head of this file.
+ *
+ * **`warning` and `caution` have to differ, and for a while they could not.** The
+ * token file was built for a dashboard, whose four states are running, starting,
+ * broken and idle — none of which is "be careful" — so there was no amber, and the
+ * two kinds both came out rose. Two callouts that a reader cannot tell apart are
+ * one callout with two names, and AUTHORING gives them different jobs. `--sb-warn`
+ * exists now and this reads it; `caution` keeps `--sb-bad`, which is right, because
+ * a caution is the one that says something is about to go wrong rather than that
+ * something needs care. The heavier left edge on a caution stays as the second
+ * signal, for anybody who cannot separate the two hues.
+ */
+@layer base {
+  .sbx-alert {
+    --alert-hue: var(--sb-busy);
+    --alert-tint: var(--sb-busy-soft);
+
+    margin-top: 1.75rem;
+    margin-bottom: 1.75rem;
+    padding: 0.9rem 1.1rem;
+    border: 1px solid color-mix(in oklab, var(--alert-hue) 30%, transparent);
+    border-left: 3px solid var(--alert-hue);
+    border-radius: var(--radius-card);
+    background: var(--alert-tint);
+    color: var(--sb-ink);
+  }
+
+  .sbx-alert > * + * {
+    margin-top: 0.6rem;
+  }
+
+  .sbx-alert p {
+    max-width: none;
+  }
+
+  .sbx-alert__title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--alert-hue);
+    font-weight: 600;
+    /* The title is a sentence of its own, not a heading, so it stays at prose
+       size and earns its emphasis from the weight and the hue. */
+    line-height: 1.45;
+  }
+
+  .sbx-alert__icon {
+    flex: none;
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+
+  /* A tinted background is a tighter contrast target than a neutral one, so the
+     body text on one is `ink` and never `ink-subtle`. See the palette's note. */
+  .sbx-alert :not(pre) > code {
+    background: color-mix(in oklab, var(--alert-hue) 12%, var(--sb-surface));
+  }
+
+  .sbx-alert--note {
+    --alert-hue: var(--sb-busy);
+    --alert-tint: var(--sb-busy-soft);
+  }
+
+  .sbx-alert--tip {
+    --alert-hue: var(--sb-ok);
+    --alert-tint: var(--sb-ok-soft);
+  }
+
+  .sbx-alert--important {
+    --alert-hue: var(--sb-brand);
+    --alert-tint: var(--sb-brand-soft);
+  }
+
+  .sbx-alert--warning {
+    --alert-hue: var(--sb-warn);
+    --alert-tint: var(--sb-warn-soft);
+  }
+
+  .sbx-alert--caution {
+    --alert-hue: var(--sb-bad);
+    --alert-tint: var(--sb-bad-soft);
+    border-left-width: 5px;
+  }
+}
+
+/* --- 2. code fences ----------------------------------------------------- */
+
+@layer base {
+  .sbx-code {
+    margin-top: 1.6rem;
+    margin-bottom: 1.6rem;
+    overflow: hidden;
+    border: 1px solid var(--sb-line);
+    border-radius: var(--radius-card);
+    background: var(--sb-sunken);
+  }
+
+  .sbx-code__bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.4rem 0.3rem 0.85rem;
+    border-bottom: 1px solid var(--sb-line);
+    background: var(--sb-surface-2);
+  }
+
+  .sbx-code__lang {
+    color: var(--sb-ink-subtle);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  /* Pushes the copy button to the right end of the bar. */
+  .sbx-code__bar .sbx-copy {
+    margin-left: auto;
+  }
+
+  .sbx-prose pre {
+    margin: 0;
+    padding: 0.9rem 1rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.65;
+    /*
+     * Lines are not wrapped, and that is deliberate for a tool documented by its
+     * command line. A wrapped `docker run` with six flags looks like six commands.
+     */
+    white-space: pre;
+    tab-size: 2;
+  }
+
+  /*
+   * Shiki's dual-theme output, wired to the attribute rather than the machine.
+   *
+   * The pipeline asks Shiki for two themes — `github-light` and `github-dark` —
+   * with `defaultColor: false`, so the HTML it emits carries **no colour at all**:
+   * every token has a `--shiki-light` and a `--shiki-dark` custom property on it
+   * and nothing else. Which of the two a reader sees is decided here, and only
+   * here.
+   *
+   * Shiki's own documented recipe for this switches on `prefers-color-scheme`, and
+   * that is the wrong mechanism for this site. The theme is an attribute on
+   * `<html>` — it has to be, because a reader can choose light on a dark machine —
+   * so a media query would give that reader a light page with dark code blocks.
+   * `:root[data-theme="dark"]` is what makes the two agree, and it is a plain
+   * selector rather than a `dark:` variant because these elements are the
+   * pipeline's and carry no utility classes.
+   *
+   * The background is ours in both themes: the token colours come from the theme
+   * and the surface comes from `--sb-sunken`, so a code block sits in the page
+   * rather than on top of it. Shiki's `--shiki-*-bg` variables are deliberately
+   * never read.
+   */
+  .sbx-code__pre,
+  .sbx-code__pre span {
+    color: var(--shiki-light, var(--sb-ink));
+    font-style: var(--shiki-light-font-style, inherit);
+    font-weight: var(--shiki-light-font-weight, inherit);
+    text-decoration: var(--shiki-light-text-decoration, inherit);
+    background: transparent;
+  }
+
+  :root[data-theme="dark"] .sbx-code__pre,
+  :root[data-theme="dark"] .sbx-code__pre span {
+    color: var(--shiki-dark, var(--sb-ink));
+    font-style: var(--shiki-dark-font-style, inherit);
+    font-weight: var(--shiki-dark-font-weight, inherit);
+    text-decoration: var(--shiki-dark-text-decoration, inherit);
+  }
+
+  /* A fence with no language, or one Shiki has no grammar for. */
+  .sbx-code[data-lang="text"] .sbx-code__lang {
+    color: var(--sb-ink-subtle);
+    opacity: 0.7;
+  }
+}
+
+/* --- 3. the prompt card ------------------------------------------------- */
+
+/*
+ * The single most important element on the site.
+ *
+ * The reader this whole documentation is arranged around does not type these
+ * commands — they hand the prompt to a coding agent and let it do the work. Every
+ * page somebody can arrive at cold opens with one of these, immediately after the
+ * introductory sentences (see AUTHORING.md), and it has to be the thing the eye
+ * lands on before the prose.
+ *
+ * So this is **the one place the accent is allowed to be loud**: a full brand
+ * gradient across the bar, the brand's own glow under the card, and a border in
+ * the brand rather than the neutral line. Everywhere else on the site the brand is
+ * a link colour and a 5%-tinted callout, which is what leaves this one room to
+ * shout.
+ */
+@layer base {
+  .sbx-prompt {
+    margin-top: 1.9rem;
+    margin-bottom: 1.9rem;
+    overflow: hidden;
+    border: 1px solid var(--sb-brand-line);
+    border-radius: var(--radius-panel);
+    background: var(--sb-surface);
+    box-shadow:
+      var(--shadow-panel),
+      0 14px 40px -26px color-mix(in oklab, var(--sb-brand) 60%, transparent);
+  }
+
+  .sbx-prompt__bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.6rem 0.5rem 0.9rem;
+    background-image: linear-gradient(135deg, var(--sb-brand), var(--sb-brand-2));
+    color: var(--sb-brand-ink);
+  }
+
+  .sbx-prompt__label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  .sbx-prompt__icon {
+    flex: none;
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+
+  .sbx-prompt__copy {
+    margin-left: auto;
+  }
+
+  /*
+   * The prompt's own text wraps, unlike every other block on the site.
+   *
+   * It is English, not a command line — the paragraph a person is about to paste
+   * into an agent — and a horizontal scroll bar under a paragraph means the last
+   * third of the instruction is somewhere the reader has to go and find.
+   */
+  .sbx-prose .sbx-prompt__pre {
+    padding: 1rem 1.1rem;
+    background: var(--sb-surface);
+    color: var(--sb-ink);
+    font-size: 0.875rem;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+/* --- the copy button ---------------------------------------------------- */
+
+/*
+ * One button, on two kinds of block, in three states.
+ *
+ * It carries no text of its own beyond the word: the handler in
+ * `components/Article.tsx` reads the block's `code` element and copies that, so
+ * there is never a second copy of the source to fall out of step with the first.
+ *
+ * The failed state is not decoration either. `navigator.clipboard` does not exist
+ * on an insecure origin, and a documentation preview served over plain `http://`
+ * is one — so the button really does fail on a real host, and when it does it says
+ * "Press ⌘C" and selects the code rather than blinking and doing nothing.
+ */
+@layer base {
+  .sbx-copy {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 0.35rem;
+    height: 1.6rem;
+    padding-inline: 0.5rem;
+    border: 1px solid var(--sb-line);
+    border-radius: 0.45rem;
+    background: var(--sb-surface);
+    color: var(--sb-ink-muted);
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      color 150ms,
+      background 150ms,
+      border-color 150ms;
+  }
+
+  .sbx-copy:hover {
+    background: var(--sb-hover);
+    color: var(--sb-ink);
+    border-color: var(--sb-line-strong);
+  }
+
+  .sbx-copy__icon {
+    width: 0.85rem;
+    height: 0.85rem;
+  }
+
+  .sbx-copy[data-state="copied"] {
+    border-color: color-mix(in oklab, var(--sb-ok) 45%, transparent);
+    background: var(--sb-ok-soft);
+    color: var(--sb-ok);
+  }
+
+  .sbx-copy[data-state="failed"] {
+    border-color: color-mix(in oklab, var(--sb-bad) 45%, transparent);
+    background: var(--sb-bad-soft);
+    color: var(--sb-bad);
+  }
+
+  /*
+   * On the prompt's gradient bar the button is a solid chip rather than a bordered
+   * ghost. A ghost button on a saturated background is either invisible or a
+   * smudge, and this is the button the whole card exists to be pressed.
+   */
+  .sbx-prompt__copy {
+    height: 1.8rem;
+    padding-inline: 0.7rem;
+    border-color: transparent;
+    background: var(--sb-surface);
+    color: var(--sb-brand);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .sbx-prompt__copy:hover {
+    background: var(--sb-surface);
+    border-color: transparent;
+    filter: brightness(1.04);
+  }
+
+  /* The ring is the page's own focus ring; on the gradient it needs the offset
+     colour to be the bar rather than the surface behind it. */
+  .sbx-prompt__copy:focus-visible {
+    outline-color: var(--sb-brand-ink);
+  }
+}
+
+/* --- 4. diagrams -------------------------------------------------------- */
+
+@layer base {
+  .sbx-diagram {
+    margin-top: 1.9rem;
+    margin-bottom: 1.9rem;
+  }
+
+  /*
+   * The frame is the same inset a code block sits in, because that is what a
+   * diagram is here: a fence that happened to be mermaid. It scrolls sideways on a
+   * narrow screen rather than shrinking the text inside an SVG to nothing.
+   */
+  .sbx-diagram__canvas {
+    display: flex;
+    justify-content: center;
+    overflow-x: auto;
+    padding: 1.1rem 0.75rem;
+    border: 1px solid var(--sb-line);
+    border-radius: var(--radius-card);
+    background: var(--sb-sunken);
+  }
+
+  .sbx-diagram__canvas svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /*
+   * The corners, and this is the one thing about a diagram that has to be CSS.
+   *
+   * Everything else a diagram looks like comes from `themeVariables` — see
+   * lib/diagram.ts — because that is the supported surface and it does not break
+   * when mermaid renames an internal class. But mermaid draws a plain rectangular
+   * node with no `rx` at all, and offers no theme variable for one, so a diagram
+   * of hard-cornered boxes was the last thing on these pages still shaped like
+   * somebody else's product: every other container on the site is rounded.
+   *
+   * `rx` and `ry` are real CSS properties on an SVG rectangle, and CSS beats the
+   * presentation attribute — which is why this works on the node without also
+   * having to fight the shapes mermaid draws as paths. It is geometry only, and
+   * mermaid has already measured and laid the diagram out by the time this
+   * applies, so nothing here can move a box or clip a label.
+   */
+  .sbx-diagram__canvas .node > rect.label-container,
+  .sbx-diagram__canvas .cluster > rect,
+  .sbx-diagram__canvas rect.note {
+    rx: 0.5rem;
+    ry: 0.5rem;
+  }
+
+  /*
+   * The little patch behind a label on an arrow, which mermaid draws as a hard
+   * rectangle of `edgeLabelBackground` at half opacity. On the frame it is
+   * invisible, because that variable *is* the frame colour — but an arrow that
+   * runs through a subgraph puts the patch on the subgraph's tint instead, and
+   * there it reads as a grey sticker somebody forgot to remove. Rounding it is
+   * all that is needed: it then reads as the label's own chip.
+   *
+   * Only the radius. The colour stays in `themeVariables`, where mermaid's own
+   * rule for it lives, and a rule here could not win against it anyway — mermaid
+   * scopes its injected CSS by the SVG's id, which outweighs any class selector.
+   */
+  .sbx-diagram__canvas .labelBkg {
+    border-radius: 0.25rem;
+  }
+
+  /*
+   * The source, shown until mermaid has replaced it — and shown for good if it
+   * will not parse. A diagram that fails is still readable as text, and the
+   * failure is then obvious to whoever wrote it rather than silent.
+   */
+  .sbx-prose .sbx-diagram__fallback {
+    margin: 0;
+    padding: 0;
+    color: var(--sb-ink-subtle);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.6;
+    white-space: pre;
+  }
+
+  .sbx-diagram figcaption {
+    margin-top: 0.6rem;
+    color: var(--sb-ink-subtle);
+    font-size: 0.8125rem;
+    text-align: center;
+  }
+}
+
+/* --- 5. detail blocks --------------------------------------------------- */
+
+/*
+ * A collapsed block of deeper detail, in one of four kinds.
+ *
+ * The prose of every page is written for somebody reading it for the first time.
+ * The exact paths, flags, schema fields and failure modes that an agent needs in
+ * order to operate the thing live in one of these instead — present, but not in
+ * the way. The summary always says *who* the block is for and *what* is inside,
+ * because a disclosure triangle labelled "More" tells a reader nothing about
+ * whether it is worth opening.
+ *
+ * The chip carries the audience and the hue carries the kind, so a page of six of
+ * these can be skimmed for the one that answers the question in hand.
+ */
+@layer base {
+  .sbx-detail {
+    --detail-hue: var(--sb-ink-subtle);
+    --detail-tint: var(--sb-sunken);
+
+    margin-top: 1.6rem;
+    margin-bottom: 1.6rem;
+    overflow: hidden;
+    border: 1px solid var(--sb-line);
+    border-radius: var(--radius-card);
+    background: var(--sb-surface-2);
+  }
+
+  .sbx-detail[data-kind="agent"] {
+    --detail-hue: var(--sb-brand);
+    --detail-tint: var(--sb-brand-soft);
+  }
+
+  .sbx-detail[data-kind="failure"] {
+    --detail-hue: var(--sb-bad);
+    --detail-tint: var(--sb-bad-soft);
+  }
+
+  .sbx-detail[data-kind="why"] {
+    --detail-hue: var(--sb-busy);
+    --detail-tint: var(--sb-busy-soft);
+  }
+
+  .sbx-detail[data-kind="facts"] {
+    --detail-hue: var(--sb-ok);
+    --detail-tint: var(--sb-ok-soft);
+  }
+
+  .sbx-detail__summary {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.65rem 0.85rem;
+    cursor: pointer;
+    list-style: none; /* the default marker is replaced by the chevron below */
+    font-size: 0.9375rem;
+    transition: background 150ms;
+  }
+
+  /* Safari draws its own triangle from this pseudo-element. */
+  .sbx-detail__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .sbx-detail__summary:hover {
+    background: var(--sb-hover);
+  }
+
+  .sbx-detail__icon {
+    flex: none;
+    width: 1.05rem;
+    height: 1.05rem;
+    color: var(--detail-hue);
+  }
+
+  .sbx-detail__chip {
+    flex: none;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: var(--detail-tint);
+    color: var(--detail-hue);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+
+  .sbx-detail__text {
+    min-width: 0;
+    color: var(--sb-ink-muted);
+    font-size: 0.875rem;
+  }
+
+  .sbx-detail__chevron {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    margin-left: auto;
+    color: var(--sb-ink-subtle);
+    transition: transform 150ms;
+  }
+
+  .sbx-detail[open] .sbx-detail__chevron {
+    transform: rotate(180deg);
+  }
+
+  .sbx-detail__body {
+    padding: 0.25rem 0.95rem 1rem;
+    border-top: 1px solid var(--sb-line);
+  }
+
+  /* The body is prose again, one step smaller, because it is an aside. */
+  .sbx-detail__body {
+    font-size: 0.9375rem;
+  }
+
+  .sbx-detail__body > :first-child {
+    margin-top: 0.85rem;
+  }
+
+  /* A block folded away should not leave a gap where its neighbour's margin was. */
+  .sbx-detail + .sbx-detail {
+    margin-top: 0.65rem;
+  }
+}
+
+/* --- the table of contents --------------------------------------------- */
+
+/*
+ * Agent E's markup, this file's appearance. It is a rail: one hairline down the
+ * left, and the entry the reader is inside marked on it. Deliberately quiet —
+ * a table of contents that competed with the text would be a second sidebar.
+ */
+@layer base {
+  .sbx-toc {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .sbx-toc__title {
+    margin-bottom: 0.6rem;
+    color: var(--sb-ink-subtle);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .sbx-toc ul {
+    border-left: 1px solid var(--sb-line);
+    list-style: none;
+  }
+
+  .sbx-toc a {
+    display: block;
+    margin-left: -1px;
+    padding: 0.25rem 0.6rem;
+    border-left: 2px solid transparent;
+    color: var(--sb-ink-muted);
+    text-decoration: none;
+    transition:
+      color 150ms,
+      border-color 150ms;
+  }
+
+  .sbx-toc a:hover {
+    color: var(--sb-ink);
+  }
+
+  /* `location` and not `page`: the reader is *inside* this section, not on a
+     different document. It is the attribute the ARIA spec has for exactly this. */
+  .sbx-toc a[aria-current="location"] {
+    border-left-color: var(--sb-brand);
+    color: var(--sb-brand);
+    font-weight: 500;
+  }
+
+  /* An `h3` is a step in from its `h2`. */
+  .sbx-toc [data-depth="3"] a {
+    padding-left: 1.35rem;
+  }
+}
