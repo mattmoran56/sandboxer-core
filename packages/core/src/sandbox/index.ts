@@ -33,6 +33,7 @@ import { driverContext, getDriver } from "../drivers/index.js";
 import { chooseSeed } from "../drivers/seed.js";
 import { describeSeedChoice, mysqlSettings } from "../drivers/mysql.js";
 import type { SeedArtifact } from "../drivers/types.js";
+import { hostClaudeCredentials } from "../agent/credentials.js";
 import { gitFacts, gitMounts, hostGitIdentity } from "../git.js";
 import { findProject } from "../workspace.js";
 import { addWorktree } from "../worktree.js";
@@ -255,6 +256,11 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // input record precisely so every mount can be asserted without a daemon.
   const gitPaths = await gitMounts(projectRoot);
   const gitIdentity = await hostGitIdentity(env);
+  // The host's Claude Code login, shared with the sandbox rather than copied
+  // into it — an OAuth refresh token rotates and is single-use, so two copies
+  // kill each other. Undefined on any machine without that file, which includes
+  // every macOS one; see ../agent/credentials.ts.
+  const claudeCredentials = hostClaudeCredentials(env);
   if (gitPaths.length === 0) {
     // Said once, at the only moment somebody can act on it. A sandbox on a
     // directory that is not the top of a checkout is perfectly runnable — it
@@ -301,6 +307,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
       gitMounts: gitPaths,
       gitIdentity,
       ghToken,
+      claudeCredentials,
       routerLabels: sandboxRouteLabels({
         container,
         slug,

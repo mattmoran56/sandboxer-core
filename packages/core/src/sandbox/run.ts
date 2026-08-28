@@ -18,6 +18,7 @@ import {
   BLOB_DIR,
   CACHE_DIR,
   CLAUDE_DIR,
+  CREDENTIALS_FILE,
   DATA_DIR,
   LOG_DIR,
   PLAN_FILE,
@@ -76,6 +77,14 @@ export interface RunInput {
    * token in the login keychain, so there is no file that could be mounted.
    */
   ghToken?: string | undefined;
+  /**
+   * The host's Claude Code login, as a path on the host.
+   *
+   * Absent unless that file exists, which on macOS it never does. Resolved by
+   * `hostClaudeCredentials` in ../agent/credentials.ts, which is where the whole
+   * reasoning lives.
+   */
+  claudeCredentials?: string | undefined;
   /**
    * The labels the shared router reconciles from.
    *
@@ -169,6 +178,25 @@ export function runArgs(input: RunInput): string[] {
   // below is not optional.
   args.push("-v", `${CLAUDE_VOLUME}:${CLAUDE_DIR}`);
   args.push("-e", `CLAUDE_CONFIG_DIR=${CLAUDE_DIR}`);
+  // The host's login, one file, mounted over the volume's copy of it.
+  //
+  // **The single file and not the directory**, and that is the security boundary
+  // rather than tidiness: binding all of `~/.claude` would give every sandbox
+  // write access to the host's settings.json, which can define hooks — commands
+  // the host's own Claude Code then executes. A sandbox writing one is a
+  // container-to-host escalation delivered by a convenience feature, and the
+  // same mount would hand it the person's history, plans and project state too.
+  //
+  // **Read-write, deliberately.** An OAuth refresh token rotates and is
+  // single-use, so a *copy* dies the first time either side refreshes; sharing
+  // the one file means the refresh a sandbox performs updates the host's login
+  // and every other sandbox's at once. Read-only would work exactly until that
+  // first refresh and then fail the same way copying did.
+  //
+  // Ordered after the volume because Docker applies mounts by path depth, not by
+  // argument order — but written after it anyway, so reading this list top to
+  // bottom describes what the container actually gets.
+  if (input.claudeCredentials) args.push("-v", `${input.claudeCredentials}:${CREDENTIALS_FILE}`);
 
   // The commit identity, as four variables rather than a mounted gitconfig.
   //

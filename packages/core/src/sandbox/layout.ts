@@ -46,6 +46,21 @@ export const WWW_DIR = "/srv/www";
  */
 export const CLAUDE_DIR = "/root/.claude";
 
+/**
+ * Claude Code's stored login, inside that directory.
+ *
+ * Here rather than beside the code that reads it because it is now two things at
+ * once: the file the server probes to decide whether a subscription login is
+ * present, and a mount point — the host's own copy is bind-mounted over it when
+ * there is one (contracts §7.2). A path that is both a mount and a probe target
+ * spelled in two places is a path that eventually disagrees with itself.
+ *
+ * Existence is the only thing sandboxr ever asks about it. Its contents are
+ * Claude Code's business, and reading an account credential to answer a yes/no
+ * question would put it somewhere it has no reason to be.
+ */
+export const CREDENTIALS_FILE = `${CLAUDE_DIR}/.credentials.json`;
+
 /** Runtime state, on a tmpfs: gone when the container stops, as it should be. */
 export const RUN_DIR = "/run/sandboxr";
 

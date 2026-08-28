@@ -106,6 +106,10 @@ can read every credential in it. None of these shared volumes is ever reaped by 
 when a sandbox is deleted (§ garbage collection); reaping this one would silently sign the
 machine out of every server it had been given.
 
+One path inside that volume comes from the host rather than from the volume: when
+`~/.claude/.credentials.json` exists on the host it is bind-mounted read-write over the volume's
+copy, so a login is shared with every sandbox rather than duplicated into each. See §7.2.
+
 ### 3.4 Container labels
 
 State lives **only** in Docker labels. There is no manifest file, no database of sandboxes.
@@ -892,6 +896,50 @@ login is unaffected.
 Placing one is **opt-in and deliberately not the default**: that credential can mint API keys
 against the organisation and reaches the person's mail, files and chat, from a root filesystem in
 a container whose job is executing project code, in a volume every sandbox on the machine shares.
+
+#### The host's login, shared rather than copied
+
+**When the host has `~/.claude/.credentials.json`, that one file is bind-mounted read-write into
+every sandbox** at `/root/.claude/.credentials.json`, over the volume. It is resolved on the host
+by `hostClaudeCredentials` (`packages/core/src/agent/credentials.ts`), which honours the host's own
+`CLAUDE_CONFIG_DIR` and never assumes `$HOME` is `/root`.
+
+**Shared, not copied, because an OAuth refresh token rotates and is single-use.** Two copies
+invalidate each other the first time either side refreshes: the host refreshes, the sandbox's copy
+is dead, and Claude Code blanks its own file rather than reporting a stale token. One file with one
+writer at a time has no such state — a refresh inside a sandbox updates the host's login and every
+other sandbox's at once. This is why the mount is **read-write**; read-only would work exactly until
+the first refresh and then fail the same way the copy did.
+
+**One file crosses the boundary, and the directory deliberately does not.** Binding all of
+`~/.claude` would give every sandbox write access to the host's `settings.json`, which can define
+**hooks — commands the host's own Claude Code then executes.** That turns a convenience into a
+container-to-host escalation: code running in a sandbox writes a hook, and the next thing the person
+does on their own machine runs it. The same mount would also expose their history, plans and
+per-project state to whatever is running in a sandbox. The credential is the only file that has a
+reason to cross, so it is the only one that does.
+
+Three consequences are part of the contract:
+
+- **No file, no mount.** Docker silently creates a *directory* where a bind source is missing, and
+  Claude Code then fails in a way that names neither Docker nor the mount. Absent — or present but
+  empty, which is what a rotation conflict leaves behind — the sandbox falls back to the volume.
+  An empty file is skipped rather than mounted because the login probe above tests existence: a
+  blank file would be read as a login, withhold the setup-token, and leave the session with no
+  credential at all.
+- **On Linux, a host login is therefore shared with every sandbox on the machine**, with all of the
+  reach described above. That is the supported arrangement, and it is a decision, not an oversight.
+- **On macOS there is no such file** — the credential lives in the login keychain — so nothing is
+  mounted unless a person exports one to that path by hand. See the guide.
+
+**The dashboard is given the path at `init`, not left to resolve it.** It runs in a container whose
+`$HOME` is not the person's, so resolving from inside it would find nothing while the CLI found the
+file, and sandboxes started from the browser would silently differ from sandboxes started from the
+terminal — the failure the git-identity note in §7.3 already records. `init` resolves the path on
+the host and forwards it as `SANDBOXR_CLAUDE_CREDENTIALS`, which is also the override a deployment
+can set directly. A forwarded path is trusted rather than re-checked, because the container it is
+read in cannot see the host filesystem; a credential removed after `init` therefore needs another
+`init` to be noticed.
 
 **Credentials never reach the worktree.** The session authenticates with an OAuth token from
 `claude setup-token`, held in the server's environment and passed to the exec as

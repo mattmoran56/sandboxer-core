@@ -186,6 +186,15 @@ export function depsVolumeName(lockHash: string): string {
  * later change needs isolation between sandboxes, this is the line to revisit,
  * and the price of revisiting it is logging in once per sandbox again.
  *
+ * One thing has changed under that paragraph and it is worth saying here rather
+ * than leaving the sentence above to read as still-complete: when the *host* has
+ * a `.credentials.json`, that one file is mounted over this volume's copy in
+ * every sandbox, so a full subscription credential is exactly what a container
+ * gets. It is the host's own file rather than a duplicate — one token, one
+ * writer, because a copied refresh token rotates out from under itself — and it
+ * is a deliberate arrangement, described in contracts §7.2 and resolved by
+ * `hostClaudeCredentials`. The reach described above is its reach.
+ *
  * A second, quieter consequence: Claude Code keys its per-project state on the
  * working directory, and every sandbox's worktree is `/workspace`, so all of
  * them share one project entry. A locally-scoped MCP server added inside one

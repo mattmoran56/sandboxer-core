@@ -182,6 +182,7 @@ export { checkSecrets, importSecrets, filterSecrets, parseEnvFile, matchesAny } 
 export type { SecretsCheck, SecretsReport, SecretRules } from "./secrets.js";
 
 export { gitFacts, gitMounts, hostGitIdentity, type GitFacts, type GitIdentity } from "./git.js";
+export { CREDENTIALS_ENV, claudeConfigDir, hostClaudeCredentials } from "./agent/credentials.js";
 
 export { MAIN_THREAD } from "./agent/types.js";
 export type {

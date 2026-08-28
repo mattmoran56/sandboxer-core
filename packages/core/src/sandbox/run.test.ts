@@ -3,6 +3,7 @@
 // - runArgs: one volume per purpose, the data mount per driver, storage only when declared
 // - runArgs: the seed cache is read-only, the secrets file is layered under the generated environment
 // - runArgs: the machine-wide Claude volume is mounted and CLAUDE_CONFIG_DIR points inside it
+// - runArgs: the host's login is one file mounted read-write over the volume, never the directory, and absent without one
 // - runArgs: the git mounts land at the identical path inside and out, read-write, and none is /workspace
 // - runArgs: the commit identity is passed as author *and* committer, and omitted when there is none
 // - runArgs: GH_TOKEN only when one was resolved, so opting out leaves no credential in the container
@@ -207,6 +208,35 @@ describe("runArgs", () => {
     expect(args[index - 1]).toBe("-e");
     // Before the image, or docker reads it as an argument to the entrypoint.
     expect(index).toBeLessThan(args.indexOf("--entrypoint"));
+  });
+
+  describe("the host's Claude login", () => {
+    const shared = runArgs({ ...base, claudeCredentials: "/Users/ada/.claude/.credentials.json" });
+
+    it("mounts the one file over the volume's copy of it", () => {
+      expect(shared).toContain("/Users/ada/.claude/.credentials.json:/root/.claude/.credentials.json");
+    });
+
+    // The whole security argument for this feature. Binding `~/.claude` itself
+    // would give every sandbox write access to the host's settings.json, which
+    // can define hooks — commands the host's own Claude Code then executes.
+    it("never mounts the directory around it", () => {
+      expect(shared).not.toContain("/Users/ada/.claude:/root/.claude");
+      expect(shared.filter((arg) => arg.startsWith("/Users/ada/.claude:"))).toHaveLength(0);
+    });
+
+    // A refresh token rotates and is single-use, so the sandbox has to be able
+    // to write the rotated one back. `:ro` would work until the first refresh.
+    it("mounts it read-write", () => {
+      expect(shared.join(" ")).not.toContain(".credentials.json:/root/.claude/.credentials.json:ro");
+    });
+
+    // Docker answers a missing bind source by creating a directory there, so
+    // "no file on the host" has to mean no mount at all rather than an empty one.
+    it("adds nothing when the host has no login", () => {
+      expect(args.join(" ")).not.toContain("/root/.claude/.credentials.json");
+      expect(args).toContain("sandboxr-claude:/root/.claude");
+    });
   });
 
   // The directory holding the lockfile is not always the directory holding the

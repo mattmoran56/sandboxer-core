@@ -9,6 +9,7 @@
 // - the agent-session variables are forwarded from the host, and a blank one is omitted rather
 //   than passed through as an empty value
 // - the host's commit identity is forwarded, so a sandbox started from the browser can commit
+// - the host's Claude login is forwarded as a path and never as a mount, and omitted when there is none
 
 import { describe, expect, it } from "vitest";
 
@@ -247,5 +248,53 @@ describe("the commit identity", () => {
     const vars = varsOf(dashboardArgs({ domain: "sbx.localhost", tls: true, env }));
     expect(vars).not.toHaveProperty("GIT_AUTHOR_NAME");
     expect(vars).not.toHaveProperty("GIT_AUTHOR_EMAIL");
+  });
+});
+
+describe("the host's Claude login", () => {
+  const env = { SANDBOXR_HOME: "/home/me/.sandboxr", SANDBOXR_INSTALL: "/opt/sandboxr", HOME: "/home/me" };
+
+  const varsOf = (args: string[]): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i] !== "-e") continue;
+      const [key, ...rest] = String(args[i + 1]).split("=");
+      out[String(key)] = rest.join("=");
+    }
+    return out;
+  };
+
+  // The path, resolved on the host at `init`. The dashboard's own `$HOME` is
+  // not the person's and it cannot see the host filesystem at all, so a
+  // dashboard left to resolve this itself would start sandboxes without a login
+  // while the CLI started them with one.
+  it("is forwarded as a path, so a sandbox started from the browser gets the same mount", () => {
+    const vars = varsOf(
+      dashboardArgs({
+        domain: "sbx.localhost",
+        tls: true,
+        env,
+        claudeCredentials: "/Users/ada/.claude/.credentials.json",
+      }),
+    );
+    expect(vars.SANDBOXR_CLAUDE_CREDENTIALS).toBe("/Users/ada/.claude/.credentials.json");
+  });
+
+  it("is omitted when this machine has no such file", () => {
+    const vars = varsOf(dashboardArgs({ domain: "sbx.localhost", tls: true, env }));
+    expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_CREDENTIALS");
+  });
+
+  // The credential itself never comes in here. The dashboard is handed a path;
+  // the file is mounted into each sandbox by the host's own daemon.
+  it("mounts nothing into the dashboard itself", () => {
+    const args = dashboardArgs({
+      domain: "sbx.localhost",
+      tls: true,
+      env,
+      claudeCredentials: "/Users/ada/.claude/.credentials.json",
+    });
+    const mounts = args.filter((arg, i) => args[i - 1] === "-v");
+    expect(mounts.join(" ")).not.toContain(".credentials.json");
   });
 });

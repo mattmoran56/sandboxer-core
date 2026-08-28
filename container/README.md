@@ -200,8 +200,20 @@ Mounts the host is expected to provide:
 | `/srv/www` | the `www` volume |
 | `/workspace/<deps.root>/node_modules` | the shared `deps-<hash>` volume |
 | `/root/.claude` | the machine-wide `sandboxr-claude` volume: Claude Code's state, shared by every sandbox so an MCP server is authorised once per machine rather than once per worktree |
+| `/root/.claude/.credentials.json` | the **host's** Claude Code login, one file, bind-mounted read-write over the volume's copy — and only when that file exists on the host |
 | `<the worktree's own host path>` | the worktree a second time, at the path the host calls it |
 | `<the repository's own host path>` | the bare repo or `.git` the worktree points at, read-write |
+
+**The credential is one file, and the directory around it is deliberately not
+mounted.** Binding all of the host's `~/.claude` would give every sandbox write
+access to its `settings.json`, which can define hooks — commands the host's own
+Claude Code then executes — so a sandbox could put a command on the person's
+machine. It is shared rather than copied because an OAuth refresh token rotates
+and is single-use: two copies invalidate each other the first time either side
+refreshes, which is why the mount is read-write. A host without that file (every
+macOS one, where the credential is in the login keychain) gets no mount at all
+and the volume alone, exactly as before. The host decides, in
+`hostClaudeCredentials` (packages/core/src/agent/credentials.ts).
 
 **The last two are what make `git` work in here, and they are mounted at the
 identical path inside and out on purpose.** A linked worktree's `.git` is a file
