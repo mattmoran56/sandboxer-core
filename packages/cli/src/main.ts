@@ -1139,7 +1139,13 @@ async function cmdSecrets(
     const check = await checkSecrets(config, { env });
     if (out.json) out.data(check);
     if (!check.exists) {
-      out.warn(`no secrets file yet — run: sandboxr secrets import`);
+      // Both ways in, because `import` alone is the wrong advice for the case
+      // this feature exists for: a fresh checkout whose `.env` files are all
+      // `.env.example` has nothing to import *from*, and being told to run a
+      // command that reads nothing is worse than being told nothing.
+      out.warn("no secrets file yet");
+      out.dim("      set one by hand:            sandboxr secrets set " + (check.absent[0] ?? "NAME"));
+      out.dim("      or take them from .env:     sandboxr secrets import");
       return 1;
     }
     for (const name of check.present) out.ok(name);
@@ -1651,7 +1657,10 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
           : {
               ok: false,
               text: `missing credentials: ${check.absent.join(", ")}`,
-              fix: "sandboxr secrets import",
+              // Named by name, and `set` first: a project with no `.env` files
+              // on disk has nothing to import from, which is exactly the case a
+              // missing credential is most likely to be.
+              fix: `sandboxr secrets set ${check.absent[0] ?? "NAME"}, or sandboxr secrets import`,
             },
       );
     } catch (error) {
