@@ -32,6 +32,7 @@ import {
   GOMOD_DIR,
   LOG_DIR,
   PLAN_FILE,
+  SCRIPTS_DIR,
   SECRETS_FILE,
   WORKSPACE,
   WWW_DIR,
@@ -43,7 +44,7 @@ import {
 export const DEFAULT_IMAGE = "sandboxr/base:latest";
 
 /** The entrypoint inside that image. */
-export const ENTRYPOINT = "/opt/sandboxr/scripts/entrypoint.sh";
+export const ENTRYPOINT = `${SCRIPTS_DIR}/entrypoint.sh`;
 
 export interface RunInput {
   config: ResolvedConfig;

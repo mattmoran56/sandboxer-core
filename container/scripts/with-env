@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Run a command with the environment the sandbox computed for itself.
+#
+# `docker exec` gets the container's *configured* environment and never sees what
+# the entrypoint exported: /init inherits those and S6_KEEP_ENV=1 hands them to
+# every supervised service, but a process the host reaches in and starts is not
+# under supervision (the wart is documented at the top of env.sh). Every script in
+# here works around that by sourcing lib.sh itself. A command that is not one of
+# these scripts cannot, and `claude` is exactly that — an agent session is exec'd
+# as bare `claude` argv.
+#
+# Until the project's secrets became a mounted file rather than a second
+# `docker run --env-file`, they reached such a process anyway, because an env-file
+# *is* the container's configured environment. With the env-file gone, everything
+# the agent's Bash tool runs — the test suite, a migration, a build — would run
+# without the project's credentials, and without the plan's `env:` map either.
+#
+# An argv prefix rather than a shell string, on purpose. `agentArgv`
+# (packages/core/src/agent/launch.ts) builds an argument vector in which
+# `--tools ""` is a deliberately empty *argument*; folding it into a `sh -c`
+# string would lose it, and losing it silently widens what a side question may do.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=lib.sh
+source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+exec "$@"

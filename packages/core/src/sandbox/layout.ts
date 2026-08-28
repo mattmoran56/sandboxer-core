@@ -12,6 +12,34 @@ import { basename, resolve, sep } from "node:path";
 /** The worktree, bind-mounted read-write so a saved file is live inside. */
 export const WORKSPACE = "/workspace";
 
+/**
+ * Where the image installs `container/scripts/`.
+ *
+ * Not a mount — it is part of the image — but it belongs here for the same
+ * reason the mounts do: it is a path both sides have to spell identically, and
+ * the container half already spells it once, as `SANDBOXR_SCRIPTS`'s default in
+ * `container/scripts/lib.sh`.
+ */
+export const SCRIPTS_DIR = "/opt/sandboxr/scripts";
+
+/**
+ * The prefix that gives a command the environment the sandbox computed for
+ * itself (`container/scripts/with-env`).
+ *
+ * Needed because `docker exec` gets the container's *configured* environment and
+ * never sees what the entrypoint exported — /init inherits those and
+ * `S6_KEEP_ENV=1` passes them to every supervised service, but a process the host
+ * reaches in and starts is not supervised. Each script under `SCRIPTS_DIR` sources
+ * the library itself and so needs nothing; a command that is not one of them, and
+ * `claude` above all, has no way to.
+ *
+ * It became necessary when the secrets file stopped being a `--env-file`: an
+ * env-file *was* the container's configured environment, so it reached such a
+ * process by accident. A mount does not, and without this prefix everything an
+ * agent session ran would run without the project's credentials.
+ */
+export const WITH_ENV = `${SCRIPTS_DIR}/with-env`;
+
 /** The plan: the container's only view of the project, mounted read-only. */
 export const PLAN_FILE = "/sandboxr/plan.json";
 

@@ -48,7 +48,7 @@ import { envDigest, readProjectSecrets } from "../secrets.js";
 import { planGc } from "./gc.js";
 import { planPrune, type PruneResult } from "./prune.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
-import { BUILT_MANIFEST, MIGRATE_STATE, WWW_DIR, seedMount } from "./layout.js";
+import { BUILT_MANIFEST, MIGRATE_STATE, WITH_ENV, WWW_DIR, seedMount } from "./layout.js";
 import { backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
 import type {
   DownOptions,
@@ -499,7 +499,13 @@ export async function reload(project: string, slug: string, options: ReloadOptio
     for (const backend of targets) {
       const build = backendBuild(backend);
       log(`Rebuilding ${backend.name}`);
-      const result = await docker.exec(container, ["sh", "-lc", build.command], { workdir: build.workdir });
+      // `WITH_ENV` because this is the project's own build command: it reads the
+      // project's variable names, which the plan's `env:` map only creates when
+      // the container's shell library has been sourced. A `docker exec` sees
+      // none of that on its own — see the constant. It mattered less while the
+      // secrets file was a `--env-file`, which at least reached a bare exec;
+      // now nothing does.
+      const result = await docker.exec(container, [WITH_ENV, "sh", "-lc", build.command], { workdir: build.workdir });
       output += result.stdout + result.stderr;
       if (result.code === 0) {
         built.push(backend.name);
@@ -526,9 +532,13 @@ export async function reload(project: string, slug: string, options: ReloadOptio
     }
     const build = frontendBuild(config, app);
     log(`Building ${app.label} (types are not checked here; CI does that)`);
+    // `WITH_ENV` for the same reason as the backend build above, and it bites
+    // harder here: a front-end bakes its configuration into the bundle, so a
+    // build without the project's environment produces an app that loads and
+    // then talks to nothing.
     const result = await docker.exec(
       container,
-      ["sh", "-lc", `${build.command} && mkdir -p ${build.served} && cp -a ${build.output}/. ${build.served}/`],
+      [WITH_ENV, "sh", "-lc", `${build.command} && mkdir -p ${build.served} && cp -a ${build.output}/. ${build.served}/`],
       { workdir: build.workdir },
     );
     output += result.stdout + result.stderr;
