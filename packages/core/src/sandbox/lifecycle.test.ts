@@ -571,7 +571,19 @@ describe("status", () => {
         return { stdout: "" };
       },
     });
-    const result = await status("acme", "tkt-1", { docker, config: configOf(), env: { SANDBOXR_DOMAIN: "sbx.localhost" } });
+    // `SANDBOXR_HOME` and not just the domain, and it is load-bearing: the URL a
+    // status reports is https or http depending on whether the router found a
+    // certificate, which `routerScheme` decides by looking for one under the
+    // home. Without a home of its own this read the developer's real
+    // `~/.sandboxr` — so the test passed on a machine with no mkcert and failed
+    // on one with it, which is a test asserting a fact about the laptop it ran
+    // on rather than about the code.
+    const home = await mkdtemp(join(tmpdir(), "sbx-status-"));
+    const result = await status("acme", "tkt-1", {
+      docker,
+      config: configOf(),
+      env: { SANDBOXR_DOMAIN: "sbx.localhost", SANDBOXR_HOME: home },
+    });
     expect(result.migrations).toBe("ok");
     expect(result.built).toEqual(["app"]);
     expect(result.services[0]).toMatchObject({ name: "api", up: true, url: "http://tkt-1.api.acme.sbx.localhost" });
