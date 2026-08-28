@@ -162,7 +162,7 @@ are configured.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `SANDBOXR_CLAUDE_TOKEN` | — | The credential every [agent session](../guides/agent-sessions.md) runs with |
+| `SANDBOXR_CLAUDE_TOKEN` | — | The credential an [agent session](../guides/agent-sessions.md) runs with, unless the sandbox can read a login |
 | `SANDBOXR_CLAUDE_MCP` | none | MCP servers every session is given, as JSON |
 | `SANDBOXR_CLAUDE_MODEL` | `claude-opus-5` | Which model a session runs on when nothing picks one |
 | `SANDBOXR_CLAUDE_PERMISSION_MODE` | `auto` | Which mode a session *starts* in |
