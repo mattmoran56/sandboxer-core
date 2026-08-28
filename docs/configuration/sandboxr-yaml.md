@@ -1,15 +1,27 @@
 ---
 title: sandboxr.yaml, field by field
-description: The complete reference for a project's configuration — every block, every field, every default, and the rules checked after parsing.
-sidebar:
-  order: 1
+description: The complete reference for a project's configuration — every block, every field, every type and every default.
 ---
 
-This is the full reference. `packages/core/src/config/schema.ts` is the authority; where this page
-and the schema disagree, the schema is right.
+Every field a `sandboxr.yaml` accepts, in schema order. Use
+[Build your config, step by step](index.md) if you are writing one for the first time;
+this page is for looking things up.
 
-Every object is **strict**: a misspelled key is an error naming the key, not a setting that
-silently does nothing.
+```prompt
+Answer a question about a sandboxr.yaml field.
+
+Read docs/configuration/sandboxr-yaml.md. Treat it as the field list, and
+docs/configuration/rules.md as the list of constraints. If the answer is not on either
+page, say so rather than guessing — the authority is
+packages/core/src/config/schema.ts in the sandboxr repository.
+```
+
+`packages/core/src/config/schema.ts` is the authority. Where this page and the schema
+disagree, the schema is right.
+
+**Every object is strict.** A misspelled key is an error naming the key, not a setting that
+silently does nothing. That matters in a file which decides what a sandbox serves: a typo
+you cannot see is worse than a failure you can.
 
 ## Top level
 
@@ -26,16 +38,20 @@ sandboxr: ">=0.1.0"      # required
 | `backends` | [block](#backends) | no | none |
 | `frontends` | [block](#frontends) | no | none |
 | `routes` | [block](#routes) | no | `{}` |
-| `secrets` | [block](#secrets) | no | empty |
-| `storage` | [block](#storage) | no | `{ driver: none }` |
-| `deps` | [block](#deps) | no | auto-detected |
-| `toolchain` | [block](#toolchain) | no | none |
-| `access` | [block](#access) | no | `apps: public, controls: password, credentials: dummy` |
+| `secrets` | [block](#secrets) | no | all four lists empty |
+| `storage` | [block](#storage) | no | `{ driver: none, buckets: [] }` |
+| `deps` | [block](#deps) | no | detected from a lockfile |
+| `toolchain` | [block](#toolchain) | no | neither runtime |
+| `access` | [block](#access) | no | `apps: public`, `controls: password`, `credentials: dummy` |
 | `env` | map of name to string | no | `{}` |
 
-`project` goes into hostnames, container names and volume names, so it shares the hostname
-alphabet. `sandboxr` is matched against the tool's own version and supports `>= <= > < ^ ~ =`,
-space or comma for AND, `||` for OR.
+`project` must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. It goes into hostnames, container
+names and volume names, so it shares the hostname alphabet.
+
+`sandboxr` is matched against the tool's own version. Comparators: `>=`, `<=`, `>`, `<`,
+`^`, `~`, `=`. A space or a comma between terms means AND. `||` separates alternatives. `*`
+or an empty string accepts anything. `^0.x` treats the minor digit as the breaking one,
+which is the convention every registry uses and the one a pre-1.0 tool needs.
 
 ### Shared value types
 
@@ -44,7 +60,7 @@ space or comma for AND, `||` for OR.
 | hostname label | `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, at most 63 characters |
 | port | integer, 1–65535 |
 | memory | `^[0-9]+(b\|k\|m\|g)?$`, case-insensitive — `6g`, `512m` |
-| path | non-empty string, relative to the config's directory unless stated |
+| path | non-empty string, relative to the tree the config governs unless stated |
 
 ## `database`
 
@@ -56,24 +72,32 @@ database:
     local: { container: acme_db, database: acme }
     file: /var/sandboxr/seeds/acme.sql.zst
     fixtures: db/seeds/fixtures.sql
+    anonymised: true
   migrate:
     workdir: services
     command: go run ./cmd/migrate --dir ../db/migrations --non-interactive
     since: "20240101"
+    failure_pattern: "[0-9]+ failed"
+    file_pattern: "[0-9]{8}-[^ ]+\\.sql"
+    error_pattern: "Error [0-9]+ \\([0-9A-Z]+\\):.*"
   owner: app
 ```
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `driver` | `mysql` \| `d1` \| `sqlite` \| `none` | **yes** | See [databases](../databases.md) |
+| `driver` | `mysql` \| `d1` \| `sqlite` \| `none` | **yes** if the block is present | See [Databases](../databases.md) |
 | `version` | string or number | no | The version production runs, not the one you happen to have |
-| `seed_from` | block | no | Where the data comes from |
-| `migrate` | block | no | The project's own migration command |
-| `owner` | string | no | Which runtime may open a file database. Required for `d1`/`sqlite` with more than one runtime |
+| `seed_from` | [block](#databaseseed_from) | no | Where the initial data comes from |
+| `migrate` | [block](#databasemigrate) | no | The project's own migration command |
+| `owner` | string | no | The one runtime allowed to open a file-backed database |
+
+`owner` names a declared backend `name` or a front-end `label`. It is required for `d1` and
+`sqlite` whenever the project declares more than one runtime; with exactly one runtime,
+sandboxr resolves it for you when it writes the plan.
 
 > [!WARNING] A driver with nothing to do is refused
-> `driver` other than `none`, with neither `seed_from` nor `migrate`, is a config error. There
-> would be nothing for the driver to do.
+> A `driver` other than `none`, with neither `seed_from` nor `migrate`, is a config error.
+> There would be nothing for the driver to do.
 
 ### `database.seed_from`
 
@@ -81,43 +105,58 @@ database:
 |---|---|---|
 | `local.container` | string | A database container already running on your machine. **Read only** |
 | `local.database` | string | Which database inside it. Optional |
-| `file` | path | A dump to restore, or a state directory for a file driver |
+| `file` | path | A dump to restore, or a state directory for a file-backed driver |
 | `fixtures` | path | Applied **after** migrations, whichever source was used |
-| `anonymised` | boolean | Declares that `file` contains no real personal data. Required before a public project may use it |
+| `anonymised` | boolean | Asserts that `file` holds no real personal data |
 
-Listing several is normal: a laptop forks the container the developer already runs, a server
-restores a dump, and neither source exists on the other machine. Precedence is **`local`, then
-`file`, then `fixtures`** — freshest first. `sandboxr up --seed <source>` forces one.
+Precedence is **`local`, then `file`, then `fixtures`** — freshest first.
+`sandboxr up --seed local|file|fixtures` forces one. The access rules filter the list
+before anything is chosen, so a public project simply has fewer options.
 
-Access control filters that list *before* anything is chosen, so a public project simply has fewer
-options rather than a separate code path.
+`anonymised` is the only thing the public-sandbox refusal accepts as marking a dump safe. It
+is an assertion by whoever wrote the config, not something the tool can verify.
 
 ### `database.migrate`
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `command` | string | **yes** | The project's own runner. sandboxr never reimplements migration logic |
-| `workdir` | path | no | Where to run it. Default is a deliberately empty directory |
+| `command` | string | **yes** | Your project's own runner |
+| `workdir` | path | no | Where to run it. Relative to the tree the config governs |
 | `since` | string or number | no | A cutoff, exported as `SANDBOXR_MIGRATE_SINCE` |
-| `failure_pattern` | string | no | Passed to the container, for a runner that exits zero while failing |
-| `file_pattern` | string | no | Passed to the container |
-| `error_pattern` | string | no | Passed to the container |
+| `failure_pattern` | string | no | Treat output matching this as a failure, even on exit 0 |
+| `file_pattern` | string | no | How to pull the failing file's name out of the output |
+| `error_pattern` | string | no | How to pull the error line out of the output |
 
-`workdir` defaults to an empty directory on purpose: a migration run from the repo root can pick
-up a config file meant for a different environment. Declare it when the runner genuinely needs its
-own directory — `wrangler`, for instance, resolves `wrangler.jsonc` from the working directory.
+`since` is exported as a variable rather than turned into a flag. sandboxr cannot guess a
+runner's flag spelling, so **your command has to consume it**. If `since` appears to do
+nothing, that is why.
 
-`since` exists because a project that adopted migration tracking part-way through its life has
-files that predate it, which fail on columns that already exist. Pin the cutoff its own runner
-uses.
+The three patterns are passed into `plan.json` untouched and read by the container's
+migration runner. Nothing on the host interprets them; the host's own output parsing uses
+fixed heuristics.
 
-> [!NOTE] The three patterns are passed through untouched
-> They are carried into `plan.json` for the container to use. Nothing on the host reads them; the
-> host's own output parsing uses fixed heuristics.
+<details class="agent">
+<summary><b>Details for an agent</b> — where <code>migrate.command</code> runs, and the two halves that disagree</summary>
+
+Declared `workdir` is joined to the worktree mount: `/workspace/<workdir>`.
+
+With **no** `workdir`, the two halves of the tool differ today:
+
+- The container's `migrate-run.sh` runs the command in `/empty`, a deliberately empty
+  directory, so that no dotfile lying around the repo can shadow the environment the
+  sandbox passed in. That is the path a boot takes.
+- The host driver's `migrateWorkdir()` (`packages/core/src/drivers/migrate.ts`) falls back
+  to `/workspace`. That is the path `sandboxr db migrate` and `sandboxr reload --migrate`
+  take.
+
+Declare `workdir` explicitly if it matters to your runner, which it usually does —
+`wrangler`, for instance, resolves `wrangler.jsonc` from the working directory.
+
+</details>
 
 ## `backends`
 
-Long-running services the project compiles and runs. Two accepted shapes:
+Long-running services the project compiles and runs. Two accepted shapes.
 
 ```yaml
 # Mapping form — canonical, because `defaults:` cannot legally sit inside a YAML list.
@@ -141,21 +180,24 @@ backends:
 | `port` | port | **yes** | no | Where it listens **inside** the container |
 | `label` | hostname label | **yes** | no | Its hostname: `<slug>.<label>.<project>.<domain>` |
 | `build` | string | **yes**, here or in `defaults` | yes | `{name}` and `{out}` are substituted |
-| `workdir` | path | no | yes | Where the build runs |
-| `health` | path | no | yes | Probed by `sandboxr status` |
+| `workdir` | path | no | yes | Where the build runs, and where the binary is started from |
+| `health` | path | no | yes | Probed to decide whether the service is up |
 | `memory` | memory | no | yes | Raises the whole sandbox's limit |
 | `optional` | boolean | no | yes | Dormant unless named in `--with`. Default `false` |
 
-Only `{name}` and `{out}` are substituted, and the substituted value must match
-`^[A-Za-z0-9._/@-]+$`. The template itself comes from your config and is run by a shell.
+Only `{name}` and `{out}` are substituted. The substituted value is checked against
+`^[A-Za-z0-9._/@-]+$` first, because the command itself comes from your config and is
+handed to a shell — a value with a space or a semicolon in it would be two commands rather
+than one argument.
 
 > [!TIP] Leave out a service that cannot start
-> A service whose database exists on no developer machine, and that no migration creates, should
-> be omitted rather than declared — otherwise it can only crash-loop.
+> A service whose database exists on no developer machine, and that no migration creates,
+> should be omitted or marked `optional` rather than declared. Otherwise it can only
+> crash-loop, filling the log and making the sandbox look broken.
 
 ## `frontends`
 
-Apps served on their own hostnames. Same two shapes, plus a `root`:
+Apps served on their own hostnames. The same two shapes, plus a `root`.
 
 ```yaml
 frontends:
@@ -167,31 +209,31 @@ frontends:
     - { label: app, package: web }
     - { label: admin, package: admin }
     - { label: www, package: marketing, build: npm run build, out: out, memory: 6g }
-    - { label: cms, package: cms, serve: npx next dev --port 3000 --hostname 127.0.0.1, port: 3000, optional: true }
+    - { label: cms, package: cms, serve: npx next dev --port 3000, port: 3000, optional: true }
 ```
 
 | Field | Type | Required | In `defaults` | Notes |
 |---|---|---|---|---|
 | `label` | hostname label | **yes** | no | Its hostname, and the key `routes` uses |
-| `package` | path | **yes** | no | Relative to `root` |
+| `package` | path | **yes** | no | The package directory, relative to `root` |
 | `build` | string | for a static app | yes | What produces the output |
 | `out` | path | for a static app | yes | The built directory, relative to the package |
 | `serve` | string | for a served app | yes | A long-running command |
 | `port` | port | for a served app | yes | Where that command listens |
-| `prepare` | string | no | yes | Run once before a **served** app starts. Ignored for static apps |
-| `health` | path | no | yes | For a **served** app. Ignored for static apps |
+| `prepare` | string | no | yes | Run once before a **served** app starts. Ignored for a static app |
+| `health` | path | no | yes | For a **served** app. Ignored for a static app |
 | `static_mode` | `spa` \| `files` \| `html` | no | yes | How the built directory is served. Default `spa` |
-| `in_build_all` | boolean | no | yes | Whether `reload --web all` includes it. Default `true` |
+| `in_build_all` | boolean | no | yes | Whether "rebuild everything" includes it. Default `true` |
 | `memory` | memory | no | yes | Raises the whole sandbox's limit |
 | `optional` | boolean | no | yes | Dormant unless named in `--with`. Default `false` |
 
-`root` exists only in the mapping form. In the list form every `package` is relative to the config
-directory.
+`root` exists only in the mapping form, and is optional there. In the list form, and when
+`root` is absent, every `package` is relative to the tree the config governs.
 
 ### Static or served is decided per entry
 
-**`out` and `serve` on the same entry is an error** — pick one. Otherwise the kind is decided by
-looking at the entry first, then the defaults:
+**`out` and `serve` on the same entry is an error** — pick one. Otherwise the kind is
+decided by looking at the entry first, and only then at the defaults.
 
 ```mermaid
 flowchart TB
@@ -205,26 +247,42 @@ flowchart TB
   d -->|no| t
 ```
 
-A static app with no `out` or no `build` after defaults is an error, and so is a served app with
-no `port`.
+The entry decides its own kind before defaults are consulted, so a served app declared
+under a `defaults: { out: dist }` does not inherit an output directory it has no build to
+fill.
+
+After that: a static app with no `out` is an error, a static app with no `build` is an
+error, and a served app with no `port` is an error. Each names the app.
 
 ### `static_mode`
 
 | Mode | Behaviour | For |
 |---|---|---|
 | `spa` *(default)* | Any unknown path falls back to `index.html` | A single-page app with client-side routing |
-| `html` | `/blog/foo` resolves to `foo.html` | A generator emitting extensionful files |
+| `html` | `/blog/foo` resolves to `foo.html`, then `foo`, then `foo/index.html` | A generator emitting extensionful files |
 | `files` | An unknown path is a real 404 | A plain directory of assets |
 
-Getting it wrong does not crash anything — it produces an app that *half-works*, which is why it
-is declared rather than guessed.
+Getting it wrong does not crash anything. It produces an app that *half-works*, which is
+why the mode is declared rather than guessed. `spa` is the default because it is the common
+case and the one that is wrong in the least damaging way.
 
 ### `in_build_all`
 
-`reload --web all` deliberately means "the project's ordinary apps", not "everything". Set
-`in_build_all: false` on the expensive members — a marketing site rendering thousands of pages, a
-component library — so a shared-component tweak does not start a multi-gigabyte build as a side
-effect. See [the edit–reload loop](../guides/edit-and-reload.md).
+"Rebuild everything" deliberately means the project's ordinary apps, not literally
+everything. Set `in_build_all: false` on the expensive members — a marketing site rendering
+thousands of pages, a component library — so a shared-component tweak does not start a
+multi-gigabyte build as a side effect. See [The edit–reload loop](../guides/edit-and-reload.md).
+
+### `memory`
+
+A declared limit raises the limit of the **whole sandbox**, because the cgroup total is
+what the kernel enforces. The largest limit any one runtime asks for wins, over a floor of
+`4g`.
+
+A static build compares its declared `memory` against the container's real limit and
+refuses in a second, naming both, rather than being killed part-way through. It also sets
+`--max-old-space-size` to 75% of the limit, so a single overrunning process gives up with a
+heap error instead of dying silently.
 
 ## `routes`
 
@@ -241,34 +299,38 @@ routes:
 
 - The outer key must be a declared **front-end label**.
 - The inner key must start with `/`.
-- The value must be a backend **`name`**, or the **label** of a *served* front-end. A backend
-  `name` wins, so a backend is never shadowed by a front-end sharing its label.
-- Prefixes are emitted longest-first by the generator, so the order you write them in does not
-  matter.
-- Each prefix strips itself before proxying: `/api/orders` reaches the backend as `/orders`.
+- The value must be a backend **`name`**, or the **label** of a front-end that runs as a
+  server.
+- Prefixes are emitted longest-first, so the order you write them in does not matter.
+- Each prefix strips itself before proxying: `/api/orders` reaches the backend as
+  `/orders`.
 
-Every backend already has a hostname of its own, so this looks redundant. It is not: a same-origin
-request needs no preflight, no per-sandbox allowlist and no cookie reasoning, which takes CORS out
-of the picture entirely — and the app's own code can say `/api` in every environment.
+Every backend already has a hostname of its own, so this looks redundant. It is not. A
+same-origin request needs no preflight, no per-sandbox allowlist and no cookie reasoning,
+which takes CORS out of the picture entirely — and the app's own code can say `/api` in
+every environment.
 
 ## `secrets`
 
 ```yaml
 secrets:
   read: [services/api/.env, web/packages/web/.env]
-  keep: [AUTH0_DOMAIN, JWT_SECRET, ANALYTICS_*]
+  keep: [AUTH0_DOMAIN, JWT_SECRET, ANALYTICS_ENDPOINT]
   rename: { ANALYTICS_API_HOST: ANALYTICS_ENDPOINT }
   never: ["DB_*", "S3_*", "*_URL", "PORT"]
 ```
 
 | Field | Type | Notes |
 |---|---|---|
-| `read` | list of paths | The `.env` files to read |
-| `keep` | list of names | An allowlist. `*` is the only wildcard |
-| `rename` | map | Old name to new name. Outranks `keep` and `never` |
-| `never` | list of names | A denylist |
+| `read` | list of paths | The `.env` files to read, in order. A later file wins |
+| `keep` | list of names | An allowlist. **Exact names only — no wildcards** |
+| `rename` | map | Source name to target name. Outranks both `keep` and `never` |
+| `never` | list of glob patterns | A denylist. `*` is the only wildcard |
 
-Full rules, and why `never` matters more than it looks: [secrets](secrets.md).
+Note the asymmetry: `never` is matched as a glob, `keep` is matched literally.
+`keep: [ANALYTICS_*]` matches a variable actually called `ANALYTICS_*` and nothing else.
+
+Full rules, and why `never` matters more than it looks: [Secrets](secrets.md).
 
 ## `storage`
 
@@ -283,9 +345,10 @@ storage:
 | `driver` | `minio` \| `none` | **yes** if the block is present | |
 | `buckets` | list of strings | no | Created at first boot |
 
-With `minio`, an S3-compatible store runs inside the sandbox, its endpoint is exported as
-`SANDBOXR_S3_ENDPOINT`, and the label `s3` is reserved: `<slug>.s3.<project>.<domain>` reaches it,
-and `/console/*` on that hostname reaches its web console.
+With `minio`, an S3-compatible store runs inside the sandbox, so uploads never reach a real
+bucket. Its endpoint is exported as `SANDBOXR_S3_ENDPOINT`. The label `s3` is reserved:
+`<slug>.s3.<project>.<domain>` reaches the store, and `/console/*` on that hostname reaches
+its web console.
 
 ## `deps`
 
@@ -304,10 +367,10 @@ deps:
 | `lockfile` | path | no | `package-lock.json` |
 | `install` | string | no | `npm ci --no-audit --no-fund` |
 
-Named rather than inferred, because the directory holding the lockfile is not always the directory
-holding the packages, and the shared dependency volume is mounted at exactly one path. Left out,
-sandboxr looks for `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` then `bun.lockb`, in the
-config directory, then the first segment of `frontends.root`, then `frontends.root` itself.
+Named rather than inferred, because the directory holding the lockfile is not always the
+directory holding the packages, and the shared dependency volume is mounted at exactly one
+path. Left out, sandboxr searches; see
+[step 5 of building a config](index.md#step-5-add-deps) for the search order.
 
 ## `toolchain`
 
@@ -317,8 +380,9 @@ toolchain:
   node: "22"
 ```
 
-Both optional, both accept a string or a number, both are prefixes: `24` picks the latest 24.x.
-They decide which blocks the project's image layer includes, so a Node-only project carries no Go.
+Both optional. Both accept a string or a number. Both are prefixes: `24` picks the latest
+24.x. They decide which blocks the project's image layer includes, so a Node-only project
+carries no Go.
 
 ## `access`
 
@@ -335,8 +399,8 @@ access:
 | `controls` | `password` | `password` | The only accepted value. There is no way to turn it off |
 | `credentials` | `dummy` \| `real` | `dummy` | Whether the project's real third-party credentials may be present |
 
-A public project with real credentials, or one seeding from live data, is **refused** rather than
-warned. [Access and security](../access.md).
+A public project seeding from live data, or carrying real credentials, is **refused** rather
+than warned. [Access and security](../access.md) has the whole model.
 
 ## `env`
 
@@ -352,53 +416,36 @@ env:
   VITE_APP_URL: "${SANDBOXR_URL_APP}"
 ```
 
-Keys must match `^[A-Za-z_][A-Za-z0-9_]*$`. Values are plain strings; `${SANDBOXR_*}` placeholders
-are substituted **inside the container** with values the sandbox computed for itself.
+Keys must match `^[A-Za-z_][A-Za-z0-9_]*$`. Values are plain strings; `${SANDBOXR_*}`
+placeholders are substituted **inside the container** with values the sandbox computed for
+itself.
 
-Substitution, never a shell — a value is data. Nothing here can point at a real service, because
-the only variables available are the sandbox's own. Anything genuinely secret comes from the
-`secrets` block instead and never appears here.
+Substitution, never a shell — a value is data. Nothing here can point at a real service,
+because the only variables available are the sandbox's own. Anything genuinely secret comes
+from the `secrets` block instead and never appears here.
 
-The full list of what a sandbox computes: [environment variables](../reference/environment.md).
+The full list of what a sandbox computes:
+[Environment variables](../reference/environment.md).
 
-## Rules checked after parsing
+<details class="why">
+<summary><b>Why it works this way</b> — <code>env:</code> and <code>deps:</code> are not in the engineering contract</summary>
 
-| Rule | Error |
-|---|---|
-| Every backend and front-end `label` is unique across both lists | names the duplicate |
-| Every backend `name` is unique | names the duplicate |
-| Each `routes` outer key is a declared front-end label | names the label |
-| Each `routes` target is a backend `name` or a served front-end label | names the target |
-| A `d1`/`sqlite` project with more than one runtime declares `owner` | says why: one writer only |
-| `owner` names a declared backend or front-end | names it |
-| `driver` other than `none` has `seed_from` or `migrate` | "nothing to do" |
-| A static app has `build` and `out`; a served app has `port` | names the missing field |
-| No entry has both `out` and `serve` | "pick one" |
-| The `sandboxr:` constraint matches the tool's version | tells you which to change |
-| A public project's seeds and credentials are permitted | names the field and the fix |
+`docs/architecture/contracts.md` §5 does not mention `env` or `deps`, and both are
+load-bearing — `env` is the only thing joining a sandbox's computed addresses to a
+project's own variable names. The contract's §5 YAML example also shows `backends:` as a
+list with a sibling `defaults:` key, which is not valid YAML.
 
-## Where the file is found
+These pages follow the schema, which is the authority the contract itself names. Both gaps
+are recorded in [What is built](../reference/status.md).
 
-`sandboxr` walks **up** from the current directory, trying `sandboxr.yaml`, `sandboxr.yml`, then
-`.sandboxr.yaml` in each directory. The directory holding it is what gets mounted at `/workspace`
-— which is the config's directory, not the git top level, so a project kept in a subdirectory of a
-larger repository is mounted at the right level.
-
-Inside a worktree sandboxr keeps in its [workspace](../reference/paths.md#the-workspace), the walk
-stops at the top of that worktree, and one fallback follows it:
-`<workspace>/<project>/sandboxr.yaml`, the project-level config. It applies to every worktree of the
-project that has none of its own, and it is read for its contents only — **the worktree is still
-what gets mounted**, and every path in the config still resolves inside the branch's own checkout.
-
-A worktree that carries its own config always uses that one. The fallback is a stopgap for a project
-whose config has not been committed yet; see
-[a config for a project that has not committed one](../guides/managed-sandboxes.md#a-config-for-a-project-that-has-not-committed-one).
-
-`sandboxr config` prints which of the two was used, so this is never something to deduce from
-behaviour.
+</details>
 
 ## Related
 
-- [Two worked examples](examples.md)
-- [Three runtime kinds](runtime-kinds.md)
+- [The rules a config must obey](rules.md) — every constraint, with the symptom
+- [The three runtime kinds](runtime-kinds.md) — backend, static, served
+- [Worked examples](examples.md) — three real files
 - [plan.json](../architecture/plan-json.md) — what this resolves to
+
+**Next:** [The rules a config must obey](rules.md) if a config is being refused.
+[Worked examples](examples.md) if you would rather read a whole file than a table.

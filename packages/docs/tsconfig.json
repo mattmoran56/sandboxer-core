@@ -1,5 +1,25 @@
 {
-  "extends": "astro/tsconfigs/strict",
-  "include": [".astro/types.d.ts", "**/*"],
-  "exclude": ["dist"]
+  // The same overrides `packages/web` makes, and for the same reason: the base
+  // config is written for Node — `module: NodeNext`, no DOM, `composite` so the
+  // Node packages can project-reference each other — and none of that suits a
+  // bundled browser app. Nothing here is emitted by tsc; Vite does the building
+  // and tsc is only ever asked whether it type-checks.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client", "node"],
+    "allowImportingTsExtensions": false,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "plugins/**/*.ts", "vite.config.ts", "vitest.config.ts", "vitest.workspace.ts"]
 }
