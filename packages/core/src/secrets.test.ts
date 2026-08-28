@@ -480,6 +480,26 @@ describe("editProjectSecrets", () => {
     expect((await stat(report.file)).mode & 0o777).toBe(0o600);
   });
 
+  // Docker bind-mounts an inode, not a path. A write that renamed a new file
+  // into place would leave every running sandbox of this project pinned to the
+  // unlinked old one — reading stale credentials, or on Docker Desktop failing
+  // to read the file at all with a "No such file or directory" that says nothing
+  // about an edit having succeeded on the host.
+  it("keeps the file's inode, so a mounted sandbox still sees it", async () => {
+    const options = await fresh();
+    const report = await editProjectSecrets("acme", null, { set: { A: "1" } }, options);
+    const before = (await stat(report.file)).ino;
+
+    await editProjectSecrets("acme", null, { set: { A: "2", B: "3" } }, options);
+    expect((await stat(report.file)).ino).toBe(before);
+  });
+
+  it("leaves no staged copy behind on a save that finished", async () => {
+    const options = await fresh();
+    const report = await editProjectSecrets("acme", null, { set: { A: "1" } }, options);
+    await expect(stat(`${report.file}.partial`)).rejects.toThrow();
+  });
+
   // A pasted .env is the case that decides this. One bad line in a file of
   // twenty good names must not lose the other nineteen, or the only way to find
   // the offending line is to bisect your own paste.

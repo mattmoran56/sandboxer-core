@@ -23,9 +23,10 @@
  *    "public" sandbox is public to this machine's browsers, not to the network.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { join, relative } from "node:path";
 
 import { writeMachineConfigExample } from "../config/machine.js";
 import { archBuildArgs, docker as defaultDocker, type Docker } from "../docker.js";
@@ -113,6 +114,65 @@ export function originFor(host: string, env: NodeJS.ProcessEnv = process.env): s
 }
 
 /**
+ * A digest of everything that goes *into* the base image.
+ *
+ * The tag used to be `sandboxr/base:<TOOL_VERSION>` alone, which meant an image
+ * was reused until the version number moved — so editing anything under
+ * `container/` left every machine running the image built before the edit, and
+ * `--rebuild` was the only way to find out.
+ *
+ * That was survivable while the scripts only ever *added* behaviour. It stopped
+ * being survivable when the project's credentials became a mounted file: a host
+ * on the new code mounts `/sandboxr/secrets.env`, and an image built before the
+ * reader existed simply ignores it. Nothing errors — every credential quietly
+ * stops arriving, and an application that falls back to a default when its key
+ * is missing carries on talking to whatever that default names.
+ *
+ * So the base is content-addressed on its inputs, exactly as the project layer
+ * is (`imageTag` in ../image.ts): rebuilt when one of them changes and reused
+ * otherwise.
+ */
+export async function baseImageTag(env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  const context = containerDir(env);
+  const hash = createHash("sha256").update(TOOL_VERSION);
+
+  // Sorted, so the digest is a function of the contents and not of the order the
+  // filesystem happened to hand them back in.
+  for (const file of (await inputsOf(context)).sort()) {
+    hash.update("\0").update(relative(context, file)).update("\0");
+    hash.update(await readFile(file));
+  }
+  // The version stays in the tag as well as in the digest, so `docker images`
+  // still says which sandboxr an image belongs to at a glance.
+  return `${BASE_IMAGE}:${TOOL_VERSION}-${hash.digest("hex").slice(0, 12)}`;
+}
+
+/**
+ * Every file the base image build reads.
+ *
+ * The whole of `container/` except the two directories that are not inputs to
+ * it: `project/` is the per-project layer's template, which has a digest of its
+ * own, and `examples/` is test fixtures. Including either would rebuild the base
+ * image for a change that cannot affect it.
+ */
+async function inputsOf(context: string): Promise<string[]> {
+  const skip = new Set(["project", "examples"]);
+  const found: string[] = [];
+
+  const walk = async (dir: string, top: boolean): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (top && skip.has(entry.name)) continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) await walk(path, false);
+      else if (entry.isFile()) found.push(path);
+    }
+  };
+
+  await walk(context, true);
+  return found;
+}
+
+/**
  * Builds the generic base image if it is not already here.
  *
  * Part of `init` rather than a separate command because the first `up` on a new
@@ -127,7 +187,7 @@ export async function ensureBaseImage(options: {
 }): Promise<string> {
   const env = options.env ?? process.env;
   const log = options.log ?? (() => undefined);
-  const tag = `${BASE_IMAGE}:${TOOL_VERSION}`;
+  const tag = await baseImageTag(env);
 
   if (!options.rebuild && (await options.docker.imageExists(tag))) return tag;
 

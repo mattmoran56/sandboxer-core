@@ -20,7 +20,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { allowsRealCredentials } from "./config/access.js";
@@ -183,14 +183,26 @@ function authoredHeader(project: string): string {
 /**
  * Writes a set of credentials as the project's secrets file.
  *
- * Written to a temporary name and moved into place, so an interrupted save
- * cannot leave a half-written credential file behind, and chmodded 0600 because
- * it is the one file sandboxr keeps that holds real values.
+ * **Rewritten in place, never renamed into place, and that is load-bearing.**
+ * Docker bind-mounts an *inode*, not a path. Every running sandbox of this
+ * project has this exact file mounted at `/sandboxr/secrets.env`, so the usual
+ * write-to-a-temporary-name-and-rename — which this function used to do, and
+ * which is the right shape for every other file sandboxr writes — swaps the
+ * inode out from under those mounts. The container is then pinned to the
+ * unlinked old one: it reads stale credentials until it is restarted, and on
+ * Docker Desktop it stops being able to read the file at all and the entrypoint
+ * says `/sandboxr/secrets.env: No such file or directory`. Nothing about that
+ * message suggests the cause was an edit succeeding on the host.
  *
- * The `mode` on `writeFile` and the `chmod` after the rename are not redundant:
- * `mode` only applies when the temporary file is *created*, so a leftover
- * `.partial` from an interrupted earlier save would otherwise keep whatever
- * permissions it had.
+ * Crash-safety is kept by staging rather than by renaming: the full body is
+ * written to `<file>.partial` first, so an interrupted rewrite leaves a complete
+ * copy of what was intended beside a file that may be short. That is a worse
+ * failure than the rename gave — but it is a rare one, where breaking every
+ * mount was a certain one, on every save.
+ *
+ * The `mode` on each write and the `chmod` after are not redundant: `mode` only
+ * applies when a file is *created*, so an existing file keeps whatever
+ * permissions it already had.
  */
 export async function writeSecretsFile(
   file: string,
@@ -205,10 +217,18 @@ export async function writeSecretsFile(
   ].join("\n");
 
   await mkdir(dirname(file), { recursive: true });
-  const temporary = `${file}.partial`;
-  await writeFile(temporary, body, { encoding: "utf8", mode: 0o600 });
-  await rename(temporary, file);
+  const staged = `${file}.partial`;
+  await writeFile(staged, body, { encoding: "utf8", mode: 0o600 });
+  await chmod(staged, 0o600);
+
+  // Truncates and rewrites the file that is already there, keeping its inode and
+  // so keeping every sandbox's mount pointed at it.
+  await writeFile(file, body, { encoding: "utf8", mode: 0o600 });
   await chmod(file, 0o600);
+
+  // Only once the real file holds the whole body. A staged copy left behind by
+  // an interrupted save is the point of it.
+  await rm(staged, { force: true });
 }
 
 /**

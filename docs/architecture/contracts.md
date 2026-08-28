@@ -158,13 +158,21 @@ State lives **only** in Docker labels. There is no manifest file, no database of
 | `sandboxr.created` | ISO 8601 UTC |
 | `sandboxr.access` | `public` / `private` — whether app hostnames need auth |
 | `sandboxr.ttl` | seconds the sandbox may sit unused for, or `never` |
-| `sandboxr.env` | digest of the environment the sandbox was started with — see §5.2. Empty means *unknown*, never "no environment" |
+| `sandboxr.env` | digest of the environment the sandbox was created with — see §5.2. A record, not a comparison; empty means *unknown* |
 
 **Labels hold durable state only.** Everything above is fixed when the sandbox is created
-and does not change while it runs. `sandboxr.env` is the reason this is worth stating twice: it
-records what the environment *was* at `up`, deliberately, so that comparing it against what the
-environment is now says whether a sandbox predates a change. A label that tracked the current
-answer could not answer that question at all. Runtime state — whether it is starting, running or
+and does not change while it runs — and `sandboxr.env` is worth a note, because it is a label
+that deliberately records the *past* and must not be mistaken for a live answer.
+
+It says what the environment was when the container was created. It is **not** what decides
+whether a running sandbox is out of date, and the difference is a bug that has already been made
+once: Docker will not let a label be changed after a container exists, so a sandbox restarted to
+pick up a rotated credential kept the label it was created with. The badge stayed lit, the button
+appeared to do nothing, and pressing it again did nothing again.
+
+**Whether a running sandbox has read the current credentials is a comparison of times**: the
+secrets file's mtime against the container's own `StartedAt`. That answers the question actually
+being asked, and it clears itself, because a restart moves `StartedAt`. Runtime state — whether it is starting, running or
 degraded — is **derived at read time** from the container and its status surface, never
 written back to a label. A label recording "running" would be a second source of truth that
 goes stale the moment a process dies, which is exactly the drift this design avoids.
