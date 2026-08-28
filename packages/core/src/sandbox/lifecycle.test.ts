@@ -375,7 +375,22 @@ describe("up", () => {
 
     await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home } });
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
-    expect(runArguments).toContain(join(home, "secrets", "acme.env"));
+    expect(runArguments).toContain(`${join(home, "secrets", "acme.env")}:/sandboxr/secrets.env:ro`);
+  });
+
+  // The digest is what lets the dashboard say a sandbox started before a
+  // credential was rotated, so it has to be a fact about the container rather
+  // than something recomputed from a file that may have changed since.
+  it("stamps the environment it started with on the container", async () => {
+    const { dir, home } = await worktree();
+    await mkdir(join(home, "secrets"), { recursive: true });
+    await writeFile(join(home, "secrets", "acme.env"), "API_TOKEN=real\n");
+    const { docker, argsOf } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
+
+    await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home } });
+    const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
+    const stamped = runArguments.find((argument) => argument.startsWith("sandboxr.env="));
+    expect(stamped).toMatch(/^sandboxr\.env=[0-9a-f]{16}$/);
   });
 
   it("opts in when the config says the credentials may be real", async () => {

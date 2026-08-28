@@ -15,6 +15,21 @@ export const WORKSPACE = "/workspace";
 /** The plan: the container's only view of the project, mounted read-only. */
 export const PLAN_FILE = "/sandboxr/plan.json";
 
+/**
+ * The project's third-party credentials, mounted read-only.
+ *
+ * A mount and not a `--env-file`, and the difference is the whole reason this
+ * constant exists. `--env-file` is read once by `docker run` and baked into the
+ * container's configuration, so an edited credential could not reach a sandbox
+ * without recreating the container — which made "Restart services" a button that
+ * appeared to apply a rotated key and did not. A mounted file is re-read every
+ * time `env.sh` is sourced, so a restart or a rebuild picks it up.
+ *
+ * Read-only for the reason `PLAN_FILE` is, and one further one: the values also
+ * stop appearing in `docker inspect`, which they did as an env-file.
+ */
+export const SECRETS_FILE = "/sandboxr/secrets.env";
+
 /** The host seed cache, mounted read-only: a sandbox restores, never writes. */
 export const CACHE_DIR = "/sandboxr/cache";
 

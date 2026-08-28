@@ -30,6 +30,16 @@ export interface Sandbox {
    * the container's current start time — see the note in `labels.ts`.
    */
   ttl: string;
+  /**
+   * The digest of the environment the sandbox was started with, or `""` when
+   * the container carries no such label.
+   *
+   * Empty is *unknown*, not "no environment". Compare it against `envDigest`
+   * over the project's current secrets and plan `env` map to tell whether a
+   * sandbox predates a change; treat empty as no answer, because every sandbox
+   * started before this label existed has none.
+   */
+  env: string;
   state: SandboxState;
   container: string;
 }

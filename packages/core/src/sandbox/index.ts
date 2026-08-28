@@ -44,6 +44,7 @@ import { ensureProjectImage } from "../image.js";
 import { NETWORK, containerName, deriveSlug, volumeName } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { containerEnv, labelsOf, renderEnvFile, urlsFor } from "./env.js";
+import { envDigest, readProjectSecrets } from "../secrets.js";
 import { planGc } from "./gc.js";
 import { planPrune, type PruneResult } from "./prune.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
@@ -125,6 +126,10 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
 
   const secretsFile = p.secretsFile(config.project);
   const hasSecrets = existsSync(secretsFile);
+  // Read here rather than beside the label below, because the same read answers
+  // two questions and the file is the one thing in this function that a person
+  // may be editing while it runs. One read, one answer.
+  const secrets = hasSecrets ? await readProjectSecrets(config.project, { env }) : new Map<string, string>();
   // A public sandbox gets dummy credentials unless the config opts in: anyone
   // who can drive a public app can otherwise make it send real email and spend
   // real credit. A refusal rather than a warning, with both ways out named.
@@ -234,6 +239,11 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     dirty: facts.dirty,
     worktree: projectRoot,
     ttl: ttl === "never" ? "never" : String(ttl),
+    // Both halves of the environment, so that either one changing marks this
+    // sandbox as started before it: the credentials it carries, and the project's
+    // own names for what the sandbox computes. A rotated key and a renamed
+    // `VITE_*` are the same problem to whoever has to press the button.
+    env: envDigest(secrets, config.env),
   });
 
   // The project's own image layer: the base image carries no toolchain and no

@@ -32,6 +32,7 @@ import {
   GOMOD_DIR,
   LOG_DIR,
   PLAN_FILE,
+  SECRETS_FILE,
   WORKSPACE,
   WWW_DIR,
   binaryPath,
@@ -138,10 +139,6 @@ export function runArgs(input: RunInput): string[] {
   args.push(...labelArgs(input.routerLabels ?? {}));
 
   args.push("--env-file", input.envFile);
-  // The secrets file is layered *under* the generated environment: a credential
-  // may be supplied from outside, but nothing outside may redirect a sandbox's
-  // database or storage at something that is not its own.
-  if (input.secretsFile) args.splice(args.indexOf("--env-file"), 0, "--env-file", input.secretsFile);
 
   if (input.with && input.with.length > 0) args.push("-e", `SANDBOXR_WITH=${input.with.join(",")}`);
 
@@ -170,6 +167,20 @@ export function runArgs(input: RunInput): string[] {
   // Read-only: the plan is the host's statement of what this project is, and a
   // container that could rewrite it could change what it claims to be running.
   args.push("-v", `${input.planFile}:${PLAN_FILE}:ro`);
+  // The project's credentials, mounted rather than passed as a second
+  // `--env-file`. This used to be an env-file layered *under* the generated one,
+  // and Docker settled which won. It cost more than it bought: `--env-file` is
+  // read once at `docker run`, so an edited credential could not reach a running
+  // sandbox at all — `restart` and `stop`/`start` keep the environment the
+  // container was created with, and only recreating it picked up a new value.
+  // Mounted, `env.sh` re-reads it every time it is sourced, so a restart applies
+  // a rotated key and a rebuild applies a changed build-time variable.
+  //
+  // What now settles a collision is `secrets.ts`'s `RESERVED_ENV_NAMES`, which
+  // refuses the names the sandbox derives for itself — the file is read *first*
+  // inside the container, so nothing else would stop an imported `DB_HOST` from
+  // pointing a disposable copy at a real database.
+  if (input.secretsFile) args.push("-v", `${input.secretsFile}:${SECRETS_FILE}:ro`);
   args.push("-v", `${volumeName("bin", config.project, slug)}:${BIN_DIR}`);
   args.push("-v", `${volumeName("www", config.project, slug)}:${WWW_DIR}`);
   // One volume, two shapes: a server keeps its data directory here and a
