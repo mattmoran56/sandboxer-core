@@ -37,7 +37,7 @@ import { hostClaudeCredentials } from "../agent/credentials.js";
 import { gitFacts, gitMounts, hostGitIdentity } from "../git.js";
 import { findProject } from "../workspace.js";
 import { addWorktree } from "../worktree.js";
-import { lastActivity } from "./activity.js";
+import { sandboxActivity } from "./activity.js";
 import { parseTtl, planExpiry, type ExpiryCandidate, type ExpiryPlan } from "./expiry.js";
 import { isKeptAlive, removeKeep } from "./keep.js";
 import { ensureProjectImage } from "../image.js";
@@ -652,9 +652,11 @@ export async function startSandbox(project: string, slug: string, options: Commo
  * Stops every sandbox that has sat unused past its limit.
  *
  * The clock runs from the later of the container's current start time and the
- * last request that reached it through the router — not from `sandboxr.created`,
- * see the note on the ttl label in ./labels.ts. So restarting a sandbox buys it
- * a full lifetime, and so does opening it.
+ * last time anybody used it — not from `sandboxr.created`, see the note on the
+ * ttl label in ./labels.ts. So restarting a sandbox buys it a full lifetime, and
+ * so does using it: a request to one of its apps, opening it in the dashboard,
+ * or an agent running on its worktree. ./activity.ts is where each of those
+ * signals is read and why.
  */
 export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
   const docker = options.docker ?? defaultDocker;
@@ -667,7 +669,13 @@ export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
     ...(options.project === undefined ? {} : { project: options.project }),
   });
 
-  const active = await activityFor(sandboxes, { docker, ...(options.now === undefined ? {} : { now: options.now }) });
+  const active = await activityFor(sandboxes, {
+    docker,
+    // The home the agent index lives under, so `sandboxr expire` reads the same
+    // running-agent signal the dashboard's reaper does rather than a subset.
+    env,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
 
   const candidates: ExpiryCandidate[] = await Promise.all(
     sandboxes.map(async (sandbox) => ({
@@ -694,30 +702,15 @@ export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
 /**
  * When each of these sandboxes was last used, read once for the whole set.
  *
- * The window is the longest lifetime in play plus an hour, because a sandbox
- * whose last request predates its own ttl is idle by definition and reading
- * further back could not change the answer. The margin covers the gap between
- * the log line and this pass.
- *
- * A set with no readable lifetime at all skips the read entirely: nothing there
- * can expire, so the answer would be thrown away.
+ * A name kept over a thin call: the work is `sandboxActivity` in ./activity.ts,
+ * which is where the argument about *which signals count as use* lives, and
+ * this is the name the CLI and the server have both been calling it by.
  */
 export async function activityFor(
   sandboxes: Sandbox[],
-  options: { docker?: Docker | undefined; now?: Date | undefined } = {},
+  options: { docker?: Docker | undefined; env?: NodeJS.ProcessEnv | undefined; now?: Date | undefined } = {},
 ): Promise<Map<string, Date>> {
-  let longest = 0;
-  for (const sandbox of sandboxes) {
-    const ttl = parseTtl(sandbox.ttl);
-    if (typeof ttl === "number" && ttl > longest) longest = ttl;
-  }
-  if (longest === 0) return new Map();
-
-  return lastActivity({
-    docker: options.docker,
-    since: `${Math.ceil(longest / 3600) + 1}h`,
-    ...(options.now === undefined ? {} : { now: options.now }),
-  });
+  return sandboxActivity(sandboxes, options);
 }
 
 /** Reaps sandboxes whose work is finished, and the volumes nothing owns. */

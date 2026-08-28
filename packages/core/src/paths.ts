@@ -101,6 +101,16 @@ export interface Paths {
   worktreesDir(project: string): string;
   /** The marker that keeps one sandbox alive past its idle limit. */
   keepFile(project: string, slug: string): string;
+  /**
+   * The display name somebody gave one worktree.
+   *
+   * `<project>` here is the workspace *directory* name — §4.1's key, and the
+   * one the worktree's own path is built from — not the `project:` a
+   * sandboxr.yaml declares, which is what `keepFile` beside it is keyed on. The
+   * two are allowed to differ, and this file names a directory on disk rather
+   * than a container.
+   */
+  nameFile(project: string, slug: string): string;
 }
 
 /**
@@ -136,6 +146,7 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     projectDir: (project) => join(workspace, project),
     worktreesDir: (project) => join(workspace, project, WORKTREES_DIR),
     keepFile: (project, slug) => join(home, "state", "keep", project, slug),
+    nameFile: (project, slug) => join(home, "state", "name", project, slug),
   };
 }
 

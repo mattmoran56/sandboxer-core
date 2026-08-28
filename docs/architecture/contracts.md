@@ -192,18 +192,48 @@ The deadline is therefore derived at read time, as **`max(startedAt, lastActive)
 
 - `startedAt` is `State.StartedAt`, which Docker maintains. It gives the semantics anyone expects
   from the Restart button: restarting a sandbox buys it another full ttl.
-- `lastActive` is the last request that reached the sandbox through the shared router, read from
-  that router's access log (`accessLog: {}`, one common-log line per request, ending in the router
-  name — which for a sandbox *is* its container name). The ttl therefore measures **idleness, not
-  uptime**: using a sandbox resets its clock.
+- `lastActive` is the last time **anybody used the sandbox**. The ttl therefore measures
+  **idleness, not uptime**: using a sandbox resets its clock.
 
-`lastActive` is derived, never stored — §4.2's rule applied to a timer. Two consequences are part
-of the contract. The per-sandbox logs under `logs/<project>/<slug>/` are **not** an activity signal:
-the dashboard's health probes dial containers directly on the Docker network and write to them every
-few seconds, so an idle timer keyed on them would never fire. And a router whose log cannot be read
-yields **no** last-activity times rather than "nobody has used anything" — every sandbox falls back
-to its start time. Reading a missing router as universal idleness would stop every sandbox on the
-machine at once.
+**Three things count as use, and every one of them is derived at read time** — §4.2's rule applied
+to a timer. Nothing new is written down, and `packages/core/src/sandbox/activity.ts` is the one file
+that reads them:
+
+| Signal | Where it is read from | What it covers |
+|---|---|---|
+| A request to one of the sandbox's own hostnames | the shared router's access log (`accessLog: {}`, one common-log line per request, ending in the router name — which for a sandbox *is* its container name) | somebody using the apps |
+| A dashboard route that names the sandbox — `…/p/<project>/[sw]/<slug>/…` (§7.1) | the **same** access log, under `sandboxr-dashboard@docker`, from the request path | opening a worktree, its logs, its terminal socket, its agent socket |
+| An agent run on the sandbox's worktree | `agent/runs.json` for the `project/slug` join, and the transcript's mtime for when it last emitted anything (§7.2) | an agent working while nobody is watching |
+
+**A live agent run holds its sandbox open, and the countdown starts when the agent stops.** A run the
+index calls `running`, `idle` or `needs-input` reads as activity *now*; an ended one reads as
+`endedAt`. This is a timestamp and never a second exemption beside the keep-alive marker, because
+only a timestamp remembers when the agent stopped — an "agent is running" flag would drop the
+sandbox back to its start time the moment the run ended.
+
+The index is not believed on its own. The server owns the `docker exec` behind a session and it dies
+with the server, so a dashboard killed mid-run leaves rows saying `running` for ever. A live row
+therefore holds a sandbox open only while the transcript it names has been written to inside a grace
+window (`AGENT_LIVE_GRACE_MS`, fifteen minutes); past that the run is credited with its last
+transcript line and nothing more. Otherwise a crash would produce sandboxes nothing on the machine
+would ever reap.
+
+Three consequences are part of the contract:
+
+- The per-sandbox logs under `logs/<project>/<slug>/` are **not** an activity signal: the dashboard's
+  health probes dial containers directly on the Docker network and write to them every few seconds,
+  so an idle timer keyed on them would never fire. **The probes going direct rather than through the
+  router is load-bearing** for the same reason — routed through Traefik they would write a line per
+  sandbox every few seconds and no ttl on the machine would ever fire again.
+- **Every failure to read a signal means "no activity seen", never "nobody used anything."** A router
+  whose log cannot be read, an agent index that is missing or corrupt, a transcript that cannot be
+  stat'd: each yields an absence, and the sandbox falls back to its start time. Reading any of them
+  as universal idleness would stop every sandbox on the machine at once.
+- The request path is the one field of an access-log line an outsider writes, so a crafted path could
+  name somebody else's sandbox. That is accepted deliberately: the harm it does is keeping a sandbox
+  alive, which is the direction every other rule here already errs in, and only paths naming a
+  sandbox the caller already holds are looked up at all. The container name is still matched
+  backwards from the end of the line, where Traefik writes it and a request cannot reach.
 
 ## 4. Host paths
 
@@ -220,6 +250,7 @@ machine at once.
   bin/                   host-built helper binaries
   config.yaml            the machine's own settings — see §4.3
   state/keep/<project>/<slug>  keeps one sandbox alive past its idle limit — see §4.2
+  state/name/<project>/<slug>  what to call one worktree on screen — see §4.2.1
   workspace/<project>/   a project the dashboard can start a sandbox for — see §4.1
   workspace/<project>/sandboxr.yaml  optional project-level config — see §5.6
 ```
@@ -287,6 +318,12 @@ Both are `""` rather than a substituted value when unreadable, and that is the c
 fabricated date sorts a worktree somewhere it does not belong, which is worse than an entry the
 reader can see has no date.
 
+**A worktree's *display name* is deliberately not a field of this type.** Every field above is
+read out of git or off the filesystem, and the name is not: it is a label somebody typed, kept
+on the host, and read by whoever is going to show it (§4.2.1). Putting it here would make a
+listing of `wt/` pay a file read per worktree whether or not anybody wanted the name, and would
+put an editable string in the same shape as the facts git reports.
+
 ### 4.2 Keep-alive, and where mutable state is allowed to live
 
 A keep-alive marker exempts one sandbox from its idle limit. It cannot be a label — a running
@@ -309,6 +346,54 @@ The vocabulary is fixed: the file is `state/keep/<project>/<slug>`, the CLI is `
 the dashboard action is `keep` with a `toggle` of `on` / `off`, and core's functions are
 `isKeptAlive` / `writeKeep` / `removeKeep`. `pin` and `unpin` survive only as undocumented CLI
 aliases.
+
+#### 4.2.1 A worktree's display name
+
+A worktree is addressed by its slug and shown by its branch, and both are derived (§3.1, §4.1.1).
+Neither is a sentence anybody wrote: a row reading `feat-4821` says which ticket it is and nothing
+about what is being done in it. A **display name** is a label a person chose — "the checkout flow
+rewrite" — stored at `state/name/<project>/<slug>`.
+
+**It is presentation and nothing else.** It never reaches the slug, the hostname, the container
+name, a route or a URL. Those are derived from the branch and the directory, they are load-bearing
+down to a database lock name (§3.1), and a label somebody can retype at any moment must not be able
+to move them. Renaming a worktree changes one line on a screen and no address anywhere. Anything
+that built an identifier out of this value would be a bug of exactly the kind §3.1's ceiling exists
+to prevent.
+
+It passes §4.2's test — *does this file's correctness depend on a container?* — for a reason worth
+stating in full, because it reaches the **opposite** conclusion about the stamp:
+
+- **It records intent, not observed reality.** Nothing derives it, nothing reconciles it, and no
+  lifecycle command writes it. `docker ps` has no opinion about what somebody calls a worktree.
+- **It names the worktree, and a worktree is what persists.** The keep marker carries a
+  `sandboxr.created` because it applies to one *container instance*, and keeping a dead sandbox's
+  successor alive would be wrong. A name applies to the directory the sandbox is cut from, which
+  outlives every sandbox on it. **Stamping it would be the bug, not the safeguard**: the name would
+  be thrown away the moment a sandbox was stopped and recreated, so a rename would quietly undo
+  itself the next time somebody pressed Rebuild.
+- **A stale file is inert rather than wrong.** A name left behind for a slug nothing has cut is
+  only ever read when a worktree of that slug is listed again — where it is a label, not a
+  permission or a lifetime. That is the difference that makes the missing stamp safe.
+
+Two rules about the key and the value:
+
+- **`<project>` is the workspace *directory* name** — §4.1's key, the one the worktree's own path is
+  built from — and **not** the `project:` a `sandboxr.yaml` declares, which is what `state/keep/`
+  beside it is keyed on. The two are allowed to differ (§4.1), and this file names a directory on
+  disk rather than a container.
+- **The value is validated on the way in and on the way back out.** It is trimmed; the empty string
+  means *clear it, go back to the branch*; control characters, `U+2028` and `U+2029` are refused in
+  every spelling; and the length is bounded at **60 code points**. The file is plain text in
+  somebody's home directory and the value ends up on a page, so a file edited by hand into something
+  that is not a name reads as **no name** — the worktree shows its branch again, which is visible and
+  undoable — rather than being rendered raw or silently rewritten on disk.
+
+The vocabulary is fixed: the file is `state/name/<project>/<slug>`, core's functions are
+`readDisplayName` / `writeDisplayName` / `removeDisplayName` with `normaliseDisplayName` as the
+validator, the CLI is `sandboxr worktree name`, the API field is `displayName` (`null` when there is
+none, never the branch name), and the route is `PUT /api/p/:project/w/:slug/name` (§7.1). It is
+**not** one of the §8 actions: it runs nothing, streams nothing and touches no container.
 
 ### 4.3 `config.yaml`: the machine's own settings
 
@@ -850,6 +935,7 @@ is additionally checked against the session's grant.
 | `GET /api/p/:project/agent/grants` | The standing permissions this project has been granted — the rule as Claude Code will match it, and where it was granted from (§7.2.2) |
 | `DELETE /api/p/:project/agent/grants/:id` | Withdraws one. The only `DELETE` in the API; `SameSite=Lax` on the session cookie is what protects it, as it protects every `POST` beside it. Takes effect on the next session (§7.2.2) |
 | `GET /api/p/:project/s/:slug/agent/commands` | The slash commands a session on that sandbox can be offered, each marked sendable or not, each refused one carrying the sentence it is refused with, and the one sandboxr answers itself marked `handledBy` (§7.2) |
+| `PUT /api/p/:project/w/:slug/name` | Sets what one **worktree** is called, from a body of `{ "name": string }`; an empty name clears it. Answers `{ project, slug, displayName }`. On the `w` form and never the `s` form: the name belongs to the worktree, which persists (§4.2.1). A name that is not one is a `400` that does not repeat what was sent |
 
 `GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
 part of the contract because each was learnt from the version this replaced: nothing is fetched
@@ -865,6 +951,12 @@ returns the same document; the app decides what to draw. `/assets/*` serves the 
 that comes and goes on top of the worktree. The `s` form is kept because it is what an action's
 declared destination (§8) and every existing bookmark already use, and because the log and
 terminal endpoints hang off it.
+
+**Under `/api`, though, the two forms are not interchangeable, and the rename is the case that
+makes it matter.** `PUT /api/p/:project/w/:slug/name` is on the `w` form because what it writes
+outlives every sandbox cut on that worktree; the `s` routes beside it all address a container. A
+rename posted to an `s` route would read as a fact about an instance, which is precisely the
+mistake §4.2.1 exists to rule out.
 
 **Unchanged by the move to a single-page app**, and deliberately so: `/healthz`, `/login`,
 `/auth/*`, the three `POST` action routes (`/actions/:action`, `/p/:project/actions/:action`,

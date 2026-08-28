@@ -7,7 +7,7 @@
 // without changing that script gives every reader who chose dark a white flash on
 // every navigation, and nothing in a test would notice.
 //
-// It is a *different* key from the dashboard's `sandboxr.prefs.v1` on purpose.
+// It is a *different* key from the dashboard's `sandboxr.prefs.v2` on purpose.
 // The two apps have different shapes — there is no sidebar grouping here and no
 // "expand everything" there — and on a machine where both are served from
 // `localhost` they would share an origin and therefore share storage. One

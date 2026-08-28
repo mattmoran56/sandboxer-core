@@ -7,6 +7,7 @@
 // - a config error exits 2, distinct from a command that merely failed
 // - `config` in a managed worktree names the project-level file it fell back to, and the worktree root
 // - project and worktree dispatch: subcommands, missing arguments, no project
+// - `worktree name` dispatches like the other three, and is offered in the usage line
 // - project available: a machine with no gh says so in one sentence and still exits 0
 // - the commands that name a sandbox say how they are used when given no slug
 // - prune advertises `--yes` rather than `--dry-run`, because its default is the opposite of gc's
@@ -298,10 +299,16 @@ describe("worktrees", () => {
     expect(result.stderr).toContain("<project> <branch>");
   });
 
-  it.each([["ls"], ["add"], ["rm"]])("%s says the project is not in the workspace", async (sub) => {
+  it.each([["ls"], ["add"], ["rm"], ["name"]])("%s says the project is not in the workspace", async (sub) => {
     const result = await run(["worktree", sub, "nowhere", "feat/thing"], empty);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("no project called nowhere");
+  });
+
+  it("offers name alongside the other three", async () => {
+    const result = await run(["worktree", "sideways"], empty);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("ls|add|rm|name");
   });
 });
 

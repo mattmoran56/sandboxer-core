@@ -65,7 +65,7 @@ runs. So anything that changes at runtime is **derived at read time** instead.
 | Whether a backend is healthy right now | asked, live, over `/__sandboxr/health/<service>` |
 | `running` / `degraded` / `stopped` / `starting` | computed from Docker's state plus those markers |
 | When a sandbox expires | `max(startedAt, lastActive) + sandboxr.ttl`, computed per read |
-| When a sandbox was last used | the shared router's access log, read at the moment it is asked for |
+| When a sandbox was last used | the shared router's access log and the agent index, read at the moment they are asked for |
 | Whether it has read the current credentials | the secrets file's mtime against the container's `StartedAt` |
 
 A label recording "running" would be a second source of truth that goes stale the moment a process
@@ -97,8 +97,21 @@ The deadline is `max(startedAt, lastActive) + ttl`.
 
 - `startedAt` is Docker's own `State.StartedAt`, which Docker maintains. It gives the semantics
   anyone expects from a Restart button: restarting a sandbox buys it another full lifetime.
-- `lastActive` is the last request that reached the sandbox through the shared router, read from
-  that router's access log.
+- `lastActive` is the last time anybody used it, and three things count: a request that reached the
+  sandbox through the shared router, a dashboard route that names it (also in the router's log,
+  under the dashboard's own router name), and an agent run on its worktree — joined through
+  `agent/runs.json` and timed by the transcript's mtime.
+
+Every one of those is read at the moment it is asked for, and none of them is written down for this
+purpose. A live agent run reads as activity *now*, so a sandbox cannot expire under a working agent;
+an ended one reads as when it ended, so the countdown starts from when the agent stopped. Because a
+killed dashboard leaves `running` rows behind for ever, a live row is believed only while the
+transcript it names is still being written to.
+
+Every failure is an *absence*, never an answer: a router that will not answer, a missing or corrupt
+index, a transcript that cannot be stat'd. Each drops one signal and the sandbox falls back to its
+start time. The alternative reading — "nobody has used anything" — would stop every sandbox on the
+machine at once.
 
 So the lifetime measures **idleness, not uptime**. Using a sandbox resets its clock. The precedence
 chain for the ttl itself, and the reaper that acts on it, are in
@@ -149,11 +162,11 @@ it is preferable to keeping a second copy of the truth on the host.
 **There is no history.** Remove a container and its state goes with it. That is right for a sandbox,
 but you cannot ask what existed last week.
 
-## Two things that look like exceptions, and are not
+## Three things that look like exceptions, and are not
 
 A dashboard that manages projects needs to know about a project with nothing running. It also needs
-a way to say "keep this one". Both put something on the host, which on a fast read this page
-forbids. Here is the line.
+a way to say "keep this one", and a way to let you call a worktree something other than its branch.
+All three put something on the host, which on a fast read this page forbids. Here is the line.
 
 **The test is not "is it state".** It is the one the argument above actually turns on: *does this
 file's correctness depend on a container?*
@@ -200,6 +213,31 @@ and the stamp is what covers that case.
 
 The general form: **a file that records what you want is not a copy of what is true.** It earns its
 place by being unable to disagree with reality, not by being written carefully.
+
+</details>
+
+<details class="why">
+<summary><b>Why it works this way</b> — a worktree's name, and why this one must <i>not</i> be stamped</summary>
+
+You can call a worktree "the checkout flow rewrite" instead of `feat/tkt-4821`. That name is a file
+too: `~/.sandboxr/state/name/<project>/<slug>`.
+
+It passes the same test, and it reaches the **opposite** conclusion about the stamp — which is the
+useful part, because it shows the test is about the question being asked and not about the file
+format.
+
+A keep-alive marker applies to one *container*, so it has to name one. A name applies to the
+*worktree*, which is the thing that persists — a sandbox comes and goes on top of it. **Stamping the
+name would be the bug rather than the safeguard**: it would be discarded the moment a sandbox was
+stopped and recreated, so a rename would quietly undo itself the next time somebody pressed Rebuild.
+
+A stale name is inert, which is what makes the missing stamp safe. Left behind for a slug nothing
+has cut, it is only ever read when a worktree of that slug is listed again — where it is a label, not
+a permission and not a lifetime.
+
+And it is only a label. **A display name reaches no identifier**: the slug, the hostname, the
+container name and every URL are still derived from the branch and the directory, and renaming a
+worktree changes one line on a screen and no address anywhere.
 
 </details>
 
@@ -253,6 +291,7 @@ Some things must **outlive** a container. Those live under `SANDBOXR_HOME`, whic
 | `workspace/<project>/` | The repositories themselves — an original, not a copy |
 | `config.yaml` | The machine's own settings, written by hand |
 | `state/keep/<project>/<slug>` | Operator intent, stamped with the instance it applies to |
+| `state/name/<project>/<slug>` | What to call one worktree — a label, deliberately not stamped |
 
 `SANDBOXR_HOME` is deliberately never inside a repository, so `git clean -xdf` cannot destroy your
 seed cache or your certificates. The full list is in [Paths](../reference/paths.md).

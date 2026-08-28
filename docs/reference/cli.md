@@ -270,8 +270,10 @@ Stops every sandbox that has sat unused past its limit. `--dry-run` prints the p
 nothing.
 
 The clock measures **idleness, not uptime**. The deadline is the later of the container's current
-start time and the last request that reached the sandbox through the router, plus the ttl. So using a
-sandbox buys it a full lifetime, and so does pressing start.
+start time and the last time anybody used it, plus the ttl. Three things count as use: a request
+through the router, opening the sandbox in the dashboard, and an agent session on its worktree — a
+live one holds the sandbox open, and the countdown starts when it stops. So using a sandbox buys it a
+full lifetime, and so does pressing start.
 
 ```
 KEEP  main      — no expiry set
@@ -365,6 +367,7 @@ pick rather than a worktree you made by hand.
 | `sandboxr worktree ls <project>` | Every worktree cut from it. `list` is an alias |
 | `sandboxr worktree add <project> <branch> [--base REF]` | Cut one, or hand back the one already there |
 | `sandboxr worktree rm <project> <branch> [--force]` | Remove it. `remove` is an alias |
+| `sandboxr worktree name <project> <branch> <name>` | Call it something a person can read. An empty name (`""`) hands it back to its branch |
 
 Marks in the output: `*` after a repository name means a fork; `*` after a pull-request number means
 draft; `~` after a branch means the worktree is detached, because that branch is checked out
@@ -391,6 +394,14 @@ each spells the URL — ssh and https are one repository, not two.
 `worktree rm` looks the branch up in the listing rather than rebuilding a path from the name, so a
 worktree added by hand is still removable. `--force` removes one with uncommitted work in it, and
 that work is gone.
+
+`worktree name` writes one file, `~/.sandboxr/state/name/<project>/<slug>`, and does nothing else.
+**The name is presentation only**: the slug, the hostname, the container name and every URL are
+still derived from the branch and the directory, and the command prints the slug alongside to say
+so. The name is bounded at 60 characters and may not contain a line break or a control character;
+an empty name removes the file. `worktree ls` grows a `NAME` column once something in the project
+has one, and `--json` always carries `displayName`, which is `null` when there is none. `worktree
+rm` removes a worktree's name along with it.
 
 </details>
 
@@ -512,6 +523,7 @@ usage tree on stderr.
 | `project clone`, `project fetch` | workspace | Writes a project directory; a fetch never touches local work |
 | `worktree add` | one project | Creates a checkout |
 | `worktree rm` | one project | Removes a checkout, and with `--force` any uncommitted work in it |
+| `worktree name` | one project | Writes one label file under `~/.sandboxr/state/name/`. No identifier moves |
 
 ## How a slug is resolved to a project
 

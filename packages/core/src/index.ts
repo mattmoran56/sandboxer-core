@@ -112,8 +112,21 @@ export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.
 export { formatBytes, planPrune } from "./sandbox/prune.js";
 export type { PrunableImage, PrunableVolume, PruneInput, PrunePlan, PruneResult } from "./sandbox/prune.js";
 export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js";
-export { DEFAULT_ACTIVITY_WINDOW, lastActivity, parseAccessLog } from "./sandbox/activity.js";
-export type { ActivityOptions } from "./sandbox/activity.js";
+export {
+  AGENT_LIVE_GRACE_MS,
+  AGENT_LIVE_STATES,
+  DEFAULT_ACTIVITY_WINDOW,
+  agentActivity,
+  lastActivity,
+  parseAccessLog,
+  sandboxActivity,
+} from "./sandbox/activity.js";
+export type {
+  ActivityOptions,
+  AgentActivityOptions,
+  RouterActivity,
+  SandboxActivityOptions,
+} from "./sandbox/activity.js";
 
 export {
   WorkspaceError,
@@ -134,6 +147,15 @@ export {
   removeWorktree,
 } from "./worktree.js";
 export type { AddInput, Branch, Worktree } from "./worktree.js";
+
+export {
+  DISPLAY_NAME_MAX,
+  DisplayNameError,
+  normaliseDisplayName,
+  readDisplayName,
+  removeDisplayName,
+  writeDisplayName,
+} from "./worktree-name.js";
 
 export {
   alreadyAdded,

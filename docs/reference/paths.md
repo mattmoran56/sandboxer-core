@@ -37,6 +37,7 @@ Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.
 | `tls/` | Certificates and keys the router serves | yes |
 | `state/` | Router config, the dynamic config directory, the dashboard's session key | yes |
 | `state/keep/<project>/<slug>` | Keeps one sandbox alive past its idle limit | **no** — see below |
+| `state/name/<project>/<slug>` | What to call one worktree on screen | **yes** — see below |
 | `secrets/<project>.env` | Third-party credentials, mode 0600. **A file you edit** — see below | yes |
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
@@ -88,6 +89,24 @@ The container is gone either way, and a marker for a container that no longer ex
 
 It is not relied on, though. The file records which container instance it was written for, so one
 left behind by a bare `docker rm` is ignored rather than applied to whatever takes the slug next.
+
+### A worktree's name
+
+`state/name/<project>/<slug>` holds what you have chosen to call one worktree — "the checkout flow
+rewrite" rather than `feat/tkt-4821`. It is the row directly above's opposite number, and comparing
+the two is the quickest way to see the rule both follow.
+
+A keep-alive marker applies to a container, so it names one and dies with it. A name applies to the
+*worktree*, which outlives every sandbox cut on it — so it carries no instance and survives `down`,
+a delete, and being started again. Stamping it would mean a rename quietly undoing itself the next
+time you rebuilt.
+
+It is only a label. **Renaming a worktree moves nothing**: the slug, the hostname, the container
+name and every URL are still built from the branch and the directory. Set it with
+`sandboxr worktree name <project> <branch> <name>`; an empty name hands the worktree back to its
+branch. The file is plain text and you can edit it by hand — one that has been
+edited into something that is not a name (more than 60 characters, or with a line break in it) is
+read as *no name*, so the worktree shows its branch again rather than showing something broken.
 
 ### The workspace
 

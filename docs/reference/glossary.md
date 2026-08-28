@@ -85,6 +85,11 @@ See [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
 **Dirty** — a sandbox built from a worktree that had uncommitted changes. `sandboxr ls` marks it
 with a `*`. See [CLI commands](cli.md).
 
+**Display name** — what you have chosen to call a worktree, instead of its branch: "the checkout
+flow rewrite" rather than `feat/tkt-4821`. It is a label and nothing more — the [slug](#s), the
+hostname, the container name and every URL still come from the branch and the directory, so renaming
+a worktree moves no address. Set with `sandboxr worktree name`. See [CLI commands](cli.md).
+
 **Domain** — the hostname suffix everything hangs off. `SANDBOXR_DOMAIN`, default `sbx.localhost`.
 See [Environment variables](environment.md).
 
@@ -144,7 +149,9 @@ agent grant is a standing permission a project has given a session. See
 ## I
 
 **Idle clock** — the timer behind a [ttl](#t). It measures **idleness, not uptime**: the deadline is
-the later of the container's start time and the last request that reached it, plus the ttl. See
+the later of the container's start time and the last time anybody used it, plus the ttl. Three things
+count as use — a request through the router, opening the sandbox in the dashboard, and an agent
+session running on its worktree — and a live agent session holds the sandbox open until it stops. See
 [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
 
 ## K
