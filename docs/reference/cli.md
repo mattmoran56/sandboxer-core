@@ -270,10 +270,11 @@ Stops every sandbox that has sat unused past its limit. `--dry-run` prints the p
 nothing.
 
 The clock measures **idleness, not uptime**. The deadline is the later of the container's current
-start time and the last time anybody used it, plus the ttl. Three things count as use: a request
-through the router, opening the sandbox in the dashboard, and an agent session on its worktree — a
-live one holds the sandbox open, and the countdown starts when it stops. So using a sandbox buys it a
-full lifetime, and so does pressing start.
+start time and the last time anybody used it, plus the ttl. Four things count as use: a request
+through the router, opening the sandbox in the dashboard, an agent session on its worktree, and a
+terminal or agent panel somebody is holding open on it. A live agent session and an open socket both
+hold the sandbox open, and the countdown starts when they stop. So using a sandbox buys it a full
+lifetime, and so does pressing start.
 
 ```
 KEEP  main      — no expiry set

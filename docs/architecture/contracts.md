@@ -195,15 +195,25 @@ The deadline is therefore derived at read time, as **`max(startedAt, lastActive)
 - `lastActive` is the last time **anybody used the sandbox**. The ttl therefore measures
   **idleness, not uptime**: using a sandbox resets its clock.
 
-**Three things count as use, and every one of them is derived at read time** — §4.2's rule applied
-to a timer. Nothing new is written down, and `packages/core/src/sandbox/activity.ts` is the one file
-that reads them:
+**Four things count as use**, and `packages/core/src/sandbox/activity.ts` is the one file that
+reads them. Three are derived at read time — §4.2's rule applied to a timer — and the fourth is the
+one place that rule cannot hold, for the reason given underneath:
 
 | Signal | Where it is read from | What it covers |
 |---|---|---|
 | A request to one of the sandbox's own hostnames | the shared router's access log (`accessLog: {}`, one common-log line per request, ending in the router name — which for a sandbox *is* its container name) | somebody using the apps |
-| A dashboard route that names the sandbox — `…/p/<project>/[sw]/<slug>/…` (§7.1) | the **same** access log, under `sandboxr-dashboard@docker`, from the request path | opening a worktree, its logs, its terminal socket, its agent socket |
+| A dashboard route that names the sandbox — `…/p/<project>/[sw]/<slug>/…` (§7.1) | the **same** access log, under `sandboxr-dashboard@docker`, from the request path | opening a worktree, its logs, opening its terminal socket, opening its agent socket |
 | An agent run on the sandbox's worktree | `agent/runs.json` for the `project/slug` join, and the transcript's mtime for when it last emitted anything (§7.2) | an agent working while nobody is watching |
+| A terminal or agent socket **held open** on the sandbox | the mtime of `state/attach/<project>/<slug>`, re-stamped by the dashboard holding the socket (§4.2.2) | a session somebody is sitting in, longer than the ttl |
+
+**The fourth row exists because a websocket is invisible to the router's log until it ends.**
+Traefik writes a request's access line when the request *completes*, and stamps it with the moment
+the request **started**. So *opening* a terminal registers — the view fetches
+`/api/p/:project/s/:slug` first, and that line is written at once — while *keeping* one open for
+longer than the ttl produced no evidence at all, and then produced one line dated to the wrong end
+of the session. The container was reaped out from under a live connection, which is the exact
+failure this whole mechanism exists to prevent, and the cause did not resemble the symptom: the log
+appeared to contain the request.
 
 **A live agent run holds its sandbox open, and the countdown starts when the agent stops.** A run the
 index calls `running`, `idle` or `needs-input` reads as activity *now*; an ended one reads as
@@ -218,6 +228,15 @@ window (`AGENT_LIVE_GRACE_MS`, fifteen minutes); past that the run is credited w
 transcript line and nothing more. Otherwise a crash would produce sandboxes nothing on the machine
 would ever reap.
 
+**A held-open socket is believed on exactly the same terms, and the constant is the same one.** A
+heartbeat inside `ATTACH_LIVE_GRACE_MS` — which *is* `AGENT_LIVE_GRACE_MS`, because both answer how
+long a claim of liveness is believed without fresh evidence — reads as activity now; an older one
+reads as activity when it was written, which is the last moment a socket is known to have been held.
+A dashboard killed while somebody had a terminal open therefore stops pinning that sandbox within
+the quarter hour. A socket held open but **idle** does keep resetting the clock, deliberately: the
+evidence is that a live connection into the container exists, and stopping the container under one
+is the failure being fixed. It is bounded by the socket having to keep answering — see §4.2.2.
+
 Three consequences are part of the contract:
 
 - The per-sandbox logs under `logs/<project>/<slug>/` are **not** an activity signal: the dashboard's
@@ -227,8 +246,10 @@ Three consequences are part of the contract:
   sandbox every few seconds and no ttl on the machine would ever fire again.
 - **Every failure to read a signal means "no activity seen", never "nobody used anything."** A router
   whose log cannot be read, an agent index that is missing or corrupt, a transcript that cannot be
-  stat'd: each yields an absence, and the sandbox falls back to its start time. Reading any of them
-  as universal idleness would stop every sandbox on the machine at once.
+  stat'd, an attach marker that is absent or unreadable: each yields an absence, and the sandbox
+  falls back to its start time. Reading any of them as universal idleness would stop every sandbox
+  on the machine at once. The writer fails the same way — a heartbeat that cannot be written is
+  swallowed, because a full disk must not be the reason a terminal will not open.
 - The request path is the one field of an access-log line an outsider writes, so a crafted path could
   name somebody else's sandbox. That is accepted deliberately: the harm it does is keeping a sandbox
   alive, which is the direction every other rule here already errs in, and only paths naming a
@@ -251,6 +272,7 @@ Three consequences are part of the contract:
   config.yaml            the machine's own settings — see §4.3
   state/keep/<project>/<slug>  keeps one sandbox alive past its idle limit — see §4.2
   state/name/<project>/<slug>  what to call one worktree on screen — see §4.2.1
+  state/attach/<project>/<slug>  a socket is being held open on this sandbox — see §4.2.2
   workspace/<project>/   a project the dashboard can start a sandbox for — see §4.1
   workspace/<project>/sandboxr.yaml  optional project-level config — see §5.6
 ```
@@ -394,6 +416,62 @@ The vocabulary is fixed: the file is `state/name/<project>/<slug>`, core's funct
 validator, the CLI is `sandboxr worktree name`, the API field is `displayName` (`null` when there is
 none, never the branch name), and the route is `PUT /api/p/:project/w/:slug/name` (§7.1). It is
 **not** one of the §8 actions: it runs nothing, streams nothing and touches no container.
+
+The dashboard's control is the pencil beside a worktree's title, which sends that route directly.
+**Where the name is shown and where the slug still is, is part of this section**, because the two
+answer different questions: the name is shown wherever a worktree is identified to a *person* — the
+worktree page's title and breadcrumb, its sidebar row, its row on a project's pane, the home view's
+lists — and the slug stays wherever it is the thing that identifies the *sandbox*: under the title,
+in the worktree's `Slug` fact, in the Sandbox panel, in the container name and in every hostname. A
+page that showed only the name would leave somebody who renamed a worktree "the checkout flow
+rewrite" unable to read off the address its apps answer on.
+
+#### 4.2.2 The attach heartbeat: the one activity signal that is written
+
+Every other signal in §3.4 is read out of something that was going to be written anyway. This one
+is not, and the exception has to be argued rather than assumed.
+
+**There is nothing to derive it from.** A websocket does not appear in the router's log until it
+closes, and the line is stamped when it opened (§3.4), so the log cannot answer "is one open now".
+The only process that knows is the dashboard holding the socket — and `sandboxr expire` on the
+command line runs somewhere else entirely. A set of open sockets kept in memory would give the CLI
+and the dashboard two different answers to "is this in use", which is the drift
+[state.md](state.md) exists to forbid. So the dashboard re-stamps
+`state/attach/<project>/<slug>` while it holds one, and the file is read by whoever is deciding.
+
+It passes §4.2's test — *does its correctness depend on a container?* — and it reaches the same
+conclusion as §4.2.1 about the stamp, for a different reason:
+
+- **It records observation, not permission, and a timestamp is all it records.** A keep marker
+  carries a `sandboxr.created` because it is an exemption: a stale one would silently keep the next
+  sandbox to take that name alive. This says only "at time T a live process held a connection to
+  this name", and the deadline is `max(startedAt, lastActive)` — so a marker older than the
+  container it now names contributes nothing at all. There is nothing for a stale one to get wrong,
+  so nothing reconciles it and no lifecycle command deletes it.
+- **The mtime is the signal.** The text inside is a stamp for whoever reads the directory by hand
+  and nothing parses it: the filesystem maintains an mtime for free, it is the same field the agent
+  transcripts are read by, and a second spelling of one moment inside the file would be a thing that
+  can disagree with the file.
+
+Three rules bound what an open socket may mean:
+
+- **A socket is evidence only while it answers.** A laptop that sleeps with the tab open does not
+  close its connection, and the server may never find out. The holder pings every
+  `ATTACH_HEARTBEAT_MS` (thirty seconds) and a socket that has not ponged for three intervals stops
+  counting — browsers answer a ping frame at the protocol level, so this asks nothing of the app.
+  Without it, one abandoned tab would disable a sandbox's idle clock permanently, which is a worse
+  failure than the one being fixed.
+- **A silent socket is dropped, not closed.** Terminating it would put a shell down over a network
+  hiccup, and a laptop waking up simply starts counting again on the next tick.
+- **The last thing a holder does is stamp once more**, when the last socket on the sandbox is
+  released. The mtime is then *when the session ended*, which is where the countdown belongs and is
+  exactly what the router's start-stamped line cannot supply.
+
+The vocabulary is fixed: the file is `state/attach/<project>/<slug>` keyed on the container's
+`sandboxr.project` (like `state/keep/`, unlike `state/name/`), core's functions are `markAttached` /
+`attachFileFor` / `attachedActivity`, and the server's holder is `createAttachedTracker` in
+`packages/server/src/attached.ts`. It is not an action, not a route and not a field of any DTO: it
+only ever reaches a reader as part of `lastActive`.
 
 ### 4.3 `config.yaml`: the machine's own settings
 

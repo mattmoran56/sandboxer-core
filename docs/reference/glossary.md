@@ -149,9 +149,10 @@ agent grant is a standing permission a project has given a session. See
 ## I
 
 **Idle clock** — the timer behind a [ttl](#t). It measures **idleness, not uptime**: the deadline is
-the later of the container's start time and the last time anybody used it, plus the ttl. Three things
-count as use — a request through the router, opening the sandbox in the dashboard, and an agent
-session running on its worktree — and a live agent session holds the sandbox open until it stops. See
+the later of the container's start time and the last time anybody used it, plus the ttl. Four things
+count as use — a request through the router, opening the sandbox in the dashboard, an agent session
+running on its worktree, and a terminal or agent panel held open on it — and the last two hold the
+sandbox open until they stop. See
 [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
 
 ## K

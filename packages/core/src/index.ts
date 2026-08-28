@@ -112,11 +112,15 @@ export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.
 export { formatBytes, planPrune } from "./sandbox/prune.js";
 export type { PrunableImage, PrunableVolume, PruneInput, PrunePlan, PruneResult } from "./sandbox/prune.js";
 export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js";
+export { ATTACH_HEARTBEAT_MS, attachFileFor, markAttached } from "./sandbox/attach.js";
+export type { AttachOptions } from "./sandbox/attach.js";
 export {
   AGENT_LIVE_GRACE_MS,
   AGENT_LIVE_STATES,
+  ATTACH_LIVE_GRACE_MS,
   DEFAULT_ACTIVITY_WINDOW,
   agentActivity,
+  attachedActivity,
   lastActivity,
   parseAccessLog,
   sandboxActivity,
@@ -124,6 +128,7 @@ export {
 export type {
   ActivityOptions,
   AgentActivityOptions,
+  AttachedActivityOptions,
   RouterActivity,
   SandboxActivityOptions,
 } from "./sandbox/activity.js";

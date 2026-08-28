@@ -38,6 +38,7 @@ Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.
 | `state/` | Router config, the dynamic config directory, the dashboard's session key | yes |
 | `state/keep/<project>/<slug>` | Keeps one sandbox alive past its idle limit | **no** — see below |
 | `state/name/<project>/<slug>` | What to call one worktree on screen | **yes** — see below |
+| `state/attach/<project>/<slug>` | When a socket was last held open on one sandbox | yes — see below |
 | `secrets/<project>.env` | Third-party credentials, mode 0600. **A file you edit** — see below | yes |
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
@@ -89,6 +90,24 @@ The container is gone either way, and a marker for a container that no longer ex
 
 It is not relied on, though. The file records which container instance it was written for, so one
 left behind by a bare `docker rm` is ignored rather than applied to whatever takes the slug next.
+
+### The attach heartbeat
+
+`state/attach/<project>/<slug>` is stamped every thirty seconds while the dashboard is holding a
+terminal or an agent panel open on that sandbox, and once more when the last one closes. Only its
+modification time is read; the text inside is there so the directory means something if you look at
+it.
+
+It exists because a websocket does not appear in the router's log until it *closes*, and the line is
+stamped with the moment it opened — so a session held open for longer than the sandbox's lifetime
+left no evidence of being used, and the sandbox was stopped underneath it. This is the one thing on
+the machine sandboxr has to write down rather than derive, because the only process that knows a
+socket is open is the one holding it, and `sandboxr expire` on the command line is a different
+process.
+
+It survives `down`, and a stale one is harmless: all it records is a moment, and a moment older than
+the container currently holding that name counts for nothing. Delete it if you like — the sandbox
+falls back to its start time, which is the same thing that happens if the dashboard has never run.
 
 ### A worktree's name
 

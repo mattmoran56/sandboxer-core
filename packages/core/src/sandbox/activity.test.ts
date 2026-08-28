@@ -17,7 +17,12 @@
 // - agentActivity: a `running` row whose transcript went quiet is credited only with what it did
 // - agentActivity: a missing home, a corrupt index and rows missing their fields are all absences
 // - agentActivity: a transcript that cannot be stat'd falls back to the index, not to nothing
+// - attachedActivity: a fresh heartbeat holds its sandbox open — a socket is open right now
+// - attachedActivity: a heartbeat past the grace window counts when it was written, not now
+// - attachedActivity: no marker, an empty home and a sandbox missing its names are all absences
+// - attachedActivity: a heartbeat from the future is clamped to now
 // - sandboxActivity: merges router traffic, dashboard routes and agent runs onto one container key
+// - sandboxActivity: a held-open socket outweighs the router line, which is stamped when it opened
 // - sandboxActivity: a set with no readable ttl reads nothing at all
 // - sandboxActivity: docker failing and the agent index failing together are still an absence
 
@@ -29,12 +34,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { Docker, ExecResult } from "../docker.js";
 import {
+  ATTACH_LIVE_GRACE_MS,
   DEFAULT_ACTIVITY_WINDOW,
   agentActivity,
+  attachedActivity,
   lastActivity,
   parseAccessLog,
   sandboxActivity,
 } from "./activity.js";
+import { attachFileFor } from "./attach.js";
 import type { Sandbox } from "./types.js";
 
 const NOW = new Date("2026-08-26T18:00:00.000Z");
@@ -372,6 +380,79 @@ describe("agentActivity", () => {
   });
 });
 
+/* --- the held-socket signal ---------------------------------------------- */
+
+/** A heartbeat for one sandbox, with its mtime set to when it was last written. */
+async function writeAttach(project: string, slug: string, at: Date): Promise<void> {
+  const file = attachFileFor(project, slug, { home });
+  await mkdir(join(home, "state", "attach", project), { recursive: true });
+  await writeFile(file, `${at.toISOString()}\n`, "utf8");
+  await utimes(file, at, at);
+}
+
+describe("attachedActivity", () => {
+  // The failure this signal exists for. Traefik logs a websocket only when it
+  // closes and stamps the line with when it *opened*, so a terminal held open
+  // for longer than the ttl left no evidence of use at all and the reaper
+  // stopped the container under a live connection.
+  it("holds a sandbox open while a socket is being held on it", async () => {
+    await writeAttach("acme", "tkt-1", new Date(NOW.getTime() - 60_000));
+
+    const seen = await attachedActivity([{ project: "acme", slug: "tkt-1" }], { home, now: NOW });
+    expect(seen.get("acme/tkt-1")).toEqual(NOW);
+  });
+
+  // The bound on it, and the same rule as a live agent row: a dashboard killed
+  // while somebody had a terminal open leaves a marker nothing will ever move
+  // again, and crediting that with `now` for ever produces a sandbox nothing on
+  // the machine will reap.
+  it("credits a heartbeat past the grace window with when it was written", async () => {
+    const stale = new Date(NOW.getTime() - ATTACH_LIVE_GRACE_MS - 60_000);
+    await writeAttach("acme", "tkt-1", stale);
+
+    const seen = await attachedActivity([{ project: "acme", slug: "tkt-1" }], { home, now: NOW });
+    expect(seen.get("acme/tkt-1")?.toISOString()).toBe(stale.toISOString());
+  });
+
+  it("reads a sandbox nobody has ever attached to as an absence", async () => {
+    const seen = await attachedActivity([{ project: "acme", slug: "tkt-1" }], { home, now: NOW });
+    expect(seen.size).toBe(0);
+  });
+
+  // A home that is not there at all is the ordinary state of a machine whose
+  // dashboard has never run. It must read as "no socket seen", never as an
+  // answer about whether anybody is using anything.
+  it("reads a home that does not exist as an absence", async () => {
+    const seen = await attachedActivity([{ project: "acme", slug: "tkt-1" }], {
+      home: join(home, "gone"),
+      now: NOW,
+    });
+    expect(seen.size).toBe(0);
+  });
+
+  it("skips a sandbox missing its project or slug", async () => {
+    const seen = await attachedActivity([{ project: "", slug: "tkt-1" }, { project: "acme", slug: "" }], {
+      home,
+      now: NOW,
+    });
+    expect(seen.size).toBe(0);
+  });
+
+  it("clamps a heartbeat from the future to now", async () => {
+    await writeAttach("acme", "tkt-1", new Date(NOW.getTime() + 3_600_000));
+
+    const seen = await attachedActivity([{ project: "acme", slug: "tkt-1" }], { home, now: NOW });
+    expect(seen.get("acme/tkt-1")).toEqual(NOW);
+  });
+
+  it("reads the home out of the environment when it is not handed one", async () => {
+    await writeAttach("acme", "tkt-1", new Date(NOW.getTime() - 60_000));
+
+    const seen = await attachedActivity([{ project: "acme", slug: "tkt-1" }], { env, now: NOW });
+    expect(seen.get("acme/tkt-1")).toEqual(NOW);
+  });
+});
+
 /* --- the merge ----------------------------------------------------------- */
 
 function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
@@ -417,6 +498,21 @@ describe("sandboxActivity", () => {
 
     const seen = await sandboxActivity([sandbox()], {
       docker: fakeDocker({ code: 0, stdout: line("26/Aug/2026:10:00:00 +0000", "sandboxr-acme-tkt-1@docker"), stderr: "" }),
+      env,
+      now: NOW,
+    });
+    expect(seen.get("sandboxr-acme-tkt-1")).toEqual(NOW);
+  });
+
+  // The whole point of the fourth signal, at the level the reaper sees it. The
+  // router's line for a websocket is written when it closes and dated when it
+  // opened, so a session held open all day looks like traffic from this morning;
+  // the heartbeat is what makes it read as somebody being there now.
+  it("lets a held-open socket win over a router line stamped when it opened", async () => {
+    await writeAttach("acme", "tkt-1", new Date(NOW.getTime() - 30_000));
+
+    const seen = await sandboxActivity([sandbox()], {
+      docker: fakeDocker({ code: 0, stdout: line("26/Aug/2026:09:00:00 +0000", "sandboxr-acme-tkt-1@docker"), stderr: "" }),
       env,
       now: NOW,
     });

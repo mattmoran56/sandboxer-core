@@ -30,12 +30,14 @@
  * failure therefore returns an empty map, and an absent entry means "no
  * activity seen", which the planner falls back to the start time for.
  *
- * ## The two kinds of use a request to an app does not cover
+ * ## The three kinds of use a request to an app does not cover
  *
  * Traffic to a sandbox's own hostnames is only one of the ways somebody uses
- * one, and it is not the way that bites. Two more signals are read here, both
- * by the same rule as the first — derived at read time from something that is
- * written anyway, never a timestamp of our own.
+ * one, and it is not the way that bites. Three more signals are read here. Two
+ * follow the same rule as the first — derived at read time from something that
+ * is written anyway, never a timestamp of our own — and the third is the one
+ * place that rule genuinely cannot hold, which is argued out in ./attach.ts
+ * rather than here.
  *
  * **A running agent.** Somebody opens a worktree, sets Claude Code going and
  * walks away. Nothing goes through the router for an hour, the sandbox looks
@@ -78,6 +80,25 @@
  * keeping a sandbox alive, which is the direction this file already errs in
  * everywhere else, and only paths that name a sandbox the caller already has
  * are looked up at all.
+ *
+ * **A socket held open.** The paragraph above is true of *opening* a terminal
+ * and false of *keeping* one open, and the difference is a property of the log
+ * rather than of the route. Traefik writes a request's access line when the
+ * request finishes, and the timestamp on that line is when the request
+ * **started** — so a websocket held open for six hours contributes nothing for
+ * six hours and then contributes a line dated six hours ago. Opening registers,
+ * because the view fetches `/api/p/:project/s/:slug` first; a session held open
+ * longer than the ttl with no other interaction did not, and the sandbox was
+ * reaped out from under a live connection.
+ *
+ * That one cannot be derived: the only process that knows a socket is open is
+ * the dashboard holding it, and `sandboxr expire` runs somewhere else. So the
+ * dashboard re-stamps `state/attach/<project>/<slug>` while it holds one, and
+ * ./attach.ts is where the whole argument for writing anything at all lives.
+ * What is read here is only the mtime, on the same terms as a live agent run: a
+ * heartbeat inside `ATTACH_LIVE_GRACE_MS` reads as activity *now*, and an older
+ * one reads as activity *then* — which is the last moment a socket is known to
+ * have been held, and is exactly where the countdown should start.
  */
 
 import { readFile, stat } from "node:fs/promises";
@@ -88,6 +109,7 @@ import { agentPaths } from "../agent/store.js";
 import type { AgentRun, RunState } from "../agent/types.js";
 import { docker as defaultDocker, type Docker } from "../docker.js";
 import { paths } from "../paths.js";
+import { attachFileFor } from "./attach.js";
 import { parseTtl } from "./expiry.js";
 import type { Sandbox } from "./types.js";
 
@@ -121,6 +143,19 @@ export const AGENT_LIVE_STATES: ReadonlySet<RunState> = new Set<RunState>(["runn
  * pinning its sandbox within the quarter hour rather than for ever.
  */
 export const AGENT_LIVE_GRACE_MS = 15 * 60_000;
+
+/**
+ * How long a held-open socket is believed after its last heartbeat.
+ *
+ * Deliberately `AGENT_LIVE_GRACE_MS` itself and not a second number beside it.
+ * Both answer one question — how long a claim of liveness is believed without
+ * fresh evidence — and two constants meaning one thing are two things to tune
+ * and one of them to forget. It bounds the same failure too: a dashboard killed
+ * while somebody had a terminal open leaves the last heartbeat behind, and past
+ * this window the sandbox is credited with the moment that heartbeat was
+ * written and nothing more, rather than becoming immortal.
+ */
+export const ATTACH_LIVE_GRACE_MS = AGENT_LIVE_GRACE_MS;
 
 export interface ActivityOptions {
   docker?: Docker | undefined;
@@ -405,6 +440,59 @@ export async function agentActivity(options: AgentActivityOptions = {}): Promise
   return seen;
 }
 
+export interface AttachedActivityOptions {
+  env?: NodeJS.ProcessEnv | undefined;
+  /** `$SANDBOXR_HOME`, for a caller that already has it. Derived from `env` otherwise. */
+  home?: string | undefined;
+  now?: Date | undefined;
+}
+
+/**
+ * When a socket was last held open on each of these sandboxes.
+ *
+ * One `stat` per sandbox rather than a walk of `state/attach/`, so a directory
+ * full of markers for worktrees nobody has cut costs nothing to have: the
+ * question is only ever asked about sandboxes that already exist, and a marker
+ * naming anything else is never opened.
+ *
+ * A heartbeat inside `ATTACH_LIVE_GRACE_MS` yields *now* — somebody is on the
+ * other end of a connection and the sandbox must not go away under them. An
+ * older one yields its own mtime, which is the last moment a socket is known to
+ * have been held: the process holding it may have been killed, and crediting a
+ * dead dashboard's last heartbeat with `now` for ever is how a machine fills up
+ * with sandboxes nothing will reap.
+ *
+ * Every failure is an absence, one sandbox at a time. A marker that cannot be
+ * stat'd — no such file, no such directory, a home on a disk that has gone away
+ * — drops this signal for that sandbox and leaves the router log and the start
+ * time underneath it.
+ */
+export async function attachedActivity(
+  sandboxes: readonly Pick<Sandbox, "project" | "slug">[],
+  options: AttachedActivityOptions = {},
+): Promise<Map<string, Date>> {
+  const now = options.now ?? new Date();
+  const seen = new Map<string, Date>();
+
+  await Promise.all(
+    sandboxes.map(async (sandbox) => {
+      if (sandbox.project === "" || sandbox.slug === "") return;
+      const held = await mtimeOf(
+        attachFileFor(sandbox.project, sandbox.slug, {
+          env: options.env,
+          home: options.home,
+        }),
+      );
+      if (held === undefined) return;
+      const key = `${sandbox.project}/${sandbox.slug}`;
+      note(seen, key, held, now);
+      if (now.getTime() - held.getTime() <= ATTACH_LIVE_GRACE_MS) note(seen, key, now, now);
+    }),
+  );
+
+  return seen;
+}
+
 export interface SandboxActivityOptions {
   docker?: Docker | undefined;
   env?: NodeJS.ProcessEnv | undefined;
@@ -438,9 +526,10 @@ export async function sandboxActivity(
   const now = options.now ?? new Date();
   // Together rather than in sequence: they are a `docker logs` and a file read,
   // both on the path of every dashboard render, and neither needs the other.
-  const [router, agents] = await Promise.all([
+  const [router, agents, attached] = await Promise.all([
     lastActivity({ docker: options.docker, since: `${Math.ceil(longest / 3600) + 1}h`, now }),
     agentActivity({ env: options.env, now }),
+    attachedActivity(sandboxes, { env: options.env, now }),
   ]);
 
   const seen = new Map<string, Date>(router.containers);
@@ -449,6 +538,7 @@ export async function sandboxActivity(
     const key = `${sandbox.project}/${sandbox.slug}`;
     note(seen, sandbox.container, router.sandboxes.get(key), now);
     note(seen, sandbox.container, agents.get(key), now);
+    note(seen, sandbox.container, attached.get(key), now);
   }
   return seen;
 }

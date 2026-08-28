@@ -655,8 +655,8 @@ export async function startSandbox(project: string, slug: string, options: Commo
  * last time anybody used it — not from `sandboxr.created`, see the note on the
  * ttl label in ./labels.ts. So restarting a sandbox buys it a full lifetime, and
  * so does using it: a request to one of its apps, opening it in the dashboard,
- * or an agent running on its worktree. ./activity.ts is where each of those
- * signals is read and why.
+ * an agent running on its worktree, or a terminal held open on it.
+ * ./activity.ts is where each of those signals is read and why.
  */
 export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
   const docker = options.docker ?? defaultDocker;
