@@ -24,6 +24,7 @@ import {
   renderDockerfile,
   valuesFor,
 } from "./image.js";
+import type { StagedFile } from "./image.js";
 import { containerDir } from "./install.js";
 import type { Docker } from "./docker.js";
 import type { ResolvedConfig } from "./config/types.js";
@@ -199,6 +200,20 @@ describe("staging a build context", () => {
 
     await writeFile(manifest, '{"a":1}');
     expect(await imageTag("acme", "FROM a", staged)).not.toBe(first);
+  });
+
+  // The project layer is FROM the base, so its contents are the base's plus a
+  // toolchain — but the base tag arrives as a `--build-arg` and never appears in
+  // the Dockerfile text, so nothing here used to see it. A base rebuilt with new
+  // container scripts left every project image pinned to the old one, and `up`
+  // said "Image sandboxr/acme:… is current" while starting a sandbox without the
+  // scripts the host had already started relying on.
+  it("keys the tag on the base image it is built from", async () => {
+    const staged: StagedFile[] = [];
+    const onOld = await imageTag("acme", "FROM base", staged, "sandboxr/base:0.1.0-aaaa");
+
+    expect(await imageTag("acme", "FROM base", staged, "sandboxr/base:0.1.0-aaaa")).toBe(onOld);
+    expect(await imageTag("acme", "FROM base", staged, "sandboxr/base:0.1.0-bbbb")).not.toBe(onOld);
   });
 });
 
