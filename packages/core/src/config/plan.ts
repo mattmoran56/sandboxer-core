@@ -18,7 +18,7 @@
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { dirname } from "node:path";
 
 import type { ResolvedConfig, RouteMap } from "./types.js";
 
@@ -94,7 +94,17 @@ export interface Plan {
 }
 
 export interface PlanInput {
-  /** The seed artifact, as the container will see it in /sandboxr/cache. */
+  /**
+   * The seed artifact, as a path *inside the container* — resolved by
+   * `seedMount` in ../sandbox/layout.ts, which is also what decides whether the
+   * host has to mount anything for that path to exist.
+   *
+   * Not a host path, and not a bare filename. This used to be the basename of
+   * whatever the driver returned, which is right for a cached dump — the cache
+   * directory is fixed at both ends and the filename is the identity — and
+   * throws away the only thing locating a `database.seed_from.file` the project
+   * declared somewhere else. See contracts §6.2.
+   */
   seed?: { path: string; anonymised?: boolean | undefined } | undefined;
   /**
    * The dependency tree, when it was found on disk rather than declared.
@@ -186,7 +196,7 @@ export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
     owner: ownerFor(config),
     fixtures: config.database.seedFrom?.fixtures,
     seed: input.seed
-      ? { path: basename(input.seed.path), anonymised: input.seed.anonymised === true }
+      ? { path: input.seed.path, anonymised: input.seed.anonymised === true }
       : undefined,
     migrate: migrate
       ? compact({

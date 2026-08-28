@@ -91,9 +91,24 @@ Set on the dashboard's own process. `sandboxr init` sets the ones that matter.
 | `SANDBOXR_LOGIN_MAX_ATTEMPTS` | `5` |
 | `SANDBOXR_LOGIN_WINDOW_SECONDS` | `60` |
 | `SANDBOXR_CONTAINER_SCRIPTS` | `/opt/sandboxr/scripts` |
+| `SANDBOXR_CLAUDE_TOKEN` | — |
+| `SANDBOXR_CLAUDE_MCP` | — |
+| `SANDBOXR_CLAUDE_MODEL` | `claude-opus-5` |
+| `SANDBOXR_CLAUDE_PERMISSION_MODE` | `auto` |
+| `SANDBOXR_CLAUDE_CREDENTIALS` | the host's `~/.claude/.credentials.json`, when it exists |
 
 Every `SANDBOXR_PASSWORD*` variable is read once at startup and then **deleted from the
 environment**, so nothing the dashboard spawns inherits it.
+
+#### The five for agent sessions
+
+| Variable | What it does |
+|---|---|
+| `SANDBOXR_CLAUDE_TOKEN` | The credential every [agent session](../guides/agent-sessions.md) runs with. Mint it with `claude setup-token` on the host. Passed into the container as `CLAUDE_CODE_OAUTH_TOKEN` for the length of a session and written nowhere. Without it, opening a session fails and says so. `CLAUDE_CODE_OAUTH_TOKEN` is read as a fallback, for a host that already has one set |
+| `SANDBOXR_CLAUDE_MCP` | MCP servers every session is given, as the JSON a `.mcp.json` holds — the whole file or just the `mcpServers` map. This is the *only* route: a setup-token does not load claude.ai connectors, so nothing you added there is visible inside a sandbox. A value that will not parse is treated as no servers rather than stopping the dashboard from booting |
+| `SANDBOXR_CLAUDE_MODEL` | Which model a session runs on when the dashboard does not pick one. It has to be one of the models sandboxr offers — `claude-opus-5`, `claude-sonnet-5`, `claude-opus-4-8`, `claude-haiku-4-5` — and anything else falls back to `claude-opus-5` rather than stopping the dashboard from booting. A session opened on a specific model runs on that one instead; this is only the answer when nothing asks |
+| `SANDBOXR_CLAUDE_CREDENTIALS` | Where **the host** keeps its Claude Code login. Resolved for you at `sandboxr init` — from the host's `CLAUDE_CONFIG_DIR`, or `$HOME/.claude` — and forwarded to the dashboard, which cannot see your home directory to work it out for itself. When that file exists it is bind-mounted read-write into every sandbox at `/root/.claude/.credentials.json`, so one login is *shared* rather than copied; see [agent sessions](../guides/agent-sessions.md#sharing-the-hosts-login-linux). Set it yourself only for a credential kept somewhere unusual. A path that names nothing is worse than no path at all — Docker answers a missing bind source by creating a directory — so sandboxr checks before forwarding, and a credential deleted afterwards needs another `init` to be noticed |
+| `SANDBOXR_CLAUDE_PERMISSION_MODE` | Which [permission mode](../guides/agent-sessions.md#permissions) a session *starts* in when the dashboard does not pick one — `auto`, `acceptEdits`, `manual`, `plan` or `dontAsk`. Anything else falls back to `auto` rather than stopping the dashboard from booting, and that includes `bypassPermissions`: it is a spelling of `--dangerously-skip-permissions`, which Claude Code refuses when running as root, and every sandbox is root — so honouring it would give you a dashboard where every session died instantly and silently. It applies to sessions and **never** to a `/btw`. The dropdown beside the model picker changes a running session's mode without restarting it; this is only where one begins |
 
 #### The one variable that is not ours
 
@@ -131,9 +146,20 @@ do not set these.
 | `SANDBOXR_S3_KEY`, `SANDBOXR_S3_SECRET` | `storage: minio` |
 | `SANDBOXR_WITH` | `up --with` was used |
 | `SANDBOXR_SEED` | a seed source was chosen |
+| `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` | this machine has a `git config user.name` and `user.email` |
+| `GH_TOKEN` | `~/.sandboxr/config.yaml` says `github: token` for this project |
 
 The project's secrets file, when one exists and is permitted, is passed as a second `--env-file`
 **underneath** this one, so a generated value always wins over an imported one.
+
+The four `GIT_*` variables are how a sandbox knows who a commit is by. A sandbox has no
+`~/.gitconfig` — and the host's is deliberately not mounted, because it names a credential helper
+and a signing key that do not exist inside a container — so without them `git commit` refuses:
+git tries to invent an address from the hostname, and a container hostname has no domain. Both
+pairs are set, because git fails on whichever is missing.
+
+`GH_TOKEN` is off by default, and turning it on is a decision worth making on purpose — see
+[Access and security](../access.md#a-sandbox-that-can-open-a-pull-request).
 
 ## 3. Variables the sandbox works out for itself
 

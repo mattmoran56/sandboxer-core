@@ -133,6 +133,23 @@ SNIPPETS
     printf '\t}\n'
   done < <(jq -c '.services[]? | select(.kind != "static")' "$SANDBOXR_PLAN")
 
+  # Everything else under /__sandboxr/ is a 404, and this block is why the prefix
+  # is reserved (contracts §5.1). `handle` blocks are mutually exclusive and the
+  # more specific path wins, so the routes above still answer; what this catches
+  # is the paths that named nothing -- above all the health route of a service the
+  # plan marks `optional` and nobody requested, which is deliberately not written.
+  #
+  # Without it those requests fell through to the *app* block for whatever
+  # hostname they arrived on, because a host matcher matches any path. What came
+  # back was that front-end's own answer: an unbuilt app replied with its 503
+  # "not built yet" page, so the dashboard read every dormant service as `down`;
+  # and once the app was built the same request got the SPA's index.html and a
+  # 200, so the same never-started service read as `up`. Neither answer had
+  # anything to do with the service, and the second is the worse one.
+  printf '\thandle /__sandboxr/* {\n'
+  printf '\t\trespond "sandboxr: no such status route {http.request.uri.path}" 404\n'
+  printf '\t}\n'
+
   # --- one site per app ---------------------------------------------------------
   while read -r record; do
     [[ -z "$record" ]] && continue

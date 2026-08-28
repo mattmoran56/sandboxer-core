@@ -3,11 +3,14 @@
 // - dirtyFiles: staged and unstaged shapes, the generated-file ignore list, renames, empty input
 // - branchOf: a checked-out branch, a detached tree recovered from a local branch, then from a remote one, then unknown
 // - gitFacts: the happy path, a tree with no commits, and a directory git knows nothing about
+// - gitMounts: a linked worktree gets itself and its repository, a plain checkout gets nothing
+// - gitMounts: nothing at all for a non-repository, or a repository whose top is above the tree
+// - hostGitIdentity: the environment wins, git config is the fallback, and neither is not an error
 
 import { describe, expect, it } from "vitest";
 
 import type { Runner } from "./docker.js";
-import { DEFAULT_DIRTY_IGNORE, branchOf, dirtyFiles, gitFacts, pickBranch } from "./git.js";
+import { DEFAULT_DIRTY_IGNORE, branchOf, dirtyFiles, gitFacts, gitMounts, hostGitIdentity, pickBranch } from "./git.js";
 
 /** Answers git by the sub-command it was asked, so order does not matter. */
 function fakeGit(answers: Record<string, { code?: number; stdout?: string }>): Runner {
@@ -133,5 +136,80 @@ describe("gitFacts", () => {
       branch: "?",
       dirty: false,
     });
+  });
+});
+
+describe("gitMounts", () => {
+  const worktree = "/home/me/.sandboxr/workspace/acme/wt/staging";
+  const repo = "/home/me/.sandboxr/workspace/acme/repo.git";
+
+  it("mounts a linked worktree and the repository it points at", async () => {
+    const run = fakeGit({
+      "rev-parse --show-toplevel": { stdout: `${worktree}\n` },
+      // What git answers for a linked worktree: absolute, and nowhere near the
+      // tree being mounted.
+      "rev-parse --git-common-dir": { stdout: `${repo}\n` },
+    });
+    expect(await gitMounts(worktree, { run })).toEqual([worktree, repo]);
+  });
+
+  it("mounts nothing for a plain checkout, whose .git is already in the tree", async () => {
+    const run = fakeGit({
+      "rev-parse --show-toplevel": { stdout: "/repos/acme\n" },
+      // The relative answer an ordinary repository gives.
+      "rev-parse --git-common-dir": { stdout: ".git\n" },
+    });
+    expect(await gitMounts("/repos/acme", { run })).toEqual([]);
+  });
+
+  it("mounts nothing when the tree is not a repository", async () => {
+    const run = fakeGit({ "rev-parse --show-toplevel": { code: 128, stdout: "" } });
+    expect(await gitMounts("/repos/acme", { run })).toEqual([]);
+  });
+
+  it("mounts nothing when the repository's top is above the tree being mounted", async () => {
+    // A project kept in a subdirectory of a larger repository. Making git work
+    // here would mean mounting the enclosing repository, and a git that finds
+    // its .git above /workspace calls every file in the project deleted.
+    const run = fakeGit({
+      "rev-parse --show-toplevel": { stdout: "/repos/monorepo\n" },
+      "rev-parse --git-common-dir": { stdout: "/repos/monorepo/.git\n" },
+    });
+    expect(await gitMounts("/repos/monorepo/services/acme", { run })).toEqual([]);
+  });
+});
+
+describe("hostGitIdentity", () => {
+  const refuse: Runner = async () => ({ code: 1, stdout: "", stderr: "" });
+
+  it("takes the environment without asking git", async () => {
+    const identity = await hostGitIdentity(
+      { GIT_AUTHOR_NAME: "Ada", GIT_AUTHOR_EMAIL: "ada@example.com" },
+      refuse,
+    );
+    expect(identity).toEqual({ name: "Ada", email: "ada@example.com" });
+  });
+
+  it("falls back to this machine's git config", async () => {
+    const run: Runner = async (_bin, args) => ({
+      code: 0,
+      stdout: args.includes("user.name") ? "Ada\n" : "ada@example.com\n",
+      stderr: "",
+    });
+    expect(await hostGitIdentity({}, run)).toEqual({ name: "Ada", email: "ada@example.com" });
+  });
+
+  it("treats a blank value as no value, so a shell profile exporting an empty name is not one", async () => {
+    expect(await hostGitIdentity({ GIT_AUTHOR_NAME: "   " }, refuse)).toEqual({
+      name: undefined,
+      email: undefined,
+    });
+  });
+
+  it("answers with nothing rather than throwing when the machine has no git", async () => {
+    const explode: Runner = async () => {
+      throw new Error("git: not found");
+    };
+    expect(await hostGitIdentity({}, explode)).toEqual({ name: undefined, email: undefined });
   });
 });

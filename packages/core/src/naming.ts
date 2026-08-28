@@ -169,8 +169,85 @@ export function depsVolumeName(lockHash: string): string {
   return `sandboxr-deps-${lockHash}`;
 }
 
+/** Every image sandboxr builds lives under this repository namespace. */
+export const IMAGE_NAMESPACE = "sandboxr/";
+
+/**
+ * The repository a project's image layer is tagged in.
+ *
+ * The tag itself is a content hash rather than a slug (see `imageTag`), because
+ * every sandbox of a project shares one image and what identifies it is what
+ * went into the build, not which branch asked for it first.
+ */
+export function imageRepository(project: string): string {
+  return `${IMAGE_NAMESPACE}${project}`;
+}
+
+/**
+ * Repositories under `sandboxr/` that are the machine's own images rather than
+ * any project's layer, and are therefore never reclaimed as superseded.
+ *
+ * They are the two `init` builds — the base every sandbox runs from and the
+ * dashboard — and both are tagged by tool version rather than by content, so the
+ * "an older tag means a newer one replaced it" rule the collector applies to
+ * project images does not hold for them. Losing either costs a rebuild measured
+ * in minutes, and losing the base costs it on the next `up` rather than now,
+ * which is the worst moment to discover it.
+ *
+ * `access/index.ts` spells these out as `BASE_IMAGE` and `DASHBOARD_IMAGE_NAME`;
+ * a test pins the two lists together so a rename cannot quietly unprotect one.
+ */
+export const PROTECTED_IMAGES = ["sandboxr/base", "sandboxr/dashboard"] as const;
+
+/**
+ * Claude Code's state directory, shared by every sandbox on the machine.
+ *
+ * A setup-token authenticates model requests and nothing else, so an MCP server
+ * an agent session needs is authorised per server with `claude mcp login`. That
+ * writes a credential, and with no mount on `/root` the credential died with the
+ * container — every sandbox re-authorising every server, one worktree at a time.
+ * One machine-wide volume makes it once per machine, which is the whole point.
+ *
+ * **The cost of sharing is worth stating plainly**: every sandbox on the machine
+ * reads every credential in here, so one compromised sandbox reaches every
+ * server that has ever been authorised. That is a decision, not an oversight —
+ * the alternative was a full subscription credential in each container, which
+ * carries `org:create_api_key` and reaches every connector on the account. If a
+ * later change needs isolation between sandboxes, this is the line to revisit,
+ * and the price of revisiting it is logging in once per sandbox again.
+ *
+ * One thing has changed under that paragraph and it is worth saying here rather
+ * than leaving the sentence above to read as still-complete: when the *host* has
+ * a `.credentials.json`, that one file is mounted over this volume's copy in
+ * every sandbox, so a full subscription credential is exactly what a container
+ * gets. It is the host's own file rather than a duplicate — one token, one
+ * writer, because a copied refresh token rotates out from under itself — and it
+ * is a deliberate arrangement, described in contracts §7.2 and resolved by
+ * `hostClaudeCredentials`. The reach described above is its reach.
+ *
+ * A second, quieter consequence: Claude Code keys its per-project state on the
+ * working directory, and every sandbox's worktree is `/workspace`, so all of
+ * them share one project entry. A locally-scoped MCP server added inside one
+ * sandbox is therefore visible in all of them, which is convenient right up
+ * until someone wonders where a server they never configured came from.
+ */
+export const CLAUDE_VOLUME = "sandboxr-claude";
+
+/**
+ * Go's build cache and module cache, shared by every sandbox on the machine.
+ *
+ * Both are content-addressed — the module cache on `module@version`, the build
+ * cache on a hash of each compilation's inputs — so two sandboxes read the same
+ * entry only when the thing being cached was identical anyway. That is what
+ * makes one pair of volumes for the whole machine correct rather than merely
+ * cheap, and it is why these are named here beside the sandbox-owned volumes
+ * rather than derived per sandbox.
+ */
+export const GOCACHE_VOLUME = "sandboxr-gocache";
+export const GOMOD_VOLUME = "sandboxr-gomod";
+
 /** Volumes shared by every sandbox on the machine, from contracts §3.3. */
-export const SHARED_VOLUMES = ["sandboxr-gocache", "sandboxr-gomod"] as const;
+export const SHARED_VOLUMES = [GOCACHE_VOLUME, GOMOD_VOLUME, CLAUDE_VOLUME] as const;
 
 /** The one shared docker network, from contracts §3.3. */
 export const NETWORK = "sandboxr";

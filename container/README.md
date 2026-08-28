@@ -13,7 +13,7 @@ Everything below implements it.
 
 | Path | What it is |
 |---|---|
-| `base/Dockerfile` | The generic base image: s6, Caddy, MinIO, these scripts |
+| `base/Dockerfile` | The generic base image: s6, Caddy, MinIO, `git`, `gh`, `claude`, these scripts |
 | `base/s6/` | The s6 bundle skeleton, copied in at boot and then added to |
 | `project/Dockerfile.template` | The per-project layer, rendered by the host |
 | `scripts/` | Everything the services actually run |
@@ -31,9 +31,13 @@ project: the toolchain versions, the database engine and the `node_modules` were
 all facts about one repository.
 
 - **`base/Dockerfile`** — Debian bookworm, s6-overlay, Caddy, MinIO, `jq`,
-  `envsubst`, and these scripts. Nothing project-specific. Shared by every sandbox
-  of every project on the machine, and it stays small so that adding a project
-  costs one thin layer rather than another few gigabytes.
+  `envsubst`, `git`, `gh`, `claude`, and these scripts. Nothing project-specific.
+  Shared by every sandbox of every project on the machine, and it stays small so
+  that adding a project costs one thin layer rather than another few gigabytes.
+  `claude` and `gh` are the two deliberate exceptions to "small": they are there
+  because the point of a sandbox is that the branch in it can be *finished*, and
+  a sandbox that can run the tests but not open the pull request sends you back
+  to the host for the last step — the step you were trying to delegate.
 - **`project/Dockerfile.template`** — rendered per project into a layer on top,
   adding exactly what that project's `toolchain:` and `database:` blocks declare,
   plus its dependency install.
@@ -99,7 +103,10 @@ type checker and this side has `jq`.
     "name": "acme",                     // defaults to the project name
     "owner": "app",                     // file drivers: the one service that may open it
     "fixtures": "migrations/seeds/fixtures.sql",   // repo-relative
-    "seed": { "path": "acme-3f2a1b.sql.zst", "anonymised": true },
+    // A path *inside the container*, not on the host: /sandboxr/cache/<name>
+    // for a dump sandboxr cached, /sandboxr/seed/<name> for a file the project
+    // declared somewhere else and the host bind-mounted. See "The seed artifact".
+    "seed": { "path": "/sandboxr/cache/acme-3f2a1b.sql.zst", "anonymised": true },
     "migrate": {
       "workdir": "services",            // repo-relative; omitted means run in /empty
       "command": "go run ./cmd/migrate --env local",
@@ -157,6 +164,32 @@ today, and the container cannot do its job without them:
   its own spelling. Values are expanded with `envsubst`, which substitutes
   `${...}` and does not run a shell, so a value is data and never a command.
 
+### The seed artifact
+
+`database.seed.path` is the path the container opens, and the host has already
+resolved it. Two kinds of artifact arrive there and only one of them lives in the
+cache:
+
+| Artifact | `seed.path` | How it got there |
+|---|---|---|
+| a dump sandboxr took and content-addressed | `/sandboxr/cache/<name>` | the cache directory is mounted read-only |
+| a `database.seed_from.file` the project declared | `/sandboxr/seed/<name>` | that one file, bind-mounted read-only |
+
+The container does not resolve a bare name against a directory it has to know
+about, because the second kind has no name that would work: a declared `file:`
+may be anywhere the user keeps it — outside every repo on purpose, so `git clean`
+cannot destroy it — and its directory is the only thing locating it. The host used
+to take the basename of both, which is right for the cache and left the declared
+file being looked for where it had never been; nothing failed loudly, and the
+sandbox started from an empty database instead.
+
+The basename is preserved either way because `decompress()` picks zstd, gzip or
+`cat` by extension, and the host is the side that knows the name.
+
+When `seed.path` is absent the driver falls back to the newest dump in
+`/sandboxr/cache`, so a `sandboxr db refresh` takes effect without regenerating
+the plan.
+
 ### The environment a sandbox computes for itself
 
 Contracts §5.2 forbids importing anything that describes *where* something runs —
@@ -189,17 +222,58 @@ Mounts the host is expected to provide:
 | `/workspace` | the worktree, bind-mounted read-write |
 | `/sandboxr/plan.json` | the plan, read-only |
 | `/sandboxr/cache` | the seed artifact cache, read-only |
+| `/sandboxr/seed/<name>` | a declared `database.seed_from.file`, that one file, read-only — only when the project has one and it is not in the cache |
 | `/var/log/sandboxr` | per-sandbox logs, so they survive the container |
 | `/var/lib/sandboxr/data` | the `data` volume |
 | `/var/lib/sandboxr/blob` | the `blob` volume |
 | `/var/lib/sandboxr/bin` | the `bin` volume |
 | `/srv/www` | the `www` volume |
 | `/workspace/<deps.root>/node_modules` | the shared `deps-<hash>` volume |
+| `/root/.claude` | the machine-wide `sandboxr-claude` volume: Claude Code's state, shared by every sandbox so an MCP server is authorised once per machine rather than once per worktree |
+| `/root/.claude/.credentials.json` | the **host's** Claude Code login, one file, bind-mounted read-write over the volume's copy — and only when that file exists on the host |
+| `<the worktree's own host path>` | the worktree a second time, at the path the host calls it |
+| `<the repository's own host path>` | the bare repo or `.git` the worktree points at, read-write |
+
+**The credential is one file, and the directory around it is deliberately not
+mounted.** Binding all of the host's `~/.claude` would give every sandbox write
+access to its `settings.json`, which can define hooks — commands the host's own
+Claude Code then executes — so a sandbox could put a command on the person's
+machine. It is shared rather than copied because an OAuth refresh token rotates
+and is single-use: two copies invalidate each other the first time either side
+refreshes, which is why the mount is read-write. A host without that file (every
+macOS one, where the credential is in the login keychain) gets no mount at all
+and the volume alone, exactly as before. The host decides, in
+`hostClaudeCredentials` (packages/core/src/agent/credentials.ts).
+
+**The last two are what make `git` work in here, and they are mounted at the
+identical path inside and out on purpose.** A linked worktree's `.git` is a file
+holding `gitdir: <repo>/worktrees/<name>` — an absolute host path — so a
+container with only `/workspace` fails every git command with `fatal: not a git
+repository` naming a directory that is not there. The repository mount is
+read-write because `git commit` writes objects and refs into it. Neither is
+present for a plain checkout, whose `.git` is inside `/workspace` already; the
+host decides, in `gitMounts` (packages/core/src/git.ts), which is which.
 
 Environment: `SANDBOXR_SLUG` is required. `SANDBOXR_DOMAIN` (default `sbx.lcl`),
 `SANDBOXR_PROJECT`, `SANDBOXR_WITH`, `SANDBOXR_SEED`, `SANDBOXR_DB_USER`,
 `SANDBOXR_DB_PASSWORD`, `SANDBOXR_S3_KEY` and `SANDBOXR_S3_SECRET` all have
-defaults.
+defaults. `CLAUDE_CONFIG_DIR` is set to `/root/.claude` — Claude Code keeps its
+OAuth account and personal MCP servers in `~/.claude.json`, a file *beside* that
+directory, so without this the volume persists the session history and loses the
+login.
+
+`GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and
+`GIT_COMMITTER_EMAIL` carry the host's commit identity. Both pairs, because git
+fails on whichever is missing, and as variables rather than a mounted
+`~/.gitconfig`, which would bring a credential helper and a signing key that do
+not exist in here. Without them git refuses to commit at all: it tries to invent
+an address from the hostname, and a container hostname has no domain.
+
+`GH_TOKEN` is present only when the machine opted this project in (contracts
+§4.3). `gh` reads it by itself, and the image's `/etc/gitconfig` points git's
+https credential helper at `gh auth git-credential`, so that one variable is what
+makes both `gh` and `git push` work. Absent, `gh` reports itself logged out and a
+push fails the way an unauthenticated push always did.
 
 ## Startup
 
@@ -280,6 +354,21 @@ The status surface answers on **every** hostname the sandbox serves:
 | `/__sandboxr/status.json` | the composed status document (below) |
 | `/__sandboxr/built.json` | label → last build time, for every built app |
 | `/__sandboxr/health/<service>` | proxied to that service's declared health path |
+| anything else under `/__sandboxr/` | `404` |
+
+**The `/__sandboxr/` prefix is reserved and answers before any app block.** The
+last row is not a tidy-up: without it a path under the prefix that names nothing
+fell through to the site block for whatever hostname it arrived on, because a host
+matcher matches every path. A health route is written **only** for a service that
+is going to run — a service the plan marks `optional` and nobody named in
+`SANDBOXR_WITH` gets none, deliberately — so the probe of a dormant service was
+the request that landed there. What came back was the front-end's own answer: an
+unbuilt app replied with its 503 "not built yet" page, and the dashboard read
+every dormant service as `down`; once that app was built the same request got the
+SPA's `index.html` and a 200, and the same never-started service read as `up`. A
+service's reachability must not depend on whether an unrelated front-end has been
+built, which is what the 404 restores — the router saying it has no route, which
+is a different answer from a service saying no.
 
 `status.json`:
 
@@ -343,6 +432,18 @@ they differ.
 manifests alone, and npm skips a `bin` whose target file does not exist yet — so a
 build script one workspace package exposes to another is missing, and the build
 fails with a bare `code 127` that names nothing.
+
+**"Installed" is a marker the script writes last, not a non-empty directory.**
+`node_modules/.sandboxr-deps` holds the lockfile hash the install came from, and is
+renamed into place only after the copy or the install has finished. The volume is
+*shared* — every sandbox on that lockfile mounts the same one — so a boot
+interrupted part-way through the copy leaves a tree that is non-empty and short of
+packages, which a directory listing cannot tell from a finished install. That
+poisons the volume permanently and every sandbox on the lockfile inherits it; the
+only symptom is builds failing to resolve imports that plainly exist. A volume
+whose marker is missing or names a different lockfile is repopulated over the top
+rather than emptied first, because another sandbox may be running against it at
+that moment.
 
 ### MinIO is in the base, not a project layer
 

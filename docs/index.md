@@ -45,7 +45,8 @@ sandboxr up
 [the dashboard](guides/dashboard.md) ·
 [projects, worktrees and lifetimes](guides/managed-sandboxes.md) ·
 [testing a migration](guides/testing-a-migration.md) ·
-[agents in a sandbox](guides/agents-in-a-sandbox.md)
+[agents in a sandbox](guides/agents-in-a-sandbox.md) ·
+[agent sessions](guides/agent-sessions.md)
 
 **Configuring a project** — [sandboxr.yaml, field by field](configuration/sandboxr-yaml.md) ·
 [three runtime kinds](configuration/runtime-kinds.md) ·

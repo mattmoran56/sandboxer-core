@@ -11,13 +11,25 @@
 import { createHash } from "node:crypto";
 
 import type { BackendService, FrontendApp, ResolvedConfig } from "../config/types.js";
-import { NETWORK, containerName, depsVolumeName, volumeName } from "../naming.js";
+import {
+  CLAUDE_VOLUME,
+  GOCACHE_VOLUME,
+  GOMOD_VOLUME,
+  NETWORK,
+  containerName,
+  depsVolumeName,
+  volumeName,
+} from "../naming.js";
 import { labelArgs } from "./labels.js";
 import {
   BIN_DIR,
   BLOB_DIR,
   CACHE_DIR,
+  CLAUDE_DIR,
+  CREDENTIALS_FILE,
   DATA_DIR,
+  GOCACHE_DIR,
+  GOMOD_DIR,
   LOG_DIR,
   PLAN_FILE,
   WORKSPACE,
@@ -45,6 +57,15 @@ export interface RunInput {
   planFile: string;
   /** The host seed cache, mounted read-only. */
   cacheDir: string;
+  /**
+   * A seed artifact that is *not* in that cache, and so needs a mount of its own.
+   *
+   * `seedMount` in ./layout.ts decides this and names the path inside; the same
+   * call fills in the plan, so the container cannot be told to open a file
+   * nothing mounted. See contracts §6.2 for why a declared `file:` is mounted
+   * rather than copied into the cache.
+   */
+  seedFile?: { host: string; inside: string } | undefined;
   /** The per-sandbox log directory on the host, so logs outlive the container. */
   logDir: string;
   /** Hash of the project's lockfile, which keys the shared dependency volume. */
@@ -55,6 +76,34 @@ export interface RunInput {
   memory?: string | undefined;
   /** Optional runtimes to start, passed to the entrypoint. */
   with?: string[] | undefined;
+  /**
+   * Host directories bind-mounted at the identical path inside, so that git
+   * works: a linked worktree's `.git` is a file naming its repository by
+   * absolute path. Resolved by `gitMounts` in ../git.ts, which is where the
+   * whole reasoning lives.
+   */
+  gitMounts?: string[] | undefined;
+  /**
+   * Who a commit made inside the sandbox is by. A sandbox has no `~/.gitconfig`
+   * and git refuses to commit without this — see `hostGitIdentity`.
+   */
+  gitIdentity?: { name?: string | undefined; email?: string | undefined } | undefined;
+  /**
+   * The machine's GitHub token, when `config.yaml` says this project may have it.
+   *
+   * Absent unless the operator opted in (see `resolveGithub`), and passed as a
+   * *value* for the reason access/dashboard.ts records: on macOS `gh` keeps the
+   * token in the login keychain, so there is no file that could be mounted.
+   */
+  ghToken?: string | undefined;
+  /**
+   * The host's Claude Code login, as a path on the host.
+   *
+   * Absent unless that file exists, which on macOS it never does. Resolved by
+   * `hostClaudeCredentials` in ../agent/credentials.ts, which is where the whole
+   * reasoning lives.
+   */
+  claudeCredentials?: string | undefined;
   /**
    * The labels the shared router reconciles from.
    *
@@ -102,6 +151,22 @@ export function runArgs(input: RunInput): string[] {
   // container immediately — and an agent editing inside the container writes to
   // the worktree, so its changes show up in `git status`.
   args.push("-v", `${input.worktree}:${WORKSPACE}`);
+  // …and again at its own path, alongside the repository it was cut from, so
+  // that git works at all. Read-write, and that is the deliberate part: `git
+  // commit` writes objects and refs into the *repository*, so a read-only mount
+  // would leave status and log working and fail only at the commit, with a
+  // permission error from inside git — a newer and more confusing break than the
+  // one this fixes. The cost is that every sandbox of a project shares one
+  // object store and one set of refs with the host: a sandbox can move a branch
+  // another worktree has checked out, and a `git gc` inside one repacks what all
+  // of them read. See `gitMounts` in ../git.ts for the rest.
+  //
+  // `path !== WORKSPACE` because a host checkout that happens to live at
+  // `/workspace` would otherwise be mounted twice at one destination, and Docker
+  // refuses the whole `run` over it rather than ignoring the second.
+  for (const path of input.gitMounts ?? []) {
+    if (path !== WORKSPACE) args.push("-v", `${path}:${path}`);
+  }
   // Read-only: the plan is the host's statement of what this project is, and a
   // container that could rewrite it could change what it claims to be running.
   args.push("-v", `${input.planFile}:${PLAN_FILE}:ro`);
@@ -123,8 +188,67 @@ export function runArgs(input: RunInput): string[] {
     const root = deps.root === "." ? WORKSPACE : `${WORKSPACE}/${deps.root}`;
     args.push("-v", `${depsVolumeName(input.depsHash)}:${root}/node_modules`);
   }
+  // Go's two caches, shared by every sandbox on the machine (contracts §3.3).
+  // Only for a project that declares the toolchain: a sandbox with no Go in it
+  // would otherwise carry two mounts nothing ever reads.
+  if (config.toolchain.go) {
+    args.push("-v", `${GOCACHE_VOLUME}:${GOCACHE_DIR}`);
+    args.push("-v", `${GOMOD_VOLUME}:${GOMOD_DIR}`);
+  }
   args.push("-v", `${input.cacheDir}:${CACHE_DIR}:ro`);
+  // The single file and not its directory: `file:` may point into a directory
+  // the user keeps other things in, and mounting the parent would hand all of
+  // them to the sandbox to buy nothing. Read-only for the reason the cache is —
+  // a sandbox restores from a seed and never writes to one.
+  if (input.seedFile) args.push("-v", `${input.seedFile.host}:${input.seedFile.inside}:ro`);
   args.push("-v", `${input.logDir}:${LOG_DIR}`);
+  // Not a per-sandbox volume: an MCP server is authorised once per machine with
+  // `claude mcp login`, and the whole point is that the next worktree does not
+  // have to do it again. See CLAUDE_VOLUME for what every sandbox sharing one
+  // credential store costs, and CLAUDE_DIR for why the environment variable
+  // below is not optional.
+  args.push("-v", `${CLAUDE_VOLUME}:${CLAUDE_DIR}`);
+  args.push("-e", `CLAUDE_CONFIG_DIR=${CLAUDE_DIR}`);
+  // The host's login, one file, mounted over the volume's copy of it.
+  //
+  // **The single file and not the directory**, and that is the security boundary
+  // rather than tidiness: binding all of `~/.claude` would give every sandbox
+  // write access to the host's settings.json, which can define hooks — commands
+  // the host's own Claude Code then executes. A sandbox writing one is a
+  // container-to-host escalation delivered by a convenience feature, and the
+  // same mount would hand it the person's history, plans and project state too.
+  //
+  // **Read-write, deliberately.** An OAuth refresh token rotates and is
+  // single-use, so a *copy* dies the first time either side refreshes; sharing
+  // the one file means the refresh a sandbox performs updates the host's login
+  // and every other sandbox's at once. Read-only would work exactly until that
+  // first refresh and then fail the same way copying did.
+  //
+  // Ordered after the volume because Docker applies mounts by path depth, not by
+  // argument order — but written after it anyway, so reading this list top to
+  // bottom describes what the container actually gets.
+  if (input.claudeCredentials) args.push("-v", `${input.claudeCredentials}:${CREDENTIALS_FILE}`);
+
+  // The commit identity, as four variables rather than a mounted gitconfig.
+  //
+  // Author *and* committer, because git needs both and fails on whichever is
+  // missing: setting only the author pair gets you past the first error into an
+  // identical second one about the committer.
+  //
+  // These are `-e` rather than exported by the entrypoint on purpose. `docker
+  // exec` does not inherit what the entrypoint exported — it gets the
+  // container's environment — and every git command that matters here arrives
+  // through an exec: the terminal, and an agent session.
+  const identity = input.gitIdentity;
+  if (identity?.name) args.push("-e", `GIT_AUTHOR_NAME=${identity.name}`, "-e", `GIT_COMMITTER_NAME=${identity.name}`);
+  if (identity?.email) {
+    args.push("-e", `GIT_AUTHOR_EMAIL=${identity.email}`, "-e", `GIT_COMMITTER_EMAIL=${identity.email}`);
+  }
+  // The token, only when the machine opted this project in. `gh` reads GH_TOKEN
+  // on its own, and the base image points git's https credential helper at `gh
+  // auth git-credential`, so this one variable is what makes both the CLI and
+  // `git push` work.
+  if (input.ghToken) args.push("-e", `GH_TOKEN=${input.ghToken}`);
 
   args.push("--entrypoint", ENTRYPOINT, input.image ?? DEFAULT_IMAGE);
   return args;

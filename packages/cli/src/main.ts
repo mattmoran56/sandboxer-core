@@ -24,6 +24,7 @@ import {
   expire,
   fetchProject,
   findProject,
+  formatBytes,
   formatTtl,
   gc,
   getDriver,
@@ -43,6 +44,7 @@ import {
   parseTtl,
   paths,
   persistenceAdvice,
+  prune,
   reload,
   removeKeep,
   removeWorktree,
@@ -99,6 +101,8 @@ SANDBOX
   expire [--dry-run]           Stop every sandbox past its idle limit
      --project NAME            ...of one project only
   gc [--dry-run]               Reap sandboxes whose worktree is gone
+  prune [--yes]                Reclaim disk: orphaned volumes, replaced images
+     --build-cache             ...and Docker's build cache, which is not only ours
 
 PROJECTS
   project ls                   Every project in the workspace
@@ -205,6 +209,8 @@ export async function main(argv: string[], context: RunContext = {}): Promise<nu
         return await cmdReload(args, out, cwd, env);
       case "gc":
         return await cmdGc(args, out, env);
+      case "prune":
+        return await cmdPrune(args, out, env);
       case "db":
         return await cmdDb(args, out, cwd, env);
       case "secrets":
@@ -526,6 +532,73 @@ async function cmdGc(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Pro
   else if (flagBoolean(args, "dry-run")) {
     for (const { sandbox, reason } of plan.reap) out.line(`  would reap ${sandbox.slug} — ${reason}`);
     for (const volume of plan.volumes) out.line(`  would remove volume ${volume}`);
+  }
+  return 0;
+}
+
+/**
+ * `prune` reports by default and removes with `--yes`, which is the other way
+ * round from `gc --dry-run`.
+ *
+ * The asymmetry is the point rather than an inconsistency: `gc` removes things
+ * whose loss costs a restart, and this removes images, where the cost of taking
+ * one that was still wanted is a toolchain rebuild on somebody's next `up`.
+ */
+async function cmdPrune(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Promise<number> {
+  const apply = flagBoolean(args, "yes") || flagBoolean(args, "y");
+  const buildCache = flagBoolean(args, "build-cache");
+  const result = await prune({ apply, buildCache, env, log: (line) => out.ok(line) });
+
+  if (out.json) {
+    out.data(result);
+    return 0;
+  }
+
+  const removed = new Set([...result.removed.volumes, ...result.removed.images]);
+  const rows = [
+    ...result.volumes.map((volume) => ["volume", volume.name, formatBytes(volume.size), "nothing owns it"]),
+    ...result.images.map((image) => ["image", image.reference, formatBytes(image.size), image.reason]),
+  ];
+
+  if (rows.length > 0) {
+    out.table([apply ? "REMOVED" : "WOULD REMOVE", "NAME", "SIZE", "WHY"], rows);
+    out.line();
+  }
+
+  if (apply) {
+    // Named one by one rather than counted: a refusal is nearly always a
+    // container started against the image since the plan was made, and the
+    // reader needs to know *which* thing did not go before re-running.
+    const refused = [...result.volumes.map((volume) => volume.name), ...result.images.map((image) => image.reference)]
+      .filter((name) => !removed.has(name));
+    for (const name of refused) out.warn(`${name} is still in use — left alone`);
+    // Summed over what actually went, not over the plan. Quoting the plan's
+    // total after a refusal would report disk that is still occupied.
+    const reclaimed = [
+      ...result.volumes.filter((volume) => removed.has(volume.name)),
+      ...result.images.filter((image) => removed.has(image.reference)),
+    ].reduce((total, entry) => total + entry.size, 0);
+    if (reclaimed > 0) out.ok(`Reclaimed about ${formatBytes(reclaimed)}`);
+    if (result.buildCache.inScope) {
+      out.ok(`Reclaimed ${formatBytes(result.removed.buildCacheBytes)} of build cache`);
+    }
+  } else if (rows.length === 0) {
+    out.line("Nothing to reclaim.");
+  } else {
+    out.line(`About ${formatBytes(result.freed)} in total. Add --yes to remove it.`);
+  }
+
+  // Always said, whether or not it is in scope. On a machine that has run out of
+  // room the cache is usually the largest number on the page, and a report that
+  // left it out would read as the whole answer.
+  if (!result.buildCache.inScope && result.buildCache.size > 0) {
+    out.line();
+    out.dim(
+      `Docker's build cache holds ${result.buildCache.records} unused records, ` +
+        `${formatBytes(result.buildCache.size)} of which no image is also holding.`,
+    );
+    out.dim("Every project on this daemon built into it, and the next build of each is a cold one.");
+    out.dim("  sandboxr prune --build-cache --yes");
   }
   return 0;
 }

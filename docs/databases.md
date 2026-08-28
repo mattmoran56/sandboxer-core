@@ -79,9 +79,10 @@ Making the seed happens on your computer, **once**. Everything else happens insi
 ```mermaid
 flowchart TB
   subgraph hostside["On your computer"]
-    src[("The source:<br/>a database you already run,<br/>or a dump file")]
+    src[("A database you already run")]
     ps["make the seed"]
     cache[("~/.sandboxr/cache<br/>keyed on the source's content")]
+    decl[("A dump you keep yourself:<br/>seed_from.file")]
   end
   subgraph inside["Inside one sandbox"]
     prov["restore the copy"]
@@ -92,6 +93,7 @@ flowchart TB
   src -->|"read only"| ps
   ps --> cache
   cache --> prov
+  decl -->|"mounted read only"| prov
   prov --> snap1 --> mig --> fx
 ```
 
@@ -112,6 +114,14 @@ Listing several is normal: a laptop forks the container the developer already ha
 restores a dump, and neither source exists on the other machine. Precedence is **`local`, then
 `file`, then `fixtures`** — freshest first. `sandboxr up --seed <source>` forces one, and the
 access rules filter the list before anything is chosen.
+
+**A `file:` path may be absolute, and usually should be.** A relative one resolves against the
+worktree; an absolute one is passed through untouched, which is what lets a seed live outside
+every repository so `git clean` cannot destroy it. Either way the dump is never copied into the
+cache — for MySQL it is bind-mounted into the sandbox as a single read-only file, so a large one
+costs nothing on each start and a rebuilt one is picked up next time without a stale copy to
+clear. (D1 and SQLite do copy, because a database file is small and has to be fingerprinted
+anyway.)
 
 The cache key is a fingerprint of the source's **content**, not a timestamp:
 

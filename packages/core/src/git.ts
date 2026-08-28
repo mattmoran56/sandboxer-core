@@ -6,11 +6,18 @@
  * asking git again. Everything here degrades to a usable answer rather than
  * throwing: a worktree with no commits, a detached HEAD or no git at all is
  * still a worktree worth running.
+ *
+ * It also answers the two questions a *container* has to ask of the host before
+ * git works inside it — which directories to mount, and who a commit is by. Both
+ * live here rather than beside the mounts they end up in, because both are facts
+ * about a checkout on this machine, and `sandbox/run.ts` is deliberately a pure
+ * function that touches no disk.
  */
 
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 
 import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
+import { isInside, samePath } from "./paths.js";
 
 export interface GitFacts {
   /** The branch name, or `?` when it cannot be resolved. */
@@ -115,4 +122,121 @@ export async function gitFacts(worktree: string, options: GitOptions = {}): Prom
     worktree: root,
     directory: basename(root),
   };
+}
+
+/**
+ * The host directories a sandbox needs mounted at their own paths before git
+ * works inside it.
+ *
+ * **A linked worktree is a directory full of absolute paths.** Its `.git` is not
+ * a directory but a one-line file — `gitdir: <repo>/worktrees/<name>` — and the
+ * repository it names is on the host, not in the container. Bind-mounting the
+ * worktree alone therefore produces a `/workspace` where *every* git command
+ * fails identically:
+ *
+ *     fatal: not a git repository: /Users/…/repo.git/worktrees/staging
+ *
+ * which reads as a broken checkout rather than a missing mount, and which is
+ * what a sandbox did for as long as `git` was in the base image — including for
+ * the `git status`/`git diff`/`git commit` an agent session is allowed to run.
+ *
+ * The fix is the one access/dashboard.ts already records at its workspace mount:
+ * mount the directory at the **identical path inside and out**, so the absolute
+ * path git wrote down resolves to the thing it names. Two paths need it:
+ *
+ * - the repository, because that is what the worktree's `.git` points at, and
+ *   `git commit` writes objects and refs into it;
+ * - the worktree itself, a second time alongside `/workspace`, because the
+ *   repository points *back* — `<repo>/worktrees/<name>/gitdir` holds the
+ *   worktree's host path, and when that path does not exist git marks the
+ *   worktree `prunable`. That is not cosmetic: `git gc`, which `git commit`
+ *   triggers on its own, prunes prunable worktrees, and pruning this one would
+ *   delete the host's admin entry for a worktree that is very much alive.
+ *   (The base image also pins `gc.worktreePruneExpire` to `never`, because one
+ *   sandbox can only ever see its own worktree and would judge every *sibling*
+ *   worktree of the same project missing.)
+ *
+ * The second mount is for git's benefit and nothing else's: the dependency
+ * volume is mounted under `/workspace`, so the identical-path copy is the same
+ * files without `node_modules`, and it is not a second place to work.
+ *
+ * Nothing is returned for a plain (non-worktree) checkout, whose `.git` is a
+ * directory inside the tree already being mounted and which records no absolute
+ * path at all — and nothing for a repository whose top is *above* the tree being
+ * mounted, because making that work would mean mounting the enclosing
+ * repository, and a git that finds its `.git` above `/workspace` reports every
+ * file in the project as deleted. A clean failure beats that.
+ */
+export async function gitMounts(root: string, options: { run?: Runner | undefined } = {}): Promise<string[]> {
+  const run = options.run ?? nodeRunner;
+
+  const top = await git(run, root, ["rev-parse", "--show-toplevel"]);
+  if (top.code !== 0 || top.stdout.trim() === "") return [];
+  // Not a repository, or a repository whose top is somewhere else: either way
+  // there is no absolute path of ours to make resolvable.
+  if (!samePath(top.stdout.trim(), root)) return [];
+
+  const common = await git(run, root, ["rev-parse", "--git-common-dir"]);
+  if (common.code !== 0 || common.stdout.trim() === "") return [];
+  // `--git-common-dir` answers a path relative to the working directory for an
+  // ordinary repository and an absolute one for a linked worktree, and asking
+  // for `--path-format=absolute` instead would need git 2.31 on the host.
+  const commonDir = resolve(root, common.stdout.trim());
+  if (isInside(commonDir, root)) return [];
+
+  return [root, commonDir];
+}
+
+/** Who a commit made inside a sandbox is by. */
+export interface GitIdentity {
+  name?: string | undefined;
+  email?: string | undefined;
+}
+
+/**
+ * The identity this machine commits under.
+ *
+ * A sandbox has no `~/.gitconfig`, and git will not commit without a name and an
+ * address: it tries to invent one from the passwd entry and the hostname, and in
+ * a container the hostname has no domain, so it gives up with "unable to
+ * auto-detect email address" — a sentence about DNS in the middle of a commit.
+ *
+ * Read from the environment first so the dashboard, which has no gitconfig of
+ * its own either, can be handed the answer at `init` (see access/dashboard.ts)
+ * rather than resolving one from inside its container. The host's `~/.gitconfig`
+ * is deliberately **not** mounted into either: it carries a credential helper
+ * naming a macOS keychain that is not there, and `commit.gpgsign` pointing at a
+ * key that is not there, so the whole file breaks the two operations it was
+ * supposed to enable. Two values crossing the boundary is the whole of it.
+ *
+ * Never throws: a machine that has never configured git has no identity, and the
+ * sandbox still starts. `git commit` then fails inside it with git's own message,
+ * which names exactly what to set.
+ */
+export async function hostGitIdentity(
+  env: NodeJS.ProcessEnv = process.env,
+  run: Runner = nodeRunner,
+): Promise<GitIdentity> {
+  const held = (value: string | undefined): string | undefined =>
+    value !== undefined && value.trim() !== "" ? value.trim() : undefined;
+
+  const identity: GitIdentity = {
+    name: held(env.GIT_AUTHOR_NAME),
+    email: held(env.GIT_AUTHOR_EMAIL),
+  };
+  if (identity.name && identity.email) return identity;
+
+  try {
+    if (!identity.name) {
+      const name = await run("git", ["config", "--get", "user.name"]);
+      identity.name = name.code === 0 ? held(name.stdout) : undefined;
+    }
+    if (!identity.email) {
+      const email = await run("git", ["config", "--get", "user.email"]);
+      identity.email = email.code === 0 ? held(email.stdout) : undefined;
+    }
+  } catch {
+    // No git on this machine at all. Nothing to say about who it commits as.
+  }
+  return identity;
 }

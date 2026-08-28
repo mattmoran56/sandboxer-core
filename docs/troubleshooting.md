@@ -38,15 +38,25 @@ afternoon on recovery procedures for a disk problem.
 
 Check the disk before you believe anything else a failing database tells you.
 
+```bash
+sandboxr prune          # what could be handed back, and how much. Removes nothing
+```
+
 | What grows | Reclaimed by |
 |---|---|
-| The base image (~400 MB, once per machine) | `docker image rm sandboxr/base:latest` |
-| Project image layers | `docker image prune` |
+| **Project images a newer build replaced** | `sandboxr prune --yes` |
+| Volumes no sandbox owns any more | `sandboxr prune --yes`, or `sandboxr gc` |
 | A sandbox's volumes (a few hundred MB each) | `sandboxr down <slug>` |
-| **Docker's build cache — the thing that actually fills the disk** | `docker builder prune` |
+| **Docker's build cache — the thing that actually fills the disk** | `sandboxr prune --build-cache --yes`, or `docker builder prune -a` |
+| The base image (~670 MB, once per machine) | `docker image rm sandboxr/base:latest`, and `sandboxr init` to get it back |
 
-`sandboxr gc` reaps sandboxes whose worktree is gone and removes orphaned volumes. It does **not**
-prune the build cache, and never will: sandboxr deletes what it created, not what Docker created.
+`sandboxr prune` reports before it removes and never offers the shared volumes — `sandboxr-claude`
+holds an agent session's credentials, and the Go caches are expensive to rebuild. The build cache is
+the exception it asks about rather than assumes: sandboxr is not its only writer, so it is included
+only with `--build-cache`.
+
+[Giving Docker the whole machine](guides/docker-capacity.md) has the rest — where Docker's storage
+actually is, and why the answer differs between a laptop and a server.
 
 ### An image build fails and the first line is a deprecation notice
 
@@ -329,7 +339,57 @@ Installed dependencies live in a volume named after a hash of the lockfile, so a
 needs a new container pointed at a new volume: `sandboxr up`. That replaces the container and
 **keeps its volumes**, so the database and uploads survive.
 
+### An import that exists cannot be resolved, in every sandbox on the branch
+
+A dependency volume is shared by every sandbox whose lockfile matches, and it is filled in on the
+first boot that mounts it. A boot interrupted part-way through that copy leaves a tree that is
+non-empty and short of packages.
+
+Current sandboxr treats only `node_modules/.sandboxr-deps` — written last, by rename — as
+"installed", so the next boot repairs a volume without one and `deps-init.log` says
+`node_modules is not marked complete -- repairing it`. A volume filled in by an older version
+has no marker and is repaired the same way, once.
+
+If you want to be rid of it outright, the volume is rebuilt from the lockfile and nothing else,
+so it is always safe to delete:
+
+```bash
+docker volume rm sandboxr-deps-<hash>     # `docker volume ls` to find it
+```
+
 ## Databases
+
+### `no seed artifact in /sandboxr/cache`, and you declared a `file:`
+
+The message means the container found nothing to restore, so it started from an empty database —
+after which a project whose migrations assume an existing schema fails on its first file.
+
+Check the plan actually names your file:
+
+```bash
+jq .database.seed ~/.sandboxr/build/<project>/<slug>.plan.json
+```
+
+A declared `seed_from.file` should appear as `/sandboxr/seed/<name>`; a dump sandboxr cached
+itself appears as `/sandboxr/cache/<name>`. If yours is missing entirely, the source was not
+usable at start time — `sandboxr up` prints which source it chose, and `--seed file` forces the
+question and fails loudly rather than falling through to the next one.
+
+### `up` says "Provisioning did not complete" and the sandbox is fine
+
+**Known, and it is the host's report that is wrong, not the sandbox.** Check the sandbox
+itself before believing the message:
+
+```bash
+sandboxr status <slug>       # `ok` and migrations `ok` means the container did its job
+sandboxr logs <slug>         # `db-init: done` and `migrate: ok` in the boot log
+```
+
+The container provisions itself at boot and the host runs the same driver a second time to
+report on it. The host half authenticates as `root` with a password the container does not
+set — it initialises the server with root password-less on purpose — so its first statement
+fails and it reports that as a provisioning failure. Nothing is lost; the container half has
+already done the work. See contracts §6.1.
 
 ### `Error 1044: Access denied ... to database 'acme_...'`
 
@@ -488,6 +548,42 @@ account and any signed-in session can open that pane.
 The box for pasting a remote works throughout, and is the only route for a repository the listing
 could never return anyway — one in an organisation you can reach but are not a member of, or a
 remote that is not GitHub.
+
+### `fatal: not a git repository` inside a sandbox
+
+```
+$ sandboxr shell tkt-4821
+# cd /workspace && git status
+fatal: not a git repository: /Users/you/.sandboxr/workspace/acme/repo.git/worktrees/tkt-4821
+```
+
+A linked worktree's `.git` is a *file* holding an absolute path back to its repository, so a
+container that has the worktree and not the repository cannot run any git command at all. sandboxr
+mounts both, at the paths the host calls them, and this should not happen — if it does, the sandbox
+predates that fix and a `sandboxr up` again is the whole of it.
+
+One case is not fixable that way and says so instead: a project that is a **subdirectory of a larger
+repository**. `/workspace` is the project, git's repository is above it, and mounting the enclosing
+repository would make git call every file in the project deleted. `up` prints one line when it
+happens — *this tree is not the top of a git checkout, so git will not work inside the sandbox* —
+and everything else about the sandbox works normally.
+
+### `gh` in a sandbox says it is not logged in
+
+That is the default. A sandbox has `gh` but no credential until you say otherwise, per project, in
+`~/.sandboxr/config.yaml`:
+
+```yaml
+projects:
+  acme: { github: token }
+```
+
+Then start the sandbox again — the token is read at `up` and lives only in the container's
+environment. See [Access and security](access.md#a-sandbox-that-can-open-a-pull-request) for what
+that hands over, because it is more than the one project.
+
+If it is still logged out after that, check `gh auth token` answers on the *host*: that is where
+the value comes from, and a host that is signed out has nothing to pass on.
 
 ### git refuses to create a worktree for a branch
 

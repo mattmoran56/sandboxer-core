@@ -241,6 +241,49 @@ stays spent. A warning is a thing you read after the fact.
 Every refusal names the field and both ways out, so it is a decision you make rather than a wall
 you hit.
 
+## A sandbox that can open a pull request
+
+Git works in every sandbox: the worktree and the repository behind it are both mounted, so
+`status`, `diff`, `log` and `commit` all behave, and a commit carries the same name and address as
+one made on the host. None of that touches the network, and none of it needs a credential.
+
+Pushing does. `gh` is in every sandbox, but it is logged out until you say otherwise, in
+`~/.sandboxr/config.yaml`:
+
+```yaml
+github: none          # the default: no sandbox gets a token
+
+projects:
+  acme: { github: token }
+```
+
+`github: token` hands that project's sandboxes the credential `gh auth token` prints on this
+machine. `gh` picks it up on its own, git's https helper asks `gh` for it, and both `gh pr create`
+and `git push` work — which is the whole of what an agent needs to finish a branch.
+
+> [!WARNING] The token is in the environment of every process in that container
+> Not just an agent's. The project's own code, a dependency's install script and anything a
+> session runs can read it — and a personal token's scope is usually *your* scope: push access to
+> every repository you can reach, not just this project's. That is a real widening, which is why
+> it is per project rather than machine-wide, and off until you turn it on.
+
+Two things to know about how it behaves:
+
+- **It is not refused for a `public` project**, unlike a real secrets file. Nothing serves
+  `GH_TOKEN` over http, so reading it means executing code inside the container. A public sandbox
+  is still a dev build of an unfinished branch on an open hostname, so `up` says so once when the
+  two settings meet.
+- **An agent session is not automatically allowed to use it.** `git push` and `gh` are outside the
+  commands a session may run without asking, deliberately: everything inside a sandbox is
+  recoverable by deleting it, right up until a command reaches the network as you.
+
+To turn it off, set `github: none` (or delete the entry) and start the sandbox again. Nothing is
+stored: the token is read at `up` and lives only in the container's environment.
+
+Why this setting lives on the machine and not in `sandboxr.yaml`: the token is yours, not the
+project's. A setting in a repository is a setting a repository can *ask for*, and cloning
+something new should never be a way to be handed your credentials.
+
 ## Different people, different projects
 
 One password grants everything. Several passwords can each grant a subset:
@@ -284,6 +327,7 @@ one DNS record away from the app tier, where the whole design assumes anyone may
 | A stranger opening a shell on your machine | A branch's own code, which runs with the sandbox's access to its own database and storage |
 | A public app revealing real customer records | A public app revealing unreleased *features*, which is the point |
 | One project's password reaching another project | The worktree, which is bind-mounted read-write |
+| A sandbox reaching GitHub as you, until you opt in | A project you *have* opted in, where the token is readable by anything running in the container |
 
 ## Related
 

@@ -33,11 +33,13 @@
  */
 
 import { existsSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { join } from "node:path";
 
 import { nodeRunner, type Docker } from "../docker.js";
+import { CREDENTIALS_ENV, hostClaudeCredentials } from "../agent/credentials.js";
+import { hostGitIdentity, type GitIdentity } from "../git.js";
 import { NETWORK } from "../naming.js";
-import { paths } from "../paths.js";
+import { isInside, paths } from "../paths.js";
 import { dashboardEntry, installRoot } from "../install.js";
 import {
   HANDSHAKE_PRIORITY,
@@ -69,9 +71,54 @@ export interface DashboardInput {
    * missing prompt rather than a missing token.
    */
   ghToken?: string | undefined;
+  /**
+   * The identity a commit made in a sandbox is by.
+   *
+   * The dashboard has no gitconfig of its own — it is a bare `node:` image with
+   * no home directory anybody has configured — so it cannot resolve this from
+   * inside itself, and a sandbox it starts would otherwise be unable to commit
+   * at all while one started from the CLI could. Passed at `init`, forwarded to
+   * every sandbox: see `hostGitIdentity` in ../git.ts.
+   */
+  gitIdentity?: GitIdentity | undefined;
+  /**
+   * The host's Claude Code login, as a path on the *host*.
+   *
+   * Resolved at `init` and forwarded, for the reason the identity above is: the
+   * dashboard's `$HOME` is not the person's, and it cannot see the host
+   * filesystem at all, so a dashboard left to work this out for itself would
+   * find nothing while the CLI found the file — and sandboxes started from the
+   * browser would silently lack a login that sandboxes started from the terminal
+   * had. It is a path, never the credential: the file is mounted into each
+   * sandbox by the host daemon, and its contents are read by nothing here.
+   */
+  claudeCredentials?: string | undefined;
   env?: NodeJS.ProcessEnv | undefined;
   image?: string | undefined;
 }
+
+/**
+ * The agent-session variables the dashboard inherits, if the host set them.
+ *
+ * A named list rather than "anything starting with SANDBOXR_CLAUDE": a wildcard
+ * would forward a variable a future version means something else by, and the
+ * dashboard is the one container on the machine holding a credential.
+ */
+const AGENT_VARIABLES = [
+  "SANDBOXR_CLAUDE_TOKEN",
+  "SANDBOXR_CLAUDE_MODEL",
+  "SANDBOXR_CLAUDE_MCP",
+  "SANDBOXR_CLAUDE_PERMISSION_MODE",
+] as const;
+
+const agentEnvironment = (env: NodeJS.ProcessEnv): Record<string, string> => {
+  const held: Record<string, string> = {};
+  for (const name of AGENT_VARIABLES) {
+    const value = env[name];
+    if (value !== undefined && value.trim() !== "") held[name] = value;
+  }
+  return held;
+};
 
 /**
  * The `docker run` argument list for the dashboard. Pure, so a test can read
@@ -148,10 +195,11 @@ export function dashboardArgs(input: DashboardInput): string[] {
   // gh's configuration, read-only, when there is any.
   //
   // This buys two things at once: `gh pr list` is authenticated, and — because
-  // `sandboxr init` runs `gh auth setup-git` in the image — so is `git fetch`
-  // over https. Without it the dashboard would need its own deploy keys, and a
-  // private repository would fail to clone with an error about a terminal
-  // prompt being disabled, which reads as anything but "no credentials".
+  // dashboard/Dockerfile writes the credential helper `gh auth setup-git` would
+  // have written — so is `git fetch` over https. Without it the dashboard would
+  // need its own deploy keys, and a private repository would fail to clone with
+  // an error about a terminal prompt being disabled, which reads as anything but
+  // "no credentials".
   const ghConfig = ghConfigDir(env);
   if (ghConfig && existsSync(ghConfig)) args.push("-v", `${ghConfig}:/root/.config/gh:ro`);
 
@@ -167,23 +215,36 @@ export function dashboardArgs(input: DashboardInput): string[] {
     ...(input.tls ? {} : { SANDBOXR_INSECURE_COOKIES: "1" }),
     ...(input.password ? { SANDBOXR_PASSWORD: input.password } : {}),
     ...(input.ghToken ? { GH_TOKEN: input.ghToken } : {}),
+    // git's own variable names rather than a SANDBOXR_ pair, because these are
+    // what `hostGitIdentity` reads back out and what git itself honours — one
+    // spelling from the host, through here, into a sandbox.
+    ...(input.gitIdentity?.name ? { GIT_AUTHOR_NAME: input.gitIdentity.name } : {}),
+    ...(input.gitIdentity?.email ? { GIT_AUTHOR_EMAIL: input.gitIdentity.email } : {}),
+    // Where the host keeps its Claude Code login, so the sandboxes this
+    // dashboard starts can bind-mount it. Omitted when there is no such file,
+    // so that "this machine has no host login" stays distinguishable from "a
+    // path that resolves to nothing" — a bind whose source is missing does not
+    // fail, it makes a directory. See ../agent/credentials.ts.
+    ...(input.claudeCredentials ? { [CREDENTIALS_ENV]: input.claudeCredentials } : {}),
+    // The agent-session settings, forwarded from whatever started the dashboard.
+    //
+    // Forwarded rather than mounted, and the reason is the same one the GH_TOKEN
+    // comment gives above: on macOS `claude` keeps its credential in the login
+    // keychain, so there is no file to mount — the only thing that can cross
+    // into the container is a value. `SANDBOXR_CLAUDE_TOKEN` is a long-lived
+    // token from `claude setup-token`, held in the dashboard's environment and
+    // handed to a session's exec; it is written to no file, in the container or
+    // out of it.
+    //
+    // Absent ones are omitted rather than passed empty, so the server's own
+    // defaults apply and "no credential on this machine" stays a distinguishable
+    // state from "a credential that is the empty string".
+    ...agentEnvironment(env),
   };
   for (const [key, value] of Object.entries(environment)) args.push("-e", `${key}=${value}`);
 
   args.push("--workdir", install, input.image ?? env.SANDBOXR_DASHBOARD_IMAGE ?? DASHBOARD_IMAGE, "node", entry);
   return args;
-}
-
-/**
- * Whether one path is the same as, or under, another.
- *
- * String comparison with a separator guard rather than `startsWith` alone: a
- * workspace at `/srv/sandboxr-other` would otherwise count as inside
- * `/srv/sandboxr` and silently lose its mount.
- */
-function isInside(child: string, parent: string): boolean {
-  const rel = relative(parent, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 /**
@@ -237,11 +298,32 @@ export async function startDashboard(options: StartDashboardOptions): Promise<vo
     log("No GitHub token, so private repositories and pull requests will not be readable.");
   }
 
+  // Resolved here for the same reason as the token: this is the last moment
+  // anything can read the *host's* gitconfig. Inside the dashboard there is
+  // none, and a sandbox started from the browser would then be one an agent
+  // could edit but not commit in.
+  const gitIdentity = options.gitIdentity ?? (await hostGitIdentity(options.env ?? process.env));
+  if (!gitIdentity.name || !gitIdentity.email) {
+    log("This machine has no git user.name/user.email, so commits inside a sandbox will be refused by git.");
+  }
+
+  // And for the same reason again: this is the last moment anything can look at
+  // the *host's* filesystem. Inside the dashboard the path would resolve against
+  // a container's `$HOME` and answer no.
+  const claudeCredentials = options.claudeCredentials ?? hostClaudeCredentials(options.env ?? process.env);
+
   await docker.ensureNetwork(NETWORK);
   if (await docker.containerExists(DASHBOARD_CONTAINER)) {
     await docker.rm(DASHBOARD_CONTAINER, { force: true });
   }
-  await docker.ok(dashboardArgs({ ...options, ...(ghToken ? { ghToken } : {}) }));
+  await docker.ok(
+    dashboardArgs({
+      ...options,
+      ...(ghToken ? { ghToken } : {}),
+      ...(claudeCredentials ? { claudeCredentials } : {}),
+      gitIdentity,
+    }),
+  );
   log(options.password ? "Dashboard started" : "Dashboard started with no password — it will admit nobody");
 }
 

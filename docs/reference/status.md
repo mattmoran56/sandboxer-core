@@ -38,10 +38,13 @@ least one thing wrong in the details.
 | **The service graph under load** | It boots for a two-service plan. Five backends, a dev server and a first-boot restore have not been started together |
 | **The dashboard's actions and terminal** | Its security properties are unit-tested. The terminal has not been opened against a real sandbox |
 | **The dashboard's browser app** | All of it. `@sandboxr/web` replaced the server-rendered pages wholesale: the sidebar of worktrees and its groupings, the panes, the new-worktree routes, settings, the themes. Its pieces are unit-tested and its API is typed at both ends, but nobody has sat in front of it and taken a project through a day's work |
+| **Agent sessions** | The base image's smoke check runs `claude --version` on the same PATH `docker exec` gets, so an image a session could not start in fails the build; the stream parser, the transcript store and the launch arguments are unit-tested; the command that reads a worktree's slash commands has been run against a live sandbox, and the list of built-ins was taken from the `claude` binary in the image and checked against the commands a live session announces on start, rather than written from memory. The shared credential volume has been run end to end on a live sandbox: a server added inside one `docker exec` was still there in the next, and still there after the container was restarted. **Permission prompts have been run end to end against a live `claude` in a sandbox** — a question reached the host, each of the three answers was sent back, the tool ran or did not, and an "always" stopped the next identical call asking — against a local stand-in for the API, so the exchange is proven and no model wrote any of it. What a real run would settle: whether a session opened from the dashboard does useful work on a branch, how often `auto`'s classifier escalates in practice, and how much the one remaining known limit — no claude.ai connectors on a setup-token — costs |
+| **Side questions (`/btw`)** | Built and unit-tested end to end on the host side: the argument vector, the second process and its key, the read-only tool set, the parent→fork link surviving a reload, and the conversation staying untouched and usable while a fork runs. The flags were checked against the shipped `claude` rather than assumed — `--session-id` with `--resume` is refused unless `--fork-session` is also given, which is the binary confirming the combination sandboxr uses, and the id sandboxr chooses is the one the run reports back. **What has not been run is a real fork against a real conversation**: proving that the forked session actually inherits what was said before it costs a model turn, and none has been spent. Until it has, treat "the fork sees the conversation so far" as Claude Code's documented behaviour rather than as something sandboxr has watched happen |
 | **`sqlite`** | The `d1` path has run; the plain `sqlite` driver has not |
 | **A `private` project** | The forward-auth middleware and the dashboard's `/auth/verify` are both written; the pair has not been exercised together |
 | **A sandbox expiring on its own over a full lifetime** | The reaper runs on a real machine on its timer, and `expire` has stopped and restarted a live sandbox against a clock moved forward by hand. Nothing has yet been stopped by the timer arriving on its own, hours later |
 | **A full idle period against the router's log** | Last activity is read from the live router and moves when a real request arrives (below). What has not been watched is a sandbox going quiet for a whole ttl and being stopped for it, with no clock moved by hand |
+| **`sandboxr prune --yes`** | The report has been run against a live daemon with two projects and 440 build cache records on it, and its figures match `docker system df`. **Nothing has been removed by it.** The removal path is unit-tested against a fake daemon; what a real run would settle is that `docker image rm` accepts the references the plan builds, and that the space the report promised is the space that comes back |
 | **`gh` against a private repository** | Pull requests list against a public repo. Cloning and fetching a private one from inside the dashboard container, using the mounted `gh` credentials, has not been done |
 
 ## The managed layer, as of this change
@@ -121,13 +124,40 @@ Two limits worth stating plainly rather than discovering later:
 
 **Expiry only ever stops a sandbox; it never removes one.** That reclaims memory and CPU and does
 nothing about disk — the container and its volumes remain, so a machine left alone still
-accumulates. `gc` is what reclaims disk, and it is still manual. Automating it means destroying
-databases automatically, which is not a thing to switch on untested.
+accumulates. `gc` and `prune` are what reclaim disk, and both are still manual. Automating `gc`
+means destroying databases automatically, which is not a thing to switch on untested; `prune` is
+the safer of the two to put on a timer, because everything it removes is rebuildable.
+
+**`prune` has no dashboard action.** `gc` and `expire` are buttons; this is a CLI command only. The
+decision lives in core, so a dashboard action is a small addition, but it has not been made.
 
 **Nothing enforces a lifetime while the dashboard is not running.** The reaper lives in the
 dashboard process, which is the only always-on component holding the Docker socket. On a laptop
 whose dashboard is usually stopped, sandboxes live until something stops them. `SANDBOXR_REAP_MINUTES=0`
 is the honest way to say so.
+
+### git and `gh` in a sandbox
+
+Both were run against a real sandbox rather than reasoned about, because the bug being fixed was
+invisible from the host.
+
+- **Run for real:** `git status`, `git log -1`, `git diff --cached` and a genuine `git commit` in a
+  restarted `demo` sandbox, the commit carrying the host's name and address; the commit was then
+  reset and the host's checkout confirmed to agree. `gh --version` and `gh auth status` reported an
+  authenticated account, and `git credential fill` plus an https `ls-remote` proved git's own
+  credential path end to end.
+- **Not run:** an actual `git push` and an actual `gh pr create`. Both were deliberately left
+  undone rather than tested against a real repository, so the last inch — a branch really arriving
+  on a remote from inside a container — is unproven.
+- **Not run:** any of this on a Linux host. The `safe.directory` line in the base image exists for
+  exactly that case (on Docker Desktop's macOS VM the mounted files already appear as root, so it
+  does nothing there), and it has been reasoned about, not exercised.
+- **Unit-tested only:** `gitMounts`'s four cases, the machine-config precedence for `github`, and
+  the mounts and variables `runArgs` produces.
+
+Worth knowing: before this, **no git command worked in any sandbox** — a linked worktree's `.git`
+names its repository by absolute path, and only the worktree was mounted. Agent sessions had been
+allowlisted for `git status`, `git diff`, `git add` and `git commit` the whole time.
 
 ### Fixed after running it against a real project
 
@@ -153,9 +183,12 @@ the CLI does not.
 service unit. mkcert is the only certificate issuer. [Running on a server](../running-on-a-server.md)
 is a plan with the arithmetic worked out, not instructions.
 
-**A coding-agent service.** sandboxr does not install, declare or supervise a coding agent inside a
-sandbox. [That page](../guides/agents-in-a-sandbox.md) describes running your own agent against the
-bind mount, which is a way of working rather than a feature.
+**A supervised coding-agent service.** No `sandboxr.yaml` block declares an agent and nothing in a
+sandbox's service tree runs one. What does exist is `claude` in the base image and a dashboard
+session that starts it with `docker exec` — see [agent sessions](../guides/agent-sessions.md), and
+the row for it in the table above. [Agents in a sandbox](../guides/agents-in-a-sandbox.md) describes
+the other arrangement, running your own agent against the bind mount, which is a way of working
+rather than a feature.
 
 **Continuous integration.** Nothing runs the tests, the shell linting or the docs build
 automatically.

@@ -12,6 +12,8 @@ description: The things you actually do with a sandbox — start one, rebuild wh
 | [Projects, worktrees and lifetimes](managed-sandboxes.md) | Letting sandboxr keep the repositories, and having sandboxes stop themselves |
 | [Testing a migration](testing-a-migration.md) | Pointing a half-written migration at real structure, safely |
 | [Agents in a sandbox](agents-in-a-sandbox.md) | Giving a coding agent somewhere to see the result of its own work |
+| [Agent sessions](agent-sessions.md) | A Claude Code session running inside the sandbox itself, one per worktree |
+| [Giving Docker the whole machine](docker-capacity.md) | Where Docker's disk and memory limits come from, what fills them, and how to get the space back |
 
 If something is not working, [troubleshooting](../troubleshooting.md) is organised by the message
 you saw rather than by the thing that is broken — which for most of these are not the same.

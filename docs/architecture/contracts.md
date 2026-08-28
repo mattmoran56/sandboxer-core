@@ -96,7 +96,50 @@ The paths under that one hostname are §7.1.
 - Volumes: `sandboxr-<purpose>-<project>-<slug>` where purpose is one of
   `data` (database), `blob` (object storage), `bin` (built binaries), `www` (built sites).
 - Shared volumes: `sandboxr-deps-<hash>` (node_modules, keyed on lockfile),
-  `sandboxr-gocache`, `sandboxr-gomod`.
+  `sandboxr-gocache`, `sandboxr-gomod`, `sandboxr-claude` (an agent session's credential
+  store, mounted at `/root/.claude` with `CLAUDE_CONFIG_DIR` pointing at it — see §7.2).
+
+**A shared volume is populated only when it says so itself.** `sandboxr-deps-<hash>` is
+filled in by the container on first boot, and *shared*: every sandbox on that lockfile
+mounts the same one. A boot interrupted part-way through the copy leaves a directory that is
+non-empty and incomplete, so "non-empty" cannot be the test for "installed" — it poisons the
+volume permanently, and every sandbox on the lockfile inherits a tree that is silently short
+of packages. The container writes `node_modules/.sandboxr-deps` — the lockfile hash it
+installed from — as the *last* step, by rename, and treats only that marker as done. Same
+shape as a seed artifact's `.partial`, and for the same reason.
+
+`sandboxr-claude` is shared by every sandbox on the machine **on purpose**, and the trade is
+part of the contract rather than an implementation detail: sharing it is what makes an MCP
+server something you sign into once rather than once per worktree, and it means every sandbox
+can read every credential in it. None of these shared volumes is ever reaped by the collector
+when a sandbox is deleted (§ garbage collection); reaping this one would silently sign the
+machine out of every server it had been given.
+
+One path inside that volume comes from the host rather than from the volume: when
+`~/.claude/.credentials.json` exists on the host it is bind-mounted read-write over the volume's
+copy, so a login is shared with every sandbox rather than duplicated into each. See §7.2.
+
+Images are named under one namespace, and the split between them decides what may be reclaimed:
+
+- Project layer: `sandboxr/<project>:<12 hex>`, the hash covering the tool version, the rendered
+  Dockerfile and every staged manifest. Content-addressed, so every sandbox of a project shares one
+  image and a rebuild is triggered by exactly the things the build reads.
+- The machine's own: `sandboxr/base` and `sandboxr/dashboard`, tagged by tool version and by
+  `latest`. Built by `init`.
+
+**Reclamation is a contract, not a heuristic.** `gc` removes sandboxes and the volumes they owned.
+`prune` removes what building left behind, and is bound by three rules:
+
+- The shared volumes above are never removed, by either. Taking `sandboxr-claude` would sign the
+  machine out of every MCP server it has been given.
+- `sandboxr/base` and `sandboxr/dashboard` are never removed as superseded: they are tagged by
+  version rather than by content, so "older tag" does not mean "replaced".
+- Of each project's images, the newest survives. A content-addressed tag means the next `up` finds
+  it and starts rather than rebuilding, and that is the reason the image is kept at all.
+
+`prune` reports by default and acts only when told to, which is the reverse of `gc` and `expire`.
+The asymmetry follows from the cost of being wrong: a sandbox removed in error costs a restart, an
+image removed in error costs a toolchain rebuild on somebody else's next `up`.
 
 ### 3.4 Container labels
 
@@ -263,18 +306,32 @@ than of any project:
 
 ```yaml
 ttl: 12h
+github: none
 projects:
-  acme: { ttl: 3d }
+  acme: { ttl: 3d, github: token }
 ```
 
 The schema is `packages/core/src/config/machine.ts` (Zod, `strictObject`), so a misspelled key is an
-error naming the key. Precedence, most specific first, and this order is the contract:
+error naming the key. Precedence for `ttl`, most specific first, and this order is the contract:
 
 1. `--ttl` on the command (or the dashboard's field)
 2. the project's entry in `config.yaml`
 3. the file's top-level `ttl`
 4. `SANDBOXR_TTL_HOURS` — what a service unit sets
 5. the built-in default, **12h**
+
+`github` is `none` or `token`, and decides whether that project's sandboxes are handed this
+machine's GitHub token (§7). Its ladder is deliberately shorter — the project's entry, then the
+file's top-level value, then the built-in **`none`** — with **no flag and no environment
+variable**. A lifetime is a scheduling preference worth overriding per run; this is a decision
+about which code may act as the person running it, and a decision like that belongs in one file
+somebody can read, not in whatever started the process.
+
+**It lives here and not in `sandboxr.yaml`, and that is a rule rather than a convenience.** The
+token is the operator's, not the project's, and a setting that lives in a repository is a setting a
+repository can ask for: clone something, start a sandbox, and its committed config would have
+helped itself to a credential reaching every repository you can push to. The machine decides which
+projects it trusts with its own credentials. A project never votes on that.
 
 A **missing** file is not an error: it means the defaults. A **malformed** one is, reported by name
 with the path, because silently falling back to a default lifetime after somebody has edited the
@@ -352,6 +409,35 @@ it into the other two.
 
 **Static builds are on demand, never at startup.** A sandbox must come up in seconds; an
 app that has not been built yet answers with a page saying which command to run.
+
+**A declared thing is visible before it exists.** Every service in the plan appears in the
+dashboard's view of a sandbox whether or not it has been built or started — a static app that
+has never been built is listed, marked as such, and carries the control that builds it. This
+is not a display preference: the per-app build button is the only place a *first* build starts,
+so a tile that appeared only once the app was built could never be the thing that built it.
+
+**`optional: true` means dormant by choice, not broken.** An optional service is written into
+the plan and its supervisor entry, and is left disabled unless it is named in `SANDBOXR_WITH`
+(`container/README.md`, "Three runtime kinds"). It exists for the things that are expensive to
+run and rarely wanted. Two consequences bind everything downstream:
+
+- **The router does not advertise a dormant service.** No app hostname, no
+  `/__sandboxr/health/<service>` route. The status surface answers the missing health route
+  with a 404 (§5.1 note below), which is the router saying it has no route at all — not a
+  service answering "no".
+- **Nothing may report a dormant service as a fault.** `optional` is carried out of the plan
+  and all the way to the screen, and the state derived for a dormant service is its own value
+  — never `down`. A deliberate choice displayed as a failure is a bug, and it is the kind that
+  trains people to ignore the panel that tells them what is wrong.
+
+**The status surface is reserved, and answers before any app.** `/__sandboxr/*` belongs to
+sandboxr on every hostname the sandbox serves, and a path under it that names nothing answers
+**404** — it must never fall through to an app's own site block. This was learnt the hard way:
+the health probe of a dormant service fell into the front-end's catch-all, so an unbuilt app
+answered it with its own 503 "not built yet" page and the dashboard read every dormant service
+as `down`; once that app *was* built the same route answered the SPA's `index.html` with a 200
+and the same dead service read as `up`. The reachability of a service must not depend on
+whether an unrelated front-end has been built.
 
 ### 5.2 Secrets rules
 
@@ -489,7 +575,7 @@ export interface DriverContext {
 export interface DatabaseDriver {
   readonly name: "mysql" | "d1" | "sqlite" | "none";
 
-  /** Host-side: produce a reusable seed artifact in ~/.sandboxr/cache. Idempotent. */
+  /** Host-side: produce a reusable seed artifact and say where it is. Idempotent. */
   prepareSeed(ctx: DriverContext): Promise<SeedArtifact>;
 
   /** Inside the container, first boot: get from empty to seeded-and-migrated. */
@@ -527,12 +613,69 @@ Rules that apply to every driver:
 advisory lock so two migrations cannot collide. Restore into the version the project
 declares, not whatever the developer happens to run locally.
 
+**`provision` runs twice and must be idempotent.** The container's own `db-init` oneshot
+provisions at boot, and `up` calls the driver's `provision` once the container is answering —
+both are wanted (the container has to come up on its own; the host has to be able to report
+what happened), but it means the second one can meet a database the first one already seeded.
+A `mysqldump` carries `CREATE TABLE` and no `DROP TABLE IF EXISTS`, so replaying it over a
+populated schema fails on Error 1050. **An already-populated database is kept, on both sides**;
+`provision` means *first boot*, and the table count is what decides whether this is one.
+
+> [!WARNING] Two known defects in the host half of the mysql driver. Neither is fixed.
+>
+> **The host authenticates as `root` with a password the container does not set.**
+> `mysql-init.sh` initialises the server with `--initialize-insecure` — root has no password,
+> deliberately and for a reason it states — while `mysqlSettings` defaults `rootPassword` to
+> `sandboxr` (and `docs/reference/environment.md` documents that default). Every host-side
+> `mysql` exec against a sandbox therefore fails with `Error 1045: Access denied`, which is
+> why `up` reports "Provisioning did not complete" against a sandbox the container has
+> brought up perfectly. The container half does all the work, so nothing is lost — but
+> nothing the host driver does to a running MySQL sandbox currently runs at all.
+>
+> **Nothing orders the two provisioners.** `up` waits only for `/workspace` to exist before
+> calling `provision`, which is seconds before `mysqld` is accepting connections, so the host
+> half loses the race and fails rather than colliding. Correcting the credentials *without*
+> also deciding who owns first boot would turn a harmless failure into two concurrent restores
+> of the same dump into the same schema. The two have to be fixed together, and fixing them
+> means saying here which half owns first boot — the host (and `db-init` waits for it) or the
+> container (and the host's `provision` becomes a report rather than an action).
+
 **d1 / sqlite** — the easy case. The database is a *file*. Seeding is a copy, forking is a
 copy, there is no server and no lock. One rule: **one writer per file.** Two processes
 opening the same D1 file deadlock, so each sandbox gets a private copy and the config must
 name the single service that owns it.
 
 **none** — no database. Valid and should stay cheap.
+
+### 6.2 Where a seed artifact lives, and how the container reaches it
+
+There are two kinds of seed artifact and they are not interchangeable, which is the whole
+reason this subsection exists:
+
+- **A cached dump**, which sandboxr produced itself and content-addressed into
+  `~/.sandboxr/cache`. The filename is the identity and the directory is fixed on both
+  sides, so a bare name is enough to find it.
+- **A declared `file:`**, which the project named in `database.seed_from.file` and which may
+  live anywhere the user keeps it — deliberately outside every repo, so `git clean` cannot
+  destroy it. Its directory is the only thing locating it.
+
+**`plan.json`'s `database.seed.path` is therefore the path *inside the container*, never a
+host path and never a bare name to be resolved against a directory the container has to
+know about.** The host decides:
+
+| Artifact | Container path | Mount |
+|---|---|---|
+| inside `~/.sandboxr/cache` | `/sandboxr/cache/<name>` | the cache directory, already mounted read-only |
+| anywhere else | `/sandboxr/seed/<name>` | that **one file**, bind-mounted read-only |
+
+The declared file is bind-mounted rather than copied into the cache. A copy would have to be
+re-made or re-fingerprinted on every `up` — a dump is routinely tens of gigabytes — and a
+copy taken once goes stale silently the next time the file is rebuilt. The mount is the file
+itself, not its directory, so pointing `file:` at something in a shared download directory
+does not hand the sandbox everything else in it.
+
+The basename is preserved because the container decides how to decompress by extension
+(`.zst`, `.gz`, plain); a fixed mount path would have to guess.
 
 ## 7. Access control
 
@@ -597,6 +740,11 @@ is additionally checked against the session's grant.
 | `GET /api/projects/:project` | One project's worktrees, branches and open pull requests |
 | `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its project's config declares |
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
+| `GET /api/p/:project/s/:slug/agent/runs` | The agent sessions recorded against one sandbox, newest first. The index only — never message content (§7.2) |
+| `GET /api/agent/models` | The models a session may run on **and the permission modes it may run in**, with the ones this machine defaults to. Two closed tables, one read, because the browser draws two controls that sit side by side (§7.2, §7.2.2) |
+| `GET /api/p/:project/agent/grants` | The standing permissions this project has been granted — the rule as Claude Code will match it, and where it was granted from (§7.2.2) |
+| `DELETE /api/p/:project/agent/grants/:id` | Withdraws one. The only `DELETE` in the API; `SameSite=Lax` on the session cookie is what protects it, as it protects every `POST` beside it. Takes effect on the next session (§7.2.2) |
+| `GET /api/p/:project/s/:slug/agent/commands` | The slash commands a session on that sandbox can be offered, each marked sendable or not, each refused one carrying the sentence it is refused with, and the one sandboxr answers itself marked `handledBy` (§7.2) |
 
 `GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
 part of the contract because each was learnt from the version this replaced: nothing is fetched
@@ -615,8 +763,9 @@ terminal endpoints hang off it.
 
 **Unchanged by the move to a single-page app**, and deliberately so: `/healthz`, `/login`,
 `/auth/*`, the three `POST` action routes (`/actions/:action`, `/p/:project/actions/:action`,
-`/p/:project/s/:slug/actions/:action`), `GET /p/:project/s/:slug/logs`, and the terminal
-WebSocket at `/p/:project/s/:slug/terminal`.
+`/p/:project/s/:slug/actions/:action`), `GET /p/:project/s/:slug/logs`, the terminal
+WebSocket at `/p/:project/s/:slug/terminal`, and the agent WebSocket at
+`/p/:project/s/:slug/agent` (§7.2).
 
 **The login page and the private-app handshake pages stay server-rendered.** Two reasons, both
 hard requirements rather than preferences. The login form must work with JavaScript off, because
@@ -624,6 +773,479 @@ it is the only way back in and a dashboard that cannot be signed into cannot be 
 itself. And it must be a real `<form>` with a real `POST` for the browser's password manager to
 recognise it as one — a form assembled by script after load frequently is not offered a saved
 password at all.
+
+### 7.2 Agent sessions
+
+A sandbox may have a **Claude Code session** running on its worktree. `claude` runs *inside*
+the container, on `/workspace`, started by the server over `docker exec`; the host holds no
+agent process of its own.
+
+**Three nouns, and every screen and every stored file is one of them.**
+
+| Noun | What it is | Keyed by |
+|---|---|---|
+| Run | One `claude` session, in one sandbox | `sessionId`, assigned by Claude Code |
+| Thread | One conversation inside a run — the main one, or a subagent's | `parent_tool_use_id`; `main` for the one nothing spawned |
+| Event | One thing that happened, in order | `uuid`, plus its position in the transcript |
+
+**A run's tree is assembled from two different joins, and only one of them is free.** Inside a
+session, every message carries the id of the tool call that spawned it, so subagents nest at any
+depth with nothing for sandboxr to remember. Across a session boundary — a session that starts
+another session — there is no such field, and the link has to be written down at the moment it
+is made or it cannot be recovered. **`forkedFrom` is that link**, and it is the one exception to
+"every field in the index is derivable by replaying the transcripts": a forked session's
+transcript opens with the conversation it inherited and says nothing about having been forked,
+and the parent's says nothing about the fork at all.
+
+**The wire format is Claude Code's, and exactly one file knows it.** `packages/core/src/agent/stream.ts`
+turns `--output-format stream-json` into the event model above; nothing downstream sees a raw
+line. A Claude Code release that renames a field is a change there and nowhere else. A line this
+version does not understand is **dropped, never surfaced** — an unrecognised type is almost
+always a newer Claude Code, and rendering it raw would put JSON in the middle of a conversation.
+
+The event kinds are closed, and each one is a thing a reader acts on rather than a line of the
+protocol repeated:
+
+| Kind | What it says |
+|---|---|
+| `session` | The session opened: model, working directory, tools, and which MCP servers **failed**. `failed` only: `pending` is the ordinary state of a cached server, and `needs-auth` means somebody added a server and has not signed into it, which is a choice rather than a fault. Both were drawn in the red of a broken thing on every session, naming servers the reader had deliberately not authorised — which is how a warning stops meaning anything. `/mcp` reports the whole picture on demand |
+| `text` | Prose, from either side |
+| `thinking` | The model is reasoning. The text is often empty, and the marker is still worth drawing |
+| `tool` / `tool-result` | One tool call and its answer, rendered as one card. A call that spawned a subagent says so |
+| `result` | The turn ended. The only place cost and duration are stated |
+| `compacted` | History was summarised away, with how many tokens were in play and whether anyone asked |
+| `ask` / `ask-result` | A permission question and what was decided, rendered as one card — the same pairing `tool`/`tool-result` uses. The one event a reader has to *act* on: the turn is stopped until it is answered (§7.2.2) |
+| `retry` | A retryable API failure, on its way to resolving itself or becoming an error |
+| `error` | The session failed — not a tool that did |
+
+**A compaction is an event, not a gap.** Claude Code summarises a long conversation and carries on,
+and it says so on the stream. Dropping that line as unrecognised — which is what happens to
+everything else this version has no opinion about — loses the one fact that explains an agent which
+appears to have forgotten what it was told: the transcript would show the conversation continuing
+with no sign that most of it had been replaced by a summary. It is therefore the exception to the
+paragraph above, and it is read defensively: an unstated token count or trigger becomes null rather
+than a compaction this version declines to report.
+
+**Transcripts are files; the index is small.** The raw lines are appended to
+`$SANDBOXR_HOME/agent/log/<sessionId>.jsonl` *before* they are interpreted, so a later renderer
+can re-read a conversation an earlier one recorded. `$SANDBOXR_HOME/agent/runs.json` holds the
+index: which session belongs to which sandbox, its state, and where its transcript is. **Every
+field in the index is derivable by replaying the transcripts — except `forkedFrom`**, which is why
+that one field is written at the moment the fork is made and can be recovered no other way. What is
+left is a cache rather than a system of record — and what makes the storage choice a contained one. It is a JSON
+file written by temp-and-rename because the server process is the only writer; the day there are
+two, `store.ts` changes and nothing else does.
+
+`sessionId` is the load-bearing field. It is the only thing that makes `claude --resume` possible
+after a container restart, and it exists nowhere else.
+
+### 7.2.1 Side questions: `/btw`
+
+**`/btw` is a slash command sandboxr implements itself rather than one it sends or refuses.** In a
+terminal it draws a panel beside the conversation, so it is `local-jsx` and a headless session
+answers one with "isn't available in this environment". That is a fact about how Claude Code
+implements the command, not about what the command is for — which is a conversation that starts
+from everything said so far and whose answer never comes back. That is a session flag:
+
+```
+claude -p --resume <parent> --fork-session --session-id <fork> --tools "" --strict-mcp-config …
+```
+
+A forked session inherits the conversation up to the fork and then diverges. **Nothing is written
+to the parent**: its process is not spoken to, its transcript gains no line, and it stays usable
+while the fork works — the two are separate processes in the same container and both can be
+running at once.
+
+| Decision | What it is, and why |
+|---|---|
+| Where the process lives | The same registry, under a **suffixed key**: `project/slug` for the sandbox's session, `project/slug#btw:<forkSessionId>` for each fork. One map means one transcript queue, one idle wind-down, one `stopAll`; a second registry would be a second copy of all of it, and the copy that gets forgotten is the one that stops things at shutdown. "One session per worktree" survives as a property the key states: **at most one entry whose key has no fork suffix**, and `running()` only ever answers about that one |
+| The fork's id | Chosen by sandboxr and passed as `--session-id`, so it is a fact before the container is touched. One identity covers the browser's handle, the index row and the transcript filename, which is what lets a fork be found again after a reload. Claude Code's own error message documents the combination: `--session-id` may be used with `--resume` **only** when `--fork-session` is |
+| What it may do | **Nothing. A fork has no tools at all** — `FORK_TOOLS` is empty, which reaches the command line as `--tools ""`. A `/btw` answers out of the conversation it inherited; a fork that goes and greps the worktree is a second agent doing work on a question somebody asked in passing, and slow, on the one command whose appeal is that it is not. It also closes the older trap more completely than the read-only allowlist it replaces: there is nothing a fork can touch, rather than a list of things it may not |
+| How "no tools" is spelled, and why not the obvious way | `--tools` is the **base set**, not a permission rule, and Claude Code turns it into a deny rule for every built-in it does not name. A deny rule is the only thing that outranks a permission mode, so this holds however the session is otherwise configured — including under an operator's `SANDBOXR_CLAUDE_PERMISSION_MODE`, which a fork does not take in any case. An **empty `--allowedTools` would not work**: an allow list only decides what proceeds *without asking*, so an empty one narrows nothing. Two details are load-bearing in the argv. The empty string is an **argument, not an omission** — `--tools ""` narrows to nothing while a bare `--tools` is an empty list Claude Code skips — and because the flag is variadic, whatever follows the empty string must start with `-` or it is read as a tool name. `--strict-mcp-config` goes with it, because `--tools` narrows the *built-in* set and an MCP server configured on the branch would otherwise be the one route left back in |
+| The mode it still runs in | `--permission-mode dontAsk`, and it decides nothing today. The set of tools Claude Code ships is not sandboxr's to freeze: if a release adds one `--tools` does not narrow, `dontAsk` refuses it where `acceptEdits` would *perform* it — and on a fork that is a file written into a worktree somebody else is mid-refactor on |
+| Its model | The parent's, always. A fork inherits a conversation one model had, and answering on another would make its own transcript misleading — the same promise `/model` is refused to keep |
+| Its lifetime | It ends itself when its answer is finished, so a side question is not an idle `claude` left in the container. Dismissing the block does **not** stop it; stopping the parent does, and so does five minutes with nobody watching |
+| How many | Three at once per sandbox. The fourth is refused with a sentence rather than by making the conversation everybody is waiting on slower |
+
+**Interrupting is by tag, not by process name.** Every sandboxr-started session carries
+`--name sandboxr-<uuid>`, and an interrupt is `pkill -INT -f -- sandboxr-<uuid>` in a second exec.
+`pkill -x claude` was precise while a container held one session; with a fork beside it, "stop this
+turn" would have put both down at once.
+
+**The socket forks whichever way the text arrives.** `{"t":"send","text":"/btw …"}` is intercepted
+and never forwarded, so a client that knows nothing about `handledBy` still gets a fork rather than
+a `/btw` posted into a running session. A `/btw` with nothing after it, and one on a session that
+has not yet been assigned an id, are each answered with their own sentence and fork nothing.
+
+**Four more frames carry it**, and the design is that a fork's stream *is* a session's stream:
+
+| Direction | Frame | What it is |
+|---|---|---|
+| server → browser | `{"t":"forks","forks":[…]}` | Every side question of this run: id, parent, question, state, times. Re-sent whole whenever one changes, to **every** socket on the sandbox |
+| server → browser | `{"t":"fork","id":…,"message":<frame>}` | One fork's own output, wrapped. `message` is an ordinary server frame, so the browser unwraps it and draws the panel with the components that draw the conversation |
+| browser → server | `{"t":"fork-open","id":…}` | Read this one: replay its transcript and subscribe. Only a socket that asks is sent a fork's stream |
+| browser → server | `{"t":"fork-interrupt","id":…}` / `{"t":"fork-stop","id":…}` | End that fork's turn, or that fork |
+
+A fork's transcript is readable only through the sandbox it belongs to. A session id is a filename
+under `agent/log/`, and uuids being unguessable is not an access rule.
+
+**In the browser a side question replaces the composer, and must be dismissed.** It is a modal
+digression, not a second panel: asking one puts the conversation's composer aside and stands a block
+in its slot holding the question and the answer, and while that block is open **there is nowhere to
+type to the main session at all**. The composer is *removed* rather than disabled, because an
+affordance that is present and refuses is a worse answer than one that is not there. Dismissing it —
+a button, or Escape — gives the composer back and does **not** stop the fork.
+
+This is deliberately not the subagent idiom, which it was at first. A chip in the tray is something
+you come back to while you get on with something else, and that is what a subagent is; a side
+question is something you ask, read and are done with. The tray is therefore subagents only.
+
+Three consequences worth stating, because each is a thing that could be got wrong invisibly:
+
+- **The block survives a reconnect.** A fork is a real run with its own transcript, so a dropped
+  socket must not be able to lose one. The open fork's id is held across the socket's teardown, and
+  the `forks` list that arrives on the new attach is where it is put back — that frame is the first
+  moment a fresh socket can know the fork still exists. Its transcript is discarded and asked for
+  again with `fork-open`, because a replay appended to what is on screen would draw the answer twice.
+  A fork **absent** from that list — its conversation ended, or another browser stopped it — gives
+  the composer back instead.
+- **One at a time**, which follows from there being one composer. The cap of three concurrent forks
+  is still real and still enforced by the server: a fork keeps running after its block is dismissed,
+  and a second browser on the same sandbox can ask its own.
+- **The block knows which fork is its own without a frame for it.** The server subscribes exactly
+  one socket to a fork it did not ask about — the one that asked for it — so a `{"t":"fork","id":…}`
+  for an id the browser never opened is the side question somebody there just asked.
+
+The marker left in the conversation is unchanged and is now the only route back into a finished side
+question. It is positioned by **clock time and not by `seq`**: a replay and the live stream are
+counted by separate counters, so `seq` is not comparable across a reconnect. `forkedFrom.afterSeq`
+records the parent's offset anyway, because it is the number a later reader of the two files needs
+and it cannot be recovered afterwards.
+
+**A session is keyed by the sandbox, not by the connection watching it.** Sockets subscribe and
+unsubscribe; the process underneath carries on. That is the one place an agent session must differ
+from the terminal, and it is not a preference: a shell dying with its tab is expected, an agent
+dying because somebody looked at another worktree destroys work in progress. It follows that two
+browsers can watch one session, and that closing every browser leaves it running — bounded, because
+an unwatched session is stopped after thirty minutes rather than held open indefinitely against the
+sandbox's own idle reaper.
+
+**What a session does not survive is the dashboard restarting.** The process is a `docker exec`
+this server owns, so it dies with it. That is recoverable rather than fatal — the session id and
+the transcript are on disk, so the next connection continues the conversation with `--resume` — but
+it is a real limit. Removing it means running the agent detached *inside* the container and
+attaching to its output instead of owning its process.
+
+**The socket** is `/p/:project/s/:slug/agent`, authenticated before the upgrade completes like
+the terminal's (§3.2), with an optional `?resume=<sessionId>`, `?model=<id>` and `?mode=<id>`. A socket opened
+on a sandbox that already has a session joins it, and **the running session's model wins over the
+one asked for** — a conversation is a thing one model had, and switching mid-way would make its own
+transcript misleading. Unlike the terminal there are no binary frames at all — both directions are
+JSON text:
+
+| Direction | Frames |
+|---|---|
+| browser → server | `{"t":"send","text":…}`, `{"t":"interrupt"}` (end the turn), `{"t":"stop"}` (end the session), `{"t":"answer","id":…,"decision":"allow"\|"always"\|"deny"}` and `{"t":"mode","mode":…}` (§7.2.2), and the three fork frames of §7.2.1 |
+| server → browser | `{"t":"ready",…}`, `{"t":"session",…}`, `{"t":"event","event":…}`, `{"t":"state",…}`, `{"t":"usage","tokens":…}`, `{"t":"error",…}`, plus `{"t":"forks",…}` and `{"t":"fork",…}` (§7.2.1) and `{"t":"asks",…}` and `{"t":"mode",…}` (§7.2.2) |
+
+A reconnect replays the transcript from disk before the live stream starts, so the socket only
+ever carries what happens from now on.
+
+**Slash commands are a list the server owns, and half of it is per sandbox.**
+`GET /api/p/:project/s/:slug/agent/commands` answers every command the composer may offer, from
+three sources: Claude Code's built-ins, the worktree's own `.claude/commands/`, and its
+`.claude/skills/`. The last two belong to the branch rather than to the machine, so they are read
+by one exec inside the container — and a worktree with no `.claude` directory is the ordinary case,
+so a failure there answers the built-ins rather than an error.
+
+The built-ins are a **closed table** in core, on the same reasoning as the model table: a command
+becomes the text of a message sent into a process in a container. Only commands that work without a
+terminal are in it — Claude Code's `-p` mode runs skills, custom commands and a documented subset of
+the built-ins, and a terminal-only one such as `/login` is not an error the person sees but a turn
+spent on nothing. Two free sources say which is which and they agree: the shipped binary marks each
+command `supportsNonInteractive`, and a running session announces the resulting set as
+`slash_commands` on its `system`/`init` line. Neither costs a turn, and the table is worth
+re-checking against them whenever the image's `claude` is upgraded. What `init` does not carry is
+descriptions, which is why the table is written out rather than read off the session.
+
+**`sendable: false` marks a command that is listed and must not be sent, and the socket enforces it
+too.** A `{"t":"send"}` whose first token is one of them is answered with an error frame and never
+forwarded, because a rule enforced only in the browser is not a rule. Three are refused, each for
+its own reason: `/clear` starts a *new* Claude Code session while this run's transcript is still
+being written against the old id; `/login` only exists in a terminal; and `/model` would change a
+run's model after the index has recorded it, which is the same promise a joining socket keeps when
+the running session's model wins. Each refused row carries the sentence it is refused with, in
+`refusal`, and no other row carries one — the reason a command is stopped is a fact about what a
+session does, so the browser says it rather than composing one.
+
+**`handledBy` is a different question from `sendable`, and exactly one row answers it.** `sendable`
+asks whether this text may be posted to the session; `handledBy` asks who runs the command at all.
+`/btw` is `handledBy: "sandboxr"` — sendable from the composer, never sent to the session, forked
+by the socket (§7.2.1). The field is absent on every row the session runs, so an older browser
+reading a newer server's list is one that does not know sandboxr answers this one; it posts the
+text, and the socket forks anyway.
+
+**The table is a menu, not an allowlist.** Those three refusals and that one interception are the
+whole of what the socket does not forward. Every other message beginning with `/` is passed on
+verbatim — a command Claude Code gained after this table was written, one of the skills bundled in
+the binary, a worktree command added since the pane loaded, a pasted path, a sentence, a bare
+slash. A closed table decides what sandboxr *offers*, what it *stops* and what it *answers itself*;
+what a person may type is not sandboxr's to decide, and a table one release behind Claude Code has
+to degrade into "pass it on" rather than into "you may not type this".
+
+**The exec has no TTY, and that is not an optimisation.** A TTY echoes what is written to it, so
+a process exchanging newline-delimited JSON would receive its own input back interleaved with
+its output. The cost is that Docker frames the stream, which `demuxer()` already handles.
+
+**A session runs on one of two credentials, and which one decides what it can reach.**
+The default is a `claude setup-token` in `CLAUDE_CODE_OAUTH_TOKEN`: it makes model requests and
+nothing else, and loads no claude.ai connectors. A **subscription login** placed in the shared
+config volume (`sandboxr-claude`, §3.3) reaches every connector on the account instead — including
+the Google and Microsoft ones, which no per-server OAuth can authorise from a container, because
+this is the login that already authorised them rather than a fresh flow.
+
+**They do not compose, and the token wins.** Claude Code ranks an explicit
+`CLAUDE_CODE_OAUTH_TOKEN` above a stored login, so passing both leaves the connectors dark with
+nothing on the stream to say why. The server therefore probes for the login — existence only,
+never its contents — and withholds the token when one is there. A machine that never places a
+login is unaffected.
+
+Placing one is **opt-in and deliberately not the default**: that credential can mint API keys
+against the organisation and reaches the person's mail, files and chat, from a root filesystem in
+a container whose job is executing project code, in a volume every sandbox on the machine shares.
+
+#### The host's login, shared rather than copied
+
+**When the host has `~/.claude/.credentials.json`, that one file is bind-mounted read-write into
+every sandbox** at `/root/.claude/.credentials.json`, over the volume. It is resolved on the host
+by `hostClaudeCredentials` (`packages/core/src/agent/credentials.ts`), which honours the host's own
+`CLAUDE_CONFIG_DIR` and never assumes `$HOME` is `/root`.
+
+**Shared, not copied, because an OAuth refresh token rotates and is single-use.** Two copies
+invalidate each other the first time either side refreshes: the host refreshes, the sandbox's copy
+is dead, and Claude Code blanks its own file rather than reporting a stale token. One file with one
+writer at a time has no such state — a refresh inside a sandbox updates the host's login and every
+other sandbox's at once. This is why the mount is **read-write**; read-only would work exactly until
+the first refresh and then fail the same way the copy did.
+
+**One file crosses the boundary, and the directory deliberately does not.** Binding all of
+`~/.claude` would give every sandbox write access to the host's `settings.json`, which can define
+**hooks — commands the host's own Claude Code then executes.** That turns a convenience into a
+container-to-host escalation: code running in a sandbox writes a hook, and the next thing the person
+does on their own machine runs it. The same mount would also expose their history, plans and
+per-project state to whatever is running in a sandbox. The credential is the only file that has a
+reason to cross, so it is the only one that does.
+
+Three consequences are part of the contract:
+
+- **No file, no mount.** Docker silently creates a *directory* where a bind source is missing, and
+  Claude Code then fails in a way that names neither Docker nor the mount. Absent — or present but
+  empty, which is what a rotation conflict leaves behind — the sandbox falls back to the volume.
+  An empty file is skipped rather than mounted because the login probe above tests existence: a
+  blank file would be read as a login, withhold the setup-token, and leave the session with no
+  credential at all.
+- **On Linux, a host login is therefore shared with every sandbox on the machine**, with all of the
+  reach described above. That is the supported arrangement, and it is a decision, not an oversight.
+- **On macOS there is no such file** — the credential lives in the login keychain — so nothing is
+  mounted unless a person exports one to that path by hand. See the guide.
+
+**The dashboard is given the path at `init`, not left to resolve it.** It runs in a container whose
+`$HOME` is not the person's, so resolving from inside it would find nothing while the CLI found the
+file, and sandboxes started from the browser would silently differ from sandboxes started from the
+terminal — the failure the git-identity note in §7.3 already records. `init` resolves the path on
+the host and forwards it as `SANDBOXR_CLAUDE_CREDENTIALS`, which is also the override a deployment
+can set directly. A forwarded path is trusted rather than re-checked, because the container it is
+read in cannot see the host filesystem; a credential removed after `init` therefore needs another
+`init` to be noticed.
+
+**Credentials never reach the worktree.** The session authenticates with an OAuth token from
+`claude setup-token`, held in the server's environment and passed to the exec as
+`CLAUDE_CODE_OAUTH_TOKEN`. It is written to no file inside the container. One consequence is
+part of the contract because it is invisible otherwise: **a setup-token does not load claude.ai
+connectors**, so MCP servers are named to the machine (`SANDBOXR_CLAUDE_MCP`) and passed on the
+session's command line rather than inherited from the host's connector list.
+
+**The container is the permission boundary**, and what contains a session is the sandbox: the
+worktree, the project's own services, and nothing else. Inside that, §7.2.2 is how a session asks
+and how a person answers.
+
+`bypassPermissions` is impossible here rather than merely unwise, and it is therefore not in the
+table at all. It is a spelling of `--dangerously-skip-permissions`, Claude Code refuses that
+outright when running as root, and sandboxes run as root; a session configured that way exits at
+once with the refusal on stderr and nothing on the event stream. It stays in the `PermissionMode`
+type for the day a sandbox runs as somebody else, and `SANDBOXR_CLAUDE_PERMISSION_MODE` falls back
+to the default rather than honouring it.
+
+**The model is chosen from a closed table**, `AGENT_MODELS` in core, defaulting to Claude Opus 5.
+The browser asks for one with `?model=` on the upgrade and an id outside the table is refused
+before the handshake completes — the value becomes `--model` on a command line inside the
+container, so this is the same rule the action table follows in §8. `SANDBOXR_CLAUDE_MODEL` sets
+the machine's default, and `GET /api/agent/models` reports what this machine will actually do
+rather than a constant.
+
+### 7.2.2 Permission questions, and the modes that produce them
+
+**A session can ask a person for permission, and the person can answer.** That is a change to this
+file rather than an addition to it: the paragraph this replaces said the opposite, and everything
+built under it — the wildcard allowlist, `acceptEdits` as the only workable default — was working
+around a limit that turned out not to exist.
+
+**The mechanism is `--permission-prompt-tool stdio`, and its name is a trap.** Claude Code
+documents the flag as "MCP tool to use for permission prompts", which reads as an instruction to
+stand up a server. It is not. The flag takes one magic value, and with it the CLI asks over the
+stream it is already speaking on. The binary says so itself, in the sentence it prints when a
+cloud session is given anything else: *"--permission-prompt-tool (permission prompts reach the
+host over stdio; an MCP tool cannot answer them here)"*. sandboxr already owns both ends of that
+pipe, so nothing new runs in the container and nothing has to be reachable from it.
+
+| Direction | Frame |
+|---|---|
+| session → host | `{"type":"control_request","request_id":…,"request":{"subtype":"can_use_tool","tool_name":…,"input":{…},"tool_use_id":…,"permission_suggestions":[…],"suppress_always_allow_rule":…,"requires_user_interaction":…}}` |
+| host → session | `{"type":"control_response","response":{"subtype":"success","request_id":…,"response":{"behavior":"allow"\|"deny",…}}}` |
+
+**A request blocks the turn, indefinitely.** The tool does not run, the turn does not continue,
+and nothing times out at either end — an unanswered question sits until stdin closes and then
+fails with `Tool permission stream closed before response received`. Three things follow, and each
+is part of the contract:
+
+- **A pending question belongs to the run, not to the socket.** It is held in the registry,
+  re-announced to whoever attaches, and answerable by any browser on the sandbox. A closed tab
+  must not be able to strand a session mid-turn on a question only it could see.
+- **The run's state becomes `needs-input`** — the value in core's `RunState` that nothing could
+  previously produce, because nothing could ask.
+- **The question travels twice**, and the two say different things. It is an ordinary `ask` event,
+  so a replay draws the card the live stream drew; and the socket's `{"t":"asks","asks":[…]}`
+  frame — re-sent whole on attach and on every change, like `forks` — says which of those cards
+  still has a decision to make. An event cannot carry that: a transcript read next week is all
+  closed questions, and one another browser settled a second ago looks identical to an open one.
+
+**Three answers, and "always" is the one with consequences.** `allow` runs it once. `deny` refuses
+it with a message the model sees. `always` runs it *and* remembers, and where it remembers is the
+design:
+
+- **Not by writing what Claude Code suggests.** Its own `permission_suggestions` arrive with
+  `destination: "localSettings"`, and answering with that verbatim writes
+  `<cwd>/.claude/settings.local.json` — a file on somebody's branch, made by clicking a button in a
+  dashboard, outliving the sandbox that asked for it. Observed, not feared. sandboxr rewrites the
+  destination to `"session"`, which applies the rule for the rest of the run and touches no file.
+- **The grant itself is sandboxr's, and it is scoped to the project**, in
+  `$SANDBOXR_HOME/agent/grants.json`. Not the session, which ends in minutes. Not the sandbox,
+  which is deliberately disposable — a grant you remake on every branch about the same command in
+  the same codebase is one people click through without reading. Not the machine, because the same
+  command means different things in different repositories.
+- **It is applied by going back onto the next session's `--allowedTools`**, which is the mechanism
+  the default allowlist already uses. Claude Code proposed the rule and Claude Code matches it, so
+  there is no matcher of sandboxr's to drift.
+- **It is listed and revocable**, at `GET /api/p/:project/agent/grants` and
+  `DELETE /api/p/:project/agent/grants/:id`, drawn in the permission picker beside the composer. A
+  permission you cannot withdraw is one you should not have given. **Revoking applies to the next
+  session**, not the running one: the rule was handed to Claude Code for the length of that run and
+  there is no control request that takes it back. The answer says so rather than letting "revoked"
+  quietly mean "revoked in a minute".
+
+**Some tools cannot be pre-approved at all, and for those this is the only route.** An MCP tool
+carrying the `anthropic/requiresUserInteraction` annotation asks **even when it is explicitly on
+the allowlist** — verified against a stub server declaring it, with the tool named in
+`--allowedTools`, on every call. Two consequences: a request is authoritative regardless of what
+any rule says, so nothing may suppress a prompt on the grounds that the tool is allowed; and such a
+request arrives with `suppress_always_allow_rule: true` and an empty suggestion list, so **"always
+allow" is not offered on it** rather than offered and silently ineffective.
+
+**`mcp__*` is gone from `DEFAULT_ALLOWED_TOOLS`, because it never worked.** An allow rule matches
+an MCP tool by exact name (`mcp__notion__notion-search`), by server (`mcp__notion`), or by a
+trailing wildcard on the server (`mcp__notion__*`). `mcp__*` matches none of them — the name half
+of a rule is not glob-matched — so the line sat in every session's argv looking like a blanket
+approval that had been granted and granting nothing. Nothing replaces it: a prompt is answerable
+now, and per-call consent is the right trade for servers whose scope, with a subscription login in
+the volume, includes the person's mail and files. An "always" on an MCP call persists a rule of a
+shape Claude Code does match.
+
+**The modes are a closed table**, `PERMISSION_MODES` in core, on the same reasoning as the model
+table. `GET /api/agent/models` carries both, because the picker and the validator must be one
+table. Each was checked against a real headless run rather than inferred from its name:
+
+| Mode | What happens to a tool call no rule settles |
+|---|---|
+| `auto` | **The default.** A classifier reviews it and escalates what it will not vouch for. Costs a model call per unruled tool, and a classifier that cannot be reached *denies* rather than falling back to asking |
+| `acceptEdits` | File writes and the common filesystem commands proceed; everything else asks |
+| `manual` | Everything asks. Announced on the init line as `default` — see the spelling note below |
+| `plan` | Claude works out an approach and puts it up first. A real `--permission-mode` value in a `-p` run, which is why it is offered |
+| `dontAsk` | Refused outright, with `decision_reason_type: "mode"`. The only mode that never reaches a person |
+
+**One mode has two names.** The command line takes `manual`; the control protocol and the
+`system`/`init` line call the same mode `default`. `set_permission_mode` refuses `manual` with
+`Cannot set permission mode: must be one of acceptEdits, auto, bypassPermissions, default,
+dontAsk, plan`, and the session keeps the mode it had with nothing on the conversation to say so.
+`wireMode` is that mapping.
+
+**The mode can be changed on a running session**, which is the one way this picker differs from
+the model picker beside it: `{"t":"mode","mode":…}` on the socket becomes a `set_permission_mode`
+control request, and the very next unruled call is settled by the new mode. Nothing restarts and
+no conversation is lost, so the picker does not borrow "this starts a new session". A socket
+joining a run that is already up keeps *its* mode rather than imposing one, so that opening a
+second tab cannot quietly widen what an agent already working on somebody's branch may do.
+
+**Setting the flag is also a widening, and that is why it is opt-in per launch.** With
+`--permission-prompt-tool stdio` a session is additionally given `AskUserQuestion`, `EnterPlanMode`
+and `ExitPlanMode`, which are absent without it. A session gets it; **a side question never does**
+— `/btw` has no tools by construction, and three tools whose job is to talk to a person would be
+the one route back into a fork being able to do something.
+
+**Both halves of a permission exchange are on the transcript**, which is the one place the
+transcript is not purely "what Claude Code said". The request is a line the session wrote; the
+response is the line the server wrote back on the same pipe, appended at the moment it was
+written. A record holding only the questions replays as a conversation waiting for ever on
+somebody who already answered. A question nobody answered is left as a missing response rather
+than given a synthetic decision — "denied" is something a person did, "unanswered" is something
+that failed to happen, and only one of them was decided by anybody.
+
+### 7.3 Git in a sandbox, and the GitHub token
+
+**Git works inside a sandbox, and making it work is a mount rather than a setting.** A linked
+worktree's `.git` is a *file* naming its repository by absolute path, so a container that has the
+worktree and not the repository fails every git command — `status`, `diff`, `log`, `commit` — with
+one `fatal: not a git repository` naming a host path. The rule, the same one the dashboard's
+workspace mount follows: the worktree **and** the repository it points at are bind-mounted at the
+**identical path inside and out**, on top of the worktree's mount at `/workspace`. `gitMounts` in
+`packages/core/src/git.ts` decides which paths those are; a plain checkout needs neither, and a
+project that is a subdirectory of a larger repository gets neither and is told so once.
+
+Three consequences are part of the contract:
+
+- **The repository mount is read-write**, because `git commit` writes objects and refs into it.
+  So every sandbox of a project shares one object store and one set of refs with the host: a
+  sandbox can move a branch, and a `git gc` in one repacks what all of them read. Read-only was
+  the alternative and is worse — status and log would work and only the commit would fail, from
+  inside git, on a permission error.
+- **The base image pins `gc.worktreePruneExpire` to `never`.** From inside one sandbox every
+  *other* worktree of the project looks prunable, because their paths are not mounted, and
+  `git commit` runs `gc --auto` on its own. Nothing in a sandbox has the information to make that
+  judgement.
+- **The commit identity crosses as `GIT_AUTHOR_*`/`GIT_COMMITTER_*`**, resolved from the host's
+  `git config` (or forwarded to the dashboard at `init`, which has no gitconfig of its own). The
+  host's `~/.gitconfig` is deliberately *not* mounted: it names a credential helper and a signing
+  key that do not exist in the container, so the whole file breaks the operations it would enable.
+
+**The GitHub token is a real widening of the blast radius, and it is off by default.** With
+`github: token` (§4.3) a sandbox is given the value `gh auth token` prints on the host, as
+`GH_TOKEN`, and the base image points git's https credential helper at `gh auth git-credential` —
+so both `gh` and `git push` work, and an agent can open a pull request. What that costs, stated
+plainly:
+
+- The token is in the environment of **every process in that container**, not just an agent's.
+  Project code, a dependency's install script and anything an agent runs can read it.
+- Its scope is typically the person's, not the project's — `repo` across every repository they can
+  reach, plus `gist` and `workflow`. Pushing to an unrelated repository is inside it.
+- Unlike the seed and secret rules in §5.3, this is **not** refused for a `public` project, because
+  nothing serves `GH_TOKEN` over http and reading it needs code execution in the container. A
+  public sandbox is a dev build of an unfinished branch on an open hostname, though, so `up` says
+  once, on the run where it applies, that the two decisions have met.
+
+This is why the switch is the operator's, per project, and defaults to off. It is the same line
+`DEFAULT_ALLOWED_TOOLS` draws for a session's commands: inside a sandbox everything is recoverable
+by deleting it, and that stops being true the moment a command reaches the network with the
+person's credentials. Note that `git push` and `gh` are **not** in that allowlist, so a session
+still has to be granted them.
 
 ## 8. Actions
 

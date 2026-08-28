@@ -140,6 +140,19 @@ export interface GcOptions extends CommonOptions {
   mergedBranches?: string[] | undefined;
 }
 
+export interface PruneOptions extends CommonOptions {
+  /**
+   * Carry the plan out rather than only reporting it.
+   *
+   * The inverse of `gc`'s `--dry-run`, and deliberately so: what this removes is
+   * an image that costs a toolchain rebuild to get back, so the safe answer has
+   * to be the one you get by not passing anything.
+   */
+  apply?: boolean | undefined;
+  /** Include Docker's build cache, which sandboxr is not the only writer of. */
+  buildCache?: boolean | undefined;
+}
+
 export interface GcPlan {
   /** Sandboxes to remove, with the reason each was chosen. */
   reap: Array<{ sandbox: Sandbox; reason: string }>;

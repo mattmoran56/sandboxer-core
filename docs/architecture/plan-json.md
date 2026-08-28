@@ -98,9 +98,25 @@ dev server, MySQL and object storage.
 
 ### `database.seed`
 
-`{ "path": …, "anonymised": … }`, where `path` is only the **basename**: the host's seed cache is
-mounted at `/sandboxr/cache`, so the container resolves it there. `anonymised` reaches the
-container so it can say what it restored rather than having to work it out.
+`{ "path": …, "anonymised": … }`, where `path` is the path **inside the container** — never a
+host path, and never a bare name the container has to resolve against a directory:
+
+| The artifact | `path` | What the host mounts |
+|---|---|---|
+| a dump sandboxr took and cached | `/sandboxr/cache/<name>` | the cache directory, read-only |
+| a `database.seed_from.file` the project declared | `/sandboxr/seed/<name>` | that one file, read-only |
+
+The two cases differ because a cached dump is content-addressed into `~/.sandboxr/cache`, where
+the filename is the identity and the directory is fixed at both ends, while a declared file may
+be anywhere and its directory is the only thing locating it. The declared file is bind-mounted
+rather than copied into the cache: a dump is routinely tens of gigabytes, so a copy would be
+either remade on every start or stale the next time the file is rebuilt. The mount is the file
+itself and not its directory, so pointing `file:` at something in a shared directory does not
+hand the sandbox everything else in it.
+
+The basename is kept in both cases, because the container chooses zstd, gzip or plain by
+extension. `anonymised` reaches the container so it can say what it restored rather than having
+to work it out.
 
 ### `services`
 
@@ -157,6 +173,7 @@ running.
 | `/workspace` | the worktree, bind-mounted read-write |
 | `/sandboxr/plan.json` | the plan, read-only |
 | `/sandboxr/cache` | the host's seed cache, read-only |
+| `/sandboxr/seed/<name>` | a declared seed file, that one file, read-only — only when the project declares one outside the cache |
 | `/var/log/sandboxr` | per-sandbox logs, so they outlive the container |
 | `/var/lib/sandboxr/data` | the database volume |
 | `/var/lib/sandboxr/blob` | the object-storage volume |

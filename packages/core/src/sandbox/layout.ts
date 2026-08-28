@@ -7,6 +7,8 @@
  * single edit rather than a hunt through string literals.
  */
 
+import { basename, resolve, sep } from "node:path";
+
 /** The worktree, bind-mounted read-write so a saved file is live inside. */
 export const WORKSPACE = "/workspace";
 
@@ -15,6 +17,24 @@ export const PLAN_FILE = "/sandboxr/plan.json";
 
 /** The host seed cache, mounted read-only: a sandbox restores, never writes. */
 export const CACHE_DIR = "/sandboxr/cache";
+
+/**
+ * Where a seed the project *declared* is mounted, as opposed to one sandboxr cached.
+ *
+ * Separate from CACHE_DIR because the two artifacts are found in different ways.
+ * A cached dump is content-addressed into `~/.sandboxr/cache`, so its filename is
+ * its identity and the directory is fixed at both ends. A `database.seed_from.file`
+ * is a path the project wrote down and may be anywhere — outside every repo on
+ * purpose, so `git clean` cannot destroy it — and its *directory* is the only thing
+ * locating it.
+ *
+ * One code path used to serve both, and it took the basename: correct for the cache
+ * and fatal for the declared file, which was then looked for in a directory it had
+ * never been in. Nothing failed loudly. The sandbox reported "no seed artifact in
+ * /sandboxr/cache", started empty, and the project's migrations failed one by one
+ * against a database with no tables — a documented feature that had never once run.
+ */
+export const SEED_DIR = "/sandboxr/seed";
 
 /** Per-sandbox logs, on a host directory so they outlive the container. */
 export const LOG_DIR = "/var/log/sandboxr";
@@ -28,8 +48,58 @@ export const BLOB_DIR = "/var/lib/sandboxr/blob";
 /** Built binaries, on a volume so a rebuild survives a restart. */
 export const BIN_DIR = "/var/lib/sandboxr/bin";
 
+/**
+ * Go's caches, on machine-wide volumes.
+ *
+ * These two paths are `GOPATH=/go` and `GOCACHE=/go/cache` as the project
+ * Dockerfile sets them, and they must keep agreeing with it: Go is told where
+ * its caches are by the image, and mounting a volume anywhere else leaves the
+ * real cache in the container's writable layer where it dies with the container.
+ *
+ * That is exactly what used to happen, and the symptom did not look like a
+ * missing mount. `up` *replaces* the container, so every start began with an
+ * empty module cache and an empty build cache: each one re-downloaded the module
+ * graph the image had already downloaded at build time, then recompiled every
+ * dependency from source. On a six-service Go monorepo that was three minutes of
+ * a three-and-a-half minute boot, and it stayed three minutes on the second and
+ * third start — which reads as "sandboxes are just slow" rather than as a cache
+ * that is thrown away.
+ */
+export const GOCACHE_DIR = "/go/cache";
+export const GOMOD_DIR = "/go/pkg/mod";
+
 /** Built static sites, served by the sandbox's own file server. */
 export const WWW_DIR = "/srv/www";
+
+/**
+ * Claude Code's state directory, on the machine-wide `sandboxr-claude` volume.
+ *
+ * `/root` because a sandbox runs as root, and Claude Code reads `$HOME`.
+ *
+ * The container is also told `CLAUDE_CONFIG_DIR=<this>`, and that second half is
+ * load-bearing: Claude Code keeps the token, settings and session history under
+ * `~/.claude`, but keeps the OAuth account, personal MCP servers and per-project
+ * trust in `~/.claude.json` — a *file beside the directory*, not in it. Mounting
+ * the directory alone persists the session history and loses the login, which
+ * looks like the volume not working at all. `CLAUDE_CONFIG_DIR` moves that file
+ * inside the volume so the two halves live and die together.
+ */
+export const CLAUDE_DIR = "/root/.claude";
+
+/**
+ * Claude Code's stored login, inside that directory.
+ *
+ * Here rather than beside the code that reads it because it is now two things at
+ * once: the file the server probes to decide whether a subscription login is
+ * present, and a mount point — the host's own copy is bind-mounted over it when
+ * there is one (contracts §7.2). A path that is both a mount and a probe target
+ * spelled in two places is a path that eventually disagrees with itself.
+ *
+ * Existence is the only thing sandboxr ever asks about it. Its contents are
+ * Claude Code's business, and reading an account credential to answer a yes/no
+ * question would put it somewhere it has no reason to be.
+ */
+export const CREDENTIALS_FILE = `${CLAUDE_DIR}/.credentials.json`;
 
 /** Runtime state, on a tmpfs: gone when the container stops, as it should be. */
 export const RUN_DIR = "/run/sandboxr";
@@ -70,4 +140,36 @@ export function siteDir(label: string): string {
 /** Where a backend's binary is built to. */
 export function binaryPath(name: string): string {
   return `${BIN_DIR}/${name}`;
+}
+
+/**
+ * Where the container will read a seed artifact, and what has to be mounted for
+ * it to be there (contracts §6.2).
+ *
+ * The one function both the plan writer and the `docker run` argument list go
+ * through, because they have to agree exactly: the plan naming a path nothing
+ * mounts is precisely the failure this replaces, and it is silent — the sandbox
+ * reports an empty cache and starts from an empty database.
+ *
+ * "Is it in the cache?" is asked of the path rather than of the artifact's
+ * declared `source`, because the two drivers disagree about that and both are
+ * right: the file-backed drivers copy a declared `file:` into the cache (they
+ * have to fingerprint it anyway, and a database file is small), while mysql
+ * hands back the declared path untouched, because a logical dump is routinely
+ * tens of gigabytes and copying one on every `up` is not a thing to do quietly.
+ */
+export interface SeedMount {
+  /** The path the plan names, and the container opens. */
+  inside: string;
+  /** The host file to bind-mount there. Absent when the cache already covers it. */
+  bind?: string;
+}
+
+export function seedMount(hostPath: string, cacheDir: string): SeedMount {
+  const name = basename(hostPath);
+  // Compared as a path rather than as a string prefix: `~/.sandboxr/cache-old`
+  // starts with `~/.sandboxr/cache` and is not in it, and the artifact there
+  // would then be named in the plan as a cache entry nothing had mounted.
+  const inCache = resolve(hostPath).startsWith(resolve(cacheDir) + sep);
+  return inCache ? { inside: `${CACHE_DIR}/${name}` } : { inside: `${SEED_DIR}/${name}`, bind: hostPath };
 }

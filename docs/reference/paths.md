@@ -70,12 +70,14 @@ Everything sandboxr writes at run time is under `SANDBOXR_HOME`, default `~/.san
 | `cache/` | Database seed artifacts, named by content | yes |
 | `logs/<project>/<slug>/` | Per-sandbox logs, and the schema baselines | **yes** — deliberately |
 | `tls/` | Certificates and keys the router serves | yes |
-| `config.yaml` | The machine's own settings — how long a sandbox may sit unused | yes |
+| `config.yaml` | The machine's own settings — how long a sandbox may sit unused, and which projects get this machine's GitHub token | yes |
 | `state/` | Router config, the dynamic config directory, the dashboard's session key | yes |
 | `secrets/<project>.env` | Third-party credentials, mode 0600 | yes |
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
 | `bin/` | Helper binaries built on the host | yes |
+| `agent/runs.json` | Which agent session belongs to which sandbox, and its session id | yes |
+| `agent/log/<id>.jsonl` | One agent session transcript, append-only | yes |
 | `state/keep/<project>/<slug>` | Keeps one sandbox alive past its idle limit | **no** — see below |
 | `workspace/<project>/` | A project's bare clone and its worktrees | yes |
 | `workspace/<project>/sandboxr.yaml` | Optional: a config for every worktree that has none — see below | yes |
@@ -89,9 +91,11 @@ the first time and never touches it again:
 ```yaml
 # How long a sandbox may sit unused before it is stopped.
 ttl: 12h
+# Whether a sandbox is handed this machine's GitHub token. `none` or `token`.
+github: none
 # Per project, optional.
 projects:
-  acme: { ttl: 3d }
+  acme: { ttl: 3d, github: token }
 ```
 
 A missing file means the defaults. A malformed one is an error naming the file and the key — see
@@ -141,6 +145,7 @@ account puts the state somewhere nobody looks.
 | `/workspace` | Your worktree, mounted read and write |
 | `/sandboxr/plan.json` | The plan, read-only |
 | `/sandboxr/cache/` | The host's seed cache, read-only |
+| `/sandboxr/seed/` | A seed file you declared with `seed_from.file`, mounted read-only from wherever you keep it. Only that one file, and only when it is not already in the cache |
 | `/opt/sandboxr/scripts/` | The container scripts |
 | `/var/lib/sandboxr/data` | The database |
 | `/var/lib/sandboxr/blob` | Object storage |

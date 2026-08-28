@@ -9,6 +9,7 @@
 // - project and worktree dispatch: subcommands, missing arguments, no project
 // - project available: a machine with no gh says so in one sentence and still exits 0
 // - the commands that name a sandbox say how they are used when given no slug
+// - prune advertises `--yes` rather than `--dry-run`, because its default is the opposite of gc's
 //
 // The commands that talk to Docker are not driven here: `docker` is a module
 // singleton rather than an injected dependency, so nothing below reaches it.
@@ -180,6 +181,21 @@ describe("the old pin aliases", () => {
   it("does not advertise them in the usage", () => {
     expect(USAGE).toContain("keep <slug>");
     expect(USAGE).not.toContain("pin <slug>");
+  });
+});
+
+describe("prune", () => {
+  // The flag exists because the default is a report. `gc` reads the other way
+  // round, and the usage has to say which is which or the reader will assume
+  // the pair behave alike and delete an image they wanted.
+  it("advertises that removing takes --yes, unlike gc's --dry-run", () => {
+    expect(USAGE).toContain("prune [--yes]");
+    expect(USAGE).toContain("gc [--dry-run]");
+  });
+
+  it("is a command rather than a typo", async () => {
+    const result = await run(["prune", "--help"], empty);
+    expect(result.stderr).not.toContain("unknown command");
   });
 });
 

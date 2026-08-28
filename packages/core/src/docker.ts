@@ -126,6 +126,59 @@ export interface ContainerRow {
   labels: Record<string, string>;
 }
 
+export interface ImageRow {
+  repository: string;
+  /** `<none>` for an untagged image, exactly as docker spells it. */
+  tag: string;
+  id: string;
+  created?: Date | undefined;
+  /** Bytes the image occupies, layers it shares with other images included. */
+  size: number;
+  /**
+   * Bytes no other image shares — what removing this one would actually free.
+   *
+   * The distinction is the whole reason `docker system df -v` is asked instead
+   * of `docker image ls`: two project images built from the same base each
+   * report several gigabytes, and adding those up promises back far more disk
+   * than removing them delivers.
+   */
+  uniqueSize: number;
+  /** Containers referencing the image, running or not. */
+  containers: number;
+}
+
+export interface VolumeRow {
+  name: string;
+  size: number;
+  /** Containers referencing the volume. Zero means nothing has it mounted. */
+  links: number;
+}
+
+export interface BuildCacheRow {
+  id: string;
+  size: number;
+  /** Whether a build is holding it. An in-use record is not reclaimable. */
+  inUse: boolean;
+  /**
+   * Whether an image also holds these bytes.
+   *
+   * Deleting a shared record frees nothing — the image keeps the blob — which
+   * is why `docker system df` leaves shared records out of its reclaimable
+   * figure, and why anything here that quotes a number has to leave them out
+   * too. On one machine the difference was 21 GB of records against 5.2 GB of
+   * disk actually returned.
+   */
+  shared: boolean;
+  lastUsed?: Date | undefined;
+}
+
+/** What the daemon is storing, by kind. */
+export interface DiskUsage {
+  images: ImageRow[];
+  volumes: VolumeRow[];
+  buildCache: BuildCacheRow[];
+}
+
 export interface Docker {
   /** Runs docker with these arguments and returns the result, whatever it is. */
   raw(args: string[], options?: { input?: string | undefined; timeoutMs?: number | undefined }): Promise<ExecResult>;
@@ -178,6 +231,28 @@ export interface Docker {
   volumeRm(name: string): Promise<boolean>;
   ensureNetwork(name: string): Promise<void>;
   imageExists(reference: string): Promise<boolean>;
+  /**
+   * Everything the daemon is storing, in one call.
+   *
+   * One call rather than three because `docker system df -v` is one walk of the
+   * storage driver, and asking it three times over would be three walks for an
+   * answer that has to be consistent with itself: an image counted as orphaned
+   * against a container list read a second later is a race with a deletion at
+   * the end of it.
+   */
+  diskUsage(): Promise<DiskUsage>;
+  /** Removes an image. False when docker refused — a container still holds it. */
+  imageRm(reference: string): Promise<boolean>;
+  /**
+   * Prunes build cache. `all` takes every unused record, not only dangling ones.
+   *
+   * Returns the bytes docker reported reclaiming, which is authoritative in a
+   * way no figure computed beforehand can be: without `all`, docker keeps cache
+   * that is merely unreferenced, so a plan quoting `docker system df`'s
+   * reclaimable figure and a prune run without it do not describe the same
+   * thing.
+   */
+  builderPrune(options?: { all?: boolean }): Promise<number>;
   /** Copies a host file into a container. */
   cp(from: string, toContainer: string, toPath: string): Promise<void>;
 }
@@ -335,6 +410,27 @@ export function createDocker(run: Runner = nodeRunner, bin = "docker"): Docker {
       return (await raw(["image", "inspect", reference])).code === 0;
     },
 
+    async diskUsage() {
+      const result = await raw(["system", "df", "-v", "--format", JSON_FORMAT]);
+      if (result.code !== 0) throw new DockerError(["system", "df", "-v"], result);
+      return parseDiskUsage(result.stdout);
+    },
+
+    async imageRm(reference) {
+      return (await raw(["image", "rm", reference])).code === 0;
+    },
+
+    async builderPrune(options = {}) {
+      const args = ["builder", "prune", "--force"];
+      if (options.all) args.push("--all");
+      // Not `ok`: a daemon with no builder at all answers non-zero, and "there
+      // was no cache to prune" is a fine outcome for a housekeeping command
+      // rather than something to abort the rest of the run over.
+      const result = await raw(args, { timeoutMs: 10 * 60_000 });
+      if (result.code !== 0) return 0;
+      return parseReclaimed(result.stdout);
+    },
+
     async cp(from, toContainer, toPath) {
       await ok(["cp", from, `${toContainer}:${toPath}`]);
     },
@@ -378,6 +474,111 @@ function deriveStateFromStatus(status: string): string {
   if (lower.startsWith("created")) return "created";
   if (lower.startsWith("restarting")) return "restarting";
   return lower.split(" ")[0] ?? "";
+}
+
+/** The multipliers docker's size strings use, decimal and binary spellings both. */
+const SIZE_UNITS: Record<string, number> = {
+  b: 1,
+  kb: 1e3,
+  mb: 1e6,
+  gb: 1e9,
+  tb: 1e12,
+  pb: 1e15,
+  kib: 1024,
+  mib: 1024 ** 2,
+  gib: 1024 ** 3,
+  tib: 1024 ** 4,
+  pib: 1024 ** 5,
+};
+
+/**
+ * Turns one of docker's human sizes — `6.01GB`, `679.3MB`, `0B` — into bytes.
+ *
+ * Anything unreadable is zero rather than a guess. These numbers are added up
+ * and shown as "this much would come back", and a misread unit is the
+ * difference between megabytes and gigabytes in a sentence someone acts on.
+ * `N/A` is docker's own answer for a figure it did not compute, and reads as
+ * zero here for the same reason.
+ */
+export function parseDockerSize(text: string): number {
+  const match = /^\s*(-?[0-9]+(?:\.[0-9]+)?)\s*([a-zA-Z]*)\s*$/.exec(text);
+  if (!match) return 0;
+  const value = Number(match[1]);
+  const unit = (match[2] ?? "").toLowerCase();
+  const multiplier = unit === "" ? 1 : SIZE_UNITS[unit];
+  if (multiplier === undefined || !Number.isFinite(value)) return 0;
+  return value * multiplier;
+}
+
+/**
+ * Parses one of docker's timestamps.
+ *
+ * Docker prints `2026-08-28 07:43:32 +0100 BST` — an offset *and* a zone
+ * abbreviation — which `Date` refuses outright, and build cache records carry
+ * nanoseconds, which it truncates happily. Dropping the trailing abbreviation is
+ * enough to make both parse; an unparseable one is undefined rather than the
+ * epoch, because callers order by this and "1970" would sort a perfectly good
+ * image to the front of the queue for deletion.
+ */
+export function parseDockerTime(text: string): Date | undefined {
+  const trimmed = text.trim().replace(/\s+[A-Za-z]{2,5}$/, "");
+  if (trimmed === "") return undefined;
+  const when = new Date(trimmed);
+  return Number.isNaN(when.getTime()) ? undefined : when;
+}
+
+/** `docker system df -v --format {{json .}}`: one object holding four arrays. */
+export function parseDiskUsage(stdout: string): DiskUsage {
+  let parsed: {
+    Images?: Array<Record<string, string>>;
+    Volumes?: Array<Record<string, string>>;
+    BuildCache?: Array<Record<string, string>>;
+  };
+  try {
+    parsed = JSON.parse(stdout.trim());
+  } catch {
+    return { images: [], volumes: [], buildCache: [] };
+  }
+
+  const count = (text: string | undefined): number => {
+    const value = Number(text);
+    // Docker writes `N/A` where it did not count, and `-1` on some versions for
+    // an image whose containers it could not resolve. Both have to read as
+    // "unknown", and unknown must not become zero — zero is what licenses a
+    // deletion — so they are treated as "something holds it".
+    if (!Number.isFinite(value)) return 1;
+    return value < 0 ? 1 : value;
+  };
+
+  return {
+    images: (parsed.Images ?? []).map((row) => ({
+      repository: row.Repository ?? "",
+      tag: row.Tag ?? "",
+      id: (row.ID ?? "").replace(/^sha256:/, ""),
+      created: parseDockerTime(row.CreatedAt ?? ""),
+      size: parseDockerSize(row.Size ?? ""),
+      uniqueSize: parseDockerSize(row.UniqueSize ?? ""),
+      containers: count(row.Containers),
+    })),
+    volumes: (parsed.Volumes ?? []).map((row) => ({
+      name: row.Name ?? "",
+      size: parseDockerSize(row.Size ?? ""),
+      links: count(row.Links),
+    })),
+    buildCache: (parsed.BuildCache ?? []).map((row) => ({
+      id: row.ID ?? "",
+      size: parseDockerSize(row.Size ?? ""),
+      inUse: row.InUse === "true",
+      shared: row.Shared === "true",
+      lastUsed: parseDockerTime(row.LastUsedAt ?? ""),
+    })),
+  };
+}
+
+/** The `Total reclaimed space:` line a prune ends with, in bytes. */
+export function parseReclaimed(stdout: string): number {
+  const match = /Total reclaimed space:\s*(.+)/i.exec(stdout);
+  return match ? parseDockerSize(match[1] ?? "") : 0;
 }
 
 export function parseLabelPairs(labels: string): Record<string, string> {

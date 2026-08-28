@@ -6,6 +6,10 @@
 // - two Traefik routers onto one service: the bare domain, and the reserved handshake path on any
 //   sandbox hostname
 // - the handshake router outranks a sandbox's own rule and carries no forward-auth middleware
+// - the agent-session variables are forwarded from the host, and a blank one is omitted rather
+//   than passed through as an empty value
+// - the host's commit identity is forwarded, so a sandbox started from the browser can commit
+// - the host's Claude login is forwarded as a path and never as a mount, and omitted when there is none
 
 import { describe, expect, it } from "vitest";
 
@@ -145,5 +149,152 @@ describe("the GitHub token", () => {
   it("is omitted entirely when there is none, rather than sent empty", () => {
     const args = dashboardArgs({ domain: "sbx.localhost", tls: true, env });
     expect(args.some((arg) => arg.startsWith("GH_TOKEN="))).toBe(false);
+  });
+});
+
+/**
+ * The agent-session settings reach the container as *values*, because there is
+ * nothing to mount: on macOS `claude` keeps its credential in the login
+ * keychain, so a mounted config directory carries no token at all.
+ *
+ * Blank is treated as absent throughout. An exported-but-empty variable is what
+ * a shell profile that sets something conditionally leaves behind, and passing
+ * it on would turn "this machine has no credential" — which the dashboard can
+ * explain — into "the credential is the empty string", which it cannot.
+ */
+describe("the agent-session variables", () => {
+  const varsOf = (args: string[]): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (let i = 0; i < args.length - 1; i++) {
+      if (args[i] !== "-e") continue;
+      const [key, ...rest] = (args[i + 1] as string).split("=");
+      out[key as string] = rest.join("=");
+    }
+    return out;
+  };
+
+  it("forwards each one the host set", () => {
+    const vars = varsOf(
+      dashboardArgs({
+        domain: "sbx.localhost",
+        tls: true,
+        env: {
+          ...env,
+          SANDBOXR_CLAUDE_TOKEN: "sk-ant-oat01-example",
+          SANDBOXR_CLAUDE_MODEL: "claude-opus-5",
+          SANDBOXR_CLAUDE_MCP: '{"mcpServers":{}}',
+          SANDBOXR_CLAUDE_PERMISSION_MODE: "auto",
+        },
+      }),
+    );
+    expect(vars.SANDBOXR_CLAUDE_TOKEN).toBe("sk-ant-oat01-example");
+    expect(vars.SANDBOXR_CLAUDE_MODEL).toBe("claude-opus-5");
+    expect(vars.SANDBOXR_CLAUDE_MCP).toBe('{"mcpServers":{}}');
+    expect(vars.SANDBOXR_CLAUDE_PERMISSION_MODE).toBe("auto");
+  });
+
+  it("omits one the host never set, and one it set to blank", () => {
+    const vars = varsOf(
+      dashboardArgs({
+        domain: "sbx.localhost",
+        tls: true,
+        env: { ...env, SANDBOXR_CLAUDE_TOKEN: "   " },
+      }),
+    );
+    expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_TOKEN");
+    expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_MODEL");
+  });
+
+  it("forwards nothing else beginning SANDBOXR_CLAUDE", () => {
+    // A named list rather than a prefix match, so a variable a later version
+    // gives a different meaning to is not handed to the container by accident.
+    const vars = varsOf(
+      dashboardArgs({
+        domain: "sbx.localhost",
+        tls: true,
+        env: { ...env, SANDBOXR_CLAUDE_SOMETHING_ELSE: "no" },
+      }),
+    );
+    expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_SOMETHING_ELSE");
+  });
+});
+
+describe("the commit identity", () => {
+  const env = { SANDBOXR_HOME: "/home/me/.sandboxr", SANDBOXR_INSTALL: "/opt/sandboxr", HOME: "/home/me" };
+
+  const varsOf = (args: string[]): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i] !== "-e") continue;
+      const [key, ...rest] = String(args[i + 1]).split("=");
+      out[String(key)] = rest.join("=");
+    }
+    return out;
+  };
+
+  // The dashboard is a bare `node:` image with nobody's gitconfig in it, so
+  // this is the only way a sandbox it starts can commit at all — without it,
+  // `up` from the browser and `up` from the CLI would disagree about something
+  // as basic as whether git works.
+  it("is forwarded so it can be handed on to every sandbox", () => {
+    const vars = varsOf(
+      dashboardArgs({ domain: "sbx.localhost", tls: true, env, gitIdentity: { name: "Ada L", email: "ada@example.com" } }),
+    );
+    expect(vars.GIT_AUTHOR_NAME).toBe("Ada L");
+    expect(vars.GIT_AUTHOR_EMAIL).toBe("ada@example.com");
+  });
+
+  it("is omitted when this machine has none", () => {
+    const vars = varsOf(dashboardArgs({ domain: "sbx.localhost", tls: true, env }));
+    expect(vars).not.toHaveProperty("GIT_AUTHOR_NAME");
+    expect(vars).not.toHaveProperty("GIT_AUTHOR_EMAIL");
+  });
+});
+
+describe("the host's Claude login", () => {
+  const env = { SANDBOXR_HOME: "/home/me/.sandboxr", SANDBOXR_INSTALL: "/opt/sandboxr", HOME: "/home/me" };
+
+  const varsOf = (args: string[]): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (let i = 0; i < args.length; i += 1) {
+      if (args[i] !== "-e") continue;
+      const [key, ...rest] = String(args[i + 1]).split("=");
+      out[String(key)] = rest.join("=");
+    }
+    return out;
+  };
+
+  // The path, resolved on the host at `init`. The dashboard's own `$HOME` is
+  // not the person's and it cannot see the host filesystem at all, so a
+  // dashboard left to resolve this itself would start sandboxes without a login
+  // while the CLI started them with one.
+  it("is forwarded as a path, so a sandbox started from the browser gets the same mount", () => {
+    const vars = varsOf(
+      dashboardArgs({
+        domain: "sbx.localhost",
+        tls: true,
+        env,
+        claudeCredentials: "/Users/ada/.claude/.credentials.json",
+      }),
+    );
+    expect(vars.SANDBOXR_CLAUDE_CREDENTIALS).toBe("/Users/ada/.claude/.credentials.json");
+  });
+
+  it("is omitted when this machine has no such file", () => {
+    const vars = varsOf(dashboardArgs({ domain: "sbx.localhost", tls: true, env }));
+    expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_CREDENTIALS");
+  });
+
+  // The credential itself never comes in here. The dashboard is handed a path;
+  // the file is mounted into each sandbox by the host's own daemon.
+  it("mounts nothing into the dashboard itself", () => {
+    const args = dashboardArgs({
+      domain: "sbx.localhost",
+      tls: true,
+      env,
+      claudeCredentials: "/Users/ada/.claude/.credentials.json",
+    });
+    const mounts = args.filter((arg, i) => args[i - 1] === "-v");
+    expect(mounts.join(" ")).not.toContain(".credentials.json");
   });
 });

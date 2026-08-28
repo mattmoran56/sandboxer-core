@@ -1,5 +1,5 @@
 /**
- * The sandbox lifecycle: up, down, list, status, reload, gc.
+ * The sandbox lifecycle: up, down, list, status, reload, gc, prune.
  *
  * Everything here reads and writes only the labels in contracts §3.4, so `list`
  * and `gc` are functions of `docker ps` and there is no state on the host that
@@ -16,6 +16,7 @@ import {
   domainOf,
   ensureBaseImage,
   ensureSandboxCertificate,
+  hostGhToken,
   portSuffix,
   routerPorts,
   routerScheme,
@@ -23,7 +24,7 @@ import {
 } from "../access/index.js";
 import { allowsRealCredentials } from "../config/access.js";
 import { loadConfig } from "../config/load.js";
-import { loadMachineConfig, resolveTtl } from "../config/machine.js";
+import { loadMachineConfig, resolveGithub, resolveTtl } from "../config/machine.js";
 import { resolveDeps } from "../config/deps.js";
 import { planFor, writePlan } from "../config/plan.js";
 import type { ResolvedConfig } from "../config/types.js";
@@ -32,7 +33,8 @@ import { driverContext, getDriver } from "../drivers/index.js";
 import { chooseSeed } from "../drivers/seed.js";
 import { describeSeedChoice, mysqlSettings } from "../drivers/mysql.js";
 import type { SeedArtifact } from "../drivers/types.js";
-import { gitFacts } from "../git.js";
+import { hostClaudeCredentials } from "../agent/credentials.js";
+import { gitFacts, gitMounts, hostGitIdentity } from "../git.js";
 import { findProject } from "../workspace.js";
 import { addWorktree } from "../worktree.js";
 import { lastActivity } from "./activity.js";
@@ -43,8 +45,9 @@ import { NETWORK, containerName, deriveSlug, volumeName } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { containerEnv, labelsOf, renderEnvFile, urlsFor } from "./env.js";
 import { planGc } from "./gc.js";
+import { planPrune, type PruneResult } from "./prune.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
-import { BUILT_MANIFEST, MIGRATE_STATE, WWW_DIR } from "./layout.js";
+import { BUILT_MANIFEST, MIGRATE_STATE, WWW_DIR, seedMount } from "./layout.js";
 import { backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
 import type {
   DownOptions,
@@ -53,6 +56,7 @@ import type {
   GcPlan,
   ListOptions,
   CommonOptions,
+  PruneOptions,
   ReloadOptions,
   ReloadResult,
   Sandbox,
@@ -175,10 +179,15 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // The plan is the container's only view of the project: nothing inside reads
   // sandboxr.yaml, so everything project-specific is resolved here first.
   const deps = await resolveDeps(config, projectRoot);
+  // Where the container will find the artifact, and what has to be mounted for
+  // it to be there — one answer, used by both the plan below and `runArgs`
+  // further down. Two derivations of this is how a declared `file:` came to be
+  // named in the plan as a cache entry that was never mounted.
+  const mount = seed.path ? seedMount(seed.path, p.cache) : undefined;
   const planFile = join(p.build, config.project, `${slug}.plan.json`);
   await writePlan(
     planFor(config, {
-      seed: seed.path ? { path: seed.path, anonymised: seedIsAnonymised(config, seed) } : undefined,
+      seed: mount ? { path: mount.inside, anonymised: seedIsAnonymised(config, seed) } : undefined,
       deps,
     }),
     planFile,
@@ -193,16 +202,20 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     await docker.rm(container, { force: true });
   }
 
+  // The machine's own settings, read once: they decide both the idle limit and
+  // whether this project's sandboxes may carry this machine's GitHub token. A
+  // malformed config file throws from here rather than being papered over — see
+  // the note at the top of ../config/machine.ts.
+  const machine = await loadMachineConfig(env);
+
   // The idle limit, resolved once here so the CLI and the dashboard cannot
   // disagree about it: `--ttl` beats the project's entry in
   // `~/.sandboxr/config.yaml`, which beats that file's top-level `ttl`, which
-  // beats `SANDBOXR_TTL_HOURS`, which beats the built-in twelve hours. A
-  // malformed config file throws from here rather than being papered over — see
-  // the note at the top of ../config/machine.ts.
+  // beats `SANDBOXR_TTL_HOURS`, which beats the built-in twelve hours.
   const wanted = resolveTtl({
     explicit: options.ttl,
     project: config.project,
-    config: await loadMachineConfig(env),
+    config: machine,
     env,
   });
   // An unreadable ttl is refused by name rather than silently becoming a
@@ -245,6 +258,44 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // sandbox rather than once for the machine.
   await ensureSandboxCertificate({ project: config.project, slug, labels: labelsOf(config), env, log });
 
+  // What git inside the container needs from the host, and who it commits as.
+  // Both are read here rather than in runArgs, which is a pure function over an
+  // input record precisely so every mount can be asserted without a daemon.
+  const gitPaths = await gitMounts(projectRoot);
+  const gitIdentity = await hostGitIdentity(env);
+  // The host's Claude Code login, shared with the sandbox rather than copied
+  // into it — an OAuth refresh token rotates and is single-use, so two copies
+  // kill each other. Undefined on any machine without that file, which includes
+  // every macOS one; see ../agent/credentials.ts.
+  const claudeCredentials = hostClaudeCredentials(env);
+  if (gitPaths.length === 0) {
+    // Said once, at the only moment somebody can act on it. A sandbox on a
+    // directory that is not the top of a checkout is perfectly runnable — it
+    // just has no working git, and discovering that from `fatal: not a git
+    // repository` three commands into an agent session is the failure this
+    // whole mechanism exists to remove.
+    log("This tree is not the top of a git checkout, so git will not work inside the sandbox.");
+  }
+
+  // The GitHub token, only if this machine opted this project in (§4.3). Not
+  // resolved at all otherwise: `hostGhToken` shells out to `gh` on a machine
+  // that may not have it, and a credential nobody asked for should not even be
+  // read into this process.
+  const ghToken = resolveGithub({ project: config.project, config: machine }) === "token"
+    ? await hostGhToken(env)
+    : undefined;
+  // Not a refusal, unlike the seed and secret rules in ../config/access.ts, and
+  // the difference is worth being clear about. Those exist because *anyone who
+  // can reach a public app* can make it spend the credential; nothing serves
+  // GH_TOKEN over http, so reading it needs code execution in the container.
+  // But a public sandbox is a dev build of an unfinished branch on an open
+  // hostname, and code execution is not a far-fetched thing to find in one — so
+  // an operator who opted this project in is told, on the run where it applies,
+  // that those two decisions have met.
+  if (ghToken && config.access.apps === "public") {
+    log(`${config.project}'s apps are public and it carries this machine's GitHub token.`);
+  }
+
   log(`Starting ${slug} from ${facts.branch}@${facts.commit}${facts.dirty ? " (dirty)" : ""}`);
   await docker.ok(
     runArgs({
@@ -256,10 +307,15 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
       secretsFile: hasSecrets ? secretsFile : undefined,
       planFile,
       cacheDir: p.cache,
+      seedFile: mount?.bind ? { host: mount.bind, inside: mount.inside } : undefined,
       logDir,
       depsHash: deps ? await depsHashFor(projectRoot, deps) : undefined,
       image,
       with: options.with,
+      gitMounts: gitPaths,
+      gitIdentity,
+      ghToken,
+      claudeCredentials,
       routerLabels: sandboxRouteLabels({
         container,
         slug,
@@ -665,6 +721,54 @@ export async function gc(options: GcOptions = {}): Promise<GcPlan> {
 }
 
 /**
+ * Reclaims the disk that building sandboxes left behind.
+ *
+ * Reports by default and removes only with `apply`, which is the opposite way
+ * round from `gc` and `expire`. Those two act on things whose loss costs a
+ * restart; this one removes images, and an image nobody meant to lose is a
+ * toolchain rebuild the next `up` pays for.
+ */
+export async function prune(options: PruneOptions = {}): Promise<PruneResult> {
+  const docker = options.docker ?? defaultDocker;
+  const log = options.log ?? noop;
+
+  const sandboxes = await list({ docker, env: options.env });
+  const usage = await docker.diskUsage();
+  const plan = planPrune({
+    sandboxes,
+    volumes: usage.volumes,
+    images: usage.images,
+    buildCache: usage.buildCache,
+    mountedVolumes: await mountedVolumes(docker, sandboxes),
+    includeBuildCache: options.buildCache,
+  });
+
+  const removed = { volumes: [] as string[], images: [] as string[], buildCacheBytes: 0 };
+  if (!options.apply) return { ...plan, applied: false, removed };
+
+  for (const volume of plan.volumes) {
+    if (await docker.volumeRm(volume.name)) removed.volumes.push(volume.name);
+  }
+  for (const image of plan.images) {
+    if (await docker.imageRm(image.reference)) removed.images.push(image.reference);
+  }
+  if (plan.buildCache.inScope) {
+    log("Pruning the build cache");
+    // `all`, not the default: without it docker keeps every unused-but-not-
+    // dangling record, and the plan's figure — which is `docker system df`'s —
+    // would name disk this call had no intention of returning.
+    removed.buildCacheBytes = await docker.builderPrune({ all: true });
+  }
+
+  if (removed.volumes.length > 0) log(`Removed ${removed.volumes.length} orphaned volume(s)`);
+  if (removed.images.length > 0) log(`Removed ${removed.images.length} superseded image(s)`);
+  if (removed.volumes.length === 0 && removed.images.length === 0 && removed.buildCacheBytes === 0) {
+    log("Nothing to reclaim");
+  }
+  return { ...plan, applied: true, removed };
+}
+
+/**
  * Whether the artifact about to be restored is one a public sandbox may use.
  *
  * A fixtures-only start has nothing real in it by construction; a dump is only
@@ -803,3 +907,4 @@ async function tryLoad(worktree: string, env?: NodeJS.ProcessEnv | undefined): P
 
 export { WWW_DIR };
 export { planGc } from "./gc.js";
+export { formatBytes, planPrune } from "./prune.js";

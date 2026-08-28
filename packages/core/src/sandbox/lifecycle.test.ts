@@ -10,6 +10,9 @@
 // - reload: `all` covers the build-everything set, `built` covers what the sandbox has built, a name covers one app
 // - reload: a served front-end is restarted rather than built
 // - gc: reaps a sandbox whose worktree is gone, and does nothing under dryRun
+// - prune: reports without removing until it is told to apply
+// - prune: removes a superseded project image and leaves the newest one alone
+// - prune: the build cache is out of scope unless it is asked for
 
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,9 +22,9 @@ import { describe, expect, it } from "vitest";
 
 import { resolveConfig } from "../config/load.js";
 import type { ResolvedConfig } from "../config/types.js";
-import type { ContainerRow, Docker, ExecResult } from "../docker.js";
+import type { ContainerRow, DiskUsage, Docker, ExecResult } from "../docker.js";
 import { LABELS, labelsFor } from "./labels.js";
-import { down, gc, list, reload, status, up } from "./index.js";
+import { down, gc, list, prune, reload, status, up } from "./index.js";
 
 interface FakeOptions {
   rows?: ContainerRow[];
@@ -30,6 +33,7 @@ interface FakeOptions {
   running?: boolean;
   exists?: boolean;
   startedAt?: Date | undefined;
+  usage?: DiskUsage;
 }
 
 /** A docker whose every call is recorded and whose answers are declarative. */
@@ -128,6 +132,18 @@ function fakeDocker(options: FakeOptions = {}) {
       record("ensureNetwork", name);
     },
     imageExists: async () => true,
+    diskUsage: async () => {
+      record("diskUsage");
+      return options.usage ?? { images: [], volumes: [], buildCache: [] };
+    },
+    imageRm: async (reference) => {
+      record("imageRm", reference);
+      return true;
+    },
+    builderPrune: async (pruneOptions) => {
+      record("builderPrune", pruneOptions);
+      return 1_000_000;
+    },
     cp: async (from, container, to) => {
       record("cp", from, container, to);
     },
@@ -561,5 +577,65 @@ describe("gc", () => {
     expect(plan.reap).toHaveLength(1);
     expect(argsOf("rm")).toHaveLength(0);
     expect(argsOf("volumeRm")).toHaveLength(0);
+  });
+});
+
+describe("prune", () => {
+  const usage = {
+    images: [
+      {
+        repository: "sandboxr/acme",
+        tag: "old",
+        id: "1",
+        created: new Date("2026-08-01T00:00:00.000Z"),
+        size: 6e9,
+        uniqueSize: 5.34e9,
+        containers: 0,
+      },
+      {
+        repository: "sandboxr/acme",
+        tag: "new",
+        id: "2",
+        created: new Date("2026-08-27T00:00:00.000Z"),
+        size: 6e9,
+        uniqueSize: 5.34e9,
+        containers: 1,
+      },
+    ],
+    volumes: [{ name: "sandboxr-data-acme-gone", size: 4.12e8, links: 0 }],
+    buildCache: [{ id: "a", size: 1e9, inUse: false, shared: false }],
+  };
+
+  // The opposite default from gc and expire, and deliberately: what this
+  // removes is an image, and an image nobody meant to lose is a toolchain
+  // rebuild the next `up` pays for.
+  it("reports without removing anything", async () => {
+    const { docker, argsOf } = fakeDocker({ usage });
+    const result = await prune({ docker });
+    expect(result.applied).toBe(false);
+    expect(result.images.map((image) => image.reference)).toEqual(["sandboxr/acme:old"]);
+    expect(result.volumes.map((volume) => volume.name)).toEqual(["sandboxr-data-acme-gone"]);
+    expect(argsOf("imageRm")).toHaveLength(0);
+    expect(argsOf("volumeRm")).toHaveLength(0);
+  });
+
+  it("removes the superseded image and the orphaned volume when applied", async () => {
+    const { docker, argsOf } = fakeDocker({ usage });
+    const result = await prune({ docker, apply: true });
+    expect(argsOf("imageRm")).toEqual([["sandboxr/acme:old"]]);
+    expect(argsOf("volumeRm")).toEqual([["sandboxr-data-acme-gone"]]);
+    expect(result.removed.images).toEqual(["sandboxr/acme:old"]);
+    expect(result.removed.buildCacheBytes).toBe(0);
+  });
+
+  it("touches the build cache only when it is asked for", async () => {
+    const { docker, argsOf } = fakeDocker({ usage });
+    await prune({ docker, apply: true });
+    expect(argsOf("builderPrune")).toHaveLength(0);
+
+    const asked = fakeDocker({ usage });
+    const result = await prune({ docker: asked.docker, apply: true, buildCache: true });
+    expect(asked.argsOf("builderPrune")).toHaveLength(1);
+    expect(result.removed.buildCacheBytes).toBe(1_000_000);
   });
 });

@@ -2,6 +2,13 @@
 // - runArgs: the container name, the shared network, every label, and the worktree bind mount
 // - runArgs: one volume per purpose, the data mount per driver, storage only when declared
 // - runArgs: the seed cache is read-only, the secrets file is layered under the generated environment
+// - runArgs: a seed that is not in the cache is mounted as one read-only file, and its directory is not
+// - runArgs: the machine-wide Go caches are mounted for a Go project and absent for one without the toolchain
+// - runArgs: the machine-wide Claude volume is mounted and CLAUDE_CONFIG_DIR points inside it
+// - runArgs: the host's login is one file mounted read-write over the volume, never the directory, and absent without one
+// - runArgs: the git mounts land at the identical path inside and out, read-write, and none is /workspace
+// - runArgs: the commit identity is passed as author *and* committer, and omitted when there is none
+// - runArgs: GH_TOKEN only when one was resolved, so opting out leaves no credential in the container
 // - runArgs: no argument is ever a shell string, and a value with a space survives as one argument
 // - memoryFor / toBytes: the largest declared limit wins, because the cgroup total is what the kernel enforces
 // - renderBuild: placeholder substitution, a missing placeholder, and a value that would become shell syntax
@@ -79,6 +86,65 @@ describe("runArgs", () => {
     expect(args).toContain("/repos/tkt-1:/workspace");
   });
 
+  describe("the mounts git needs", () => {
+    const withGit = runArgs({ ...base, gitMounts: ["/repos/tkt-1", "/repos/acme.git"] });
+
+    // Identical path inside and out, because a linked worktree's `.git` names
+    // its repository by absolute path and nothing rewrites that on the way in.
+    it("puts each one at the path the host calls it", () => {
+      expect(withGit).toContain("/repos/tkt-1:/repos/tkt-1");
+      expect(withGit).toContain("/repos/acme.git:/repos/acme.git");
+    });
+
+    // Read-write is the deliberate half: `git commit` writes objects and refs
+    // into the repository, so `:ro` would break only at the commit.
+    it("mounts them read-write", () => {
+      expect(withGit.join(" ")).not.toContain("/repos/acme.git:/repos/acme.git:ro");
+    });
+
+    it("adds nothing at all when git needs nothing", () => {
+      expect(runArgs({ ...base, gitMounts: [] }).join(" ")).not.toContain("/repos/acme.git");
+    });
+
+    // Docker refuses the whole `run` over two mounts at one destination, so a
+    // host checkout that happens to live at /workspace must not be added twice.
+    it("skips a path that is already the workspace destination", () => {
+      const collision = runArgs({ ...base, worktree: "/workspace", gitMounts: ["/workspace", "/repos/acme.git"] });
+      expect(collision.filter((arg) => arg === "/workspace:/workspace")).toHaveLength(1);
+    });
+  });
+
+  describe("committing from inside", () => {
+    const identified = runArgs({ ...base, gitIdentity: { name: "Ada L", email: "ada@example.com" } });
+
+    // Both pairs: git fails on whichever is missing, so setting only the author
+    // buys an identical second error about the committer.
+    it("sets the author and the committer", () => {
+      expect(identified).toContain("GIT_AUTHOR_NAME=Ada L");
+      expect(identified).toContain("GIT_COMMITTER_NAME=Ada L");
+      expect(identified).toContain("GIT_AUTHOR_EMAIL=ada@example.com");
+      expect(identified).toContain("GIT_COMMITTER_EMAIL=ada@example.com");
+    });
+
+    it("says nothing when the machine has no identity", () => {
+      expect(runArgs({ ...base, gitIdentity: {} }).join(" ")).not.toContain("GIT_AUTHOR");
+      expect(args.join(" ")).not.toContain("GIT_AUTHOR");
+    });
+  });
+
+  describe("the GitHub token", () => {
+    it("is passed as a value, because on macOS there is no file to mount", () => {
+      expect(runArgs({ ...base, ghToken: "gho_example" })).toContain("GH_TOKEN=gho_example");
+    });
+
+    // The opt-out has to be a genuine absence, not an empty string: `gh` reads
+    // an empty GH_TOKEN as a credential and reports itself broken rather than
+    // logged out.
+    it("is absent entirely when the machine did not opt this project in", () => {
+      expect(args.join(" ")).not.toContain("GH_TOKEN");
+    });
+  });
+
   it.each([
     ["binaries", "sandboxr-bin-acme-tkt-1:/var/lib/sandboxr/bin"],
     ["built sites", "sandboxr-www-acme-tkt-1:/srv/www"],
@@ -122,6 +188,107 @@ describe("runArgs", () => {
   // A sandbox restores from the cache and never writes to it.
   it("mounts the seed cache read-only", () => {
     expect(args).toContain("/home/.sandboxr/cache:/sandboxr/cache:ro");
+  });
+
+  // A declared `database.seed_from.file` may be anywhere, so the cache mount
+  // does not reach it. Without this the plan named a file that was not in the
+  // container at all, and the sandbox quietly started from an empty database.
+  describe("a seed that is not in the cache", () => {
+    const declared = runArgs({
+      ...base,
+      seedFile: { host: "/home/dev/.sandboxr/seeds/acme-base.sql.zst", inside: "/sandboxr/seed/acme-base.sql.zst" },
+    });
+
+    it("mounts that one file, read-only, at the path the plan names", () => {
+      expect(declared).toContain("/home/dev/.sandboxr/seeds/acme-base.sql.zst:/sandboxr/seed/acme-base.sql.zst:ro");
+    });
+
+    // The directory around it is not mounted: `file:` may point into somewhere
+    // the user keeps other things, and mounting the parent buys nothing.
+    it("does not mount the directory it came from", () => {
+      expect(declared.join(" ")).not.toContain("/home/dev/.sandboxr/seeds:");
+    });
+
+    it("mounts nothing extra when the artifact is in the cache", () => {
+      expect(args.join(" ")).not.toContain("/sandboxr/seed");
+    });
+  });
+
+  // Unmounted, both of these live in the container's writable layer. `up`
+  // replaces the container, so every start re-downloaded the module graph and
+  // recompiled every dependency — and stayed just as slow on the second start,
+  // which is what made it read as "sandboxes are slow" rather than as a cache
+  // being thrown away.
+  describe("Go's caches", () => {
+    const go = runArgs({ ...base, config: configOf({ toolchain: { go: "1.25" } }) });
+
+    it("mounts both on machine-wide volumes, at the paths the image sets GOCACHE and GOPATH to", () => {
+      expect(go).toContain("sandboxr-gocache:/go/cache");
+      expect(go).toContain("sandboxr-gomod:/go/pkg/mod");
+    });
+
+    it("shares them across projects, so the second project on a machine compiles less", () => {
+      const other = runArgs({ ...base, slug: "tkt-2", config: configOf({ project: "other", toolchain: { go: "1.25" } }) });
+      expect(other).toContain("sandboxr-gocache:/go/cache");
+      expect(other).toContain("sandboxr-gomod:/go/pkg/mod");
+    });
+
+    // Two mounts nothing would ever read, on a sandbox that has no Go in it.
+    it("adds neither when the project declares no Go toolchain", () => {
+      expect(args.join(" ")).not.toContain("sandboxr-gocache");
+      expect(args.join(" ")).not.toContain("sandboxr-gomod");
+    });
+  });
+
+  // Deliberately not named after the project or the slug: an MCP server is
+  // authorised once per machine, and a per-sandbox volume would mean once per
+  // worktree instead.
+  it("mounts one machine-wide Claude volume, shared by every sandbox", () => {
+    expect(args).toContain("sandboxr-claude:/root/.claude");
+
+    const other = runArgs({ ...base, slug: "tkt-2", config: configOf({ project: "other" }) });
+    expect(other).toContain("sandboxr-claude:/root/.claude");
+  });
+
+  // Mounting the directory alone persists the session history and loses the
+  // login, because the OAuth account and the personal MCP servers live in
+  // `~/.claude.json`, a file *beside* the directory. This variable is what puts
+  // that file on the volume too.
+  it("points CLAUDE_CONFIG_DIR at the volume, so ~/.claude.json lands inside it", () => {
+    const index = args.indexOf("CLAUDE_CONFIG_DIR=/root/.claude");
+    expect(index).toBeGreaterThan(-1);
+    expect(args[index - 1]).toBe("-e");
+    // Before the image, or docker reads it as an argument to the entrypoint.
+    expect(index).toBeLessThan(args.indexOf("--entrypoint"));
+  });
+
+  describe("the host's Claude login", () => {
+    const shared = runArgs({ ...base, claudeCredentials: "/Users/ada/.claude/.credentials.json" });
+
+    it("mounts the one file over the volume's copy of it", () => {
+      expect(shared).toContain("/Users/ada/.claude/.credentials.json:/root/.claude/.credentials.json");
+    });
+
+    // The whole security argument for this feature. Binding `~/.claude` itself
+    // would give every sandbox write access to the host's settings.json, which
+    // can define hooks — commands the host's own Claude Code then executes.
+    it("never mounts the directory around it", () => {
+      expect(shared).not.toContain("/Users/ada/.claude:/root/.claude");
+      expect(shared.filter((arg) => arg.startsWith("/Users/ada/.claude:"))).toHaveLength(0);
+    });
+
+    // A refresh token rotates and is single-use, so the sandbox has to be able
+    // to write the rotated one back. `:ro` would work until the first refresh.
+    it("mounts it read-write", () => {
+      expect(shared.join(" ")).not.toContain(".credentials.json:/root/.claude/.credentials.json:ro");
+    });
+
+    // Docker answers a missing bind source by creating a directory there, so
+    // "no file on the host" has to mean no mount at all rather than an empty one.
+    it("adds nothing when the host has no login", () => {
+      expect(args.join(" ")).not.toContain("/root/.claude/.credentials.json");
+      expect(args).toContain("sandboxr-claude:/root/.claude");
+    });
   });
 
   // The directory holding the lockfile is not always the directory holding the

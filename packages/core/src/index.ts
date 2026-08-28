@@ -37,26 +37,32 @@ export type { AccessViolation } from "./config/access.js";
 export { configSchema } from "./config/schema.js";
 export {
   DEFAULT_TTL,
+  DEFAULT_GITHUB,
+  GITHUB_MODES,
   MACHINE_CONFIG_EXAMPLE,
   loadMachineConfig,
   machineConfigSchema,
+  resolveGithub,
   resolveTtl,
   writeMachineConfigExample,
 } from "./config/machine.js";
-export type { MachineConfig, TtlInput } from "./config/machine.js";
+export type { GithubInput, GithubMode, MachineConfig, TtlInput } from "./config/machine.js";
 export { compareVersions, parseVersion, satisfies, VersionError } from "./config/version.js";
 export { TOOL_VERSION } from "./tool-version.js";
 
 export {
   DEFAULT_DOMAIN,
+  IMAGE_NAMESPACE,
   NETWORK,
   NamingError,
+  PROTECTED_IMAGES,
   SHARED_VOLUMES,
   SLUG_MAX,
   containerName,
   depsVolumeName,
   deriveSlug,
   hostFor,
+  imageRepository,
   lockName,
   parseContainerName,
   sanitizeSlug,
@@ -65,21 +71,35 @@ export {
 } from "./naming.js";
 export type { DeriveSlugInput, HostParts, VolumePurpose } from "./naming.js";
 
-export { WORKTREES_DIR, directoriesOf, paths, type Paths } from "./paths.js";
+export { WORKTREES_DIR, canonicalPath, directoriesOf, isInside, paths, samePath, type Paths } from "./paths.js";
 
 export { docker, createDocker, DockerError, type Docker, type ExecResult } from "./docker.js";
+export type { BuildCacheRow, DiskUsage, ImageRow, VolumeRow } from "./docker.js";
 
 export type { DatabaseDriver, DriverContext, MigrateResult, SeedArtifact } from "./drivers/types.js";
 export { DriverError, driverContext, getDriver, driverNames } from "./drivers/index.js";
 export type { ContextOptions } from "./drivers/index.js";
 
-export { activityFor, down, expire, gc, list, reload, startSandbox, status, stopSandbox, up } from "./sandbox/index.js";
+export {
+  activityFor,
+  down,
+  expire,
+  gc,
+  list,
+  prune,
+  reload,
+  startSandbox,
+  status,
+  stopSandbox,
+  up,
+} from "./sandbox/index.js";
 export type {
   DownOptions,
   ExpireOptions,
   GcOptions,
   GcPlan,
   ListOptions,
+  PruneOptions,
   ReloadOptions,
   Sandbox,
   SandboxState,
@@ -89,6 +109,8 @@ export type {
 
 export { deadlineOf, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
 export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.js";
+export { formatBytes, planPrune } from "./sandbox/prune.js";
+export type { PrunableImage, PrunableVolume, PruneInput, PrunePlan, PruneResult } from "./sandbox/prune.js";
 export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js";
 export { DEFAULT_ACTIVITY_WINDOW, lastActivity, parseAccessLog } from "./sandbox/activity.js";
 export type { ActivityOptions } from "./sandbox/activity.js";
@@ -178,4 +200,79 @@ export { InstallError, containerDir, dashboardEntry, installRoot } from "./insta
 export { checkSecrets, importSecrets, filterSecrets, parseEnvFile, matchesAny } from "./secrets.js";
 export type { SecretsCheck, SecretsReport, SecretRules } from "./secrets.js";
 
-export { gitFacts, type GitFacts } from "./git.js";
+export { gitFacts, gitMounts, hostGitIdentity, type GitFacts, type GitIdentity } from "./git.js";
+export { CREDENTIALS_ENV, claudeConfigDir, hostClaudeCredentials } from "./agent/credentials.js";
+
+export { MAIN_THREAD } from "./agent/types.js";
+export type {
+  AgentEvent,
+  AgentRun,
+  AskEvent,
+  AskResultEvent,
+  CompactedEvent,
+  ErrorEvent,
+  ForkOrigin,
+  McpServerState,
+  ResultEvent,
+  RetryEvent,
+  RunState,
+  SessionEvent,
+  TextEvent,
+  ThinkingEvent,
+  TokenUsage,
+  ToolEvent,
+  ToolResultEvent,
+} from "./agent/types.js";
+export { lineReader, normalise, usageIn } from "./agent/stream.js";
+export type { NormaliseContext } from "./agent/stream.js";
+export { AgentStore, agentPaths } from "./agent/store.js";
+export type { AgentPaths } from "./agent/store.js";
+export { AgentGrants, grantText, grantsPath } from "./agent/grants.js";
+export type { AgentGrant } from "./agent/grants.js";
+export {
+  PERMISSION_MODES,
+  PERMISSION_PROMPT_TOOL,
+  controlErrorIn,
+  isPermissionMode,
+  permissionRequestIn,
+  permissionResponseFrame,
+  ruleText,
+  setPermissionModeFrame,
+  wireMode,
+} from "./agent/permissions.js";
+export type {
+  PermissionDecision,
+  PermissionGrantRule,
+  PermissionModeInfo,
+  PermissionRequest,
+} from "./agent/permissions.js";
+export {
+  AGENT_WORKDIR,
+  CREDENTIALS_FILE,
+  DEFAULT_ALLOWED_TOOLS,
+  DEFAULT_PERMISSION_MODE,
+  FORK_PERMISSION_MODE,
+  FORK_TOOLS,
+  agentArgv,
+  agentEnv,
+  agentName,
+  interruptArgv,
+  agentModelFrom,
+  agentPermissionModeFrom,
+  agentTokenFrom,
+  userMessageFrame,
+} from "./agent/launch.js";
+export type { AgentLaunch, PermissionMode } from "./agent/launch.js";
+export { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAgentModel } from "./agent/models.js";
+export type { AgentModel, AgentModelId } from "./agent/models.js";
+export {
+  BUILTIN_COMMANDS,
+  COMMAND_LISTING_ARGV,
+  leadingCommand,
+  nonSendableCommand,
+  parseCommandListing,
+  refusalFor,
+  slashCommandList,
+} from "./agent/commands.js";
+export type { SlashCommand, SlashCommandHandler, SlashCommandSource } from "./agent/commands.js";
+export { NOTHING_ASKED, SIDE_QUESTION, sideQuestion, sideQuestionPreamble } from "./agent/btw.js";
