@@ -39,6 +39,7 @@ function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
     access: "public",
     created: CREATED,
     ttl: "12h",
+    env: "",
     state: "running",
     container: "sandboxr-acme-tkt-1",
     ...overrides,
