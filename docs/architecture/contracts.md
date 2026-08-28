@@ -1115,6 +1115,15 @@ nothing on the stream to say why. The server therefore probes for the login — 
 never its contents — and withholds the token when one is there. A machine that never places a
 login is unaffected.
 
+**Either credential alone is sufficient, and the socket must ask about both before it refuses.**
+A sandbox that can read a login is authenticated with no token anywhere on the machine — that is
+the arrangement §7.2.1 exists to serve, and the only one that loads connectors — so "no
+`SANDBOXR_CLAUDE_TOKEN`" is not the same question as "no credential". The token is checked first
+because it costs nothing; the login is a probe inside the container, because `process.env` cannot
+see in there. Only the probe's **yes** may be cached: a *no* is the state a person is in the middle
+of fixing, and caching it would mean a credential placed by hand needed a dashboard restart rather
+than a new session.
+
 Placing one is **opt-in and deliberately not the default**: that credential can mint API keys
 against the organisation and reaches the person's mail, files and chat, from a root filesystem in
 a container whose job is executing project code, in a volume every sandbox on the machine shares.
@@ -1163,9 +1172,11 @@ can set directly. A forwarded path is trusted rather than re-checked, because th
 read in cannot see the host filesystem; a credential removed after `init` therefore needs another
 `init` to be noticed.
 
-**Credentials never reach the worktree.** The session authenticates with an OAuth token from
-`claude setup-token`, held in the server's environment and passed to the exec as
-`CLAUDE_CODE_OAUTH_TOKEN`. It is written to no file inside the container. One consequence is
+**Credentials never reach the worktree.** A session authenticating with an OAuth token from
+`claude setup-token` gets it from the server's environment, passed to the exec as
+`CLAUDE_CODE_OAUTH_TOKEN`; it is written to no file inside the container. A session running on a
+login reads the file the mount or the volume already put at `/root/.claude/.credentials.json`, which
+is outside the worktree and stays there. One consequence is
 part of the contract because it is invisible otherwise: **a setup-token does not load claude.ai
 connectors**, so MCP servers are named to the machine (`SANDBOXR_CLAUDE_MCP`) and passed on the
 session's command line rather than inherited from the host's connector list.
