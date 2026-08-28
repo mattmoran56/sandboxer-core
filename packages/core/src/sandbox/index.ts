@@ -47,7 +47,7 @@ import { containerEnv, labelsOf, renderEnvFile, urlsFor } from "./env.js";
 import { planGc } from "./gc.js";
 import { planPrune, type PruneResult } from "./prune.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
-import { BUILT_MANIFEST, MIGRATE_STATE, WWW_DIR } from "./layout.js";
+import { BUILT_MANIFEST, MIGRATE_STATE, WWW_DIR, seedMount } from "./layout.js";
 import { backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
 import type {
   DownOptions,
@@ -179,10 +179,15 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // The plan is the container's only view of the project: nothing inside reads
   // sandboxr.yaml, so everything project-specific is resolved here first.
   const deps = await resolveDeps(config, projectRoot);
+  // Where the container will find the artifact, and what has to be mounted for
+  // it to be there — one answer, used by both the plan below and `runArgs`
+  // further down. Two derivations of this is how a declared `file:` came to be
+  // named in the plan as a cache entry that was never mounted.
+  const mount = seed.path ? seedMount(seed.path, p.cache) : undefined;
   const planFile = join(p.build, config.project, `${slug}.plan.json`);
   await writePlan(
     planFor(config, {
-      seed: seed.path ? { path: seed.path, anonymised: seedIsAnonymised(config, seed) } : undefined,
+      seed: mount ? { path: mount.inside, anonymised: seedIsAnonymised(config, seed) } : undefined,
       deps,
     }),
     planFile,
@@ -302,6 +307,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
       secretsFile: hasSecrets ? secretsFile : undefined,
       planFile,
       cacheDir: p.cache,
+      seedFile: mount?.bind ? { host: mount.bind, inside: mount.inside } : undefined,
       logDir,
       depsHash: deps ? await depsHashFor(projectRoot, deps) : undefined,
       image,

@@ -4,7 +4,8 @@
 // - defaults are merged in, so nothing is left for the container to infer
 // - optional fields are omitted rather than written as null or false
 // - static_mode defaults to spa, and in_build_all only appears when false
-// - the seed is named by basename, because the container sees it inside its own cache mount
+// - the seed path is written through untouched: the caller has already resolved it to a
+//   container path, and this is where it used to be basenamed and a declared file lost
 // - every example config in the repo emits a plan whose keys the reference plans in
 //   container/examples also have — the check that keeps the two halves of the tool honest
 // - and the other direction: a config written to produce each worked plan produces it
@@ -70,7 +71,7 @@ const full = resolveConfig(
 );
 
 describe("planFor", () => {
-  const plan = planFor(full, { seed: { path: "/home/.sandboxr/cache/seed-acme-3f2a1b.sql.zst" } });
+  const plan = planFor(full, { seed: { path: "/sandboxr/cache/seed-acme-3f2a1b.sql.zst" } });
 
   it("emits the documented top-level shape", () => {
     expect(Object.keys(plan).sort()).toEqual([
@@ -91,7 +92,7 @@ describe("planFor", () => {
       version: "8.4",
       name: "acme",
       fixtures: "db/seeds/fixtures.sql",
-      seed: { path: "seed-acme-3f2a1b.sql.zst", anonymised: false },
+      seed: { path: "/sandboxr/cache/seed-acme-3f2a1b.sql.zst", anonymised: false },
       migrate: {
         command: "go run ./cmd/migrate",
         workdir: "services",
@@ -103,10 +104,14 @@ describe("planFor", () => {
     });
   });
 
-  // The container mounts the cache at a path of its own, so it needs the name
-  // inside that mount rather than a host path it cannot resolve.
-  it("names the seed by its basename", () => {
-    expect(plan.database.seed?.path).toBe("seed-acme-3f2a1b.sql.zst");
+  // Whole and unmodified. Taking the basename here was right for a cached dump
+  // and silently unfindable for a `file:` the project declared elsewhere, so the
+  // resolution moved out to `seedMount` and this is now a pass-through.
+  it("writes the seed path it was given, whole", () => {
+    expect(plan.database.seed?.path).toBe("/sandboxr/cache/seed-acme-3f2a1b.sql.zst");
+    expect(planFor(full, { seed: { path: "/sandboxr/seed/acme.sql.zst" } }).database.seed?.path).toBe(
+      "/sandboxr/seed/acme.sql.zst",
+    );
   });
 
   it("puts all three runtime kinds in one array, each saying which it is", () => {
@@ -211,8 +216,8 @@ describe("planFor", () => {
       },
       "/repo/sandboxr.yaml",
     );
-    const plan2 = planFor(anonymised, { seed: { path: "/seeds/d.sql", anonymised: true } });
-    expect(plan2.database.seed).toEqual({ path: "d.sql", anonymised: true });
+    const plan2 = planFor(anonymised, { seed: { path: "/sandboxr/seed/d.sql", anonymised: true } });
+    expect(plan2.database.seed).toEqual({ path: "/sandboxr/seed/d.sql", anonymised: true });
   });
 
   it("carries the owner a file-backed driver requires", () => {
@@ -317,7 +322,7 @@ describe("the emitted plan against the container's reference plans", () => {
 
   it.each(configs)("%s emits only keys the container knows", async (name) => {
     const config = await loadConfig(join(EXAMPLES, name), { enforceAccess: false });
-    const plan = planFor(config, { seed: { path: `/cache/seed-${config.project}-abc.sql.zst` } });
+    const plan = planFor(config, { seed: { path: `/sandboxr/cache/seed-${config.project}-abc.sql.zst` } });
 
     for (const key of Object.keys(plan)) expect([...knownTopLevel]).toContain(key);
     for (const key of Object.keys(plan.database)) expect([...knownDatabase]).toContain(key);
@@ -429,9 +434,9 @@ describe("planFor reproduces the container's worked plans exactly", () => {
     );
 
     // The seed is an artifact rather than a config field, so it arrives the way
-    // a real run supplies it: a host path, of which the plan keeps only the
-    // basename, because the container sees it inside its own cache mount.
-    const plan = planFor(config, { seed: { path: "/host/cache/acme-3f2a1b.sql.zst", anonymised: true } });
+    // a real run supplies it: already resolved to the path the container will
+    // open it at, by `seedMount`.
+    const plan = planFor(config, { seed: { path: "/sandboxr/cache/acme-3f2a1b.sql.zst", anonymised: true } });
 
     expect(plan).toEqual(reference("monolith.plan.json"));
   });
@@ -468,7 +473,7 @@ describe("planFor reproduces the container's worked plans exactly", () => {
       "/repo/sandboxr.yaml",
     );
 
-    const plan = planFor(config, { seed: { path: "/host/cache/edge-thing-state", anonymised: true } });
+    const plan = planFor(config, { seed: { path: "/sandboxr/cache/edge-thing-state", anonymised: true } });
     const want = reference("worker.plan.json");
 
     // The worked plan leaves `database.name` out and lets `entrypoint.sh` default

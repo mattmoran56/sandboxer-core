@@ -32,6 +32,32 @@ DEPS_DIR="$WORKSPACE/$ROOT"
 TARGET="$DEPS_DIR/node_modules"
 SOURCE=/opt/deps/node_modules
 
+# What "already installed" means, and it is deliberately not "the directory has
+# something in it".
+#
+# The volume is shared: every sandbox on this lockfile mounts the same one. A
+# boot interrupted part-way through the copy below leaves a tree that is
+# non-empty and short of packages, and a directory listing cannot tell that from
+# a finished install -- so the volume reported itself populated forever, and
+# every sandbox on the lockfile inherited it. It happened here: 29 packages and
+# 1,524 files missing, including three workspace packages, and the only symptom
+# was front-end builds failing to resolve imports that plainly exist.
+#
+# So the marker is written last, by rename, and nothing else counts as done. It
+# holds the lockfile hash it was installed from -- the same key the host names
+# the volume after -- so a volume that somehow holds a different tree repairs
+# itself rather than being trusted. This is `partialPath`/`commitPartial` from
+# packages/core/src/drivers/seed.ts, which solves exactly this for a half-written
+# dump; deps-init simply never used it.
+MARKER="$TARGET/.sandboxr-deps"
+
+commit_marker() {
+  # Renamed into place rather than written in place: a marker half-written by a
+  # kill -9 would claim an install that is not there, which is the failure this
+  # whole mechanism exists to prevent.
+  printf '%s\n' "$1" >"$MARKER.partial" && mv "$MARKER.partial" "$MARKER"
+}
+
 [[ -d "$DEPS_DIR" ]] || {
   log "no $ROOT in this worktree"
   exit 0
@@ -96,7 +122,12 @@ console.log(`deps-init: linked ${linked} workspace bin(s)`);
 NODE
 }
 
-if [[ -d "$TARGET" ]] && [[ -n "$(ls -A "$TARGET" 2>/dev/null)" ]]; then
+WANT=$(sha256sum "$DEPS_DIR/$LOCKFILE" 2>/dev/null | cut -c1-16)
+HAVE=$(cat /opt/deps/.lockhash 2>/dev/null)
+
+mkdir -p "$TARGET"
+
+if [[ -f "$MARKER" ]] && [[ "$(cat "$MARKER" 2>/dev/null)" == "$WANT" ]]; then
   log "node_modules already populated"
   # Still re-linked: the volume is shared between sandboxes and outlives any one
   # of them, so a bin added by a later branch would otherwise never appear.
@@ -104,10 +135,12 @@ if [[ -d "$TARGET" ]] && [[ -n "$(ls -A "$TARGET" 2>/dev/null)" ]]; then
   exit 0
 fi
 
-WANT=$(sha256sum "$DEPS_DIR/$LOCKFILE" 2>/dev/null | cut -c1-16)
-HAVE=$(cat /opt/deps/.lockhash 2>/dev/null)
-
-mkdir -p "$TARGET"
+# Non-empty and unmarked: either an install this script was killed part-way
+# through, or one made before the marker existed. Said out loud, because a
+# silent repair of a volume several sandboxes share is worth seeing in a log.
+if [[ -n "$(ls -A "$TARGET" 2>/dev/null)" ]]; then
+  log "node_modules is not marked complete -- repairing it"
+fi
 
 if [[ -n "$WANT" && "$WANT" != "$HAVE" ]]; then
   # The branch changed its dependencies, so the baked install is the wrong one.
@@ -120,16 +153,21 @@ if [[ -n "$WANT" && "$WANT" != "$HAVE" ]]; then
     exit 0
   fi
   log "dependencies installed"
+  commit_marker "$WANT"
   link_workspace_bins
   exit 0
 fi
 
 log "seeding node_modules from the image"
 START=$(date +%s)
+# Over the top rather than emptying first, and that is not laziness: another
+# sandbox may be running against this same volume right now, and `cp -a` filling
+# in what is missing never leaves it with less than it started with.
 if ! cp -a "$SOURCE/." "$TARGET/"; then
   warn "could not seed node_modules"
   exit 0
 fi
 log "seeded in $(($(date +%s) - START))s"
+commit_marker "$WANT"
 
 link_workspace_bins

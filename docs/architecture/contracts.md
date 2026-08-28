@@ -99,6 +99,15 @@ The paths under that one hostname are §7.1.
   `sandboxr-gocache`, `sandboxr-gomod`, `sandboxr-claude` (an agent session's credential
   store, mounted at `/root/.claude` with `CLAUDE_CONFIG_DIR` pointing at it — see §7.2).
 
+**A shared volume is populated only when it says so itself.** `sandboxr-deps-<hash>` is
+filled in by the container on first boot, and *shared*: every sandbox on that lockfile
+mounts the same one. A boot interrupted part-way through the copy leaves a directory that is
+non-empty and incomplete, so "non-empty" cannot be the test for "installed" — it poisons the
+volume permanently, and every sandbox on the lockfile inherits a tree that is silently short
+of packages. The container writes `node_modules/.sandboxr-deps` — the lockfile hash it
+installed from — as the *last* step, by rename, and treats only that marker as done. Same
+shape as a seed artifact's `.partial`, and for the same reason.
+
 `sandboxr-claude` is shared by every sandbox on the machine **on purpose**, and the trade is
 part of the contract rather than an implementation detail: sharing it is what makes an MCP
 server something you sign into once rather than once per worktree, and it means every sandbox
@@ -537,7 +546,7 @@ export interface DriverContext {
 export interface DatabaseDriver {
   readonly name: "mysql" | "d1" | "sqlite" | "none";
 
-  /** Host-side: produce a reusable seed artifact in ~/.sandboxr/cache. Idempotent. */
+  /** Host-side: produce a reusable seed artifact and say where it is. Idempotent. */
   prepareSeed(ctx: DriverContext): Promise<SeedArtifact>;
 
   /** Inside the container, first boot: get from empty to seeded-and-migrated. */
@@ -575,12 +584,69 @@ Rules that apply to every driver:
 advisory lock so two migrations cannot collide. Restore into the version the project
 declares, not whatever the developer happens to run locally.
 
+**`provision` runs twice and must be idempotent.** The container's own `db-init` oneshot
+provisions at boot, and `up` calls the driver's `provision` once the container is answering —
+both are wanted (the container has to come up on its own; the host has to be able to report
+what happened), but it means the second one can meet a database the first one already seeded.
+A `mysqldump` carries `CREATE TABLE` and no `DROP TABLE IF EXISTS`, so replaying it over a
+populated schema fails on Error 1050. **An already-populated database is kept, on both sides**;
+`provision` means *first boot*, and the table count is what decides whether this is one.
+
+> [!WARNING] Two known defects in the host half of the mysql driver. Neither is fixed.
+>
+> **The host authenticates as `root` with a password the container does not set.**
+> `mysql-init.sh` initialises the server with `--initialize-insecure` — root has no password,
+> deliberately and for a reason it states — while `mysqlSettings` defaults `rootPassword` to
+> `sandboxr` (and `docs/reference/environment.md` documents that default). Every host-side
+> `mysql` exec against a sandbox therefore fails with `Error 1045: Access denied`, which is
+> why `up` reports "Provisioning did not complete" against a sandbox the container has
+> brought up perfectly. The container half does all the work, so nothing is lost — but
+> nothing the host driver does to a running MySQL sandbox currently runs at all.
+>
+> **Nothing orders the two provisioners.** `up` waits only for `/workspace` to exist before
+> calling `provision`, which is seconds before `mysqld` is accepting connections, so the host
+> half loses the race and fails rather than colliding. Correcting the credentials *without*
+> also deciding who owns first boot would turn a harmless failure into two concurrent restores
+> of the same dump into the same schema. The two have to be fixed together, and fixing them
+> means saying here which half owns first boot — the host (and `db-init` waits for it) or the
+> container (and the host's `provision` becomes a report rather than an action).
+
 **d1 / sqlite** — the easy case. The database is a *file*. Seeding is a copy, forking is a
 copy, there is no server and no lock. One rule: **one writer per file.** Two processes
 opening the same D1 file deadlock, so each sandbox gets a private copy and the config must
 name the single service that owns it.
 
 **none** — no database. Valid and should stay cheap.
+
+### 6.2 Where a seed artifact lives, and how the container reaches it
+
+There are two kinds of seed artifact and they are not interchangeable, which is the whole
+reason this subsection exists:
+
+- **A cached dump**, which sandboxr produced itself and content-addressed into
+  `~/.sandboxr/cache`. The filename is the identity and the directory is fixed on both
+  sides, so a bare name is enough to find it.
+- **A declared `file:`**, which the project named in `database.seed_from.file` and which may
+  live anywhere the user keeps it — deliberately outside every repo, so `git clean` cannot
+  destroy it. Its directory is the only thing locating it.
+
+**`plan.json`'s `database.seed.path` is therefore the path *inside the container*, never a
+host path and never a bare name to be resolved against a directory the container has to
+know about.** The host decides:
+
+| Artifact | Container path | Mount |
+|---|---|---|
+| inside `~/.sandboxr/cache` | `/sandboxr/cache/<name>` | the cache directory, already mounted read-only |
+| anywhere else | `/sandboxr/seed/<name>` | that **one file**, bind-mounted read-only |
+
+The declared file is bind-mounted rather than copied into the cache. A copy would have to be
+re-made or re-fingerprinted on every `up` — a dump is routinely tens of gigabytes — and a
+copy taken once goes stale silently the next time the file is rebuilt. The mount is the file
+itself, not its directory, so pointing `file:` at something in a shared download directory
+does not hand the sandbox everything else in it.
+
+The basename is preserved because the container decides how to decompress by extension
+(`.zst`, `.gz`, plain); a fixed mount path would have to guess.
 
 ## 7. Access control
 

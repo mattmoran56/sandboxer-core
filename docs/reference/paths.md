@@ -145,6 +145,7 @@ account puts the state somewhere nobody looks.
 | `/workspace` | Your worktree, mounted read and write |
 | `/sandboxr/plan.json` | The plan, read-only |
 | `/sandboxr/cache/` | The host's seed cache, read-only |
+| `/sandboxr/seed/` | A seed file you declared with `seed_from.file`, mounted read-only from wherever you keep it. Only that one file, and only when it is not already in the cache |
 | `/opt/sandboxr/scripts/` | The container scripts |
 | `/var/lib/sandboxr/data` | The database |
 | `/var/lib/sandboxr/blob` | Object storage |

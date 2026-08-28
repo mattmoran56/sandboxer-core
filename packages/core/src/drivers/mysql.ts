@@ -9,10 +9,11 @@
 import { createWriteStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import { projectPath } from "../config/load.js";
 import { lockName } from "../naming.js";
+import { seedMount } from "../sandbox/layout.js";
 import {
   clearFailure,
   execCommand,
@@ -388,23 +389,33 @@ export const mysqlDriver: DatabaseDriver = {
     await sql(ctx, settings, createDatabaseSql(database));
     await sql(ctx, settings, grantSql(database, settings.user, settings.password));
 
-    if (seed.kind === "dump" && seed.path) {
+    // Already-populated is a skip, not a restore, and it is the same rule
+    // `container/scripts/db/mysql.sh provision` applies — because both of them
+    // run. The container's oneshot provisions at boot and `up` calls this
+    // afterwards, so on any start where the data volume survives, the database
+    // is already seeded by the time this is reached. A dump written by
+    // `mysqldump` carries `CREATE TABLE` and no `DROP TABLE IF EXISTS`, so
+    // replaying it over a populated schema fails on Error 1050, and the sandbox
+    // was reported as "Provisioning did not complete" while being entirely
+    // healthy. `provision` means *first boot* (contracts §6); this is what makes
+    // the two halves agree on when that is.
+    const existing = await tableCount(ctx, settings, database);
+    if (seed.kind === "dump" && seed.path && existing > 0) {
+      ctx.log(`${database} already has ${existing} tables, keeping them`);
+    } else if (seed.kind === "dump" && seed.path) {
       ctx.log(`Restoring ${database}`);
       // The artifact is mounted read-only into the container, so the restore
       // reads it from inside rather than pushing it through the docker socket.
-      const inside = `/sandboxr/cache/${seed.path.split("/").pop() as string}`;
+      // Through `seedMount` and not a basename: a declared `file:` is mounted at
+      // its own path, and only the cache is reachable under /sandboxr/cache.
+      const inside = seedMount(seed.path, join(ctx.home, "cache")).inside;
       const decompress = seed.path.endsWith(".zst") ? `zstd -dc ${inside}` : `cat ${inside}`;
       const restore = restoreArgs(settings, database).join(" ");
       const result = await ctx.exec(["sh", "-lc", `${decompress} | ${restore}`]);
       if (result.code !== 0) {
         throw new MysqlDriverError(`restoring ${database} failed: ${(result.stderr || result.stdout).trim()}`);
       }
-      const tables = await sql(
-        ctx,
-        settings,
-        `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${database}';`,
-      );
-      const count = Number(parseColumnOutput(tables.stdout)[0] ?? "0");
+      const count = await tableCount(ctx, settings, database);
       if (count === 0) throw new MysqlDriverError(`restore produced no tables in ${database}`);
       ctx.log(`Restored ${count} tables`);
     }
@@ -517,6 +528,23 @@ export const mysqlDriver: DatabaseDriver = {
 /** Runs one statement inside the sandbox as root. */
 async function sql(ctx: DriverContext, settings: MysqlSettings, statement: string) {
   return ctx.exec(["mysql", ...credentialArgs("root", settings.rootPassword), "-N", "-B", "-e", statement]);
+}
+
+/**
+ * How many tables the sandbox's database has.
+ *
+ * Both "is this a first boot?" and "did the restore land?" are this one
+ * question, and asking it in one place is what keeps the two answers consistent.
+ * A failure to ask reads as zero: an unreachable server has nothing in it, and
+ * the caller either restores (and finds out) or reports an empty restore.
+ */
+async function tableCount(ctx: DriverContext, settings: MysqlSettings, database: string): Promise<number> {
+  const result = await sql(
+    ctx,
+    settings,
+    `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${database}';`,
+  );
+  return Number(parseColumnOutput(result.stdout)[0] ?? "0");
 }
 
 async function readFingerprint(

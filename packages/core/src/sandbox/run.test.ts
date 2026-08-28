@@ -2,6 +2,7 @@
 // - runArgs: the container name, the shared network, every label, and the worktree bind mount
 // - runArgs: one volume per purpose, the data mount per driver, storage only when declared
 // - runArgs: the seed cache is read-only, the secrets file is layered under the generated environment
+// - runArgs: a seed that is not in the cache is mounted as one read-only file, and its directory is not
 // - runArgs: the machine-wide Go caches are mounted for a Go project and absent for one without the toolchain
 // - runArgs: the machine-wide Claude volume is mounted and CLAUDE_CONFIG_DIR points inside it
 // - runArgs: the host's login is one file mounted read-write over the volume, never the directory, and absent without one
@@ -187,6 +188,30 @@ describe("runArgs", () => {
   // A sandbox restores from the cache and never writes to it.
   it("mounts the seed cache read-only", () => {
     expect(args).toContain("/home/.sandboxr/cache:/sandboxr/cache:ro");
+  });
+
+  // A declared `database.seed_from.file` may be anywhere, so the cache mount
+  // does not reach it. Without this the plan named a file that was not in the
+  // container at all, and the sandbox quietly started from an empty database.
+  describe("a seed that is not in the cache", () => {
+    const declared = runArgs({
+      ...base,
+      seedFile: { host: "/home/dev/.sandboxr/seeds/acme-base.sql.zst", inside: "/sandboxr/seed/acme-base.sql.zst" },
+    });
+
+    it("mounts that one file, read-only, at the path the plan names", () => {
+      expect(declared).toContain("/home/dev/.sandboxr/seeds/acme-base.sql.zst:/sandboxr/seed/acme-base.sql.zst:ro");
+    });
+
+    // The directory around it is not mounted: `file:` may point into somewhere
+    // the user keeps other things, and mounting the parent buys nothing.
+    it("does not mount the directory it came from", () => {
+      expect(declared.join(" ")).not.toContain("/home/dev/.sandboxr/seeds:");
+    });
+
+    it("mounts nothing extra when the artifact is in the cache", () => {
+      expect(args.join(" ")).not.toContain("/sandboxr/seed");
+    });
   });
 
   // Unmounted, both of these live in the container's writable layer. `up`

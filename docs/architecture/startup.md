@@ -146,19 +146,34 @@ So the image installs them at `/opt/deps`, and a boot step copies them into plac
 
 ```mermaid
 flowchart TB
-  a{"node_modules<br/>already populated?"}
+  a{"node_modules/.sandboxr-deps<br/>names this lockfile?"}
   b["Re-link workspace binaries. Done."]
   c{"Lockfile hash matches<br/>the one stamped in the image?"}
   d["Copy from /opt/deps — seconds"]
   e["Run the plan's install command — slower, and correct"]
+  f["Write the marker, by rename"]
   a -->|yes| b
   a -->|no| c
   c -->|yes| d
   c -->|no| e
+  d --> f
+  e --> f
+  f --> b
 ```
 
 The dependency volume is named after the lockfile hash, so every sandbox with matching dependencies
 shares one install and a branch that changes them transparently gets its own.
+
+> [!WARNING] "Populated" is a marker, never a non-empty directory
+> The volume is *shared*: every sandbox on that lockfile mounts the same one. A boot interrupted
+> part-way through the copy leaves a tree that is non-empty and missing packages, and a directory
+> listing cannot tell that from a finished install — so the volume reports itself populated
+> forever and every sandbox on the lockfile inherits it. The only symptom is builds failing to
+> resolve imports that plainly exist. `deps-init` therefore writes
+> `node_modules/.sandboxr-deps` — the lockfile hash it installed from — as its last act, by
+> rename, and treats only that marker as done. A volume whose marker is missing or names a
+> different lockfile is repopulated over the top rather than emptied first, because another
+> sandbox may be running against it at that moment.
 
 > [!TIP] Workspace binaries are re-linked, and the failure they prevent names nothing
 > An image that installs from manifests alone skips linking a command whose target file does not

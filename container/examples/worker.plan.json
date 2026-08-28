@@ -4,7 +4,7 @@
     "driver": "d1",
     "owner": "app",
     "fixtures": "seeds/fixtures.sql",
-    "seed": { "path": "edge-thing-state", "anonymised": true },
+    "seed": { "path": "/sandboxr/cache/edge-thing-state", "anonymised": true },
     "migrate": {
       "command": "npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXR_D1_DIR"
     }

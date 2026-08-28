@@ -57,6 +57,15 @@ export interface RunInput {
   planFile: string;
   /** The host seed cache, mounted read-only. */
   cacheDir: string;
+  /**
+   * A seed artifact that is *not* in that cache, and so needs a mount of its own.
+   *
+   * `seedMount` in ./layout.ts decides this and names the path inside; the same
+   * call fills in the plan, so the container cannot be told to open a file
+   * nothing mounted. See contracts §6.2 for why a declared `file:` is mounted
+   * rather than copied into the cache.
+   */
+  seedFile?: { host: string; inside: string } | undefined;
   /** The per-sandbox log directory on the host, so logs outlive the container. */
   logDir: string;
   /** Hash of the project's lockfile, which keys the shared dependency volume. */
@@ -187,6 +196,11 @@ export function runArgs(input: RunInput): string[] {
     args.push("-v", `${GOMOD_VOLUME}:${GOMOD_DIR}`);
   }
   args.push("-v", `${input.cacheDir}:${CACHE_DIR}:ro`);
+  // The single file and not its directory: `file:` may point into a directory
+  // the user keeps other things in, and mounting the parent would hand all of
+  // them to the sandbox to buy nothing. Read-only for the reason the cache is —
+  // a sandbox restores from a seed and never writes to one.
+  if (input.seedFile) args.push("-v", `${input.seedFile.host}:${input.seedFile.inside}:ro`);
   args.push("-v", `${input.logDir}:${LOG_DIR}`);
   // Not a per-sandbox volume: an MCP server is authorised once per machine with
   // `claude mcp login`, and the whole point is that the next worktree does not

@@ -173,6 +173,7 @@ files the container writes as it comes up. [State lives in labels](architecture/
 | The project's code | your worktree | `/workspace`, bind-mounted read-write |
 | The plan | `~/.sandboxr/build/<project>/<slug>.plan.json` | `/sandboxr/plan.json`, read-only |
 | Seed artifacts | `~/.sandboxr/cache` | `/sandboxr/cache`, read-only |
+| A seed file you declared | wherever you keep it | `/sandboxr/seed/<name>`, that one file, read-only |
 | Logs | `~/.sandboxr/logs/<project>/<slug>` | `/var/log/sandboxr` |
 | The database | a Docker volume | `/var/lib/sandboxr/data` |
 | File storage | a Docker volume | `/var/lib/sandboxr/blob` |

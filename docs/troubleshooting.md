@@ -339,7 +339,57 @@ Installed dependencies live in a volume named after a hash of the lockfile, so a
 needs a new container pointed at a new volume: `sandboxr up`. That replaces the container and
 **keeps its volumes**, so the database and uploads survive.
 
+### An import that exists cannot be resolved, in every sandbox on the branch
+
+A dependency volume is shared by every sandbox whose lockfile matches, and it is filled in on the
+first boot that mounts it. A boot interrupted part-way through that copy leaves a tree that is
+non-empty and short of packages.
+
+Current sandboxr treats only `node_modules/.sandboxr-deps` — written last, by rename — as
+"installed", so the next boot repairs a volume without one and `deps-init.log` says
+`node_modules is not marked complete -- repairing it`. A volume filled in by an older version
+has no marker and is repaired the same way, once.
+
+If you want to be rid of it outright, the volume is rebuilt from the lockfile and nothing else,
+so it is always safe to delete:
+
+```bash
+docker volume rm sandboxr-deps-<hash>     # `docker volume ls` to find it
+```
+
 ## Databases
+
+### `no seed artifact in /sandboxr/cache`, and you declared a `file:`
+
+The message means the container found nothing to restore, so it started from an empty database —
+after which a project whose migrations assume an existing schema fails on its first file.
+
+Check the plan actually names your file:
+
+```bash
+jq .database.seed ~/.sandboxr/build/<project>/<slug>.plan.json
+```
+
+A declared `seed_from.file` should appear as `/sandboxr/seed/<name>`; a dump sandboxr cached
+itself appears as `/sandboxr/cache/<name>`. If yours is missing entirely, the source was not
+usable at start time — `sandboxr up` prints which source it chose, and `--seed file` forces the
+question and fails loudly rather than falling through to the next one.
+
+### `up` says "Provisioning did not complete" and the sandbox is fine
+
+**Known, and it is the host's report that is wrong, not the sandbox.** Check the sandbox
+itself before believing the message:
+
+```bash
+sandboxr status <slug>       # `ok` and migrations `ok` means the container did its job
+sandboxr logs <slug>         # `db-init: done` and `migrate: ok` in the boot log
+```
+
+The container provisions itself at boot and the host runs the same driver a second time to
+report on it. The host half authenticates as `root` with a password the container does not
+set — it initialises the server with root password-less on purpose — so its first statement
+fails and it reports that as a provisioning failure. Nothing is lost; the container half has
+already done the work. See contracts §6.1.
 
 ### `Error 1044: Access denied ... to database 'acme_...'`
 

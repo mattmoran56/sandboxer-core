@@ -9,6 +9,8 @@
 // - identifier: folding a project name into a legal identifier
 // - parseColumnOutput: tabular output, blanks, NULL
 // - healStuckRows: skipped when the table has another shape, heals and reports when it has this one
+// - provision: a declared seed is read from the path it was mounted at, not from the cache
+// - provision: an already-populated database is kept rather than restored over
 // - migrate: no command configured, a failing command marking the failure, a successful one clearing it
 // - describeSeedChoice: one line per source
 
@@ -288,6 +290,49 @@ describe("healStuckRows", () => {
     expect(await healStuckRows(ctx, settings)).toEqual(["20260101-1000-first.sql"]);
     expect(calls.at(-1)?.join(" ")).toContain("UPDATE migrations SET completed_at");
     expect(calls.at(-1)?.join(" ")).not.toContain("DELETE");
+  });
+});
+
+describe("provision", () => {
+  const seed = {
+    kind: "dump",
+    source: "file",
+    key: "declared",
+    path: "/home/dev/.sandboxr/seeds/acme-base.sql.zst",
+    createdAt: "2026-08-28T00:00:00.000Z",
+  } as const;
+
+  const cached = { ...seed, source: "local", key: "3f2a1b", path: "/home/.sandboxr/cache/seed-acme-3f2a1b.sql.zst" } as const;
+
+  const restoreOf = (calls: string[][]) => calls.map((cmd) => cmd.join(" ")).find((cmd) => cmd.includes("zstd -dc"));
+
+  // The whole point of the mount: a declared `file:` is not in the cache, so
+  // naming it under /sandboxr/cache pointed the restore at nothing and the
+  // sandbox started empty.
+  it("reads a declared seed from the path it was mounted at", async () => {
+    const home = await mkdtemp(join(tmpdir(), "sandboxr-mysql-"));
+    const { ctx, calls } = fakeContext(home, [["information_schema.tables", { stdout: "0\n" }]]);
+    await mysqlDriver.provision(ctx, { ...seed, kind: "dump" }).catch(() => undefined);
+    expect(restoreOf(calls)).toContain("/sandboxr/seed/acme-base.sql.zst");
+  });
+
+  it("reads a cached seed from the cache mount", async () => {
+    const home = "/home/.sandboxr";
+    const { ctx, calls } = fakeContext(home, [["information_schema.tables", { stdout: "0\n" }]]);
+    await mysqlDriver.provision(ctx, { ...cached, kind: "dump" }).catch(() => undefined);
+    expect(restoreOf(calls)).toContain("/sandboxr/cache/seed-acme-3f2a1b.sql.zst");
+  });
+
+  // Both halves provision: the container's oneshot does it at boot and `up`
+  // calls this after. A mysqldump carries CREATE TABLE and no DROP, so replaying
+  // it over a surviving data volume failed on Error 1050 and reported a healthy
+  // sandbox as "Provisioning did not complete".
+  it("keeps an already-populated database instead of restoring over it", async () => {
+    const home = await mkdtemp(join(tmpdir(), "sandboxr-mysql-"));
+    const { ctx, calls, logs } = fakeContext(home, [["information_schema.tables", { stdout: "105\n" }]]);
+    await mysqlDriver.provision(ctx, { ...seed, kind: "dump" });
+    expect(restoreOf(calls)).toBeUndefined();
+    expect(logs.join("\n")).toContain("already has 105 tables");
   });
 });
 

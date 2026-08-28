@@ -103,7 +103,10 @@ type checker and this side has `jq`.
     "name": "acme",                     // defaults to the project name
     "owner": "app",                     // file drivers: the one service that may open it
     "fixtures": "migrations/seeds/fixtures.sql",   // repo-relative
-    "seed": { "path": "acme-3f2a1b.sql.zst", "anonymised": true },
+    // A path *inside the container*, not on the host: /sandboxr/cache/<name>
+    // for a dump sandboxr cached, /sandboxr/seed/<name> for a file the project
+    // declared somewhere else and the host bind-mounted. See "The seed artifact".
+    "seed": { "path": "/sandboxr/cache/acme-3f2a1b.sql.zst", "anonymised": true },
     "migrate": {
       "workdir": "services",            // repo-relative; omitted means run in /empty
       "command": "go run ./cmd/migrate --env local",
@@ -161,6 +164,32 @@ today, and the container cannot do its job without them:
   its own spelling. Values are expanded with `envsubst`, which substitutes
   `${...}` and does not run a shell, so a value is data and never a command.
 
+### The seed artifact
+
+`database.seed.path` is the path the container opens, and the host has already
+resolved it. Two kinds of artifact arrive there and only one of them lives in the
+cache:
+
+| Artifact | `seed.path` | How it got there |
+|---|---|---|
+| a dump sandboxr took and content-addressed | `/sandboxr/cache/<name>` | the cache directory is mounted read-only |
+| a `database.seed_from.file` the project declared | `/sandboxr/seed/<name>` | that one file, bind-mounted read-only |
+
+The container does not resolve a bare name against a directory it has to know
+about, because the second kind has no name that would work: a declared `file:`
+may be anywhere the user keeps it — outside every repo on purpose, so `git clean`
+cannot destroy it — and its directory is the only thing locating it. The host used
+to take the basename of both, which is right for the cache and left the declared
+file being looked for where it had never been; nothing failed loudly, and the
+sandbox started from an empty database instead.
+
+The basename is preserved either way because `decompress()` picks zstd, gzip or
+`cat` by extension, and the host is the side that knows the name.
+
+When `seed.path` is absent the driver falls back to the newest dump in
+`/sandboxr/cache`, so a `sandboxr db refresh` takes effect without regenerating
+the plan.
+
 ### The environment a sandbox computes for itself
 
 Contracts §5.2 forbids importing anything that describes *where* something runs —
@@ -193,6 +222,7 @@ Mounts the host is expected to provide:
 | `/workspace` | the worktree, bind-mounted read-write |
 | `/sandboxr/plan.json` | the plan, read-only |
 | `/sandboxr/cache` | the seed artifact cache, read-only |
+| `/sandboxr/seed/<name>` | a declared `database.seed_from.file`, that one file, read-only — only when the project has one and it is not in the cache |
 | `/var/log/sandboxr` | per-sandbox logs, so they survive the container |
 | `/var/lib/sandboxr/data` | the `data` volume |
 | `/var/lib/sandboxr/blob` | the `blob` volume |
@@ -387,6 +417,18 @@ they differ.
 manifests alone, and npm skips a `bin` whose target file does not exist yet — so a
 build script one workspace package exposes to another is missing, and the build
 fails with a bare `code 127` that names nothing.
+
+**"Installed" is a marker the script writes last, not a non-empty directory.**
+`node_modules/.sandboxr-deps` holds the lockfile hash the install came from, and is
+renamed into place only after the copy or the install has finished. The volume is
+*shared* — every sandbox on that lockfile mounts the same one — so a boot
+interrupted part-way through the copy leaves a tree that is non-empty and short of
+packages, which a directory listing cannot tell from a finished install. That
+poisons the volume permanently and every sandbox on the lockfile inherits it; the
+only symptom is builds failing to resolve imports that plainly exist. A volume
+whose marker is missing or names a different lockfile is repopulated over the top
+rather than emptied first, because another sandbox may be running against it at
+that moment.
 
 ### MinIO is in the base, not a project layer
 
