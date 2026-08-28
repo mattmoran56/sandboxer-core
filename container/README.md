@@ -354,6 +354,21 @@ The status surface answers on **every** hostname the sandbox serves:
 | `/__sandboxr/status.json` | the composed status document (below) |
 | `/__sandboxr/built.json` | label → last build time, for every built app |
 | `/__sandboxr/health/<service>` | proxied to that service's declared health path |
+| anything else under `/__sandboxr/` | `404` |
+
+**The `/__sandboxr/` prefix is reserved and answers before any app block.** The
+last row is not a tidy-up: without it a path under the prefix that names nothing
+fell through to the site block for whatever hostname it arrived on, because a host
+matcher matches every path. A health route is written **only** for a service that
+is going to run — a service the plan marks `optional` and nobody named in
+`SANDBOXR_WITH` gets none, deliberately — so the probe of a dormant service was
+the request that landed there. What came back was the front-end's own answer: an
+unbuilt app replied with its 503 "not built yet" page, and the dashboard read
+every dormant service as `down`; once that app was built the same request got the
+SPA's `index.html` and a 200, and the same never-started service read as `up`. A
+service's reachability must not depend on whether an unrelated front-end has been
+built, which is what the 404 restores — the router saying it has no route, which
+is a different answer from a service saying no.
 
 `status.json`:
 

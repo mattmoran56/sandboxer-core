@@ -137,7 +137,15 @@ Rules the generator applies:
   backend is never shadowed by a front-end sharing its label. A target holding no port is skipped
   with a warning rather than written as a broken proxy.
 - **An optional service that was not requested gets no site block at all.** Its hostname 404s
-  exactly as a misspelling would; `sandboxr up --with cms` is what starts it.
+  exactly as a misspelling would; `sandboxr up --with cms` is what starts it. It gets no
+  `/__sandboxr/health/<name>` route either, which is how the dashboard tells a service that was
+  never started from one that is failing.
+- **`/__sandboxr/` is reserved, and answers before any app.** A path under it that names nothing
+  is a 404 from the router itself. Without that rule the health probe of a dormant service fell
+  into the site block of whichever hostname it arrived on and came back with that front-end's
+  answer — a 503 "not built yet" page while the app was unbuilt, and a 200 with the app's own
+  `index.html` once it was built. A service read as broken in the first case and healthy in the
+  second, and neither answer had anything to do with the service.
 - **A label is sanitised the way a slug is** — lower-cased, anything outside `[a-z0-9-]` replaced
   by `-`. A label with an underscore in the config is not the label in the URL.
 - **`s3` is a reserved label** when the project declares object storage.

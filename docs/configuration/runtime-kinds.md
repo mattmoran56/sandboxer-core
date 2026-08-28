@@ -128,6 +128,12 @@ sandboxr up --with cms
 Nothing about `optional` is specific to servers — a backend can be optional too — but a server is
 the usual reason to want it.
 
+On the dashboard a dormant service reads as **not started**, in the same grey as an app that has
+not been built, and it is never counted among the services that are not answering. That
+distinction is the whole reason `optional` is carried out of the plan and onto the screen: a
+sandbox permanently captioned "2 services are not answering" for two services somebody chose not
+to run is a warning people learn to ignore.
+
 > [!CAUTION] A file database needs the server pointed at the sandbox's state
 > With the `d1` or `sqlite` driver, both `serve` and `migrate` must direct the runtime at the
 > sandbox's own state directory:

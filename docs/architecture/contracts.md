@@ -410,6 +410,35 @@ it into the other two.
 **Static builds are on demand, never at startup.** A sandbox must come up in seconds; an
 app that has not been built yet answers with a page saying which command to run.
 
+**A declared thing is visible before it exists.** Every service in the plan appears in the
+dashboard's view of a sandbox whether or not it has been built or started — a static app that
+has never been built is listed, marked as such, and carries the control that builds it. This
+is not a display preference: the per-app build button is the only place a *first* build starts,
+so a tile that appeared only once the app was built could never be the thing that built it.
+
+**`optional: true` means dormant by choice, not broken.** An optional service is written into
+the plan and its supervisor entry, and is left disabled unless it is named in `SANDBOXR_WITH`
+(`container/README.md`, "Three runtime kinds"). It exists for the things that are expensive to
+run and rarely wanted. Two consequences bind everything downstream:
+
+- **The router does not advertise a dormant service.** No app hostname, no
+  `/__sandboxr/health/<service>` route. The status surface answers the missing health route
+  with a 404 (§5.1 note below), which is the router saying it has no route at all — not a
+  service answering "no".
+- **Nothing may report a dormant service as a fault.** `optional` is carried out of the plan
+  and all the way to the screen, and the state derived for a dormant service is its own value
+  — never `down`. A deliberate choice displayed as a failure is a bug, and it is the kind that
+  trains people to ignore the panel that tells them what is wrong.
+
+**The status surface is reserved, and answers before any app.** `/__sandboxr/*` belongs to
+sandboxr on every hostname the sandbox serves, and a path under it that names nothing answers
+**404** — it must never fall through to an app's own site block. This was learnt the hard way:
+the health probe of a dormant service fell into the front-end's catch-all, so an unbuilt app
+answered it with its own 503 "not built yet" page and the dashboard read every dormant service
+as `down`; once that app *was* built the same route answered the SPA's `index.html` with a 200
+and the same dead service read as `up`. The reachability of a service must not depend on
+whether an unrelated front-end has been built.
+
 ### 5.2 Secrets rules
 
 - **Names only, never values, are ever printed or logged.** The import reports a count and
