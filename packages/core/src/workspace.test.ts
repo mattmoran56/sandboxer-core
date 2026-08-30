@@ -7,6 +7,7 @@
 // - cloneProject against a real local repository: repo path, base branch, origin url, wt directory
 // - cloneProject refuses an existing project directory, and cleans up after a clone that fails
 // - findProject: a real project, and undefined for a name nothing was cloned under
+// - projectIdentities: both names of every project — the directory, and the project: some config declares
 // - fetchProject leaves local branches alone while advancing refs/remotes/origin/* — the test that
 //   protects the choice of --bare plus an explicit refspec over --mirror
 //
@@ -20,7 +21,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { nodeRunner } from "./docker.js";
-import { cloneProject, fetchProject, findProject, listProjects, projectNameFromUrl } from "./workspace.js";
+import {
+  cloneProject,
+  fetchProject,
+  findProject,
+  listProjects,
+  projectIdentities,
+  projectNameFromUrl,
+} from "./workspace.js";
 
 /** Shelling out to git is slow enough that the default 5s timeout flakes on a cold cache. */
 const SLOW = 60_000;
@@ -317,4 +325,52 @@ describe("fetchProject", () => {
     },
     SLOW,
   );
+});
+
+describe("projectIdentities", () => {
+  // The pair `config.yaml` may be keyed on (§4.3). Answering with directory
+  // names alone would report a correct entry — one keyed on a project's declared
+  // name — as matching nothing, which is worse than the silence it replaces.
+  it("reports the directory alone when nothing declares a name", async () => {
+    const workspace = await scratch("identities");
+    await mkdir(join(workspace, "demo-managed", "repo.git"), { recursive: true });
+
+    expect(await projectIdentities({ env: { SANDBOXR_WORKSPACE: workspace } })).toEqual([
+      { directory: "demo-managed" },
+    ]);
+  });
+
+  it("takes the project-level config's declared name", async () => {
+    const workspace = await scratch("identities");
+    await mkdir(join(workspace, "acme-monorepo", "repo.git"), { recursive: true });
+    await writeFile(join(workspace, "acme-monorepo", "sandboxr.yaml"), "project: acme\n");
+
+    expect(await projectIdentities({ env: { SANDBOXR_WORKSPACE: workspace } })).toEqual([
+      { directory: "acme-monorepo", project: "acme" },
+    ]);
+  });
+
+  it("falls back to a worktree's own config", async () => {
+    const workspace = await scratch("identities");
+    const worktree = join(workspace, "acme-monorepo", "wt", "main");
+    await mkdir(join(workspace, "acme-monorepo", "repo.git"), { recursive: true });
+    await mkdir(worktree, { recursive: true });
+    await writeFile(join(worktree, "sandboxr.yaml"), "project: acme\ndatabase: { driver: mysql }\n");
+
+    expect(await projectIdentities({ env: { SANDBOXR_WORKSPACE: workspace } })).toEqual([
+      { directory: "acme-monorepo", project: "acme" },
+    ]);
+  });
+
+  // A config that cannot be resolved for some other reason still tells the truth
+  // about what its project is called, and this read is only ever about the name.
+  it("survives a config it cannot parse", async () => {
+    const workspace = await scratch("identities");
+    await mkdir(join(workspace, "acme", "repo.git"), { recursive: true });
+    await writeFile(join(workspace, "acme", "sandboxr.yaml"), "project: [\n");
+
+    expect(await projectIdentities({ env: { SANDBOXR_WORKSPACE: workspace } })).toEqual([
+      { directory: "acme" },
+    ]);
+  });
 });

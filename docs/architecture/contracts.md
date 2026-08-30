@@ -483,14 +483,52 @@ than of any project:
 ttl: 12h
 github: none
 projects:
-  acme: { ttl: 3d, github: token }
+  acme-monorepo: { ttl: 3d, github: token }
 ```
+
+**A `projects:` key is either of a project's two names** — its workspace directory (§4.1) or the
+`project:` its own `sandboxr.yaml` declares (§5) — and the directory is tried first. The example
+above spells the two differently on purpose. It used to read `acme:`, with both names the same
+string, and that is precisely how the trap stayed invisible: the lookup matched the *declared*
+name alone, so an operator whose workspace held `acme-monorepo` wrote down the only name the
+dashboard, the URLs and the disk had ever shown them and got nothing. Not an error — the entry
+matched no project, every project fell through to the machine-wide value, and the first symptom
+was an agent unable to push, hours later. `projectFor` in `packages/web/src/lib/group.ts` already
+resolved a project by either name, so matching on one here made the product disagree with itself.
+
+**When two projects disagree about a name, the directory wins.** `acme` can be one project's
+directory *and* another project's declared `project:`. The key then belongs to the project whose
+**directory** it is and never reaches the other one, for two reasons: the operator who typed it
+was reading a list of directories, and the cost of guessing wrong is not symmetric — guessing
+wrong about `github:` hands one project's opt-in to a repository nobody opted in. `projectEntry`
+is given the workspace's directory names by any caller that can see them (`up`, the dashboard) and
+enforces this; a caller that cannot see the workspace takes the plain directory-then-declared
+two-step.
+
+**An entry naming no project is reported, not refused.** It is the same class of mistake as a
+malformed file and cannot take the same remedy: this file is machine-wide, so refusing to load it
+over one stale entry — a project somebody deleted last month — would stop every *other* project on
+the machine starting, and the loader has no view of the workspace to check against anyway. So it
+surfaces where both halves are already in hand:
+
+| Where | What it says |
+|---|---|
+| `sandboxr doctor` | names each unmatched key, and lists every name that *would* match |
+| `sandboxr config` | what this project's `ttl` and `github` resolved to, and the key that decided |
+| `sandboxr up` | when the token is off, the key that would turn it on |
+| the dashboard | `ProjectDto.github`, resolved server-side, per project |
+
+`reviewProjectEntries` answers the first two against `projectIdentities` in
+`packages/core/src/workspace.ts`, which reads both names of every workspace project without running
+git. A project run from a checkout *outside* the workspace cannot be enumerated, so a key naming
+one reads as unmatched; the finding therefore says "rename it or remove it" rather than asserting
+the project does not exist.
 
 The schema is `packages/core/src/config/machine.ts` (Zod, `strictObject`), so a misspelled key is an
 error naming the key. Precedence for `ttl`, most specific first, and this order is the contract:
 
 1. `--ttl` on the command (or the dashboard's field)
-2. the project's entry in `config.yaml`
+2. the project's entry in `config.yaml`, under either of its names
 3. the file's top-level `ttl`
 4. `SANDBOXR_TTL_HOURS` — what a service unit sets
 5. the built-in default, **12h**
@@ -1521,6 +1559,24 @@ This is why the switch is the operator's, per project, and defaults to off. It i
 by deleting it, and that stops being true the moment a command reaches the network with the
 person's credentials. Note that `git push` and `gh` are **not** in that allowlist, so a session
 still has to be granted them.
+
+**Off is invisible unless something says so, and something must.** The near miss is exact: `git
+status`, `git diff`, `git log`, `git add` and `git commit` all work — the repository is mounted
+read-write and the identity crosses in the environment, and `git add`/`git commit` are in
+`DEFAULT_ALLOWED_TOOLS`. Nothing is wrong until `git push`, which is the last command of a
+session rather than the first. So:
+
+- **`up` says it, once per start, when the mode resolves to `none`** — that this sandbox carries no
+  token, that `git commit` will work anyway, and the exact key to write in `config.yaml`, quoted
+  with the **workspace directory** name because that is the name somebody can see without opening a
+  file (§4.3).
+- **Both causes are named in the same breath.** There are two independent reasons `git push` fails
+  and a message naming one of them sends the reader to fix the wrong thing: the token may be off,
+  and the session may not be allowed to run `git push` or `gh`. Anything written about this symptom
+  says both.
+- **`sandboxr config` and the dashboard answer it on demand** — the resolved mode, and the
+  `projects:` key that decided it. `ProjectDto.github` carries it to the browser as a fact; the
+  page writes the sentence.
 
 ## 8. Actions
 

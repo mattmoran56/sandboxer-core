@@ -40,13 +40,27 @@ export {
   DEFAULT_GITHUB,
   GITHUB_MODES,
   MACHINE_CONFIG_EXAMPLE,
+  decideGithub,
   loadMachineConfig,
   machineConfigSchema,
+  projectEntry,
   resolveGithub,
   resolveTtl,
+  reviewProjectEntries,
   writeMachineConfigExample,
 } from "./config/machine.js";
-export type { GithubInput, GithubMode, MachineConfig, TtlInput } from "./config/machine.js";
+export type {
+  GithubDecision,
+  GithubInput,
+  GithubMode,
+  MachineConfig,
+  MachineConfigReview,
+  MachineProjectEntry,
+  ProjectEntryMatch,
+  ProjectIdentity,
+  ProjectKey,
+  TtlInput,
+} from "./config/machine.js";
 export { compareVersions, parseVersion, satisfies, VersionError } from "./config/version.js";
 export { TOOL_VERSION } from "./tool-version.js";
 
@@ -139,6 +153,8 @@ export {
   fetchProject,
   findProject,
   listProjects,
+  projectDirectories,
+  projectIdentities,
   projectNameFromUrl,
 } from "./workspace.js";
 export type { CloneOptions, Project, WorkspaceOptions } from "./workspace.js";

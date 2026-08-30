@@ -63,13 +63,16 @@ with the setting explained in it.
 ```yaml
 ttl: 12h
 projects:
-  acme: { ttl: 3d }
+  acme-monorepo: { ttl: 3d }
 ```
+
+The key is the project's workspace directory — the name in every dashboard URL — or the `project:`
+its own `sandboxr.yaml` declares. Either works.
 
 Most specific wins:
 
 1. `--ttl` on the command, or the dashboard's field
-2. the project's entry in `config.yaml`
+2. the project's entry in `config.yaml`, under either of its names
 3. the file's top-level `ttl`
 4. `SANDBOXR_TTL_HOURS`
 5. the built-in `12h`

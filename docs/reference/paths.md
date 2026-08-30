@@ -67,14 +67,19 @@ commented example the first time and never touches it again.
 ttl: 12h
 # Whether a sandbox is handed this machine's GitHub token. `none` or `token`.
 github: none
-# Per project, optional.
+# Per project, optional. The key is the project's workspace directory, or the
+# `project:` its own sandboxr.yaml declares. Either works.
 projects:
-  acme: { ttl: 3d, github: token }
+  acme-monorepo: { ttl: 3d, github: token }
 ```
 
 A missing file means the defaults. A malformed one is an error naming the file and the key — because
 silently applying a default lifetime to a machine where somebody has just written down the lifetime
 they wanted is how a week of work gets stopped after twelve hours.
+
+A `projects:` key naming no project is a warning rather than an error: one stale entry must not stop
+every other project on the machine starting. `sandboxr doctor` names it, and lists the names that
+would have matched.
 
 `secrets/<project>.env` is the other one. It holds a project's third-party credentials, at mode
 `0600`, as `NAME="value"` one per line. It is **edited, not generated**: `sandboxr secrets set`,

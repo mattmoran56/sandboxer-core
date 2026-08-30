@@ -364,8 +364,12 @@ Pushing does. `gh` is in every sandbox, but it is logged out until you say other
 github: none          # the default: no sandbox gets a token
 
 projects:
-  acme: { github: token }
+  acme-monorepo: { github: token }
 ```
+
+The key is the project's directory in the workspace — the name the dashboard shows and every URL
+carries — or the `project:` its own `sandboxr.yaml` declares. Either works, and a key that is
+neither quietly does nothing; `sandboxr doctor` names one that matches no project.
 
 `github: token` hands that project's sandboxes the credential `gh auth token` prints on this
 machine. `gh` picks it up on its own, and git's https helper asks `gh` for it. So both
@@ -380,6 +384,11 @@ branch.
 
 To turn it off, set `github: none` (or delete the entry) and start the sandbox again.
 Nothing is stored: the token is read at `up` and lives only in the container's environment.
+
+**You are told when it is off, at the start rather than at the push.** `up` prints a line naming
+the exact key that would turn it on, and `sandboxr config` in the worktree prints the resolved mode
+with the key that decided it. That exists because `git commit` works either way, so the absence has
+no symptom at all until a push fails — which, in an agent session, is hours later.
 
 <details class="why">
 <summary><b>Why it works this way</b> — two behaviours of the token, and why the setting is not in <code>sandboxr.yaml</code></summary>

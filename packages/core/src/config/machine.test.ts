@@ -4,6 +4,10 @@
 // - resolveTtl: the precedence chain — --ttl, the project entry, the file, SANDBOXR_TTL_HOURS, the built-in
 // - resolveTtl: an unreadable SANDBOXR_TTL_HOURS falls through instead of failing a start
 // - resolveGithub: the project entry beats the file, which beats the default, which is off
+// - projectEntry: a projects: key is either of a project's two names, directory first
+// - projectEntry: a key that is another project's directory never reaches this one through its declared name
+// - decideGithub: says which rung of the ladder answered, so a message can name the key
+// - reviewProjectEntries: keys matching no project, keys matching two, and the names that would work
 // - loadMachineConfig: an unknown github mode is an error naming the field
 // - writeMachineConfigExample: writes once, never overwrites, and what it writes parses back
 
@@ -17,9 +21,12 @@ import { paths } from "../paths.js";
 import {
   DEFAULT_GITHUB,
   DEFAULT_TTL,
+  decideGithub,
   loadMachineConfig,
+  projectEntry,
   resolveGithub,
   resolveTtl,
+  reviewProjectEntries,
   writeMachineConfigExample,
 } from "./machine.js";
 
@@ -164,6 +171,110 @@ describe("resolveGithub", () => {
 
   it("ignores an entry for a different project", () => {
     expect(resolveGithub({ project: "other", config: { projects: { acme: { github: "token" } } } })).toBe("none");
+  });
+});
+
+/*
+ * The report this whole group comes from: a workspace holding `demo-managed`
+ * and `acme-monorepo` (which declares `project: acme`), and a config.yaml
+ * saying `demo: { github: token }`. Every key matched nothing, both projects
+ * fell through to `github: none`, and nothing said so until an agent could not
+ * push hours later.
+ */
+describe("projectEntry, the two names a project answers to", () => {
+  const config = {
+    projects: { "acme-monorepo": { ttl: "3d" }, acme: { ttl: "1h" }, demo: { ttl: "never" } },
+  };
+
+  it("matches the workspace directory name", () => {
+    expect(projectEntry(config, { directory: "acme-monorepo", project: "acme" })?.key).toBe("acme-monorepo");
+  });
+
+  it("matches the declared project: when nothing is keyed on the directory", () => {
+    const found = projectEntry({ projects: { acme: { ttl: "1h" } } }, { directory: "acme-monorepo", project: "acme" });
+    expect(found).toEqual({ key: "acme", entry: { ttl: "1h" }, via: "project" });
+  });
+
+  it("prefers the directory when both are keyed", () => {
+    // The name the operator can see without opening a file wins.
+    expect(projectEntry(config, { directory: "acme-monorepo", project: "acme" })?.entry.ttl).toBe("3d");
+  });
+
+  it("does not hand one project's key to another that merely declares that name", () => {
+    // `demo` is a real project's directory here, so `demo-monorepo`'s declared
+    // `project: demo` must not collect it — a key naming a directory belongs to
+    // the project whose directory it is, and being wrong about `github:` hands
+    // one repository's opt-in to another.
+    const found = projectEntry(config, {
+      directory: "demo-monorepo",
+      project: "demo",
+      directories: ["acme-monorepo", "demo"],
+    });
+    expect(found).toBeUndefined();
+  });
+
+  it("still matches the declared name when no project owns it as a directory", () => {
+    expect(
+      projectEntry(config, { directory: "acme-monorepo2", project: "acme", directories: ["acme-monorepo2", "demo"] })
+        ?.key,
+    ).toBe("acme");
+  });
+
+  it("reaches resolveTtl and resolveGithub alike", () => {
+    const both = { directory: "acme-monorepo", project: "acme" };
+    expect(resolveTtl({ ...both, config: { projects: { "acme-monorepo": { ttl: "3d" } } }, env: {} })).toBe("3d");
+    expect(resolveGithub({ ...both, config: { projects: { "acme-monorepo": { github: "token" } } } })).toBe("token");
+  });
+});
+
+describe("decideGithub", () => {
+  it("names the key that answered, so a message can quote it back", () => {
+    expect(
+      decideGithub({ directory: "acme-monorepo", config: { projects: { "acme-monorepo": { github: "token" } } } }),
+    ).toEqual({ mode: "token", key: "acme-monorepo", source: "project" });
+  });
+
+  it("distinguishes the file's own answer from the built-in one", () => {
+    // "off because you said so" and "off because nothing mentions this project"
+    // are different instructions to give somebody.
+    expect(decideGithub({ config: { github: "none" } }).source).toBe("machine");
+    expect(decideGithub({ config: {} }).source).toBe("default");
+  });
+});
+
+describe("reviewProjectEntries", () => {
+  const projects = [
+    { directory: "demo-managed" },
+    { directory: "acme-monorepo", project: "acme" },
+  ];
+
+  it("reports a key that matches no project, and lists the names that would", () => {
+    const review = reviewProjectEntries({ projects: { demo: { github: "token" } } }, projects);
+    expect(review.unmatched).toEqual(["demo"]);
+    expect(review.known).toEqual(["acme", "acme-monorepo", "demo-managed"]);
+  });
+
+  it("accepts either name as a match", () => {
+    const config = { projects: { "demo-managed": { ttl: "1h" }, acme: { ttl: "3d" } } };
+    expect(reviewProjectEntries(config, projects).unmatched).toEqual([]);
+  });
+
+  it("does not call a project ambiguous with itself", () => {
+    const same = [{ directory: "acme", project: "acme" }];
+    expect(reviewProjectEntries({ projects: { acme: {} } }, same).ambiguous).toEqual([]);
+  });
+
+  it("reports a key that is one project's directory and another's declared name", () => {
+    const clashing = [{ directory: "demo" }, { directory: "demo-monorepo", project: "demo" }];
+    expect(reviewProjectEntries({ projects: { demo: {} } }, clashing).ambiguous).toEqual(["demo"]);
+  });
+
+  it("has nothing to say about a file with no projects: block", () => {
+    expect(reviewProjectEntries({ ttl: "3d" }, projects)).toEqual({
+      unmatched: [],
+      ambiguous: [],
+      known: ["acme", "acme-monorepo", "demo-managed"],
+    });
   });
 });
 

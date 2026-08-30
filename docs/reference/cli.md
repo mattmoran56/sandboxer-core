@@ -469,13 +469,26 @@ It checks, in order:
 8. The config resolves.
 9. A file-backed database is pointed at the sandbox's own state directory.
 10. The project's credentials are present — the same check as `secrets check`.
-11. Where `SANDBOXR_HOME` is.
-12. How many sandboxes exist.
+11. Every `projects:` entry in `~/.sandboxr/config.yaml` names a project this machine has.
+12. Where `SANDBOXR_HOME` is.
+13. How many sandboxes exist.
+
+Check 11 is the one that catches a setting that looks applied and is not. A `projects:` key may be
+a project's workspace directory or the `project:` its `sandboxr.yaml` declares; a key that is
+neither matches nothing and silently does nothing. `doctor` names it and lists the names that would
+have worked, rather than guessing which one was meant.
 
 ### `sandboxr config`
 
 Which config was used, and what it resolved to: project, file, root, origin, driver, access,
-backends, front-ends. Exit `2` if there is no config here or in any parent directory.
+backends, front-ends — and what `~/.sandboxr/config.yaml` resolved to for this project, which is
+`ttl`, `github`, and the `projects:` key that decided each. Exit `2` if there is no config here or
+in any parent directory.
+
+When `github` is `none`, which is the default, it says so in full: that `git commit` works inside
+the sandbox and `gh` and `git push` do not, the exact key to write, and that a session has to be
+allowed to run those two commands as well. That is here because the absence has no other symptom —
+committing works, so nothing goes wrong until a push, long after the sandbox started.
 
 `--json` prints the whole resolved config, which is the fastest way to see what a default became.
 

@@ -6,6 +6,8 @@
 // - a bad --ttl is refused by name, for the same reason
 // - a config error exits 2, distinct from a command that merely failed
 // - `config` in a managed worktree names the project-level file it fell back to, and the worktree root
+// - `config` reports what ~/.sandboxr/config.yaml resolved to for this project, keyed on either of its names
+// - `doctor` names a projects: entry in config.yaml that matches no project, and lists the names that would
 // - project and worktree dispatch: subcommands, missing arguments, no project
 // - `worktree name` dispatches like the other three, and is offered in the usage line
 // - project available: a machine with no gh says so in one sentence and still exits 0
@@ -19,6 +21,9 @@
 //
 // The commands that talk to Docker are not driven here: `docker` is a module
 // singleton rather than an injected dependency, so nothing below reaches it.
+// `doctor` is the one exception, and only for its reading of `config.yaml`
+// against the workspace — every other finding it makes depends on whether this
+// machine happens to have Docker running, so nothing below asserts on one.
 
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
@@ -162,6 +167,70 @@ describe("config", () => {
     // The root is the worktree, never the project directory it read the file from.
     expect(result.stderr).toContain(`root        ${worktree}`);
   });
+});
+
+/*
+ * The report behind these: a workspace holding `acme-monorepo`, whose config
+ * declares `project: acme`, and a `config.yaml` keyed on the directory — the
+ * only name the dashboard and the URLs had ever shown the operator. It matched
+ * nothing, both projects silently fell through to `github: none`, and the first
+ * symptom was an agent unable to push.
+ */
+async function managedWorkspace(entry: string): Promise<{ home: string; worktree: string }> {
+  const home = await mkdtemp(join(tmpdir(), "sbx-keyed-"));
+  const projectDir = join(home, "workspace", "acme-monorepo");
+  const worktree = join(projectDir, "wt", "main");
+  await mkdir(join(projectDir, "repo.git"), { recursive: true });
+  await mkdir(worktree, { recursive: true });
+  await writeFile(join(worktree, "sandboxr.yaml"), CONFIG);
+  await writeFile(join(home, "config.yaml"), entry);
+  return { home, worktree };
+}
+
+describe("config, the machine's settings for this project", () => {
+  it("takes an entry keyed on the workspace directory, not only the declared project:", async () => {
+    const { home, worktree } = await managedWorkspace("projects:\n  acme-monorepo: { ttl: 3d, github: token }\n");
+
+    const result = await run(["config"], worktree, { SANDBOXR_HOME: home });
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("ttl         3d");
+    expect(result.stderr).toContain("github      token (projects.acme-monorepo)");
+    // Both names, because either is a valid key and only one of them is visible
+    // anywhere but the repository.
+    expect(result.stderr).toContain("acme-monorepo (the workspace directory) or acme");
+  });
+
+  // The absence made visible somewhere other than a failed push hours later.
+  it("says the token is off and names the key that would turn it on", async () => {
+    const { home, worktree } = await managedWorkspace("github: none\n");
+
+    const result = await run(["config"], worktree, { SANDBOXR_HOME: home });
+    expect(result.stderr).toContain("github      none");
+    expect(result.stderr).toContain("projects.acme-monorepo.github: token");
+    // Two independent reasons a push fails; naming one of them misleads.
+    expect(result.stderr).toContain("git commit works");
+    expect(result.stderr).toContain("default allowlist");
+  });
+});
+
+describe("doctor", () => {
+  // Where a `projects:` entry naming nothing surfaces, and why here: refusing
+  // the file at load time would stop every other project on the machine over one
+  // stale line, and `loadMachineConfig` cannot see the workspace to check.
+  it("names an entry that matches no project, and the names that would", async () => {
+    const { home, worktree } = await managedWorkspace("projects:\n  demo: { github: token }\n");
+
+    const result = await run(["doctor"], worktree, { SANDBOXR_HOME: home });
+    expect(result.stderr).toContain('config.yaml has settings for "demo"');
+    expect(result.stderr).toContain("acme-monorepo");
+  }, 60_000);
+
+  it("says so when every entry matches", async () => {
+    const { home, worktree } = await managedWorkspace("projects:\n  acme: { ttl: 3d }\n");
+
+    const result = await run(["doctor"], worktree, { SANDBOXR_HOME: home });
+    expect(result.stderr).toContain("every projects: entry in config.yaml names a project here");
+  }, 60_000);
 });
 
 describe("up", () => {
