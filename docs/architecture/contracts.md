@@ -1102,6 +1102,23 @@ sandbox right now is a field on the response, not a filter the browser derives f
 table; so is the sentence a destructive action confirms with, because the table is where what
 is actually lost is known.
 
+**`issues` on a sandbox is that rule's other edge: it holds faults, and never a restatement of
+`state`.** A sandbox that is stopped or still coming up carries an empty list, and every reader
+spends red on whatever is in it without filtering. It once carried "container is not running"
+for every stopped sandbox and "still starting" for every one booting, which is `state` said a
+second time in the field that means "go and look": the dashboard painted the quiet half of a
+machine as broken, its own attention count counted sandboxes that were merely off, and
+auto-start refused every stopped sandbox there had ever been. The browser then learnt to drop
+those entries by state — the right colour, from the wrong place, and a second copy of a
+judgement out of a wording only the server owned. `issuesFor` in
+`packages/server/src/sandboxes/model.ts` is where it is made, once.
+
+The **worktree** is the one fault the browser adds, and it is allowed to because a worktree is
+not a sandbox: a directory git still lists that has been deleted has no sandbox and therefore
+no `issues`, and it is what explains "Start does nothing". So the sidebar's notion of a row
+needing attention is deliberately wider than `summary.needsAttention`, which counts sandboxes
+with a fault. The two answer different questions and neither is derived from the other.
+
 **The JSON API.** Every route below requires a session, and every one that names a `:project`
 is additionally checked against the session's grant.
 
