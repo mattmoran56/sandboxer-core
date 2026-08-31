@@ -180,16 +180,29 @@ export {
 
 export {
   alreadyAdded,
+  createPullIndex,
   ghAvailable,
+  indexByBranch,
   listPullRequests,
   listRemoteRepos,
   matchesOrigin,
   mergedBranches,
   parsePullRequests,
   parseRemoteRepos,
+  PULL_INDEX_RETRY_MS,
+  PULL_INDEX_TTL_MS,
   repoSlugFromUrl,
 } from "./forge.js";
-export type { ForgeOptions, PullRequest, RemoteRepo, RemoteReposOptions } from "./forge.js";
+export type {
+  ForgeOptions,
+  ProjectOrigin,
+  PullIndex,
+  PullIndexOptions,
+  PullRequest,
+  PullState,
+  RemoteRepo,
+  RemoteReposOptions,
+} from "./forge.js";
 export { LABELS, labelsFor, sandboxFromLabels, deriveState } from "./sandbox/labels.js";
 
 export {

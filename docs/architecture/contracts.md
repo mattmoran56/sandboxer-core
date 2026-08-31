@@ -346,6 +346,69 @@ on the host, and read by whoever is going to show it (§4.2.1). Putting it here 
 listing of `wt/` pay a file read per worktree whether or not anybody wanted the name, and would
 put an editable string in the same shape as the facts git reports.
 
+#### 4.1.2 A worktree's pull request
+
+A worktree is a branch, and a branch usually has a pull request on it. What became of that pull
+request is the fastest thing to say about a worktree — merged work is finished, a draft is
+somebody's, a closed one is abandoned — so it is carried beside the worktree rather than left to
+the project pane.
+
+**Four states, and `draft` is not a fifth.** GitHub reports two independent things: a state of
+open, closed or merged, and a draft flag. The flag only means anything while the pull request is
+open, so the two compose in one direction and only one:
+
+| What GitHub says | The state | Drawn | Why |
+|---|---|---|---|
+| open, draft flag set | `draft` | grey | Waiting for its author |
+| open, flag clear | `open` | green | Waiting for a reviewer |
+| closed | `closed` | red | Somebody decided against it — whatever the flag says |
+| merged | `merged` | purple | It landed. A pull request that was a draft when it merged is `merged` |
+
+The colours are part of the contract rather than a stylistic choice, because they are GitHub's own
+and a reader arrives already knowing them. `packages/web` picks the colour from the state and
+decides nothing else about it: the state itself is the server's answer (§7.1).
+
+`draft` is kept apart from `open` because it is the one distinction a reader acts on. Core owns the
+composition — `PullState` in `packages/core/src/forge.ts` — so the CLI and the dashboard cannot
+arrive at different answers.
+
+**No answer is `null`, and `null` is never `closed`.** A machine with no `gh` on it, a `gh` that is
+not logged in, a project that is not on GitHub, a private repository the token cannot see, a call
+that ran out of time, and a branch nobody has opened a pull request for all arrive as `null` — one
+value, because there is nothing to show for any of them. What `null` must never be rendered as is
+`closed`: closed says a person rejected this work, and none of those machines rejected anything.
+That is the whole reason the field is nullable rather than defaulted.
+
+**One `gh` per repository, not one per worktree.** The question is per branch; the answer is per
+repository. `createPullIndex` reads `gh pr list --state all` once for a repository, indexes it by
+head ref, and every worktree is a map lookup — so a machine with thirty worktrees makes one
+subprocess call per project, not thirty, on a poll that repeats every thirty seconds
+(§7.1). Two workspace directories cloned from one repository share the call. Where several pull
+requests share a head branch — a closed one and a replacement, or a reused branch — the live one
+wins, then the merged one, then the most recent.
+
+**How long an answer is trusted, and how long a call may take**, both fixed in core so nothing else
+picks a number:
+
+| | | |
+|---|---|---|
+| An answer | 5 minutes | A pull request does not change state on a thirty-second clock |
+| No answer | 1 minute | So a machine where somebody has just run `gh auth login` recovers quickly |
+| One `gh` call | 5 seconds | **A timeout is part of the contract.** A proxy that accepts the connection and never answers leaves `gh` on a socket with no timeout of its own, and a hung subprocess in the sidebar's path is worse than a missing mark |
+
+An expired entry is **served stale while it refreshes behind the caller**, so only the very first
+question about a repository ever waits for `gh`. A cached "no answer" is served the same way.
+
+**What gates *reading* pull requests is the host's `gh`, and nothing else.** `github:` in
+`config.yaml` (§4.3) decides whether a *sandbox* is handed the machine's token so an agent can push
+— it has no bearing on what the dashboard can read, and a project set to `none`, which is the
+default and the answer on nearly every machine, still shows its pull requests. This is the same
+answer the project pane's open-pull-request list has always given; the index is a second reader of
+the same credentials, not a second permission.
+
+The vocabulary is fixed: core's type is `PullState`, its reader is `createPullIndex`, the API field
+is `pull` on `WorktreeDto` — an object of `{ number, state, title, url }`, or `null`.
+
 ### 4.2 Keep-alive, and where mutable state is allowed to live
 
 A keep-alive marker exempts one sandbox from its idle limit. It cannot be a label — a running
@@ -534,7 +597,10 @@ error naming the key. Precedence for `ttl`, most specific first, and this order 
 5. the built-in default, **12h**
 
 `github` is `none` or `token`, and decides whether that project's sandboxes are handed this
-machine's GitHub token (§7). Its ladder is deliberately shorter — the project's entry, then the
+machine's GitHub token (§7). It says nothing about what the *host* may read: the dashboard lists a
+project's pull requests, and marks each worktree with the state of its own (§4.1.2), using the
+`gh` on the machine it runs on — a project left at `none` still shows all of it. Its ladder is
+deliberately shorter — the project's entry, then the
 file's top-level value, then the built-in **`none`** — with **no flag and no environment
 variable**. A lifetime is a scheduling preference worth overriding per run; this is a decision
 about which code may act as the person running it, and a decision like that belongs in one file
@@ -1042,8 +1108,8 @@ is additionally checked against the session's grant.
 | Route | Answers |
 |---|---|
 | `GET /api/bootstrap` | The domain, the session, the closed action table (§8), and the default lifetime the new-sandbox form offers. What the app needs before it can draw anything |
-| `GET /api/workspace` | Every project, every worktree and every sandbox on the machine, plus a summary. The one call the sidebar and the home view are drawn from |
-| `GET /api/projects/:project` | One project's worktrees, branches and open pull requests |
+| `GET /api/workspace` | Every project, every worktree and every sandbox on the machine, plus a summary. The one call the sidebar and the home view are drawn from. Each worktree carries the state of its pull request, from a cached per-repository index rather than a `gh` call per row (§4.1.2) |
+| `GET /api/projects/:project` | One project's worktrees, branches and open pull requests. The list is read live, so it is the authoritative one; the state on each worktree beside it comes from the index and may be up to five minutes behind |
 | `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its project's config declares |
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
 | `GET /api/p/:project/s/:slug/agent/runs` | The agent sessions recorded against one sandbox, newest first. The index only — never message content (§7.2) |

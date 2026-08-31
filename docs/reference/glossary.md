@@ -120,7 +120,8 @@ longer matches the schema is a signal, not a reason to refuse to start. See
 [Databases](../databases.md).
 
 **Forge** — the code host `gh` talks to, which today means GitHub. A machine without `gh` still
-works; it just cannot list repositories or pull requests. See
+works; it just cannot list repositories or pull requests, and every worktree's pull-request mark is
+simply absent rather than wrong. See
 [Several repositories at once](../setups/many-projects.md).
 
 **Forward auth** — how a `private` project's app hostnames are protected without a second login.
@@ -242,6 +243,12 @@ default and removes only with `--yes`. See
 
 **Public app** — the default. Anyone who can reach the hostname can open the app, with no login. See
 [Access and security](../access.md).
+
+**Pull request state** — what became of the pull request on a worktree's branch: `draft`, `open`,
+`closed` or `merged`. Four and not five — `draft` is GitHub's draft flag folded onto an *open* pull
+request, so one that was a draft when it merged is `merged`. **No mark at all** means either that
+there is no pull request or that this machine could not ask, and the two are deliberately one
+answer. See [The dashboard](../guides/dashboard.md).
 
 ## R
 

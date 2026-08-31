@@ -392,6 +392,11 @@ and `project clone <url>` still works on a machine with no `gh`.
 A repository counts as `added` when a project in the workspace was cloned from it, whichever way
 each spells the URL — ssh and https are one repository, not two.
 
+`project prs --json` carries a `state` on each pull request — `draft`, `open`, `closed` or `merged`
+— alongside the raw `draft` flag it composes with. The table stays as it is, listing what is open;
+the state is there because it is the same value the dashboard marks each worktree with, and one
+composition of it lives in core so the two cannot disagree (contracts §4.1.2).
+
 `worktree rm` looks the branch up in the listing rather than rebuilding a path from the name, so a
 worktree added by hand is still removable. `--force` removes one with uncommitted work in it, and
 that work is gone.
