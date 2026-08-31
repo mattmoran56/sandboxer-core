@@ -86,7 +86,7 @@ sandboxr doctor
 # 4. Prove it end to end on the demo project.
 cd examples/demo-worker
 sandboxr up demo1
-curl -s https://demo1.app.demo.sbx.localhost/api/notes
+curl -s https://demo1--app--demo.sbx.localhost/api/notes
 
 # 5. Clean up.
 sandboxr down demo1

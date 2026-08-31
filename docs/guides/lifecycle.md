@@ -99,7 +99,7 @@ Two refusals happen before any work is done, so a typo costs nothing: an unreada
 `~/.sandboxr/config.yaml` and `SANDBOXR_TTL_HOURS`. The rules are in
 [Projects, worktrees and lifetimes](managed-sandboxes.md).
 
-The URLs `up` prints are `<slug>.<label>.<project>.<domain>`, with the domain defaulting to
+The URLs `up` prints are `<slug>--<label>--<project>.<domain>`, with the domain defaulting to
 `sbx.localhost` — see [How it works, in five steps](../how-it-works.md). Every field the
 config may declare is in [sandboxr.yaml, field by field](../configuration/sandboxr-yaml.md),
 and every command's full flag list is in [CLI commands](../reference/cli.md).
@@ -170,9 +170,9 @@ acme/tkt-4821  running
   worktree    /home/dev/acme/.worktrees/tkt-4821
   built       app, admin
 
-  up    api              https://tkt-4821.api.acme.sbx.localhost
-  up    admin-api        https://tkt-4821.admin.acme.sbx.localhost
-  down  jobs             https://tkt-4821.jobs.acme.sbx.localhost
+  up    api              https://tkt-4821--api--acme.sbx.localhost
+  up    admin-api        https://tkt-4821--admin--acme.sbx.localhost
+  down  jobs             https://tkt-4821--jobs--acme.sbx.localhost
 ```
 
 `up` here means the process answered its declared health path, not that Docker thinks the

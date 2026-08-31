@@ -64,13 +64,13 @@ sandboxr up
 ==> Applied fixtures from seeds/fixtures.sql
   ok Sandbox tkt-4821 is running
 
-  api          https://tkt-4821.api.acme.sbx.localhost
-  app          https://tkt-4821.app.acme.sbx.localhost
+  api          https://tkt-4821--api--acme.sbx.localhost
+  app          https://tkt-4821--app--acme.sbx.localhost
 ```
 
 Open one of those URLs. That is your branch, running.
 
-Hostnames are always `<slug>.<label>.<project>.<domain>`. The slug is this sandbox, the label is
+Hostnames are always `<slug>--<label>--<project>.<domain>`. The slug is this sandbox, the label is
 one app or service in the project, and the project is the name in its `sandboxr.yaml`.
 
 The line about the GitHub token is said on every start where the token is off, which is the default.
@@ -179,7 +179,7 @@ acme/tkt-4821
   access      public
   worktree    /home/dev/acme/.worktrees/tkt-4821
 
-  up    api              https://tkt-4821.api.acme.sbx.localhost
+  up    api              https://tkt-4821--api--acme.sbx.localhost
 ```
 
 The service lines list the project's **backends** and whether each answers. A front-end has no
@@ -196,7 +196,7 @@ database is still restoring. No CLI needed:
 | `/__sandboxr/health/<service>` | Proxied to that service's own health path |
 
 ```bash
-curl -s https://tkt-4821.app.acme.sbx.localhost/__sandboxr/live
+curl -s https://tkt-4821--app--acme.sbx.localhost/__sandboxr/live
 ```
 
 ## 4. Build a front-end

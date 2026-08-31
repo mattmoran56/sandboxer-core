@@ -93,16 +93,6 @@ export function urlsFor(
   return urls;
 }
 
-/** Every hostname label this project serves, which is what a certificate lists. */
-export function labelsOf(config: ResolvedConfig): string[] {
-  const labels = [...config.frontends, ...config.backends].map((runtime) => runtime.label);
-  // `s3` is reserved: the sandbox's own object storage answers on it whenever
-  // storage is declared, and a certificate that omits it makes the one URL a
-  // person opens to check an upload the one that warns.
-  if (config.storage.driver === "minio") labels.push("s3");
-  return [...new Set(labels)];
-}
-
 export function hostsFor(config: ResolvedConfig, slug: string, domain = DEFAULT_DOMAIN): string[] {
   return [...config.frontends, ...config.backends].map((runtime) =>
     hostFor({ slug, label: runtime.label, project: config.project, domain }),

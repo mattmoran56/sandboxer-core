@@ -178,7 +178,7 @@ backends:
 |---|---|---|---|---|
 | `name` | string | **yes** | no | Unique. The binary's name, and a `routes` target |
 | `port` | port | **yes** | no | Where it listens **inside** the container |
-| `label` | hostname label | **yes** | no | Its hostname: `<slug>.<label>.<project>.<domain>` |
+| `label` | hostname label | **yes** | no | Its hostname: `<slug>--<label>--<project>.<domain>` |
 | `build` | string | **yes**, here or in `defaults` | yes | `{name}` and `{out}` are substituted |
 | `workdir` | path | no | yes | Where the build runs, and where the binary is started from |
 | `health` | path | no | yes | Probed to decide whether the service is up |
@@ -353,7 +353,7 @@ storage:
 
 With `minio`, an S3-compatible store runs inside the sandbox, so uploads never reach a real
 bucket. Its endpoint is exported as `SANDBOXR_S3_ENDPOINT`. The label `s3` is reserved:
-`<slug>.s3.<project>.<domain>` reaches the store, and `/console/*` on that hostname reaches
+`<slug>--s3--<project>.<domain>` reaches the store, and `/console/*` on that hostname reaches
 its web console.
 
 ## `deps`

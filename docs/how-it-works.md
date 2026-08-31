@@ -14,7 +14,7 @@ flowchart TB
   d["<b>4. A container</b><br/>one per sandbox"]
   e["<b>5. A router</b><br/>one per machine"]
   a --> b --> c --> d --> e
-  e -->|"https://tkt-4821.app.acme.sbx.localhost"| f["A browser"]
+  e -->|"https://tkt-4821--app--acme.sbx.localhost"| f["A browser"]
 ```
 
 ## Step 1 — A worktree
@@ -150,7 +150,7 @@ reload.
 Every sandbox address in these docs has the same four parts, in the same order:
 
 ```
-<slug>.<label>.<project>.<domain>
+<slug>--<label>--<project>.<domain>
 ```
 
 Read left to right, it narrows:
@@ -166,9 +166,19 @@ So one sandbox of the `acme` project, with two apps in it, serves two hostnames 
 using the default domain:
 
 ```
-https://tkt-4821.app.acme.sbx.localhost      the front-end
-https://tkt-4821.api.acme.sbx.localhost      the service behind it
+https://tkt-4821--app--acme.sbx.localhost      the front-end
+https://tkt-4821--api--acme.sbx.localhost      the service behind it
 ```
+
+The three parts are joined by `--` into a **single** name under the domain, rather than by dots
+into three. That is a TLS decision: a wildcard certificate covers exactly one level, so
+`*.sbx.localhost` covers every sandbox that will ever run on this machine — where the older dotted
+shape could be covered by no wildcard at all and needed a certificate issued per sandbox.
+
+The cost is a length limit, and it is worth knowing about once: all three parts share the 63
+characters a single name is allowed. A long project name with a long label leaves less room for the
+slug, so sandboxr shortens slugs to fit — and refuses a config where there would be almost nothing
+left, rather than producing a hostname that does not work.
 
 There is no DNS to set up. Every current browser, and macOS's own resolver, answer any name
 under `.localhost` with the loopback address by themselves.

@@ -288,7 +288,7 @@ one with that bug. That is why the pattern is declared in the config rather than
 ### Nothing answers at all
 
 ```
-curl: (7) Failed to connect to tkt-4821.app.acme.sbx.localhost port 443
+curl: (7) Failed to connect to tkt-4821--app--acme.sbx.localhost port 443
 ```
 
 Work outwards:
@@ -380,8 +380,8 @@ The fastest single check answers on **every** hostname a sandbox serves, and is 
 database:
 
 ```bash
-curl https://tkt-4821.app.acme.sbx.localhost/__sandboxr/live         # ok = the request arrived
-curl https://tkt-4821.app.acme.sbx.localhost/__sandboxr/status.json  # booting / ok / degraded
+curl https://tkt-4821--app--acme.sbx.localhost/__sandboxr/live         # ok = the request arrived
+curl https://tkt-4821--app--acme.sbx.localhost/__sandboxr/status.json  # booting / ok / degraded
 ```
 
 ### A domain override appears to do nothing

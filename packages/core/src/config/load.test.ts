@@ -6,6 +6,8 @@
 // - the three runtime kinds: static, server, and the errors for an app that is neither or both
 // - routes: a backend target, a served-front-end target, an unknown target, an unknown label
 // - labels: two runtimes cannot share one hostname label; two backends cannot share a name
+// - the hostname alphabet: a project or a label holding `--` is refused, because `--` is the separator
+// - the DNS-label budget: hostLabels counts `s3`, and a project that leaves no usable slug is refused at load
 // - file-backed drivers: the single-owner rule, and an owner that names nothing
 // - contracts §5.3: a public sandbox refuses a live fork and an unmarked dump, and accepts fixtures or an anonymised one
 // - ConfigError: names the file and the field, for a schema error and for a resolution error
@@ -17,7 +19,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ConfigError, loadConfig, resolveConfig } from "./load.js";
+import { SLUG_MIN, slugCeiling } from "../naming.js";
+import { ConfigError, hostLabels, loadConfig, resolveConfig } from "./load.js";
 
 const EXAMPLES = new URL("../../../../examples/", import.meta.url).pathname;
 
@@ -276,6 +279,65 @@ describe("labels and names", () => {
         ],
       }),
     ).toThrow(/two backends/);
+  });
+
+  // `--` is what a flattened hostname divides on (contracts §3.2), so a
+  // component holding one would make `a--b--c--d.<domain>` unreadable.
+  it("refuses a project name holding a double dash", () => {
+    expect(() => resolveDoc({ ...minimal, project: "acme--web" })).toThrow(ConfigError);
+  });
+
+  it("refuses a label holding a double dash", () => {
+    expect(() =>
+      resolveDoc({ ...minimal, backends: [{ name: "one", port: 1, label: "admin--api", build: "b" }] }),
+    ).toThrow(ConfigError);
+  });
+});
+
+describe("the DNS-label budget (contracts §3.1)", () => {
+  // The store answers on a hostname like any other app, so it spends the same
+  // budget. A project whose arithmetic ignored it would have exactly one
+  // hostname over the limit and every other one fine.
+  it("counts the reserved s3 label", () => {
+    const config = resolveDoc({ ...minimal, storage: { driver: "minio", buckets: ["a"] } });
+    expect(hostLabels(config)).toContain("s3");
+  });
+
+  // The example the rule was written from: the subtraction allows 40, and the
+  // lock-name ceiling of 31 still wins.
+  it("accepts a project whose budget is generous, at the unchanged ceiling", () => {
+    const config = resolveDoc({
+      ...minimal,
+      project: "redeployable",
+      backends: [{ name: "one", port: 1, label: "company", build: "b" }],
+    });
+    expect(slugCeiling(config.project, hostLabels(config))).toBe(31);
+  });
+
+  // The case that actually binds, and the reason this is checked at load rather
+  // than discovered at `up` as a hostname that resolves to nothing.
+  it("accepts a project whose budget binds, and lowers the ceiling", () => {
+    const config = resolveDoc({
+      ...minimal,
+      project: "redeployable-platform-services",
+      backends: [{ name: "one", port: 1, label: "admin-console", build: "b" }],
+    });
+    expect(slugCeiling(config.project, hostLabels(config))).toBe(16);
+  });
+
+  it("refuses a project that leaves no usable slug, naming all three numbers", () => {
+    const project = "a-really-long-project-name-that-eats-the-whole-budget";
+    let thrown: unknown;
+    try {
+      resolveDoc({ ...minimal, project, backends: [{ name: "one", port: 1, label: "administration", build: "b" }] });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ConfigError);
+    const message = (thrown as ConfigError).message;
+    expect(message).toContain(project);
+    expect(message).toContain("administration");
+    expect(message).toContain(String(SLUG_MIN));
   });
 });
 

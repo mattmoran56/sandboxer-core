@@ -54,24 +54,18 @@ the host's own filesystem, so the decision is which disk that is — `data-root`
 [Giving Docker the whole machine](../guides/docker-capacity.md) has the rest: what accumulates, what
 stopping a container does and does not free, and what each reclaim command costs.
 
-## DNS: a wildcard per label, not per project
+## DNS: one wildcard, for everything
 
-Sandbox hostnames are four labels deep, and **a DNS wildcard matches exactly one label**. This
-catches everybody once. `*.sbx.example.com` matches `app.sbx.example.com`. It does **not** match
-`tkt-4821.app.acme.sbx.example.com`.
-
-So a wildcard has to sit one level above the slug. That means one record per `<label>.<project>`
-pair, not one per project:
+A sandbox hostname is **one label** above the domain — `tkt-4821--app--acme.sbx.example.com` — so
+one record covers every sandbox this server will ever run:
 
 ```
-sbx.example.com.                A   203.0.113.10   the dashboard
-*.app.acme.sbx.example.com.     A   203.0.113.10   acme's app label
-*.api.acme.sbx.example.com.     A   203.0.113.10   acme's api label
-*.app.demo.sbx.example.com.     A   203.0.113.10   demo's app label
+sbx.example.com.        A   203.0.113.10   the dashboard
+*.sbx.example.com.      A   203.0.113.10   every sandbox, every app, forever
 ```
 
-Starting a sandbox is then never a DNS change. Only *adding a label to a project* is. In practice a
-server wants a DNS provider with an API, and these records generated from each project's config.
+Starting a sandbox is never a DNS change, and neither is adding an app to a project or adding a
+project to the machine. There is nothing to generate and nothing to keep in step.
 
 Add `AAAA` records too if the host has IPv6. Otherwise browsers will sometimes prefer a v6 address
 that goes nowhere.
@@ -79,24 +73,28 @@ that goes nowhere.
 None of this applies locally. `.localhost` resolves to the loopback address whatever the depth,
 which is exactly why it is the default.
 
-## Certificates: the constraint that shapes everything
+## Certificates: the constraint that shaped the hostname
 
-The same arithmetic applies, and it is stricter. **A TLS wildcard matches exactly one label**, and
-`*.*.example.com` is not a valid certificate name — issuers reject it.
+**A TLS wildcard matches exactly one label**, and `*.*.example.com` is not a valid certificate name
+— issuers reject it and mkcert refuses it outright.
 
-So no wildcard can cover a sandbox hostname. sandboxr's answer locally is a **certificate per
-sandbox**, with its hostnames listed on it, issued when the sandbox starts and removed when it goes.
-The router picks between them by SNI and watches the directory, so nothing reloads.
+That is a fact about TLS and not about DNS, and it is worth separating the two because sandboxr's
+own documentation once had them confused. A *DNS* wildcard genuinely does match more than one label
+(RFC 4592's closest-encloser rule; Cloudflare and Route 53 both document it). So the older
+`<slug>.<label>.<project>.<domain>` shape resolved perfectly well — it was the *certificate* that
+could not be written, and the answer was one certificate per sandbox, issued on `up` and removed on
+`down`.
 
-On a real domain that means per-sandbox certificates from a public authority, and that brings two
-consequences:
+Hostnames are one label now precisely so that constraint goes away. `*.<domain>` covers every
+sandbox, so a shared server needs **one certificate**, issued once, and starting a sandbox touches
+neither DNS nor TLS.
 
-- **HTTP-01 would work** for a hostname that resolves publicly. But issuance happens at `up` time,
-  on the critical path of starting a sandbox. DNS-01, with a credential scoped to the one zone, is
-  the more controllable option.
-- **Certificate transparency logs are public.** Per-sandbox certificates publish your branch names
-  to the world. If that matters, the honest answer is `access.apps: private` plus an internal
-  certificate authority, rather than a wildcard you cannot have.
+On a real domain that means a wildcard certificate from a public authority:
+
+- **DNS-01 is the challenge that works**, because a wildcard cannot be issued over HTTP-01. It
+  needs a credential scoped to the one zone.
+- **Certificate transparency logs are public**, and a wildcard publishes only the domain — not, as
+  a per-sandbox certificate would have, every branch name anyone has ever cut.
 
 Two things not to do:
 
@@ -106,7 +104,8 @@ Two things not to do:
   correctly. Apps build absolute URLs from what they are told, and getting this wrong produces
   redirect loops that are miserable to debug.
 
-None of this is implemented. mkcert is the only issuer sandboxr knows about.
+None of this is implemented. mkcert is the only issuer sandboxr knows about, and it is what issues
+the same single wildcard locally.
 
 ## The password
 
@@ -191,15 +190,17 @@ The Docker socket must not be exposed to the network under any circumstances.
 
 **Certificate arithmetic, stated as constraints:**
 
-| Hostname | Depth | Covered by |
+| Hostname | Labels above the domain | Covered by |
 |---|---|---|
-| `sbx.example.com` | 3 labels | a certificate naming it |
-| `app.acme.sbx.example.com` | 4 labels | `*.acme.sbx.example.com` |
-| `tkt-4821.app.acme.sbx.example.com` | 5 labels | **nothing wildcard can express** — one certificate per sandbox, hostnames listed |
+| `sbx.example.com` | 0 — the dashboard | the certificate naming the domain itself |
+| `tkt-4821--app--acme.sbx.example.com` | 1 | `*.sbx.example.com` |
+| `a.tkt-4821--app--acme.sbx.example.com` | 2 | **nothing wildcard can express** — and nothing sandboxr serves is here |
 
-`packages/core/src/access/tls.ts` already issues per-sandbox certificates with their hostnames
-listed, and `ensureSandboxCertificate` is called from `up`. The shape a public issuer would plug
-into is there; the issuer is not.
+The third row is the reason the second one is written the way it is. `packages/core/src/naming.ts`
+builds every sandbox hostname as a single label, and `packages/core/src/access/tls.ts` issues one
+certificate for the machine — `baseCertificateNames`, from `init`. There is no per-sandbox
+certificate and nothing on the `up` path that issues one. What a public issuer would plug into is
+that single call; the issuer is not there.
 
 </details>
 

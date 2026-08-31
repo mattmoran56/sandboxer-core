@@ -27,20 +27,23 @@ describe("regexLiteral", () => {
 describe("sandboxRule", () => {
   it("matches every label under one sandbox, and nothing else", () => {
     const rule = sandboxRule("tkt-1", "acme", "sbx.localhost");
-    expect(rule).toBe("HostRegexp(`^tkt-1\\.[a-z0-9-]+\\.acme\\.sbx\\.localhost$`)");
+    expect(rule).toBe("HostRegexp(`^tkt-1--[a-z0-9]+(?:-[a-z0-9]+)*--acme\\.sbx\\.localhost$`)");
 
     // The expression inside the backticks is what Traefik compiles, so it is
     // worth exercising as a real regular expression rather than as a string.
     const pattern = new RegExp(rule.slice("HostRegexp(`".length, -"`)".length));
-    expect(pattern.test("tkt-1.app.acme.sbx.localhost")).toBe(true);
-    expect(pattern.test("tkt-1.admin-api.acme.sbx.localhost")).toBe(true);
+    expect(pattern.test("tkt-1--app--acme.sbx.localhost")).toBe(true);
+    expect(pattern.test("tkt-1--admin-api--acme.sbx.localhost")).toBe(true);
     // A different sandbox, a different project, and the bare domain all miss.
-    expect(pattern.test("tkt-2.app.acme.sbx.localhost")).toBe(false);
-    expect(pattern.test("tkt-1.app.other.sbx.localhost")).toBe(false);
+    expect(pattern.test("tkt-2--app--acme.sbx.localhost")).toBe(false);
+    expect(pattern.test("tkt-1--app--other.sbx.localhost")).toBe(false);
     expect(pattern.test("sbx.localhost")).toBe(false);
-    // Two labels where one is expected must not match, or one sandbox would
-    // answer for another project's hostnames.
-    expect(pattern.test("tkt-1.a.b.acme.sbx.localhost")).toBe(false);
+    // The old three-label shape must not still match, or a stale DNS entry would
+    // route to a sandbox whose Caddy no longer knows the name.
+    expect(pattern.test("tkt-1.app.acme.sbx.localhost")).toBe(false);
+    // A label holding `--` would divide two ways. It has to miss here, or this
+    // rule and `hostFor` would disagree about what a hostname means.
+    expect(pattern.test("tkt-1--a--b--acme.sbx.localhost")).toBe(false);
   });
 
   it("escapes a domain that contains regex metacharacters", () => {
@@ -99,8 +102,9 @@ describe("routeLabels", () => {
 
 describe("handshakeRule", () => {
   it("matches the reserved path on any sandbox hostname", () => {
+    const component = "[a-z0-9]+(?:-[a-z0-9]+)*";
     expect(handshakeRule("sbx.localhost")).toBe(
-      "HostRegexp(`^[a-z0-9-]+\\.[a-z0-9-]+\\.[a-z0-9-]+\\.sbx\\.localhost$`) && PathPrefix(`/.sandboxr/auth`)",
+      `HostRegexp(\`^${component}--${component}--${component}\\.sbx\\.localhost$\`) && PathPrefix(\`/.sandboxr/auth\`)`,
     );
   });
 
@@ -108,16 +112,18 @@ describe("handshakeRule", () => {
     expect(handshakeRule("a.b")).toContain("a\\.b");
   });
 
-  // Three labels above the domain is a sandbox; the dashboard's own bare domain
-  // has none. So this rule cannot shadow the control plane however it is ordered.
+  // One label above the domain, divided into three, is a sandbox; the
+  // dashboard's own bare domain has no label at all. So this rule cannot shadow
+  // the control plane however it is ordered.
   it("cannot match the dashboard's own hostname", () => {
     const pattern = new RegExp(
       handshakeRule("sbx.localhost").match(/HostRegexp\(`([^`]+)`\)/)?.[1] as string,
     );
-    expect(pattern.test("tkt-1.web.acme.sbx.localhost")).toBe(true);
+    expect(pattern.test("tkt-1--web--acme.sbx.localhost")).toBe(true);
     expect(pattern.test("sbx.localhost")).toBe(false);
-    expect(pattern.test("web.acme.sbx.localhost")).toBe(false);
-    expect(pattern.test("a.tkt-1.web.acme.sbx.localhost")).toBe(false);
+    expect(pattern.test("web--acme.sbx.localhost")).toBe(false);
+    expect(pattern.test("a.tkt-1--web--acme.sbx.localhost")).toBe(false);
+    expect(pattern.test("tkt-1--a--b--acme.sbx.localhost")).toBe(false);
   });
 
   // Traefik defaults a router's priority to the length of its rule, which would
