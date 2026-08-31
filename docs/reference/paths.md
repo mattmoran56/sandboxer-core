@@ -37,6 +37,8 @@ Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.
 | `tls/` | Certificates and keys the router serves | yes |
 | `state/` | Router config, the dynamic config directory, the dashboard's session key | yes |
 | `state/keep/<project>/<slug>` | Keeps one sandbox alive past its idle limit | **no** — see below |
+| `state/name/<project>/<slug>` | What to call one worktree on screen | **yes** — see below |
+| `state/attach/<project>/<slug>` | When a socket was last held open on one sandbox | yes — see below |
 | `secrets/<project>.env` | Third-party credentials, mode 0600. **A file you edit** — see below | yes |
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
@@ -65,14 +67,19 @@ commented example the first time and never touches it again.
 ttl: 12h
 # Whether a sandbox is handed this machine's GitHub token. `none` or `token`.
 github: none
-# Per project, optional.
+# Per project, optional. The key is the project's workspace directory, or the
+# `project:` its own sandboxr.yaml declares. Either works.
 projects:
-  acme: { ttl: 3d, github: token }
+  acme-monorepo: { ttl: 3d, github: token }
 ```
 
 A missing file means the defaults. A malformed one is an error naming the file and the key — because
 silently applying a default lifetime to a machine where somebody has just written down the lifetime
 they wanted is how a week of work gets stopped after twelve hours.
+
+A `projects:` key naming no project is a warning rather than an error: one stale entry must not stop
+every other project on the machine starting. `sandboxr doctor` names it, and lists the names that
+would have matched.
 
 `secrets/<project>.env` is the other one. It holds a project's third-party credentials, at mode
 `0600`, as `NAME="value"` one per line. It is **edited, not generated**: `sandboxr secrets set`,
@@ -88,6 +95,42 @@ The container is gone either way, and a marker for a container that no longer ex
 
 It is not relied on, though. The file records which container instance it was written for, so one
 left behind by a bare `docker rm` is ignored rather than applied to whatever takes the slug next.
+
+### The attach heartbeat
+
+`state/attach/<project>/<slug>` is stamped every thirty seconds while the dashboard is holding a
+terminal or an agent panel open on that sandbox, and once more when the last one closes. Only its
+modification time is read; the text inside is there so the directory means something if you look at
+it.
+
+It exists because a websocket does not appear in the router's log until it *closes*, and the line is
+stamped with the moment it opened — so a session held open for longer than the sandbox's lifetime
+left no evidence of being used, and the sandbox was stopped underneath it. This is the one thing on
+the machine sandboxr has to write down rather than derive, because the only process that knows a
+socket is open is the one holding it, and `sandboxr expire` on the command line is a different
+process.
+
+It survives `down`, and a stale one is harmless: all it records is a moment, and a moment older than
+the container currently holding that name counts for nothing. Delete it if you like — the sandbox
+falls back to its start time, which is the same thing that happens if the dashboard has never run.
+
+### A worktree's name
+
+`state/name/<project>/<slug>` holds what you have chosen to call one worktree — "the checkout flow
+rewrite" rather than `feat/tkt-4821`. It is the row directly above's opposite number, and comparing
+the two is the quickest way to see the rule both follow.
+
+A keep-alive marker applies to a container, so it names one and dies with it. A name applies to the
+*worktree*, which outlives every sandbox cut on it — so it carries no instance and survives `down`,
+a delete, and being started again. Stamping it would mean a rename quietly undoing itself the next
+time you rebuilt.
+
+It is only a label. **Renaming a worktree moves nothing**: the slug, the hostname, the container
+name and every URL are still built from the branch and the directory. Set it with
+`sandboxr worktree name <project> <branch> <name>`; an empty name hands the worktree back to its
+branch. The file is plain text and you can edit it by hand — one that has been
+edited into something that is not a name (more than 60 characters, or with a line break in it) is
+read as *no name*, so the worktree shows its branch again rather than showing something broken.
 
 ### The workspace
 

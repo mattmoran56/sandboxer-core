@@ -97,6 +97,7 @@ it is. `project clone <url>` still works, and nothing else on the machine is aff
 sandboxr worktree ls acme
 sandboxr worktree add acme tkt-4821
 sandboxr worktree add acme tkt-5000 --base staging   # create the branch too
+sandboxr worktree name acme tkt-4821 "the checkout flow rewrite"
 sandboxr worktree rm acme tkt-4821
 ```
 
@@ -110,6 +111,12 @@ worktree **detached** and recovers the branch name from the commit. `worktree ls
 `~`. The sandbox is still labelled with the branch and still answers on the hostname you expect.
 
 `worktree rm` refuses a worktree with uncommitted work in it unless you pass `--force`.
+
+`worktree name` is the one that costs nothing. Ticket ids make good addresses and poor labels, so you
+can call a worktree what the work actually is and see that in the listing instead. **Nothing else
+changes**: the slug, the hostname, the container name and every URL still come from the branch and
+the directory, and the command prints the slug alongside so you can see it did not move. An empty
+name (`""`) hands the worktree back to its branch.
 
 ## Starting a sandbox from a branch
 
@@ -243,6 +250,7 @@ workspace path and handed to `rm` on a failed clone.
 | `worktree ls <project>` | — | Branch, short head, path. `~` marks detached; `(GONE)` marks an entry git still lists whose directory is not on disk |
 | `worktree add <project> <branch>` | `--base REF` | Find-or-create. Refuses a branch name starting with `-` or containing `..` |
 | `worktree rm <project> <branch>` | `--force` | Maps branch to path through the listing, then `worktree remove` followed by `worktree prune`. The disk decides success, not the exit code |
+| `worktree name <project> <branch> <name>` | — | Writes `~/.sandboxr/state/name/<project>/<slug>`. Bounded at 60 characters, no line breaks; `""` removes it. Touches no identifier |
 
 `worktree add` picks its git invocation like this:
 

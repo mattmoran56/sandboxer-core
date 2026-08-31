@@ -767,14 +767,29 @@ That is the default. A sandbox has `gh` but no credential until you say otherwis
 
 ```yaml
 projects:
-  acme: { github: token }
+  acme-monorepo: { github: token }
 ```
+
+**The key is the project's name as sandboxr shows it** — its directory in the workspace, the name in
+every dashboard URL — or the `project:` its own `sandboxr.yaml` declares. Either works. A key that
+is neither does nothing at all, silently, which is the commonest way this goes wrong: run
+`sandboxr doctor` and it names any entry that matches no project, along with the names that would.
+`sandboxr config`, run in the worktree, says what this project resolved to.
 
 Then start the sandbox again. See [Access and security](access.md) for what that hands over, because
 it is more than the one project.
 
+> [!NOTE] There are two reasons `git push` fails, and the token is only one
+> A session also has to be *allowed* to run it. `git push` and `gh` are deliberately not in the
+> default set of commands an agent may run without asking, so a sandbox with a perfectly good token
+> still stops and asks. See [Agents in a sandbox](guides/agents-in-a-sandbox.md).
+
 <details class="failure">
 <summary><b>If it goes wrong</b> — still logged out after turning it on</summary>
+
+Check that the entry matches. `sandboxr config` in the worktree prints the resolved mode and, in
+brackets, the `projects:` key that decided it — so an entry keyed on a name no project answers to
+shows up as `github none` with no key beside it.
 
 Check that `gh auth token` answers on the *host*. That is where the value comes from, and a host
 that is signed out has nothing to pass on.

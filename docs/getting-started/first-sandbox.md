@@ -57,6 +57,9 @@ sandboxr up
 ```
 ==> Seeding: empty, then migrations and seeds/fixtures.sql
 ==> Building sandboxr/acme:8f2c1a94d0b7
+==> acme has no GitHub token: git commit works in this sandbox, gh and git push do not.
+      Set projects.acme.github: token in /home/you/.sandboxr/config.yaml, and allow the
+      session git push and gh — neither is in its default allowlist.
 ==> Starting tkt-4821 from tkt-4821@a1b2c3d
 ==> Applied fixtures from seeds/fixtures.sql
   ok Sandbox tkt-4821 is running
@@ -69,6 +72,11 @@ Open one of those URLs. That is your branch, running.
 
 Hostnames are always `<slug>.<label>.<project>.<domain>`. The slug is this sandbox, the label is
 one app or service in the project, and the project is the name in its `sandboxr.yaml`.
+
+The line about the GitHub token is said on every start where the token is off, which is the default.
+Nothing is broken — `git commit` works inside the sandbox exactly as it does outside — but pushing
+does not, and the only other moment you would find that out is a failed `git push` much later. See
+[Access and security](../access.md) for what turning it on hands over.
 
 **The first run on a project is the slow one.** It builds the project's own image layer — its
 language toolchains and its dependencies, on top of the base image. Later runs reuse it. The image

@@ -13,8 +13,14 @@
  * ttl: 12h
  * github: none
  * projects:
- *   acme: { ttl: 3d, github: token }
+ *   acme-monorepo: { ttl: 3d, github: token }
  * ```
+ *
+ * A `projects:` key is a project's **workspace directory name** or the
+ * `project:` its `sandboxr.yaml` declares — either will do, directory first.
+ * The example above is written with the two spelled differently on purpose: an
+ * example where they agree is what let this file's lookup match one name for a
+ * year without anybody noticing. See `projectEntry`.
  *
  * `github:` is here, and not in `sandboxr.yaml`, on purpose. The token is the
  * *operator's*, not the project's, and a setting that lives in a repository is a
@@ -79,8 +85,11 @@ export type GithubMode = (typeof GITHUB_MODES)[number];
  * sandbox everything is recoverable by deleting it, "and that stops being true
  * the moment a command reaches the network with the person's credentials".
  *
- * So the widening is opt-in, and forgetting to opt in costs a legible `gh: not
- * logged in` rather than a silence.
+ * So the widening is opt-in. Forgetting to opt in used to cost a silence: `git
+ * commit` works inside a sandbox whatever this says, so nothing was wrong until
+ * a `git push` failed hours later, inside an agent session. `up` now says on
+ * every start where this resolves to `none` that the sandbox has no token and
+ * which key would give it one — see ../sandbox/index.ts.
  */
 export const DEFAULT_GITHUB: GithubMode = "none";
 
@@ -131,12 +140,20 @@ ttl: 12h
 # say otherwise, and why it is set per project rather than machine-wide.
 #
 # git itself works either way: a sandbox can always commit to its own worktree.
+#
+# Note that a session also has to be allowed to run \`git push\` and \`gh\`: neither
+# is in the default allowlist, so a token on its own is not enough.
 github: none
 
 # Per project, for the ones that want a different answer. Optional — remove the
 # whole block if every project on this machine is the same.
+#
+# The key is a project's directory in the workspace — the name the dashboard
+# shows and every URL uses — or the \`project:\` its own sandboxr.yaml declares.
+# Either works; the directory wins if a machine has both. A key matching neither
+# does nothing at all, so \`sandboxr doctor\` names one it cannot match.
 #projects:
-#  acme: { ttl: 3d, github: token }
+#  acme-monorepo: { ttl: 3d, github: token }
 #  demo: { ttl: never }
 `;
 
@@ -180,11 +197,95 @@ export async function loadMachineConfig(env: NodeJS.ProcessEnv = process.env): P
   return result.data;
 }
 
-export interface TtlInput {
+/** One project's settings, as `projects:` holds them. */
+export type MachineProjectEntry = NonNullable<MachineConfig["projects"]>[string];
+
+/**
+ * Which project a `projects:` entry is being looked up for.
+ *
+ * **A project has two names and an operator sees the wrong one.** §3 and §4.1:
+ * the workspace *directory* is what the dashboard lists, what every URL carries
+ * and what is on disk, while the `project:` in that repo's `sandboxr.yaml` is
+ * what hostnames, container names and labels are built from. They are allowed to
+ * differ, and on any repository whose directory is `acme-monorepo` and whose
+ * config says `project: acme`, they do.
+ *
+ * This used to be looked up on the declared name alone, and that is the bug this
+ * type exists to close: an operator whose workspace holds `acme-monorepo` wrote
+ * `acme:` — the only name anything had ever shown them — and got nothing. Not an
+ * error, not a warning: the entry matched no project, so every project fell
+ * through to the machine-wide value, and the first symptom was an agent three
+ * commands in saying it could not push. The cause did not resemble the symptom
+ * at all.
+ *
+ * So **either name is a key**, directory first. `projectFor` in
+ * packages/web/src/lib/group.ts already resolves a project by either name, so
+ * matching on one here made the product disagree with itself.
+ */
+export interface ProjectKey {
+  /** The `project:` the repo's own `sandboxr.yaml` declares (§5). */
+  project?: string | undefined;
+  /** The workspace directory name (§4.1), when the project is a managed one. */
+  directory?: string | undefined;
+  /**
+   * Every project directory in the workspace, when the caller can see it.
+   *
+   * Only used to settle a collision — a key that is *some other* project's
+   * directory name. See `projectEntry`. A caller with no view of the workspace
+   * omits it and gets the plain two-step.
+   */
+  directories?: readonly string[] | undefined;
+}
+
+/** A `projects:` entry, and which of the project's two names found it. */
+export interface ProjectEntryMatch {
+  /** The key as written in `config.yaml`. Worth quoting back at somebody. */
+  key: string;
+  entry: MachineProjectEntry;
+  via: "directory" | "project";
+}
+
+/**
+ * The `projects:` entry that governs a project, or undefined when none does.
+ *
+ * The directory name is checked first and the declared name second, and that
+ * order is the contract (§4.3). The directory is the key an operator can see
+ * without opening a file, so it is the one a key is presumed to mean.
+ *
+ * **The collision, and why the directory wins it.** Two projects may disagree:
+ * `acme` is one project's directory *and* another project's declared
+ * `project:`. A key of `acme` then reads as both. It resolves to the project
+ * whose *directory* it is, and never reaches the other one — because the
+ * operator who typed it was looking at a list of directories, and because the
+ * failure of guessing wrong is not symmetric: guessing wrong about `github:`
+ * hands one project's opt-in to a repository nobody opted in. A caller that
+ * cannot see the workspace cannot detect the collision and takes the two-step;
+ * `up` and the dashboard can, and pass `directories`.
+ */
+export function projectEntry(
+  config: MachineConfig | undefined,
+  key: ProjectKey,
+): ProjectEntryMatch | undefined {
+  const entries = config?.projects;
+  if (entries === undefined) return undefined;
+
+  const { directory, project, directories } = key;
+
+  if (directory !== undefined) {
+    const entry = entries[directory];
+    if (entry !== undefined) return { key: directory, entry, via: "directory" };
+  }
+
+  if (project === undefined || project === directory) return undefined;
+  // Owned by whichever project's directory it is, so not an alias for this one.
+  if (directories?.includes(project) === true) return undefined;
+  const entry = entries[project];
+  return entry === undefined ? undefined : { key: project, entry, via: "project" };
+}
+
+export interface TtlInput extends ProjectKey {
   /** What the command was given, if anything. `--ttl`, or the dashboard's field. */
   explicit?: string | undefined;
-  /** Which project the sandbox belongs to, for the per-project entry. */
-  project?: string | undefined;
   config?: MachineConfig | undefined;
   env?: NodeJS.ProcessEnv | undefined;
 }
@@ -196,7 +297,7 @@ export interface TtlInput {
  * in docs/reference/environment.md:
  *
  * 1. what the command was told (`--ttl`)
- * 2. the project's entry in `config.yaml`
+ * 2. the project's entry in `config.yaml`, under either of its names (`projectEntry`)
  * 3. the file's top-level `ttl`
  * 4. `SANDBOXR_TTL_HOURS`, which is what a service unit sets
  * 5. the built-in `DEFAULT_TTL`
@@ -211,7 +312,7 @@ export function resolveTtl(input: TtlInput = {}): string {
   if (explicit !== undefined && explicit !== "") return explicit;
 
   const config = input.config ?? {};
-  const forProject = input.project === undefined ? undefined : config.projects?.[input.project]?.ttl;
+  const forProject = projectEntry(config, input)?.entry.ttl;
   if (forProject !== undefined) return forProject;
   if (config.ttl !== undefined) return config.ttl;
 
@@ -249,10 +350,92 @@ export async function writeMachineConfigExample(env: NodeJS.ProcessEnv = process
   }
 }
 
-export interface GithubInput {
-  /** Which project the sandbox belongs to, for the per-project entry. */
+/** A project this machine can see, by both of its names. */
+export interface ProjectIdentity {
+  /** The workspace directory name (§4.1). */
+  directory: string;
+  /** The `project:` its config declares, when that has been read. */
   project?: string | undefined;
+}
+
+/** What a `projects:` block looks like held up against the projects that exist. */
+export interface MachineConfigReview {
+  /** Keys naming no project this machine can see. */
+  unmatched: string[];
+  /** Keys that are one project's directory *and* another's declared name. */
+  ambiguous: string[];
+  /** Every name that would have matched, sorted — what to write instead. */
+  known: string[];
+}
+
+/**
+ * A `projects:` block checked against the projects that exist.
+ *
+ * **This is a warning and never an error, and that placement is the decision.**
+ * `loadMachineConfig` refuses a malformed file, because a `3d` typed as `3D` is
+ * a lifetime nobody chose being applied to a machine somebody has just
+ * configured. A key naming a project that does not exist is the same class of
+ * mistake and cannot take the same remedy: the file is machine-wide, so
+ * refusing to load it over a stale entry for a project somebody deleted last
+ * month would stop every *other* project on the machine starting. One dead line
+ * would take the whole file down.
+ *
+ * It also cannot be answered where the file is read. `loadMachineConfig` knows
+ * nothing about the workspace — it takes an environment and returns a document —
+ * and asking it to walk the workspace would put a directory listing behind every
+ * ttl lookup, including the ones inside the reaper's loop.
+ *
+ * So the question is asked by whoever can already see both halves: `sandboxr
+ * doctor`, which exists to hold the machine up against its config and name the
+ * fix, and `up`, which says it about the one project it is starting. Neither
+ * refuses.
+ *
+ * `known` is deliberately every *matchable* name rather than a guess at what
+ * was meant. The operator in the report that prompted this wrote a name that was
+ * a plausible spelling of a real project; the useful reply is the list of names
+ * that work, not a nearest-neighbour that might be wrong twice.
+ *
+ * `projects` is what the caller can see, which on a machine that runs sandboxes
+ * from checkouts outside the workspace is not all of them. A key naming such a
+ * project therefore reads as unmatched. That is the accepted cost of saying
+ * anything at all: the alternative is the silence this exists to end, and the
+ * message names the fix as "rename it or remove it" rather than asserting the
+ * project does not exist.
+ */
+export function reviewProjectEntries(
+  config: MachineConfig | undefined,
+  projects: readonly ProjectIdentity[],
+): MachineConfigReview {
+  const directories = new Set(projects.map((project) => project.directory));
+  const declared = new Set(
+    projects.flatMap((project) => (project.project === undefined ? [] : [project.project])),
+  );
+
+  const keys = Object.keys(config?.projects ?? {});
+  const unmatched = keys.filter((key) => !directories.has(key) && !declared.has(key));
+  // Only a real collision — one project's directory that is *also* a different
+  // project's declared name. A project whose two names agree is the ordinary
+  // case and is not ambiguous with itself.
+  const ambiguous = keys.filter(
+    (key) =>
+      directories.has(key) &&
+      projects.some((project) => project.project === key && project.directory !== key),
+  );
+
+  const known = [...new Set([...directories, ...declared])].sort((a, b) => a.localeCompare(b));
+  return { unmatched, ambiguous, known };
+}
+
+export interface GithubInput extends ProjectKey {
   config?: MachineConfig | undefined;
+}
+
+/** Where a resolved `github` came from, so a message can name it. */
+export interface GithubDecision {
+  mode: GithubMode;
+  /** The `projects:` key that decided it, when one did. */
+  key?: string | undefined;
+  source: "project" | "machine" | "default";
 }
 
 /**
@@ -260,7 +443,8 @@ export interface GithubInput {
  *
  * Precedence, most specific first, and the order is the contract (§4.3):
  *
- * 1. the project's entry in `config.yaml`
+ * 1. the project's entry in `config.yaml`, under *either* of its names — see
+ *    `projectEntry`, which is where the bug this replaced lived
  * 2. the file's top-level `github`
  * 3. the built-in `DEFAULT_GITHUB`, which is `none`
  *
@@ -271,7 +455,24 @@ export interface GithubInput {
  * file that somebody can read, not settable by whatever started the process.
  */
 export function resolveGithub(input: GithubInput = {}): GithubMode {
+  return decideGithub(input).mode;
+}
+
+/**
+ * The same answer, with the rung of the ladder that produced it.
+ *
+ * Split out rather than inlined at the one caller because the *reason* is what
+ * a person needs: "off" is nearly always what somebody expects to be able to
+ * change, and "off, and no line in your file mentions this project" is a
+ * different instruction from "off, because your file's top-level `github` says
+ * so". `up` prints one of those sentences; see ../sandbox/index.ts.
+ */
+export function decideGithub(input: GithubInput = {}): GithubDecision {
   const config = input.config ?? {};
-  const forProject = input.project === undefined ? undefined : config.projects?.[input.project]?.github;
-  return forProject ?? config.github ?? DEFAULT_GITHUB;
+  const match = projectEntry(config, input);
+  if (match?.entry.github !== undefined) {
+    return { mode: match.entry.github, key: match.key, source: "project" };
+  }
+  if (config.github !== undefined) return { mode: config.github, source: "machine" };
+  return { mode: DEFAULT_GITHUB, source: "default" };
 }

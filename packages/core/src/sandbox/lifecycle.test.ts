@@ -5,6 +5,8 @@
 // - down: a slug with no container is reported rather than treated as an error
 // - up: writes the environment file, carries the labels, and starts the container
 // - up: refuses a public sandbox that would carry real credentials, and names both ways out
+// - up: keys config.yaml on the workspace directory as well as the declared project:
+// - up: says once that this project's sandboxes carry no GitHub token, and names both reasons push fails
 // - up: a failed provision leaves the sandbox up and reports the failure
 // - reload: a backend build failure leaves the running process alone; a success restarts it
 // - reload: `all` covers the build-everything set, `built` covers what the sandbox has built, a name covers one app
@@ -157,7 +159,7 @@ function row(labels: Record<string, string>, name: string, state = "running"): C
   return { name, id: name, state, labels };
 }
 
-function configOf(extra: Record<string, unknown> = {}): ResolvedConfig {
+function configOf(extra: Record<string, unknown> = {}, file = "/repo/sandboxr.yaml"): ResolvedConfig {
   return resolveConfig(
     {
       project: "acme",
@@ -175,7 +177,7 @@ function configOf(extra: Record<string, unknown> = {}): ResolvedConfig {
       },
       ...extra,
     },
-    "/repo/sandboxr.yaml",
+    file,
   );
 }
 
@@ -380,6 +382,87 @@ describe("up", () => {
     await expect(
       up({ config: configOf({ access: { apps: "public" } }), worktree: dir, docker, env: { SANDBOXR_HOME: home } }),
     ).resolves.toBeDefined();
+  });
+
+  /*
+   * The report behind these two: a workspace holding `acme-monorepo`, whose
+   * `sandboxr.yaml` says `project: acme`, and a config.yaml keyed on the only
+   * name the operator had ever been shown — the directory. It matched nothing,
+   * every project fell through to the machine-wide default, and the first
+   * symptom was an agent unable to push, hours after the sandbox started.
+   */
+  async function managed(): Promise<{ home: string; worktree: string; config: ResolvedConfig }> {
+    const root = await mkdtemp(join(tmpdir(), "sbx-managed-"));
+    const home = join(root, "home");
+    const workspace = join(root, "workspace");
+    const project = join(workspace, "acme-monorepo");
+    await mkdir(join(project, "repo.git"), { recursive: true });
+    const worktreeDir = join(project, "wt", "tkt-1");
+    await mkdir(worktreeDir, { recursive: true });
+    await mkdir(home, { recursive: true });
+    return { home, worktree: worktreeDir, config: configOf({}, join(worktreeDir, "sandboxr.yaml")) };
+  }
+
+  it("keys config.yaml on the workspace directory, not only the declared project:", async () => {
+    const { home, worktree: dir, config } = await managed();
+    await writeFile(join(home, "config.yaml"), "projects:\n  acme-monorepo: { ttl: 3d }\n");
+    const { docker, argsOf } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
+
+    await up({
+      config,
+      worktree: dir,
+      docker,
+      env: { SANDBOXR_HOME: home, SANDBOXR_WORKSPACE: join(dir, "..", "..", "..") },
+    });
+
+    const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
+    // 3d in seconds. The old lookup tried `acme` alone and this label read 12h.
+    expect(runArguments).toContain(`${LABELS.ttl}=${3 * 24 * 60 * 60}`);
+  });
+
+  // Two independent reasons `git push` fails inside a sandbox, and a message
+  // naming one of them misleads: no token, and `git push`/`gh` being outside
+  // DEFAULT_ALLOWED_TOOLS. Both are said here because `git commit` works either
+  // way, so nothing else surfaces until an agent is hours in.
+  it("says the sandbox carries no GitHub token, and names the key that would change it", async () => {
+    const { home, worktree: dir, config } = await managed();
+    const lines: string[] = [];
+    const { docker } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
+
+    await up({
+      config,
+      worktree: dir,
+      docker,
+      log: (line) => lines.push(line),
+      env: { SANDBOXR_HOME: home, SANDBOXR_WORKSPACE: join(dir, "..", "..", "..") },
+    });
+
+    const said = lines.join("\n");
+    expect(said).toMatch(/has no GitHub token/);
+    // The directory name, because it is the one somebody can see without
+    // opening a file — writing the other one is the mistake this pre-empts.
+    expect(said).toContain("projects.acme-monorepo.github: token");
+    expect(said).toMatch(/git commit works in this sandbox/);
+    expect(said).toMatch(/default allowlist/);
+  });
+
+  it("says nothing about the token when the project is opted in", async () => {
+    const { home, worktree: dir, config } = await managed();
+    await writeFile(join(home, "config.yaml"), "projects:\n  acme-monorepo: { github: token }\n");
+    const lines: string[] = [];
+    const { docker } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
+
+    await up({
+      config,
+      worktree: dir,
+      docker,
+      log: (line) => lines.push(line),
+      // GH_TOKEN so the opted-in path answers from the environment instead of
+      // shelling out to `gh`, which a test machine may not have logged in.
+      env: { SANDBOXR_HOME: home, SANDBOXR_WORKSPACE: join(dir, "..", "..", ".."), GH_TOKEN: "t" },
+    });
+
+    expect(lines.join("\n")).not.toMatch(/has no GitHub token/);
   });
 
   it("lets a private sandbox carry them", async () => {

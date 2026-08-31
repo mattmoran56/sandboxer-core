@@ -65,7 +65,7 @@ that file is a contract.
 | `install.ts` | Where this installation of sandboxr lives, so the dashboard can mount it |
 | `secrets.ts` | Reading, editing, importing, filtering and checking a project's third-party credentials |
 | `git.ts` | `gitFacts`, `gitMounts`, `hostGitIdentity` — what makes git work inside a container |
-| `forge.ts` | Everything that shells out to `gh`: repositories, pull requests, merged branches |
+| `forge.ts` | Everything that shells out to `gh`: repositories, pull requests, merged branches, and `createPullIndex` — a project's pull requests by branch, cached and bounded by a timeout so a hung `gh` cannot stall a page |
 | `workspace.ts` | The managed workspace: `cloneProject`, `listProjects`, `findProject`, `fetchProject` |
 | `worktree.ts` | Listing, adding and removing worktrees, and what a worktree reports |
 | `sandbox/index.ts` | The lifecycle: `up`, `down`, `start`, `stop`, `list`, `status`, `reload`, `expire`, `gc`, `prune` |
@@ -150,7 +150,7 @@ against that session's grant.
 | Route | Answers |
 |---|---|
 | `GET /api/bootstrap` | The domain, the session, the closed action table, and the default lifetime the new-sandbox form offers |
-| `GET /api/workspace` | Every project, worktree and sandbox on the machine, plus a summary |
+| `GET /api/workspace` | Every project, worktree and sandbox on the machine, plus a summary. Each worktree carries the state of its pull request |
 | `GET /api/projects/:project` | One project's worktrees, branches and open pull requests |
 | `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its config declares |
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked as already in the workspace or not |
