@@ -64,23 +64,56 @@ taken a project through a day's work.**
 #### On a phone
 
 **Nothing here has been run on a phone.** The dashboard declares itself installable, lays itself out
-for a narrow screen, and carries the touch behaviour a native app has — a bottom tab bar,
-swipe-to-go-back, sheets that drag away, the notch and the home indicator accounted for.
+for a narrow screen, and carries the touch behaviour a native app has — a tab bar that floats over
+the pane and recedes as you scroll, swipe-to-go-back, dialogs that are sheets inset from the display
+and drag away by the header, translucent chrome, the notch and the home indicator accounted for.
 
 **Checked:** the manifest, the service worker and the four icons are served with the right types and
 cache headers, and everything not on that list of six is refused. The gesture thresholds, the
-keyboard-inset arithmetic and the tab bar's current-section logic have unit tests. The generated
-stylesheet really does contain the coarse-pointer and safe-area rules, which is the failure worth
-checking for because a Tailwind variant that is never generated has no symptom on a desktop.
+keyboard-inset arithmetic, the tab bar's current-section logic, the rule that decides when it recedes
+and the sheet's drag all have unit tests.
 
-**Not checked:** any of it in front of a person holding a phone. In particular, nobody has added it
-to a Home Screen and launched it; nobody has confirmed the status bar reads correctly in both themes;
-and the swipe thresholds are judgements about a thumb that have only been reasoned about, not felt.
-The icons have been looked at as images but never as an icon on a wallpaper.
+**Checked, and worth naming separately because it is the part that fails invisibly: the contrast
+arithmetic.** The glass tint is 88% because of a sum, not because of how it looked.
+`packages/web/src/app.css.test.ts` composites that tint over the two extremes a reader can scroll
+under a bar — a terminal's black and a white card — in both themes, and checks every ink allowed on
+it. That test caught the first tint at 4.07:1. It also pins, *as a failing assertion*, that the brand
+hue cannot clear AA on raw glass: that is what makes the selected tab's tinted pill load-bearing
+rather than decorative, and if it ever starts passing the pill can go.
+
+**Checked: the build emits what the stylesheet declares.** The bundle really does contain the glass
+declarations, the sheet radius, and the coarse-pointer and safe-area rules. That is worth checking
+because a Tailwind utility that never reaches the build has no symptom on a desktop — and one version
+of this glass did exactly that, wrapped in an `@supports` that Tailwind rejected, so the blur never
+shipped at all.
+
+**Not checked: how any of it looks or feels on a device.** Nobody has added it to a Home Screen and
+launched it; nobody has confirmed the status bar reads correctly in both themes; nobody has seen the
+blur, the specular edge or the rim on a real display, over a scrolling log, at a real refresh rate.
+The swipe thresholds, the scroll hysteresis that decides when the bar draws back, and the sheet's
+settle animation are judgements about a thumb that have been reasoned about and not felt. The icons
+have been looked at as images but never as an icon on a wallpaper.
+
+> [!NOTE] It is not Liquid Glass, and on the web it cannot be
+> Apple's material blurs the light behind it **and refracts it** — bends and concentrates it rather
+> than scattering it. Refraction needs `backdrop-filter: url(#…)` to run a displacement map against
+> the backdrop, and WebKit has not implemented that: bug 245510, open since 2022. What the dashboard
+> reproduces is the rest — the blur, the saturation, the specular top edge, the hairline rim and the
+> shadow that separates a bar from what is under it. Where a commit message in this repository says
+> "glass" or "the material", that is what it means. Nothing here is a claim to have Liquid Glass.
+
+**Reduce transparency is a control in Settings → Appearance rather than something the app detects**,
+and that is not a shortcut. `prefers-reduced-transparency` is unimplemented in WebKit — bug 175497,
+filed 2017, still open — so Safari cannot tell a web page that the system preference is on.
+`prefers-contrast: more` is honoured automatically as a second signal for the same intent. Both paths
+swap the same tokens and both are exercised only in a stylesheet; neither has been watched taking
+effect on a phone with the system preference actually switched on.
 
 **What a real run would settle:** whether the back gesture ever fights the log tail or the terminal
-in practice, whether the tab bar's four sections are the right four, and whether a sheet dragged from
-its header is discoverable without the handle being explained.
+in practice, whether the tab bar's four sections are the right four, whether a bar that recedes on
+scroll is a relief or a thing you keep chasing, whether an approximation of the material reads as
+deliberate or as a poor imitation of the one next to it on the same Home Screen, and whether a sheet
+dragged from its header is discoverable without the handle being explained.
 
 ### Agent sessions
 
