@@ -26,10 +26,47 @@
  * a listing was empty through its `log`, because the empty list it returns is
  * the same list a machine with no repositories would get, and an operator needs
  * to be able to tell those two apart without a debugger.
+ *
+ * `createPullIndex` extends that posture in the one direction the rules above do
+ * not cover, and it is worth naming because the two failure shapes are not the
+ * same shape. Everything else here answers a *list*, and an empty list is a
+ * survivable lie. The index answers a question about **one** branch — is there a
+ * pull request on it, and what became of it — and there the missing answer has
+ * to stay missing: `null` means "no pull request, or nobody could tell us", and
+ * it must never be flattened into `closed`. A closed pull request is a red mark
+ * on a page saying somebody rejected this work, and a machine without `gh` on it
+ * has not rejected anything.
+ *
+ * The index also owns the two costs a per-branch question brings that a
+ * per-project one did not:
+ *
+ * - **One `gh` for a project, not one per worktree.** A machine with thirty
+ *   worktrees asks about a repository, once, and joins by branch.
+ * - **A deadline.** A subprocess that hangs — a proxy that accepts and never
+ *   answers is the way this really happens — must not hold up the sidebar, so
+ *   the wait is bounded and a bounded-out call is simply another "no answer".
  */
 
 import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
 import type { Project } from "./workspace.js";
+
+/**
+ * What became of a pull request, as one value.
+ *
+ * Four states, because that is what somebody looking at a branch wants to know,
+ * and **draft is not a fifth**. GitHub reports two independent things — a state
+ * of `OPEN`, `CLOSED` or `MERGED`, and an `isDraft` flag — and `isDraft` is a
+ * modifier that only means anything while the pull request is open. So the two
+ * compose in one direction and only one: an open pull request is `draft` when it
+ * is marked as one and `open` when it is not, and a closed or merged one is
+ * `closed` or `merged` whatever the flag says. A pull request that was a draft
+ * when it was merged is `merged`; nobody wants to be told it is still a sketch.
+ *
+ * `draft` is kept rather than folded into `open` because it is the one state a
+ * reader acts on differently: an open pull request is waiting for them, and a
+ * draft is waiting for its author.
+ */
+export type PullState = "draft" | "open" | "closed" | "merged";
 
 export interface PullRequest {
   number: number;
@@ -37,7 +74,17 @@ export interface PullRequest {
   /** The head ref — the branch you would make a worktree for. */
   branch: string;
   base: string;
+  /**
+   * Whether GitHub marks this pull request a draft, as reported.
+   *
+   * Kept beside `state` rather than replaced by it because the two answer
+   * different questions: this is the raw flag, and `state` is what to *show*. A
+   * merged pull request that was opened as a draft has `draft: true` here and
+   * `state: "merged"` there, and both are true statements.
+   */
   draft: boolean;
+  /** Open, draft, closed or merged — `draft` composed onto the state above. */
+  state: PullState;
   author: string;
   /** ISO 8601, as the forge reported it. */
   updated: string;
@@ -135,7 +182,7 @@ const REPOS_JQ =
 const SLUG = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 /** The fields the mapping below needs, in gh's own names. */
-const FIELDS = "number,title,headRefName,baseRefName,isDraft,author,updatedAt,url";
+const FIELDS = "number,title,headRefName,baseRefName,isDraft,state,author,updatedAt,url";
 
 /**
  * Reads `owner/repo` out of a clone URL, for GitHub and only GitHub.
@@ -234,16 +281,35 @@ function toPullRequest(entry: unknown): PullRequest | undefined {
   const author = record["author"];
   const login = typeof author === "object" && author !== null ? (author as Record<string, unknown>)["login"] : undefined;
 
+  const draft = record["isDraft"] === true;
   return {
     number,
     title: text(record["title"], ""),
     branch,
     base: text(record["baseRefName"], ""),
-    draft: record["isDraft"] === true,
+    draft,
+    state: pullState(record["state"], draft),
     author: text(login, UNKNOWN),
     updated: text(record["updatedAt"], ""),
     url: text(record["url"], ""),
   };
+}
+
+/**
+ * Composes gh's `state` and `isDraft` into the one value a reader is shown.
+ *
+ * Unknown and missing states read as open rather than as closed, and that
+ * asymmetry is deliberate: this file's whole posture is that a missing answer
+ * must never become an accusation, and `closed` is the only one of the four that
+ * says somebody decided against this work. A gh too old to know the `state`
+ * field never reaches here at all — it rejects the `--json` list outright, which
+ * is a non-zero exit and therefore no answer, rather than a wrong one.
+ */
+function pullState(raw: unknown, draft: boolean): PullState {
+  const state = typeof raw === "string" ? raw.toUpperCase() : "";
+  if (state === "MERGED") return "merged";
+  if (state === "CLOSED") return "closed";
+  return draft ? "draft" : "open";
 }
 
 function text(value: unknown, fallback: string): string {
@@ -385,6 +451,299 @@ export async function mergedBranches(
 }
 
 /**
+ * How long a project's pull requests are trusted, in milliseconds.
+ *
+ * The dashboard polls every thirty seconds and a pull request does not change
+ * state anything like that often, so a poll is the wrong clock to hang a
+ * subprocess off. Five minutes is the answer to "how stale may a branch icon
+ * be", and it is the ceiling rather than the typical case: the value is refreshed
+ * in the background as soon as it expires, so what a reader sees is at most five
+ * minutes old and usually much less.
+ */
+export const PULL_INDEX_TTL_MS = 5 * 60_000;
+
+/**
+ * How long "no answer" is trusted, before asking again.
+ *
+ * Shorter than a real answer on purpose, and for both directions of the same
+ * problem. A machine with no `gh` on it would otherwise re-spawn a doomed
+ * subprocess per project on every poll; and a machine whose `gh` was merely
+ * logged out at breakfast should show its pull requests again within a minute of
+ * somebody logging in, not five.
+ */
+export const PULL_INDEX_RETRY_MS = 60_000;
+
+/**
+ * How long one `gh pr list` may take before it is abandoned.
+ *
+ * The whole point of this file is that a missing forge costs a column and never
+ * a page, and a process that hangs breaks that promise more thoroughly than one
+ * that fails: a corporate proxy that accepts the connection and never answers
+ * leaves `gh` waiting on a socket with no timeout of its own, and the sidebar
+ * waits with it. Five seconds is long enough for a cold API call over a slow
+ * link and short enough that hitting it is not a broken page.
+ */
+const PULL_INDEX_TIMEOUT_MS = 5_000;
+
+/**
+ * How many pull requests the index reads, newest first.
+ *
+ * Larger than the listing default because this asks `--state all`, so closed and
+ * merged pull requests share the window with open ones — on a busy repository a
+ * window of fifty could be entirely closed. A branch whose pull request falls
+ * outside the window has *no answer*, which draws nothing, rather than a wrong
+ * one. The cases that matters for are old branches, and an old branch with a
+ * live worktree on it is rare.
+ */
+const PULL_INDEX_LIMIT = 100;
+
+export interface PullIndexOptions {
+  run?: Runner | undefined;
+  /** How many pull requests to read per project. Clamped to `MAX_LIMIT`. */
+  limit?: number | undefined;
+  /** How long one `gh` call may take. Defaults to `PULL_INDEX_TIMEOUT_MS`. */
+  timeoutMs?: number | undefined;
+  /** How long an answer is trusted. Defaults to `PULL_INDEX_TTL_MS`. */
+  ttlMs?: number | undefined;
+  /** How long "no answer" is trusted. Defaults to `PULL_INDEX_RETRY_MS`. */
+  retryMs?: number | undefined;
+  /**
+   * The clock, so a test can age an entry without waiting for one.
+   *
+   * `Date.now` and not a monotonic source: the interval this measures is minutes
+   * long and the consequence of a clock step is one extra `gh` call.
+   */
+  now?: (() => number) | undefined;
+  /**
+   * Told why a project has no pull request answers.
+   *
+   * `listRemoteRepos`' reason, and more sharply: here every failure and every
+   * success with nothing in it both draw the same nothing, and an operator
+   * cannot tell "this branch has no pull request" from "this machine cannot see
+   * GitHub" by looking at the page. The line quotes gh, so it can name a path or
+   * an account — an operator's log, never a browser.
+   */
+  log?: ((line: string) => void) | undefined;
+}
+
+/**
+ * A project's pull requests, by head branch, cached and shared.
+ *
+ * The thing being avoided: a dashboard drawing thirty worktrees, asking each one
+ * "what is your pull request", and running thirty `gh` subprocesses every thirty
+ * seconds. The question is per branch and the *answer* is per repository, so the
+ * repository is what is fetched and cached, and the branch is a map lookup.
+ *
+ * Held by the caller rather than in a module-level map, because a cache with no
+ * owner has no lifetime: the dashboard wants one that lives as long as the
+ * server, and the CLI wants one that dies with the command. Keyed on the
+ * repository slug and not the project, so two workspace directories cloned from
+ * one repository share the call.
+ */
+/**
+ * The one field the index needs: where the project was cloned from.
+ *
+ * Narrower than `Project` on purpose. The dashboard's view of a project is not
+ * core's `Project` — it has an origin and a name and no repository path — and
+ * widening it to satisfy a type would be a worse trade than admitting that a
+ * repository slug is all this reads. A whole `Project` still fits.
+ */
+export type ProjectOrigin = Pick<Project, "origin">;
+
+export interface PullIndex {
+  /**
+   * Every branch of this project that has a pull request, or `null`.
+   *
+   * `null` is "nobody could tell us" — no `gh`, not logged in, not a GitHub
+   * origin, a repository this token cannot see, or a call that ran out of time.
+   * An **empty map** is a real answer meaning this repository has no pull
+   * requests. Callers that only draw a mark may treat them the same; callers
+   * that say anything to a person must not.
+   */
+  forProject(project: ProjectOrigin): Promise<ReadonlyMap<string, PullRequest> | null>;
+  /**
+   * The pull request on one branch, or `null` when there is none or no answer.
+   *
+   * The two collapse here on purpose — a branch icon has nothing to draw either
+   * way — and `forProject` is where a caller that needs them apart goes.
+   */
+  forBranch(project: ProjectOrigin, branch: string): Promise<PullRequest | null>;
+}
+
+/**
+ * How much a state counts for when one branch carries several pull requests.
+ *
+ * It happens more than it sounds like it does: a pull request is closed without
+ * merging and a second is opened on the same branch, or a branch is reused after
+ * its work merged. Whatever is still *live* is what somebody would act on, so it
+ * wins; a merge beats an abandonment, because it says the work landed; and
+ * `open` and `draft` are one rank, since both are live and the tie below —
+ * highest number, i.e. most recently opened — is the honest way to pick.
+ */
+const STATE_RANK: Record<PullState, number> = { open: 3, draft: 3, merged: 2, closed: 1 };
+
+function outranks(candidate: PullRequest, incumbent: PullRequest): boolean {
+  const rank = STATE_RANK[candidate.state] - STATE_RANK[incumbent.state];
+  return rank === 0 ? candidate.number > incumbent.number : rank > 0;
+}
+
+/**
+ * Indexes pull requests by head branch, keeping the one that matters per branch.
+ *
+ * Exported and pure so the tie-break can be tested without a gh on the machine.
+ */
+export function indexByBranch(pulls: readonly PullRequest[]): Map<string, PullRequest> {
+  const byBranch = new Map<string, PullRequest>();
+  for (const pull of pulls) {
+    const incumbent = byBranch.get(pull.branch);
+    if (!incumbent || outranks(pull, incumbent)) byBranch.set(pull.branch, pull);
+  }
+  return byBranch;
+}
+
+interface PullEntry {
+  pulls: ReadonlyMap<string, PullRequest> | null;
+  /** When it was read, on `options.now`'s clock. */
+  at: number;
+}
+
+/**
+ * A cache over `gh pr list --state all`, one entry per repository.
+ *
+ * **Stale is served while fresh is fetched.** Only the very first question about
+ * a repository waits for `gh`; from then on an expired entry is handed over
+ * immediately and refreshed behind the caller. The alternative — every caller
+ * that finds an expired entry waits — puts a subprocess in the path of a page
+ * render once every TTL, which is the stall this whole design exists to avoid,
+ * and it buys nothing: a mark that is five minutes and two seconds old is not
+ * worse than one that is five minutes old.
+ *
+ * A cached "no answer" is a stale entry like any other and is served the same
+ * way, on its own shorter clock. So a machine that has never had `gh` never
+ * waits for one twice, and a machine where somebody has just run `gh auth login`
+ * shows its pull requests on the poll after the retry rather than on the one
+ * that noticed.
+ *
+ * Never throws, and never rejects a background refresh either — an unhandled
+ * rejection in a server that is deliberately ignoring a forge outage would take
+ * down the process the outage was not allowed to affect.
+ */
+export function createPullIndex(options: PullIndexOptions = {}): PullIndex {
+  const now = options.now ?? Date.now;
+  const ttlMs = options.ttlMs ?? PULL_INDEX_TTL_MS;
+  const retryMs = options.retryMs ?? PULL_INDEX_RETRY_MS;
+  const timeoutMs = options.timeoutMs ?? PULL_INDEX_TIMEOUT_MS;
+
+  const entries = new Map<string, PullEntry>();
+  // In-flight calls, so ten worktrees asking at once share one subprocess rather
+  // than each starting their own before the first has finished.
+  const inFlight = new Map<string, Promise<void>>();
+
+  const fresh = (entry: PullEntry): boolean => now() - entry.at < (entry.pulls === null ? retryMs : ttlMs);
+
+  const refresh = (key: string, slug: string): Promise<void> => {
+    const running = inFlight.get(key);
+    if (running) return running;
+
+    const started = read(slug, { ...options, timeoutMs })
+      .then((pulls) => {
+        entries.set(key, { pulls, at: now() });
+      })
+      .finally(() => {
+        inFlight.delete(key);
+      });
+    inFlight.set(key, started);
+    return started;
+  };
+
+  const forProject = async (project: ProjectOrigin): Promise<ReadonlyMap<string, PullRequest> | null> => {
+    const slug = repoSlugFromUrl(project.origin ?? "");
+    // Checked again rather than trusted, for `listPullRequests`' reason: this is
+    // the line between a string out of a config file and a subprocess.
+    if (!slug || !isSafeSlug(slug)) return null;
+    // GitHub is case-insensitive about owners and repositories, and a clone URL
+    // typed by hand rarely matches the API's capitalisation — two spellings of
+    // one repository must not become two subprocesses.
+    const key = slug.toLowerCase();
+
+    const cached = entries.get(key);
+    if (cached && fresh(cached)) return cached.pulls;
+    if (cached) {
+      void refresh(key, slug).catch(() => undefined);
+      return cached.pulls;
+    }
+
+    await refresh(key, slug).catch(() => undefined);
+    return entries.get(key)?.pulls ?? null;
+  };
+
+  return {
+    forProject,
+    forBranch: async (project, branch) => {
+      if (branch === "") return null;
+      const pulls = await forProject(project);
+      // An exact head-ref match and nothing cleverer. A detached worktree is
+      // labelled with whichever local branch points at its HEAD (`branchOf` in
+      // git.ts), so it finds that branch's pull request — the right answer, since
+      // it is the same commit — and one that resolved to nothing is `?`, which
+      // matches no branch.
+      return pulls?.get(branch) ?? null;
+    },
+  };
+}
+
+/**
+ * One repository's pull requests, in every state, or `null`.
+ *
+ * `--state all` rather than the listing's `open`, because the four states are
+ * the whole point: a branch whose pull request merged and a branch that never
+ * had one are the two things `--state open` cannot tell apart.
+ */
+async function read(
+  slug: string,
+  options: PullIndexOptions,
+): Promise<ReadonlyMap<string, PullRequest> | null> {
+  const args = [
+    "pr",
+    "list",
+    "--repo",
+    slug,
+    "--state",
+    "all",
+    "--limit",
+    String(clampLimit(options.limit ?? PULL_INDEX_LIMIT)),
+    "--json",
+    FIELDS,
+  ];
+
+  const result = await withDeadline(
+    attempt(options.run ?? nodeRunner, args, options.timeoutMs),
+    options.timeoutMs ?? PULL_INDEX_TIMEOUT_MS,
+  );
+  if (!result) {
+    options.log?.(`${slug}: gh did not answer within the deadline, or could not be run`);
+    return null;
+  }
+  if (result.code !== 0) {
+    options.log?.(`${slug}: ${ghFailure(result)}`);
+    return null;
+  }
+
+  const pulls = parsePullRequests(result.stdout);
+  // Output that parsed to nothing is not the same as a repository with no pull
+  // requests, and unlike the listings elsewhere in this file the difference is
+  // not cosmetic: an empty map is an answer, and answers are what a per-branch
+  // question is allowed to draw conclusions from. gh prints `[]` for a
+  // repository with none, so anything else that yielded nothing — a proxy's HTML
+  // error page is how this really happens — is no answer at all.
+  if (pulls.length === 0 && result.stdout.trim() !== "[]") {
+    options.log?.(`${slug}: gh answered with output that held no pull requests`);
+    return null;
+  }
+  return indexByBranch(pulls);
+}
+
+/**
  * Every repository the signed-in account can reach, newest-updated first.
  *
  * This is what turns "adding a project" from pasting a URL into picking from a
@@ -515,10 +874,37 @@ function ghFailure(result: ExecResult | undefined): string {
  * here would escape as a thrown error from a function documented never to
  * throw, which is exactly the way a missing forge would take a page down.
  */
-async function attempt(run: Runner, args: string[]): Promise<ExecResult | undefined> {
+async function attempt(run: Runner, args: string[], timeoutMs?: number): Promise<ExecResult | undefined> {
   try {
-    return await run("gh", args);
+    // The runner's own timeout kills the child; `withDeadline` bounds the *wait*.
+    // Both, because they fail differently: a runner that ignores the option — a
+    // test double, or one written before it existed — would otherwise leave the
+    // deadline racing a promise nothing ever settles, and a child that is killed
+    // but whose stdout pipe is still held open by a grandchild settles the
+    // runner late or never.
+    return await run("gh", args, timeoutMs === undefined ? undefined : { timeoutMs });
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Waits for something, but not for ever.
+ *
+ * The timer is unref'd so a call still in flight cannot keep the process alive:
+ * the CLI is a short-lived process that exits when its work is done, and a
+ * five-second handle on the event loop would turn every command into a
+ * five-second command.
+ */
+async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<undefined>((settle) => {
+    timer = setTimeout(() => settle(undefined), ms);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([work, expired]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }

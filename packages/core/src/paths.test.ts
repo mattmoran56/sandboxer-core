@@ -4,7 +4,7 @@
 // - logsFor / secretsFile / envFile / cacheFile shapes
 // - directoriesOf: the set a command creates up front
 // - workspace: its own variable, defaulting under the home
-// - projectDir / worktreesDir / keepFile / configFile shapes
+// - projectDir / worktreesDir / keepFile / attachFile / configFile shapes
 // - isInside: a path in a directory, the directory itself, a sibling with a shared prefix
 // - samePath: identical strings, and two spellings of one place
 
@@ -107,6 +107,16 @@ describe("keepFile", () => {
   it("is one file per sandbox, under the state directory", () => {
     const p2 = paths({ SANDBOXR_HOME: "/tmp/sbx" });
     expect(p2.keepFile("acme", "tkt-1")).toBe(join("/tmp/sbx", "state", "keep", "acme", "tkt-1"));
+  });
+});
+
+describe("attachFile", () => {
+  // Beside the keep marker and keyed the same way, on the container's project
+  // rather than the workspace directory: it is joined to a sandbox, not to a
+  // worktree.
+  it("is one file per sandbox, under the state directory", () => {
+    const p2 = paths({ SANDBOXR_HOME: "/tmp/sbx" });
+    expect(p2.attachFile("acme", "tkt-1")).toBe(join("/tmp/sbx", "state", "attach", "acme", "tkt-1"));
   });
 });
 

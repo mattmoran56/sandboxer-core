@@ -101,6 +101,25 @@ export interface Paths {
   worktreesDir(project: string): string;
   /** The marker that keeps one sandbox alive past its idle limit. */
   keepFile(project: string, slug: string): string;
+  /**
+   * The heartbeat saying a live process holds a socket open on one sandbox.
+   *
+   * Keyed like `keepFile` — on the `sandboxr.project` of the container, not the
+   * workspace directory — because it is joined to a sandbox and not to a
+   * worktree. Only the mtime is read; see sandbox/attach.ts for why this is the
+   * one activity signal that is written rather than derived.
+   */
+  attachFile(project: string, slug: string): string;
+  /**
+   * The display name somebody gave one worktree.
+   *
+   * `<project>` here is the workspace *directory* name — §4.1's key, and the
+   * one the worktree's own path is built from — not the `project:` a
+   * sandboxr.yaml declares, which is what `keepFile` beside it is keyed on. The
+   * two are allowed to differ, and this file names a directory on disk rather
+   * than a container.
+   */
+  nameFile(project: string, slug: string): string;
 }
 
 /**
@@ -136,6 +155,8 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     projectDir: (project) => join(workspace, project),
     worktreesDir: (project) => join(workspace, project, WORKTREES_DIR),
     keepFile: (project, slug) => join(home, "state", "keep", project, slug),
+    attachFile: (project, slug) => join(home, "state", "attach", project, slug),
+    nameFile: (project, slug) => join(home, "state", "name", project, slug),
   };
 }
 

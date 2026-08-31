@@ -41,6 +41,9 @@ sandboxr up demo1
 ```
 ==> Seeding: empty, then migrations and seeds/fixtures.sql
 ==> Building sandboxr/demo:9d41f0c37a58
+==> demo has no GitHub token: git commit works in this sandbox, gh and git push do not.
+      Set projects.demo.github: token in /home/you/.sandboxr/config.yaml, and allow the
+      session git push and gh — neither is in its default allowlist.
 ==> Starting demo1 from main@a1b2c3d
 ==> Applied fixtures from seeds/fixtures.sql
   ok Sandbox demo1 is running

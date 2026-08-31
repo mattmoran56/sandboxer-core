@@ -85,6 +85,11 @@ See [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
 **Dirty** — a sandbox built from a worktree that had uncommitted changes. `sandboxr ls` marks it
 with a `*`. See [CLI commands](cli.md).
 
+**Display name** — what you have chosen to call a worktree, instead of its branch: "the checkout
+flow rewrite" rather than `feat/tkt-4821`. It is a label and nothing more — the [slug](#s), the
+hostname, the container name and every URL still come from the branch and the directory, so renaming
+a worktree moves no address. Set with `sandboxr worktree name`. See [CLI commands](cli.md).
+
 **Domain** — the hostname suffix everything hangs off. `SANDBOXR_DOMAIN`, default `sbx.localhost`.
 See [Environment variables](environment.md).
 
@@ -115,7 +120,8 @@ longer matches the schema is a signal, not a reason to refuse to start. See
 [Databases](../databases.md).
 
 **Forge** — the code host `gh` talks to, which today means GitHub. A machine without `gh` still
-works; it just cannot list repositories or pull requests. See
+works; it just cannot list repositories or pull requests, and every worktree's pull-request mark is
+simply absent rather than wrong. See
 [Several repositories at once](../setups/many-projects.md).
 
 **Forward auth** — how a `private` project's app hostnames are protected without a second login.
@@ -144,7 +150,10 @@ agent grant is a standing permission a project has given a session. See
 ## I
 
 **Idle clock** — the timer behind a [ttl](#t). It measures **idleness, not uptime**: the deadline is
-the later of the container's start time and the last request that reached it, plus the ttl. See
+the later of the container's start time and the last time anybody used it, plus the ttl. Four things
+count as use — a request through the router, opening the sandbox in the dashboard, an agent session
+running on its worktree, and a terminal or agent panel held open on it — and the last two hold the
+sandbox open until they stop. See
 [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
 
 ## K
@@ -234,6 +243,12 @@ default and removes only with `--yes`. See
 
 **Public app** — the default. Anyone who can reach the hostname can open the app, with no login. See
 [Access and security](../access.md).
+
+**Pull request state** — what became of the pull request on a worktree's branch: `draft`, `open`,
+`closed` or `merged`. Four and not five — `draft` is GitHub's draft flag folded onto an *open* pull
+request, so one that was a draft when it merged is `merged`. **No mark at all** means either that
+there is no pull request or that this machine could not ask, and the two are deliberately one
+answer. See [The dashboard](../guides/dashboard.md).
 
 ## R
 

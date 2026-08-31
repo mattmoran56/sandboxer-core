@@ -40,13 +40,27 @@ export {
   DEFAULT_GITHUB,
   GITHUB_MODES,
   MACHINE_CONFIG_EXAMPLE,
+  decideGithub,
   loadMachineConfig,
   machineConfigSchema,
+  projectEntry,
   resolveGithub,
   resolveTtl,
+  reviewProjectEntries,
   writeMachineConfigExample,
 } from "./config/machine.js";
-export type { GithubInput, GithubMode, MachineConfig, TtlInput } from "./config/machine.js";
+export type {
+  GithubDecision,
+  GithubInput,
+  GithubMode,
+  MachineConfig,
+  MachineConfigReview,
+  MachineProjectEntry,
+  ProjectEntryMatch,
+  ProjectIdentity,
+  ProjectKey,
+  TtlInput,
+} from "./config/machine.js";
 export { compareVersions, parseVersion, satisfies, VersionError } from "./config/version.js";
 export { TOOL_VERSION } from "./tool-version.js";
 
@@ -112,8 +126,26 @@ export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.
 export { formatBytes, planPrune } from "./sandbox/prune.js";
 export type { PrunableImage, PrunableVolume, PruneInput, PrunePlan, PruneResult } from "./sandbox/prune.js";
 export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js";
-export { DEFAULT_ACTIVITY_WINDOW, lastActivity, parseAccessLog } from "./sandbox/activity.js";
-export type { ActivityOptions } from "./sandbox/activity.js";
+export { ATTACH_HEARTBEAT_MS, attachFileFor, markAttached } from "./sandbox/attach.js";
+export type { AttachOptions } from "./sandbox/attach.js";
+export {
+  AGENT_LIVE_GRACE_MS,
+  AGENT_LIVE_STATES,
+  ATTACH_LIVE_GRACE_MS,
+  DEFAULT_ACTIVITY_WINDOW,
+  agentActivity,
+  attachedActivity,
+  lastActivity,
+  parseAccessLog,
+  sandboxActivity,
+} from "./sandbox/activity.js";
+export type {
+  ActivityOptions,
+  AgentActivityOptions,
+  AttachedActivityOptions,
+  RouterActivity,
+  SandboxActivityOptions,
+} from "./sandbox/activity.js";
 
 export {
   WorkspaceError,
@@ -121,6 +153,8 @@ export {
   fetchProject,
   findProject,
   listProjects,
+  projectDirectories,
+  projectIdentities,
   projectNameFromUrl,
 } from "./workspace.js";
 export type { CloneOptions, Project, WorkspaceOptions } from "./workspace.js";
@@ -136,17 +170,39 @@ export {
 export type { AddInput, Branch, Worktree } from "./worktree.js";
 
 export {
+  DISPLAY_NAME_MAX,
+  DisplayNameError,
+  normaliseDisplayName,
+  readDisplayName,
+  removeDisplayName,
+  writeDisplayName,
+} from "./worktree-name.js";
+
+export {
   alreadyAdded,
+  createPullIndex,
   ghAvailable,
+  indexByBranch,
   listPullRequests,
   listRemoteRepos,
   matchesOrigin,
   mergedBranches,
   parsePullRequests,
   parseRemoteRepos,
+  PULL_INDEX_RETRY_MS,
+  PULL_INDEX_TTL_MS,
   repoSlugFromUrl,
 } from "./forge.js";
-export type { ForgeOptions, PullRequest, RemoteRepo, RemoteReposOptions } from "./forge.js";
+export type {
+  ForgeOptions,
+  ProjectOrigin,
+  PullIndex,
+  PullIndexOptions,
+  PullRequest,
+  PullState,
+  RemoteRepo,
+  RemoteReposOptions,
+} from "./forge.js";
 export { LABELS, labelsFor, sandboxFromLabels, deriveState } from "./sandbox/labels.js";
 
 export {

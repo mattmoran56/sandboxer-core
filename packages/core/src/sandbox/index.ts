@@ -24,7 +24,8 @@ import {
 } from "../access/index.js";
 import { allowsRealCredentials } from "../config/access.js";
 import { loadConfig } from "../config/load.js";
-import { loadMachineConfig, resolveGithub, resolveTtl } from "../config/machine.js";
+import { workspaceWorktree } from "../config/locate.js";
+import { decideGithub, loadMachineConfig, resolveTtl } from "../config/machine.js";
 import { resolveDeps } from "../config/deps.js";
 import { planFor, writePlan } from "../config/plan.js";
 import type { ResolvedConfig } from "../config/types.js";
@@ -35,9 +36,9 @@ import { describeSeedChoice, mysqlSettings } from "../drivers/mysql.js";
 import type { SeedArtifact } from "../drivers/types.js";
 import { hostClaudeCredentials } from "../agent/credentials.js";
 import { gitFacts, gitMounts, hostGitIdentity } from "../git.js";
-import { findProject } from "../workspace.js";
+import { findProject, projectDirectories } from "../workspace.js";
 import { addWorktree } from "../worktree.js";
-import { lastActivity } from "./activity.js";
+import { sandboxActivity } from "./activity.js";
 import { parseTtl, planExpiry, type ExpiryCandidate, type ExpiryPlan } from "./expiry.js";
 import { isKeptAlive, removeKeep } from "./keep.js";
 import { ensureProjectImage } from "../image.js";
@@ -218,13 +219,30 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // the note at the top of ../config/machine.ts.
   const machine = await loadMachineConfig(env);
 
+  // **Both of this project's names, because `config.yaml` may be keyed on
+  // either** (§4.3). The declared `project:` used to be the only key tried, and
+  // an operator whose workspace directory is `acme-monorepo` — the name the
+  // dashboard shows and every URL carries — had no way to learn that the entry
+  // they had written matched nothing. It did not fail; it silently resolved
+  // every project to the machine-wide default, and the first symptom was an
+  // agent unable to push, hours later.
+  //
+  // `directories` settles the one collision this opens up: a key that is some
+  // other project's directory name. See `projectEntry`.
+  const workspaceHere = workspaceWorktree(projectRoot, env);
+  const projectKey = {
+    project: config.project,
+    directory: workspaceHere?.project,
+    directories: await projectDirectories({ env }),
+  };
+
   // The idle limit, resolved once here so the CLI and the dashboard cannot
   // disagree about it: `--ttl` beats the project's entry in
   // `~/.sandboxr/config.yaml`, which beats that file's top-level `ttl`, which
   // beats `SANDBOXR_TTL_HOURS`, which beats the built-in twelve hours.
   const wanted = resolveTtl({
     explicit: options.ttl,
-    project: config.project,
+    ...projectKey,
     config: machine,
     env,
   });
@@ -296,9 +314,31 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // resolved at all otherwise: `hostGhToken` shells out to `gh` on a machine
   // that may not have it, and a credential nobody asked for should not even be
   // read into this process.
-  const ghToken = resolveGithub({ project: config.project, config: machine }) === "token"
-    ? await hostGhToken(env)
-    : undefined;
+  const github = decideGithub({ ...projectKey, config: machine });
+  const ghToken = github.mode === "token" ? await hostGhToken(env) : undefined;
+  if (github.mode === "none") {
+    // **Said here because here is the last moment it is cheap to act on.** The
+    // token being off has no symptom until `git push`, which is hours later and
+    // inside an agent session: the repository is bind-mounted read-write and the
+    // identity crosses as `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (§7.3), so `git
+    // commit` works perfectly and nothing suggests anything is missing.
+    //
+    // Both causes, because there are two and a message naming one misleads. A
+    // session that has the token still cannot push until it is allowed to: `git
+    // push` and `gh` are deliberately absent from `DEFAULT_ALLOWED_TOOLS` in
+    // ../agent/launch.ts, which allows `git add` and `git commit` and stops
+    // there.
+    //
+    // The key is quoted with the *directory* name where there is one, because
+    // that is the name the operator can see without opening a file — and writing
+    // the other one is the mistake this whole message exists to pre-empt.
+    const key = projectKey.directory ?? config.project;
+    log(`${config.project} has no GitHub token: git commit works in this sandbox, gh and git push do not.`);
+    log(
+      `  Set projects.${key}.github: token in ${p.configFile}` +
+        ", and allow the session git push and gh — neither is in its default allowlist.",
+    );
+  }
   // Not a refusal, unlike the seed and secret rules in ../config/access.ts, and
   // the difference is worth being clear about. Those exist because *anyone who
   // can reach a public app* can make it spend the credential; nothing serves
@@ -652,9 +692,11 @@ export async function startSandbox(project: string, slug: string, options: Commo
  * Stops every sandbox that has sat unused past its limit.
  *
  * The clock runs from the later of the container's current start time and the
- * last request that reached it through the router — not from `sandboxr.created`,
- * see the note on the ttl label in ./labels.ts. So restarting a sandbox buys it
- * a full lifetime, and so does opening it.
+ * last time anybody used it — not from `sandboxr.created`, see the note on the
+ * ttl label in ./labels.ts. So restarting a sandbox buys it a full lifetime, and
+ * so does using it: a request to one of its apps, opening it in the dashboard,
+ * an agent running on its worktree, or a terminal held open on it.
+ * ./activity.ts is where each of those signals is read and why.
  */
 export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
   const docker = options.docker ?? defaultDocker;
@@ -667,7 +709,13 @@ export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
     ...(options.project === undefined ? {} : { project: options.project }),
   });
 
-  const active = await activityFor(sandboxes, { docker, ...(options.now === undefined ? {} : { now: options.now }) });
+  const active = await activityFor(sandboxes, {
+    docker,
+    // The home the agent index lives under, so `sandboxr expire` reads the same
+    // running-agent signal the dashboard's reaper does rather than a subset.
+    env,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
 
   const candidates: ExpiryCandidate[] = await Promise.all(
     sandboxes.map(async (sandbox) => ({
@@ -694,30 +742,15 @@ export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
 /**
  * When each of these sandboxes was last used, read once for the whole set.
  *
- * The window is the longest lifetime in play plus an hour, because a sandbox
- * whose last request predates its own ttl is idle by definition and reading
- * further back could not change the answer. The margin covers the gap between
- * the log line and this pass.
- *
- * A set with no readable lifetime at all skips the read entirely: nothing there
- * can expire, so the answer would be thrown away.
+ * A name kept over a thin call: the work is `sandboxActivity` in ./activity.ts,
+ * which is where the argument about *which signals count as use* lives, and
+ * this is the name the CLI and the server have both been calling it by.
  */
 export async function activityFor(
   sandboxes: Sandbox[],
-  options: { docker?: Docker | undefined; now?: Date | undefined } = {},
+  options: { docker?: Docker | undefined; env?: NodeJS.ProcessEnv | undefined; now?: Date | undefined } = {},
 ): Promise<Map<string, Date>> {
-  let longest = 0;
-  for (const sandbox of sandboxes) {
-    const ttl = parseTtl(sandbox.ttl);
-    if (typeof ttl === "number" && ttl > longest) longest = ttl;
-  }
-  if (longest === 0) return new Map();
-
-  return lastActivity({
-    docker: options.docker,
-    since: `${Math.ceil(longest / 3600) + 1}h`,
-    ...(options.now === undefined ? {} : { now: options.now }),
-  });
+  return sandboxActivity(sandboxes, options);
 }
 
 /** Reaps sandboxes whose work is finished, and the volumes nothing owns. */

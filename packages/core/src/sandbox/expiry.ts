@@ -1,22 +1,34 @@
 /**
  * Deciding what has sat unused long enough.
  *
- * A pure function of what `docker ps`, `docker inspect` and the router's access
- * log report, plus one question per sandbox — whether somebody asked to keep it
- * alive. Separated from the stopping so the plan can be printed, tested and
- * inspected before a container somebody may be looking at goes away.
+ * A pure function of what `docker ps`, `docker inspect`, the router's access log
+ * and the agent index report, plus one question per sandbox — whether somebody
+ * asked to keep it alive. Separated from the stopping so the plan can be
+ * printed, tested and inspected before a container somebody may be looking at
+ * goes away.
  *
  * **The clock measures idleness, not uptime.** The deadline is
  * `max(startedAt, lastActive) + ttl`, and both halves of that maximum are
  * load-bearing:
  *
- * - `lastActive` is the last request that reached the sandbox through the
- *   router (see ./activity.ts). Using a sandbox therefore resets its clock,
- *   which is what anyone would expect of a limit described as "unused".
+ * - `lastActive` is the last time anybody used the sandbox — a request to one of
+ *   its apps, a dashboard route that names it, an agent running on its worktree,
+ *   or a terminal or agent socket somebody is holding open on it. ./activity.ts
+ *   is where all four are read, and why. Using a sandbox therefore resets its
+ *   clock, which is what anyone would expect of a limit described as "unused".
  * - `startedAt` is the floor, and it is not redundant. It covers a sandbox that
  *   has never been visited, and — more importantly — the router's log window
  *   only reaches so far back, so a sandbox in constant use whose evidence has
  *   scrolled off must not read as idle since the beginning of time.
+ *
+ * A live agent session reaches this file as a `lastActive` of *now*, and so does
+ * a socket somebody is holding open, so neither needs a case of its own here: a
+ * sandbox with an agent working on it, or a terminal attached to it, is simply a
+ * sandbox that was used a moment ago, and it stops being one the moment the
+ * agent stops or the connection drops. That is deliberate. A boolean "an agent is
+ * running" would be a second exemption beside `keptAlive`, and the two would
+ * answer differently the question that actually matters — *when did the countdown
+ * start* — because only the timestamp remembers when the agent stopped.
  *
  * `sandboxr.created` is deliberately not either of them. It is stamped once and
  * never moves, so a deadline derived from it stays in the past for ever: the
@@ -32,11 +44,14 @@ export interface ExpiryCandidate {
   /** When the container last entered the running state, from docker inspect. */
   startedAt: Date | undefined;
   /**
-   * The last request that reached this sandbox through the router.
+   * The last time anybody used this sandbox: a request through the router, a
+   * dashboard route naming it, an agent working on its worktree, or a socket
+   * held open on it.
    *
-   * Undefined means "no request seen in the window read", which is the same
-   * answer as "not used" for every purpose here — the sandbox falls back to its
-   * start time and the clock runs from there.
+   * Undefined means "no use seen in the window read", which is the same answer
+   * as "not used" for every purpose here — the sandbox falls back to its start
+   * time and the clock runs from there. It never means "nobody used anything":
+   * every read behind it turns a failure into an absence, one sandbox at a time.
    */
   lastActive: Date | undefined;
   keptAlive: boolean;

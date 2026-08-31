@@ -177,7 +177,10 @@ The Docker socket must not be exposed to the network under any circumstances.
 - `SANDBOXR_HOME` and `SANDBOXR_WORKSPACE` relocate all host state, and the workspace has its own
   variable precisely so the repositories can sit on a different disk.
 - `~/.sandboxr/config.yaml` sets the idle limit machine-wide and per project, and decides which
-  projects are trusted with the machine's GitHub token (`github: none` by default).
+  projects are trusted with the machine's GitHub token (`github: none` by default). Key a project
+  on its workspace directory or on the `project:` its `sandboxr.yaml` declares; `sandboxr doctor`
+  names any entry that matches neither, which on a server with many projects is worth running after
+  every edit.
 - `SANDBOXR_TTL_HOURS` exists for exactly this case — it is what a service unit sets — and sits
   *below* `config.yaml` in precedence, so an operator editing the file always wins over a variable
   set months ago and forgotten.

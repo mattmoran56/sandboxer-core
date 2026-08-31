@@ -24,6 +24,7 @@ import {
   cloneProject,
   containerName,
   declaredNames,
+  decideGithub,
   describeProjectSecrets,
   deriveSlug,
   docker,
@@ -49,15 +50,22 @@ import {
   listRemoteRepos,
   listWorktrees,
   loadConfig,
+  loadMachineConfig,
   locateConfig,
   matchesOrigin,
   parseEnvFile,
   parseTtl,
   paths,
   persistenceAdvice,
+  projectDirectories,
+  projectIdentities,
   prune,
+  resolveTtl,
+  reviewProjectEntries,
+  readDisplayName,
   readProjectSecrets,
   reload,
+  removeDisplayName,
   removeKeep,
   removeWorktree,
   repoSlugFromUrl,
@@ -67,6 +75,8 @@ import {
   stopSandbox,
   teardownAccess,
   up,
+  workspaceWorktree,
+  writeDisplayName,
   writeKeep,
   type Project,
   type ResolvedConfig,
@@ -130,6 +140,8 @@ WORKTREES
      --base REF                ...creating the branch off this ref
   worktree rm <project> <branch>    Remove one
      --force                   ...even with uncommitted work in it
+  worktree name <project> <branch> <name>   Call it something a person can read
+                               An empty name ("") hands it back to its branch
 
 DATABASE
   db seed [--seed SOURCE]      Produce or refresh the seed artifact
@@ -965,8 +977,8 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
   const name = args.positional[1];
   const branch = args.positional[2];
 
-  if (sub !== "ls" && sub !== "list" && sub !== "add" && sub !== "rm" && sub !== "remove") {
-    out.error("usage: sandboxr worktree ls|add|rm <project> [branch]");
+  if (sub !== "ls" && sub !== "list" && sub !== "add" && sub !== "rm" && sub !== "remove" && sub !== "name") {
+    out.error("usage: sandboxr worktree ls|add|rm|name <project> [branch]");
     return 1;
   }
   if (name === undefined) {
@@ -979,17 +991,31 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
 
   if (sub === "ls" || sub === "list") {
     const worktrees = await listWorktrees(project);
+    // The display name is a label somebody chose, keyed on the same
+    // `<project>/<slug>` the dashboard uses — never part of any identifier, so
+    // it is decoration on this listing and nothing reads it back.
+    const named = await Promise.all(
+      worktrees.map(async (worktree) => ({
+        ...worktree,
+        displayName: await readDisplayName(project.name, slugOf(worktree), env),
+      })),
+    );
     if (out.json) {
-      out.data(worktrees);
+      out.data(named);
       return 0;
     }
     if (worktrees.length === 0) {
       out.line(`No worktrees yet. Cut one with: sandboxr worktree add ${project.name} <branch>`);
       return 0;
     }
+    // The column appears only once something has a name. A workspace where
+    // nobody has renamed anything would otherwise gain an empty column and lose
+    // the width that the path — the thing people actually copy — needs.
+    const anyNamed = named.some((worktree) => worktree.displayName !== null);
     out.table(
-      ["BRANCH", "HEAD", "PATH"],
-      worktrees.map((worktree) => [
+      anyNamed ? ["NAME", "BRANCH", "HEAD", "PATH"] : ["BRANCH", "HEAD", "PATH"],
+      named.map((worktree) => [
+        ...(anyNamed ? [worktree.displayName ?? ""] : []),
         // Detached is not a defect — it is how a branch somebody else has open
         // gets run — so it is a mark on the branch rather than a column of its own.
         worktree.detached ? `${worktree.branch}~` : worktree.branch,
@@ -1022,9 +1048,10 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     return 0;
   }
 
-  // Removal takes a branch but core takes a path, and the mapping is looked up
-  // in the listing rather than rebuilt from the branch name: a worktree cut
-  // before the naming changed, or one added by hand, still has to be removable.
+  // Both of the remaining subcommands take a branch but work on a worktree, and
+  // the mapping is looked up in the listing rather than rebuilt from the branch
+  // name: a worktree cut before the naming changed, or one added by hand, still
+  // has to be reachable.
   const worktrees = await listWorktrees(project);
   const found =
     worktrees.find((worktree) => worktree.branch === branch) ??
@@ -1035,10 +1062,47 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     return 1;
   }
 
+  if (sub === "name") {
+    // Distinguished by length rather than `?? ""`, because an explicit empty
+    // name is the instruction that clears one and "no argument at all" is a
+    // usage error. Collapsing the two would make a mistyped command silently
+    // throw away somebody's label.
+    if (args.positional.length < 4) {
+      out.error(`usage: sandboxr worktree name ${project.name} ${branch} <name>`);
+      out.dim('      an empty name ("") hands the worktree back to its branch');
+      return 1;
+    }
+
+    const slug = slugOf(found);
+    const stored = await writeDisplayName(project.name, slug, args.positional[3] as string, env);
+    if (out.json) out.data({ project: project.name, branch: found.branch, slug, displayName: stored });
+    // The slug is printed alongside on purpose: it is what the hostname, the
+    // container and every URL are still built from, and a rename moves none of
+    // them.
+    if (stored === null) out.ok(`${found.branch} goes by its branch name again (slug ${slug})`);
+    else out.ok(`${found.branch} is now "${stored}" (slug ${slug}, unchanged)`);
+    return 0;
+  }
+
   await removeWorktree(project, found.path, { force: flagBoolean(args, "force") });
+  // Tidiness, not correctness — the same posture `down` takes with a keep-alive
+  // marker. A name left behind by a worktree removed some other way is inert:
+  // nothing reads it until a worktree of that slug is listed again.
+  await removeDisplayName(project.name, slugOf(found), env);
   if (out.json) out.data({ project: project.name, branch: found.branch, path: found.path, removed: true });
   out.ok(`removed ${found.path}`);
   return 0;
+}
+
+/**
+ * The slug a worktree's sandbox takes, derived exactly as `up` derives it.
+ *
+ * Here rather than inline so the listing and the rename cannot disagree about
+ * which file a worktree's name lives in — two spellings of one derivation is
+ * how a rename lands on a key nothing reads.
+ */
+function slugOf(worktree: { path: string; branch: string }): string {
+  return deriveSlug({ worktreeDir: basename(worktree.path), branch: worktree.branch });
 }
 
 function noProject(out: Output, name: string): number {
@@ -1560,6 +1624,34 @@ async function cmdConfig(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
   }
   out.line(`  driver      ${config.database.driver}`);
   out.line(`  access      apps ${config.access.apps}, credentials ${config.access.credentials}`);
+
+  // What `~/.sandboxr/config.yaml` says about *this* project, printed beside the
+  // project's own config because the two are read together on every start and
+  // nowhere else did a person see the answer. `github` in particular has no
+  // symptom until `git push` fails inside an agent session hours later.
+  const machine = await loadMachineConfig(env);
+  const key = {
+    project: config.project,
+    directory: workspaceWorktree(config.root, env)?.project,
+    directories: await projectDirectories({ env }),
+  };
+  const github = decideGithub({ ...key, config: machine });
+  // Both names, because either is a valid `projects:` key and only one of them
+  // is the name the dashboard and the URLs show.
+  if (key.directory !== undefined && key.directory !== config.project) {
+    out.line(`  keyed by    ${key.directory} (the workspace directory) or ${config.project}`);
+  }
+  out.line(`  ttl         ${resolveTtl({ ...key, config: machine, env })}`);
+  out.line(
+    `  github      ${github.mode}${github.key === undefined ? "" : ` (projects.${github.key})`}`,
+  );
+  if (github.mode === "none") {
+    out.dim(`  No GitHub token in this project's sandboxes: git commit works, gh and git push do not.`);
+    out.dim(
+      `  Set projects.${key.directory ?? config.project}.github: token in ${paths(env).configFile}` +
+        ", and allow the session git push and gh — neither is in the default allowlist.",
+    );
+  }
   out.line(`  backends    ${config.backends.map((backend) => backend.label).join(", ") || "none"}`);
   out.line(
     `  frontends   ${config.frontends.map((app) => `${app.label} (${app.kind})`).join(", ") || "none"}`,
@@ -1670,6 +1762,68 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
         fix: error instanceof ConfigError ? "fix the field named above" : undefined,
       });
     }
+  }
+
+  // **Where a `projects:` entry that matches nothing is finally said out loud.**
+  //
+  // Not at load time. `loadMachineConfig` refuses a *malformed* file, because a
+  // lifetime nobody chose being applied to a machine somebody has just
+  // configured destroys work — but it cannot take the same line here. The file
+  // is machine-wide, so refusing to load it over one stale entry for a project
+  // somebody deleted last month would stop every other project on the machine
+  // starting; and it has no view of the workspace to check against anyway.
+  //
+  // So it lands here, in the command whose whole job is to hold the machine up
+  // against its config and name the fix, and it is a finding rather than a
+  // throw. `up` says the other half — what this project's own settings resolved
+  // to — at the moment somebody is starting one.
+  try {
+    const machine = await loadMachineConfig(env);
+    const known = await projectIdentities({ env });
+    // The current directory's project too, but **only when it is not a managed
+    // worktree** — `projectIdentities` already has that one, under both of its
+    // names, and adding it again under its declared name alone would invent a
+    // collision between the project and itself. A checkout outside the
+    // workspace is a perfectly ordinary thing to run `sandboxr up` in, and an
+    // entry keyed on it is correct; nothing here can enumerate every such
+    // project, which is why the fix below says "rename or remove" rather than
+    // asserting the project does not exist.
+    const here = location ? await loadConfig(from, { enforceAccess: false, env }).catch(() => null) : null;
+    const unmanaged = here && workspaceWorktree(here.root, env) === undefined ? here.project : undefined;
+    const review = reviewProjectEntries(
+      machine,
+      unmanaged === undefined ? known : [...known, { directory: unmanaged, project: unmanaged }],
+    );
+
+    for (const key of review.unmatched) {
+      findings.push({
+        ok: false,
+        text: `config.yaml has settings for "${key}", which matches no project here — so they do nothing`,
+        // Every name that would work, rather than a guess at the nearest one:
+        // the name that started this was a plausible spelling of a real project,
+        // and a wrong suggestion would be the same failure twice.
+        fix:
+          review.known.length === 0
+            ? `remove the entry, or clone the project it names`
+            : `rename it to one of: ${review.known.join(", ")} — or remove it`,
+      });
+    }
+    for (const key of review.ambiguous) {
+      findings.push({
+        ok: false,
+        text: `config.yaml's "${key}" is one project's workspace directory and another's project: — it applies to the directory`,
+        fix: `key the other project on its own directory name instead`,
+      });
+    }
+    if (review.unmatched.length === 0 && review.ambiguous.length === 0 && machine.projects !== undefined) {
+      findings.push({ ok: true, text: "every projects: entry in config.yaml names a project here" });
+    }
+  } catch (error) {
+    findings.push({
+      ok: false,
+      text: (error as Error).message,
+      fix: error instanceof ConfigError ? "fix the field named above" : undefined,
+    });
   }
 
   findings.push({ ok: true, text: `home ${p.home}` });

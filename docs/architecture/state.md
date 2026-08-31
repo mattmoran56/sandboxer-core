@@ -9,7 +9,7 @@ There is no manifest file and no database of sandboxes. Nothing on the machine k
 container. `sandboxr gc` does the same. Both are pure functions of `docker ps`, so neither can drift
 out of sync with what is running.
 
-This page explains why that is the design, what it costs, and the two places where something is
+This page explains why that is the design, what it costs, and the few places where something is
 allowed to live on the host after all.
 
 ## The labels
@@ -65,7 +65,7 @@ runs. So anything that changes at runtime is **derived at read time** instead.
 | Whether a backend is healthy right now | asked, live, over `/__sandboxr/health/<service>` |
 | `running` / `degraded` / `stopped` / `starting` | computed from Docker's state plus those markers |
 | When a sandbox expires | `max(startedAt, lastActive) + sandboxr.ttl`, computed per read |
-| When a sandbox was last used | the shared router's access log, read at the moment it is asked for |
+| When a sandbox was last used | the shared router's access log, the agent index, and the heartbeat a held-open socket leaves in `state/attach/`, read at the moment they are asked for |
 | Whether it has read the current credentials | the secrets file's mtime against the container's `StartedAt` |
 
 A label recording "running" would be a second source of truth that goes stale the moment a process
@@ -97,8 +97,24 @@ The deadline is `max(startedAt, lastActive) + ttl`.
 
 - `startedAt` is Docker's own `State.StartedAt`, which Docker maintains. It gives the semantics
   anyone expects from a Restart button: restarting a sandbox buys it another full lifetime.
-- `lastActive` is the last request that reached the sandbox through the shared router, read from
-  that router's access log.
+- `lastActive` is the last time anybody used it, and four things count: a request that reached the
+  sandbox through the shared router, a dashboard route that names it (also in the router's log,
+  under the dashboard's own router name), an agent run on its worktree — joined through
+  `agent/runs.json` and timed by the transcript's mtime — and a terminal or agent socket somebody is
+  holding open, timed by the heartbeat in `state/attach/<project>/<slug>`.
+
+The first three are read at the moment they are asked for and none of them is written down for this
+purpose. The fourth is the exception, and the section below says why it has to be. A live agent run
+reads as activity *now*, so a sandbox cannot expire under a working agent; an ended one reads as
+when it ended, so the countdown starts from when the agent stopped. Because a killed dashboard
+leaves `running` rows behind for ever, a live row is believed only while the transcript it names is
+still being written to — and a held socket is believed on the same terms, and for the same fifteen
+minutes, after its last heartbeat.
+
+Every failure is an *absence*, never an answer: a router that will not answer, a missing or corrupt
+index, a transcript that cannot be stat'd, an attach marker that is not there. Each drops one signal
+and the sandbox falls back to its start time. The alternative reading — "nobody has used anything" —
+would stop every sandbox on the machine at once.
 
 So the lifetime measures **idleness, not uptime**. Using a sandbox resets its clock. The precedence
 chain for the ttl itself, and the reaper that acts on it, are in
@@ -149,11 +165,12 @@ it is preferable to keeping a second copy of the truth on the host.
 **There is no history.** Remove a container and its state goes with it. That is right for a sandbox,
 but you cannot ask what existed last week.
 
-## Two things that look like exceptions, and are not
+## Four things that look like exceptions, and are not
 
 A dashboard that manages projects needs to know about a project with nothing running. It also needs
-a way to say "keep this one". Both put something on the host, which on a fast read this page
-forbids. Here is the line.
+a way to say "keep this one", a way to let you call a worktree something other than its branch, and
+a way to tell another process that somebody is sitting in a terminal right now. All four put
+something on the host, which on a fast read this page forbids. Here is the line.
 
 **The test is not "is it state".** It is the one the argument above actually turns on: *does this
 file's correctness depend on a container?*
@@ -203,6 +220,64 @@ place by being unable to disagree with reality, not by being written carefully.
 
 </details>
 
+<details class="why">
+<summary><b>Why it works this way</b> — a worktree's name, and why this one must <i>not</i> be stamped</summary>
+
+You can call a worktree "the checkout flow rewrite" instead of `feat/tkt-4821`. That name is a file
+too: `~/.sandboxr/state/name/<project>/<slug>`.
+
+It passes the same test, and it reaches the **opposite** conclusion about the stamp — which is the
+useful part, because it shows the test is about the question being asked and not about the file
+format.
+
+A keep-alive marker applies to one *container*, so it has to name one. A name applies to the
+*worktree*, which is the thing that persists — a sandbox comes and goes on top of it. **Stamping the
+name would be the bug rather than the safeguard**: it would be discarded the moment a sandbox was
+stopped and recreated, so a rename would quietly undo itself the next time somebody pressed Rebuild.
+
+A stale name is inert, which is what makes the missing stamp safe. Left behind for a slug nothing
+has cut, it is only ever read when a worktree of that slug is listed again — where it is a label, not
+a permission and not a lifetime.
+
+And it is only a label. **A display name reaches no identifier**: the slug, the hostname, the
+container name and every URL are still derived from the branch and the directory, and renaming a
+worktree changes one line on a screen and no address anywhere.
+
+</details>
+
+<details class="why">
+<summary><b>Why it works this way</b> — the attach heartbeat, the one signal with no original to read</summary>
+
+While the dashboard holds a terminal or an agent socket open on a sandbox, it re-stamps
+`~/.sandboxr/state/attach/<project>/<slug>` every thirty seconds. That is a written signal in a page
+about not writing signals, so it needs the strongest form of the argument.
+
+**The test this file passes is that there is no original to read.** The router's log is the original
+for a request; the transcript is the original for an agent run. For an open socket there is nothing:
+Traefik does not log a websocket until it *closes*, and stamps the line with when it **opened**. So
+a terminal held open all afternoon left no evidence of use, the reaper stopped the container under a
+live connection, and the log then recorded a request dated to that morning — a cause that looks
+nothing like its symptom.
+
+The one process that knows a socket is open is the dashboard holding it, and `sandboxr expire` on
+the command line is a *different process*. Keeping the set in memory would give the CLI and the
+dashboard two different answers to "is this in use", which is exactly the drift this page forbids.
+So the fact is put where both readers can see it.
+
+**It needs no stamp, and for a different reason than the display name.** All it says is "at time T a
+live process held a connection to this name". The deadline is `max(startedAt, lastActive)`, so a
+marker older than the container that now has that name contributes nothing at all. A keep marker had
+to be stamped because it is a *permission*; a timestamp cannot grant anything.
+
+Two things bound what it may mean, and both exist because an unbounded version would be worse than
+the bug. A dashboard killed with a terminal open leaves a marker nothing will move again, so past
+fifteen minutes it is credited with the moment it was last written and nothing more. And a laptop
+that sleeps with the tab open never closes its connection, so the holder pings each socket and one
+that stops answering stops counting — dropped rather than closed, so a laptop waking up simply
+starts counting again.
+
+</details>
+
 ## The best example of the argument: last activity
 
 A sandbox is stopped once it has sat unused for its `sandboxr.ttl`, so something has to answer "when
@@ -213,14 +288,23 @@ the six failures above against that file and it fails every one of them — with
 consequence. A last-activity time that is wrong in the *early* direction stops a sandbox somebody is
 working in.
 
-There is nothing to store, because the answer is already written down. The shared router logs one
-line per request, and each line ends with the router's name — which for a sandbox **is** its
-container name. So last activity is a `docker logs sandboxr-router --since <window>` at the moment
-somebody asks, parsed and thrown away. No file, no writer, no reconciliation. It cannot disagree
-with what actually happened, because it *is* what actually happened.
+For almost all of it there is nothing to store, because the answer is already written down. The
+shared router logs one line per request, and each line ends with the router's name — which for a
+sandbox **is** its container name. So last activity is a `docker logs sandboxr-router --since
+<window>` at the moment somebody asks, parsed and thrown away. No file, no writer, no
+reconciliation. It cannot disagree with what actually happened, because it *is* what actually
+happened.
+
+The exception proves the rule rather than breaking it. A **held-open websocket** is the one thing
+the router's log cannot describe — it writes the line when the socket closes, stamped with when it
+opened — so a session held open longer than the ttl left no evidence at all. There is no original to
+read, so a heartbeat is written; the argument for it is above, under the four exceptions. Note what
+it did *not* become: not a stored last-activity time, which would be wrong in the early direction
+and stop a sandbox somebody is working in, but a record of a live connection that stops being
+believed as soon as it stops being refreshed.
 
 <details class="agent">
-<summary><b>Details for an agent</b> — two load-bearing details of the activity signal</summary>
+<summary><b>Details for an agent</b> — three load-bearing details of the activity signal</summary>
 
 - **The per-sandbox logs are not a substitute.** `~/.sandboxr/logs/<project>/<slug>/` looks like the
   same signal and is not. The dashboard's health probes dial containers directly on the Docker
@@ -230,6 +314,10 @@ with what actually happened, because it *is* what actually happened.
 - **A missing router means no information, never "no activity".** If the log cannot be read, every
   sandbox falls back to its start time. The alternative reading — "nobody has used anything" — would
   stop every sandbox on the machine at once, which is the one failure here that destroys work.
+- **A websocket's log line carries the time it *started*, and is written only when it ends.** So the
+  router's log proves a terminal was *opened* and can never prove one is still open. That gap is
+  what `state/attach/<project>/<slug>` exists to close, and it is the reason the one written signal
+  here is written.
 
 The parse is anchored on the format Traefik writes today. If a future Traefik changed it, every
 sandbox would fall back to its start time rather than being expired wrongly. The code is
@@ -253,6 +341,8 @@ Some things must **outlive** a container. Those live under `SANDBOXR_HOME`, whic
 | `workspace/<project>/` | The repositories themselves — an original, not a copy |
 | `config.yaml` | The machine's own settings, written by hand |
 | `state/keep/<project>/<slug>` | Operator intent, stamped with the instance it applies to |
+| `state/name/<project>/<slug>` | What to call one worktree — a label, deliberately not stamped |
+| `state/attach/<project>/<slug>` | A socket is open on this sandbox right now — a fact no other process can see |
 
 `SANDBOXR_HOME` is deliberately never inside a repository, so `git clean -xdf` cannot destroy your
 seed cache or your certificates. The full list is in [Paths](../reference/paths.md).

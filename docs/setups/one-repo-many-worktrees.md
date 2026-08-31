@@ -169,7 +169,9 @@ that do not exist in a container, which would break the very operations it was m
 
 `git push` and `gh` only work if the machine has opted this project in with `github: token` in
 `~/.sandboxr/config.yaml`. That is off by default, and [Access and security](../access.md) explains
-what it widens.
+what it widens. `up` says so on every start when it is off, and names the key to write — key it on
+the project's workspace directory, the name in its dashboard URL, or on the `project:` its
+`sandboxr.yaml` declares. A key that is neither matches nothing; `sandboxr doctor` says so.
 
 ## How many fit on a machine
 

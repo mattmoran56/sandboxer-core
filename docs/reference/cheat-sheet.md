@@ -190,8 +190,12 @@ Every variable, all three groups: [Environment variables](environment.md).
 ttl: 12h          # 30m | 12h | 3d | a number of seconds | never
 github: none      # none | token
 projects:
-  acme: { ttl: 3d, github: token }
+  acme-monorepo: { ttl: 3d, github: token }
 ```
+
+A `projects:` key is the project's **workspace directory** — the name in every dashboard URL — or
+the `project:` its `sandboxr.yaml` declares. Either works; the directory wins if both are keyed.
+A key matching neither does nothing, and `sandboxr doctor` names it.
 
 ttl precedence, most specific first: `--ttl`, the project's entry, the file's top-level `ttl`,
 `SANDBOXR_TTL_HOURS`, then the built-in `12h`.

@@ -19,13 +19,26 @@
 //   gh, a bare non-zero exit, a runner that never spawned it, and a reason too long to keep
 // - listRemoteRepos: output that parsed to nothing is reported; an account with none is not
 // - matchesOrigin / alreadyAdded: ssh and https spellings of one repo, case, and a different repo
+// - PullRequest.state: draft composed onto OPEN, CLOSED and MERGED left alone, a merged draft still
+//   merged, and an unknown or missing state read as open rather than as closed
+// - indexByBranch: two pull requests on one branch — live beats merged beats closed, newest wins a tie
+// - createPullIndex: one gh call per project however many branches ask, and concurrent asks share it
+// - createPullIndex: an answer is trusted for its TTL, then served stale while it refreshes behind
+// - createPullIndex: no answer is trusted for a shorter TTL, so a gh that comes back is picked up
+// - createPullIndex: null for a missing gh, a logged-out gh, unparseable output, a non-GitHub origin
+//   and a runner that never settles — and an empty map, which is an answer, for a repo with none
+// - createPullIndex: the deadline is handed to the runner as well as raced, and bounds the wait
+// - createPullIndex: the argument array — --state all, a numeric limit, nothing shell-shaped
+// - createPullIndex: why there is no answer, reported through `log`
 
 import { describe, expect, it } from "vitest";
 
 import type { ExecResult, Runner } from "./docker.js";
 import {
   alreadyAdded,
+  createPullIndex,
   ghAvailable,
+  indexByBranch,
   listPullRequests,
   listRemoteRepos,
   matchesOrigin,
@@ -33,6 +46,8 @@ import {
   parsePullRequests,
   parseRemoteRepos,
   repoSlugFromUrl,
+  type PullRequest,
+  type PullState,
   type RemoteRepo,
 } from "./forge.js";
 import type { Project } from "./workspace.js";
@@ -74,6 +89,7 @@ const RECORDED = JSON.stringify([
     headRefName: "feat/plan-cache",
     baseRefName: "main",
     isDraft: false,
+    state: "OPEN",
     author: { id: "MDQ6VXNlcjE=", is_bot: false, login: "arden", name: "Arden Vale" },
     updatedAt: "2026-08-21T09:14:02Z",
     url: "https://github.com/acme/web/pull/128",
@@ -84,6 +100,7 @@ const RECORDED = JSON.stringify([
     headRefName: "feat/router-split",
     baseRefName: "main",
     isDraft: true,
+    state: "OPEN",
     author: { id: "MDQ6VXNlcjI=", is_bot: false, login: "priya", name: "Priya Raman" },
     updatedAt: "2026-08-24T16:40:11Z",
     url: "https://github.com/acme/web/pull/131",
@@ -94,6 +111,7 @@ const RECORDED = JSON.stringify([
     headRefName: "chore/node-22",
     baseRefName: "main",
     isDraft: false,
+    state: "OPEN",
     author: null,
     updatedAt: "2026-07-02T11:00:00Z",
     url: "https://github.com/acme/web/pull/96",
@@ -144,11 +162,13 @@ describe("parsePullRequests", () => {
       branch: "feat/plan-cache",
       base: "main",
       draft: false,
+      state: "open",
       author: "arden",
       updated: "2026-08-21T09:14:02Z",
       url: "https://github.com/acme/web/pull/128",
     });
     expect(pulls[1]?.draft).toBe(true);
+    expect(pulls[1]?.state).toBe("draft");
   });
 
   // A pull request opened by an account that has since been deleted has a null
@@ -186,7 +206,19 @@ describe("parsePullRequests", () => {
   it("fills in fields gh did not send rather than failing on them", () => {
     const sparse = JSON.stringify([{ number: 3, headRefName: "feat/sparse", extraFieldGhAdded: true }]);
     expect(parsePullRequests(sparse)).toEqual([
-      { number: 3, title: "", branch: "feat/sparse", base: "", draft: false, author: "?", updated: "", url: "" },
+      {
+        number: 3,
+        title: "",
+        branch: "feat/sparse",
+        base: "",
+        draft: false,
+        // A missing state reads as open, never as closed: this file answers a
+        // missing forge with a missing answer, and `closed` is an accusation.
+        state: "open",
+        author: "?",
+        updated: "",
+        url: "",
+      },
     ]);
   });
 });
@@ -210,7 +242,7 @@ describe("listPullRequests", () => {
     expect(args[args.indexOf("--repo") + 1]).toBe("acme/web");
     expect(args[args.indexOf("--state") + 1]).toBe("open");
     expect(args[args.indexOf("--json") + 1]).toBe(
-      "number,title,headRefName,baseRefName,isDraft,author,updatedAt,url",
+      "number,title,headRefName,baseRefName,isDraft,state,author,updatedAt,url",
     );
 
     // Nothing here may become shell syntax: these are argv entries, and the day
@@ -568,5 +600,305 @@ describe("alreadyAdded", () => {
 
   it("is false for an empty workspace", () => {
     expect(alreadyAdded(repo(), [])).toBe(false);
+  });
+});
+
+describe("PullRequest.state", () => {
+  const state = (fields: Record<string, unknown>): PullState | undefined =>
+    parsePullRequests(JSON.stringify([{ number: 1, headRefName: "feat/x", ...fields }]))[0]?.state;
+
+  it.each([
+    ["an open pull request", { state: "OPEN", isDraft: false }, "open"],
+    ["a draft", { state: "OPEN", isDraft: true }, "draft"],
+    ["a closed pull request", { state: "CLOSED", isDraft: false }, "closed"],
+    ["a merged pull request", { state: "MERGED", isDraft: false }, "merged"],
+    // Draft is a modifier on *open* and on nothing else. GitHub clears the flag
+    // on merge, but a recording that kept it must still say "merged" — nobody
+    // wants finished work described as a sketch.
+    ["a merged pull request that was a draft", { state: "MERGED", isDraft: true }, "merged"],
+    ["a closed draft", { state: "CLOSED", isDraft: true }, "closed"],
+    ["a lowercase state", { state: "merged", isDraft: false }, "merged"],
+  ])("reads %s as %s", (_name, fields, want) => {
+    expect(state(fields)).toBe(want);
+  });
+
+  // Both of these fall to `open`, and that asymmetry is the point: `closed` is
+  // the one state that says somebody decided against the work, and a field we
+  // could not read has decided nothing.
+  it.each([
+    ["a missing state", {}],
+    ["a state gh has not invented yet", { state: "QUEUED" }],
+    ["a state that is not a string", { state: 7 }],
+  ])("reads %s as open, never as closed", (_name, fields) => {
+    expect(state(fields)).toBe("open");
+  });
+});
+
+describe("indexByBranch", () => {
+  const pull = (number: number, branch: string, state: PullState): PullRequest => ({
+    number,
+    title: `#${number}`,
+    branch,
+    base: "main",
+    draft: state === "draft",
+    state,
+    author: "arden",
+    updated: "",
+    url: `https://github.com/acme/web/pull/${number}`,
+  });
+
+  it("keeps one pull request per branch", () => {
+    const index = indexByBranch([pull(1, "feat/a", "open"), pull(2, "feat/b", "merged")]);
+    expect([...index.keys()].sort()).toEqual(["feat/a", "feat/b"]);
+  });
+
+  // A branch really does collect several: one closed without merging and a
+  // second opened on the same branch, or a branch reused after its work landed.
+  it.each([
+    ["live beats closed", [pull(1, "feat/a", "closed"), pull(2, "feat/a", "open")], 2],
+    ["live beats closed whatever the order", [pull(9, "feat/a", "open"), pull(10, "feat/a", "closed")], 9],
+    ["live beats merged", [pull(1, "feat/a", "merged"), pull(2, "feat/a", "draft")], 2],
+    ["merged beats closed", [pull(4, "feat/a", "closed"), pull(3, "feat/a", "merged")], 3],
+    ["newest wins between two live ones", [pull(5, "feat/a", "draft"), pull(6, "feat/a", "open")], 6],
+    ["newest wins between two closed ones", [pull(7, "feat/a", "closed"), pull(8, "feat/a", "closed")], 8],
+  ])("%s", (_name, pulls, want) => {
+    expect(indexByBranch(pulls).get("feat/a")?.number).toBe(want);
+  });
+});
+
+describe("createPullIndex", () => {
+  /** Recorded `--state all` output: one open, one draft, one merged, one closed. */
+  const ALL = JSON.stringify([
+    { number: 128, headRefName: "feat/plan-cache", state: "OPEN", isDraft: false, url: "u/128" },
+    { number: 131, headRefName: "feat/router-split", state: "OPEN", isDraft: true, url: "u/131" },
+    { number: 96, headRefName: "chore/node-22", state: "MERGED", isDraft: false, url: "u/96" },
+    { number: 40, headRefName: "spike/rewrite", state: "CLOSED", isDraft: false, url: "u/40" },
+  ]);
+
+  const acme = project("https://github.com/acme/web.git");
+
+  it.each([
+    ["feat/plan-cache", "open"],
+    ["feat/router-split", "draft"],
+    ["chore/node-22", "merged"],
+    ["spike/rewrite", "closed"],
+  ])("resolves %s to a %s pull request", async (branch, want) => {
+    const { run } = stubRunner({ code: 0, stdout: ALL });
+    const found = await createPullIndex({ run }).forBranch(acme, branch);
+    expect(found?.state).toBe(want);
+    expect(found?.url).not.toBe("");
+  });
+
+  // The whole reason this is an index rather than a call: thirty worktrees on a
+  // machine must not be thirty subprocesses on every poll.
+  it("runs gh once for a project however many branches ask", async () => {
+    const { run, calls } = stubRunner({ code: 0, stdout: ALL });
+    const index = createPullIndex({ run });
+    for (const branch of ["feat/plan-cache", "chore/node-22", "feat/nothing", "spike/rewrite"]) {
+      await index.forBranch(acme, branch);
+    }
+    expect(calls).toHaveLength(1);
+  });
+
+  it("shares one call between branches that ask at the same time", async () => {
+    const { run, calls } = stubRunner({ code: 0, stdout: ALL });
+    const index = createPullIndex({ run });
+    await Promise.all(
+      ["feat/plan-cache", "chore/node-22", "spike/rewrite"].map((branch) => index.forBranch(acme, branch)),
+    );
+    expect(calls).toHaveLength(1);
+  });
+
+  // Two workspace directories cloned from one repository, spelled differently.
+  it("shares one call between two projects on the same repo", async () => {
+    const { run, calls } = stubRunner({ code: 0, stdout: ALL });
+    const index = createPullIndex({ run });
+    await index.forBranch(project("git@github.com:acme/web.git"), "feat/plan-cache");
+    await index.forBranch(project("https://github.com/ACME/Web"), "feat/plan-cache");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("returns null for a branch with no pull request", async () => {
+    const { run } = stubRunner({ code: 0, stdout: ALL });
+    expect(await createPullIndex({ run }).forBranch(acme, "feat/never-pushed")).toBeNull();
+  });
+
+  it("asks for every state, with a bounded numeric limit and nothing shell-shaped", async () => {
+    const { run, calls } = stubRunner({ code: 0, stdout: ALL });
+    await createPullIndex({ run, limit: 10_000 }).forProject(acme);
+
+    const [bin, args] = calls[0]!;
+    expect(bin).toBe("gh");
+    expect(args.slice(0, 2)).toEqual(["pr", "list"]);
+    expect(args[args.indexOf("--repo") + 1]).toBe("acme/web");
+    // `open` would make a merged branch and a branch that never had a pull
+    // request the same answer, which is the one distinction this exists for.
+    expect(args[args.indexOf("--state") + 1]).toBe("all");
+    expect(Number(args[args.indexOf("--limit") + 1])).toBeLessThanOrEqual(200);
+    for (const arg of args) {
+      expect(arg).not.toMatch(/[;&|`$<>(){}'"\\\n]/);
+    }
+  });
+
+  describe("when there is no answer", () => {
+    it("returns null rather than an empty map when gh is missing", async () => {
+      const { run } = stubRunner({ throws: enoent() });
+      expect(await createPullIndex({ run }).forProject(acme)).toBeNull();
+    });
+
+    it.each([
+      ["gh is logged out", { code: 4, stderr: "gh auth login" }],
+      ["gh exited non-zero", { code: 1, stderr: "GraphQL: Could not resolve to a Repository" }],
+      ["gh printed something that is not json", { code: 0, stdout: "<html>407 Proxy</html>" }],
+      ["gh printed nothing at all", { code: 0, stdout: "" }],
+    ])("returns null when %s", async (_name, reply) => {
+      const { run } = stubRunner(reply);
+      expect(await createPullIndex({ run }).forProject(acme)).toBeNull();
+    });
+
+    // The one case that is an answer: gh prints `[]` for a repository with no
+    // pull requests, and an answer is what a branch may be judged against.
+    it("returns an empty map, not null, for a repo with no pull requests", async () => {
+      const { run } = stubRunner({ code: 0, stdout: "[]\n" });
+      expect(await createPullIndex({ run }).forProject(acme)).toEqual(new Map());
+    });
+
+    it.each([
+      ["a project on another forge", "https://gitlab.com/acme/web.git"],
+      ["a project with no origin", ""],
+      ["an origin that is not a url", "not a url"],
+    ])("never reaches gh for %s", async (_name, origin) => {
+      const { run, calls } = stubRunner({ code: 0, stdout: ALL });
+      expect(await createPullIndex({ run }).forProject(project(origin))).toBeNull();
+      expect(calls).toHaveLength(0);
+    });
+
+    it("never throws, whatever gh does", async () => {
+      const { run } = stubRunner({ throws: new Error("spawn failed in a way nobody predicted") });
+      await expect(createPullIndex({ run }).forBranch(acme, "feat/plan-cache")).resolves.toBeNull();
+    });
+  });
+
+  describe("when gh hangs", () => {
+    /** A proxy that accepts the connection and never answers. */
+    const hangingRunner = (): { run: Runner; options: Array<unknown> } => {
+      const options: Array<unknown> = [];
+      const run: Runner = (_bin, _args, given) => {
+        options.push(given);
+        return new Promise<ExecResult>(() => undefined);
+      };
+      return { run, options };
+    };
+
+    it("gives up at the deadline instead of holding the caller", async () => {
+      const { run } = hangingRunner();
+      const started = Date.now();
+      expect(await createPullIndex({ run, timeoutMs: 20 }).forProject(acme)).toBeNull();
+      // Generously bounded: the assertion is "it returned", not "it returned in
+      // exactly 20ms" — a timing test tight enough to be precise is a flaky one.
+      expect(Date.now() - started).toBeLessThan(2_000);
+    });
+
+    // Racing the wait is not enough on its own: without this the child is
+    // abandoned rather than killed, and a hung gh survives the page that gave up
+    // on it.
+    it("hands the deadline to the runner as well, so the child is killed", async () => {
+      const { run, options } = hangingRunner();
+      await createPullIndex({ run, timeoutMs: 20 }).forProject(acme);
+      expect(options[0]).toEqual({ timeoutMs: 20 });
+    });
+  });
+
+  describe("how long an answer is trusted", () => {
+    /** A clock a test can move, and a runner whose reply can change between calls. */
+    const aging = (replies: string[]) => {
+      let at = 1_000_000;
+      let call = 0;
+      const run: Runner = async () => ({ code: 0, stdout: replies[Math.min(call++, replies.length - 1)]!, stderr: "" });
+      return { run, now: () => at, tick: (ms: number) => (at += ms), calls: () => call };
+    };
+
+    /** Lets the background refresh run, without asserting on how many ticks it takes. */
+    const settle = async (): Promise<void> => {
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+
+    it("does not ask again inside the TTL", async () => {
+      const clock = aging([ALL]);
+      const index = createPullIndex({ run: clock.run, now: clock.now, ttlMs: 60_000 });
+      await index.forProject(acme);
+      clock.tick(59_000);
+      await index.forProject(acme);
+      expect(clock.calls()).toBe(1);
+    });
+
+    // Stale is served while fresh is fetched. Only the first question about a
+    // repository ever waits for gh; a page render must never be the thing that
+    // discovers the TTL expired.
+    it("serves the stale answer at once and refreshes behind it", async () => {
+      const merged = JSON.stringify([
+        { number: 128, headRefName: "feat/plan-cache", state: "MERGED", isDraft: false, url: "u/128" },
+      ]);
+      const clock = aging([ALL, merged]);
+      const index = createPullIndex({ run: clock.run, now: clock.now, ttlMs: 60_000 });
+
+      expect((await index.forBranch(acme, "feat/plan-cache"))?.state).toBe("open");
+      clock.tick(61_000);
+      expect((await index.forBranch(acme, "feat/plan-cache"))?.state).toBe("open");
+      expect(clock.calls()).toBe(2);
+
+      await settle();
+      expect((await index.forBranch(acme, "feat/plan-cache"))?.state).toBe("merged");
+    });
+
+    // A machine whose gh was logged out at breakfast shows its pull requests
+    // again a minute after somebody logs in, not five.
+    it("retries a missing answer sooner than it re-reads a real one", async () => {
+      let at = 1_000_000;
+      let call = 0;
+      const run: Runner = async () => {
+        call += 1;
+        return call === 1 ? { code: 4, stdout: "", stderr: "gh auth login" } : { code: 0, stdout: ALL, stderr: "" };
+      };
+      const index = createPullIndex({ run, now: () => at, ttlMs: 600_000, retryMs: 10_000 });
+
+      expect(await index.forProject(acme)).toBeNull();
+      at += 11_000;
+      // Still null, because a stale entry is served rather than waited on and
+      // "no answer" is a stale entry like any other — but the call went out.
+      expect(await index.forProject(acme)).toBeNull();
+      expect(call).toBe(2);
+
+      await settle();
+      expect(await index.forProject(acme)).not.toBeNull();
+    });
+  });
+
+  describe("why there is no answer", () => {
+    const reasons = async (reply: Partial<ExecResult> & { throws?: unknown }): Promise<string[]> => {
+      const lines: string[] = [];
+      const { run } = stubRunner(reply);
+      await createPullIndex({ run, log: (line) => lines.push(line) }).forProject(acme);
+      return lines;
+    };
+
+    it("quotes gh's own complaint", async () => {
+      const said = await reasons({ code: 1, stderr: "GraphQL: Could not resolve to a Repository named acme/web" });
+      expect(said[0]).toContain("acme/web");
+      expect(said[0]).toContain("Could not resolve");
+    });
+
+    it("names a missing gh", async () => {
+      expect((await reasons({ code: 127 }))[0]).toContain("no gh on this machine");
+    });
+
+    it("names output that held no pull requests", async () => {
+      expect((await reasons({ code: 0, stdout: "<html>407</html>" }))[0]).toContain("no pull requests");
+    });
+
+    it("says nothing when the answer was real", async () => {
+      expect(await reasons({ code: 0, stdout: "[]" })).toEqual([]);
+    });
   });
 });

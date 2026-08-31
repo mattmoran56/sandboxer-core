@@ -18,9 +18,13 @@
  * shell syntax.
  */
 
-import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
+import { parse as parseYaml } from "yaml";
+
+import { CONFIG_FILENAMES } from "./config/locate.js";
+import type { ProjectIdentity } from "./config/machine.js";
 import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
 import { sanitizeSlug } from "./naming.js";
 import { WORKTREES_DIR, paths } from "./paths.js";
@@ -153,15 +157,20 @@ async function describe(name: string, dir: string, run: Runner): Promise<Project
 }
 
 /**
- * Every project in the workspace, sorted by name.
+ * The workspace's project directory names, sorted, and nothing else.
+ *
+ * The same readdir `listProjects` starts from, without the `git` calls that
+ * describe each one. It exists because `up` needs the list purely to key
+ * `config.yaml`'s `projects:` block (§4.3), on a path where spawning a
+ * subprocess per project on the machine to answer "what are they called" would
+ * be absurd.
  *
  * A missing workspace directory is an empty workspace, not an error — it is the
  * state of a machine that has never cloned anything. A directory without a
  * `repo.git` is skipped silently: it is not a half-project, it is not a project
  * at all, and a warning about it would fire on every listing forever.
  */
-export async function listProjects(options: WorkspaceOptions = {}): Promise<Project[]> {
-  const run = options.run ?? nodeRunner;
+export async function projectDirectories(options: Pick<WorkspaceOptions, "env"> = {}): Promise<string[]> {
   const workspace = paths(options.env).workspace;
 
   let entries;
@@ -177,9 +186,97 @@ export async function listProjects(options: WorkspaceOptions = {}): Promise<Proj
     if (!(await isDirectory(join(workspace, entry.name, REPO_DIR)))) continue;
     names.push(entry.name);
   }
-  names.sort((a, b) => a.localeCompare(b));
+  return names.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Every project in the workspace, sorted by name.
+ *
+ * Same skipping rules as `projectDirectories`, plus one `describe` per project.
+ */
+export async function listProjects(options: WorkspaceOptions = {}): Promise<Project[]> {
+  const run = options.run ?? nodeRunner;
+  const workspace = paths(options.env).workspace;
+  const names = await projectDirectories(options);
 
   return Promise.all(names.map((name) => describe(name, join(workspace, name), run)));
+}
+
+/**
+ * The `project:` a directory's config declares, when one can be read.
+ *
+ * Deliberately a bare YAML read and not `loadConfig`: the only field wanted is
+ * the name, and a config that fails to resolve for any other reason — an
+ * unsupported driver, a version range this build does not satisfy — still tells
+ * the truth about what its project is called.
+ */
+async function declaredIn(dir: string): Promise<string | undefined> {
+  for (const name of CONFIG_FILENAMES) {
+    let text: string;
+    try {
+      text = await readFile(join(dir, name), "utf8");
+    } catch {
+      continue;
+    }
+    try {
+      const parsed = parseYaml(text) as { project?: unknown } | null;
+      const declared = parsed?.project;
+      if (typeof declared === "string" && declared.trim() !== "") return declared.trim();
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Every project in the workspace, by **both** of the names it answers to.
+ *
+ * This exists for one question: does a `projects:` key in `~/.sandboxr/config.yaml`
+ * name anything on this machine (§4.3)? Answering it with directory names alone
+ * would call a perfectly good entry unmatched — an operator who keyed
+ * `acme-monorepo` on its declared `project: acme` is right, and being told
+ * otherwise is worse than the silence this replaces.
+ *
+ * The declared name comes from the project-level config (§5.6) where there is
+ * one, and otherwise from whichever worktree has a config first. Worktrees may
+ * disagree — a branch that renames the project declares a different name from
+ * `main` — and for this question any name some checkout declares is a name the
+ * operator could reasonably have written down, so the first answer is enough.
+ * Nothing here decides what a sandbox is called; that is still `loadConfig` on
+ * the worktree being started.
+ *
+ * No git runs. It is a readdir per project and at most two file reads.
+ */
+export async function projectIdentities(
+  options: Pick<WorkspaceOptions, "env"> = {},
+): Promise<ProjectIdentity[]> {
+  const workspace = paths(options.env).workspace;
+  const names = await projectDirectories(options);
+
+  return Promise.all(
+    names.map(async (name): Promise<ProjectIdentity> => {
+      const dir = join(workspace, name);
+      let declared = await declaredIn(dir);
+      if (declared === undefined) {
+        let worktrees: string[] = [];
+        try {
+          worktrees = (await readdir(join(dir, WORKTREES_DIR), { withFileTypes: true }))
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name)
+            .sort((a, b) => a.localeCompare(b));
+        } catch {
+          worktrees = [];
+        }
+        for (const worktree of worktrees) {
+          declared = await declaredIn(join(dir, WORKTREES_DIR, worktree));
+          if (declared !== undefined) break;
+        }
+      }
+      return declared === undefined ? { directory: name } : { directory: name, project: declared };
+    }),
+  );
 }
 
 /** One project by name, or undefined when the workspace has no such directory. */
