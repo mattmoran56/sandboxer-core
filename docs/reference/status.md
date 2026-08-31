@@ -61,6 +61,27 @@ of worktrees and its groupings, the panes, the new-worktree routes, settings, th
 Its pieces are unit-tested and its API is typed at both ends. **Nobody has sat in front of it and
 taken a project through a day's work.**
 
+#### On a phone
+
+**Nothing here has been run on a phone.** The dashboard declares itself installable, lays itself out
+for a narrow screen, and carries the touch behaviour a native app has — a bottom tab bar,
+swipe-to-go-back, sheets that drag away, the notch and the home indicator accounted for.
+
+**Checked:** the manifest, the service worker and the four icons are served with the right types and
+cache headers, and everything not on that list of six is refused. The gesture thresholds, the
+keyboard-inset arithmetic and the tab bar's current-section logic have unit tests. The generated
+stylesheet really does contain the coarse-pointer and safe-area rules, which is the failure worth
+checking for because a Tailwind variant that is never generated has no symptom on a desktop.
+
+**Not checked:** any of it in front of a person holding a phone. In particular, nobody has added it
+to a Home Screen and launched it; nobody has confirmed the status bar reads correctly in both themes;
+and the swipe thresholds are judgements about a thumb that have only been reasoned about, not felt.
+The icons have been looked at as images but never as an icon on a wallpaper.
+
+**What a real run would settle:** whether the back gesture ever fights the log tail or the terminal
+in practice, whether the tab bar's four sections are the right four, and whether a sheet dragged from
+its header is discoverable without the handle being explained.
+
 ### Agent sessions
 
 <details class="facts">
