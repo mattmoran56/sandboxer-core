@@ -861,6 +861,17 @@ at once.
 `/p/:project/branches`, `/p/:project/w/:slug` and `/p/:project/s/:slug`. Every one of them
 returns the same document; the app decides what to draw. `/assets/*` serves the built bundle.
 
+**Six files are served from the origin root**, and each is there because the name is
+referenced from somewhere that cannot be rebuilt with the bundle, so none of them can carry a
+content hash: `/manifest.webmanifest`, `/sw.js`, and the four `/icons/*.png`. They are public,
+for the same reason `/assets/*` is — build artefacts, no state, nothing that says whether a
+project exists — and they are served from a **closed table of six paths**, not a directory,
+which is the posture `/assets/*` takes with its filename pattern.
+
+`/sw.js` has to be at the root rather than under `/assets/`: a service worker may only control
+paths below the one it was served from, and the app it exists for is at `/`. It and the
+manifest are `no-cache`; a held worker script is a worker that cannot be replaced.
+
 `/p/<project>/w/<slug>` and `/p/<project>/s/<slug>` are one view — the sandbox is something
 that comes and goes on top of the worktree. The `s` form is kept because it is what an action's
 declared destination (§8) and every existing bookmark already use, and because the log and
