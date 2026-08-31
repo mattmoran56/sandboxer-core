@@ -111,8 +111,8 @@ describe("urlsFor and hostsFor", () => {
   });
 
   it("uses the default domain, and an override when given", () => {
-    expect(urlsFor(withRuntimes, "s").app).toBe("https://s.app.acme.sbx.localhost");
-    expect(urlsFor(withRuntimes, "s", "sbx.dev").app).toBe("https://s.app.acme.sbx.dev");
+    expect(urlsFor(withRuntimes, "s").app).toBe("https://s--app--acme.sbx.localhost");
+    expect(urlsFor(withRuntimes, "s", "sbx.dev").app).toBe("https://s--app--acme.sbx.dev");
   });
 });
 

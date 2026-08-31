@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { baseCertificateNames, caTrusted, mkcertAvailable, sandboxCertificateNames } from "./tls.js";
+// Tests for the machine's one certificate:
+// - baseCertificateNames: the domain, one wildcard under it, and nothing deeper
+// - baseCertificateNames: that the one wildcard really does cover a flattened sandbox hostname
+// - mkcertAvailable / caTrusted: how the fall back to plain http is decided
+
+import { hostFor } from "../naming.js";
+import { baseCertificateNames, caTrusted, mkcertAvailable } from "./tls.js";
 import type { ExecResult, Runner } from "../docker.js";
 
 const ok = (stdout = ""): ExecResult => ({ code: 0, stdout, stderr: "" });
@@ -33,15 +39,16 @@ describe("baseCertificateNames", () => {
   });
 });
 
-describe("sandboxCertificateNames", () => {
-  it("lists a sandbox's hostnames in full, because no wildcard reaches them", () => {
-    expect(
-      sandboxCertificateNames({ slug: "tkt-1", project: "acme", domain: "sbx.localhost", labels: ["app", "api"] }),
-    ).toEqual(["tkt-1.app.acme.sbx.localhost", "tkt-1.api.acme.sbx.localhost"]);
-  });
-
-  it("is empty for a project that serves nothing, so no certificate is asked for", () => {
-    expect(sandboxCertificateNames({ slug: "s", project: "p", domain: "d", labels: [] })).toEqual([]);
+// The whole reason for flattening a sandbox hostname to one label: a TLS
+// wildcard covers exactly one, so this assertion is what replaced a certificate
+// per sandbox. If it ever fails, the per-sandbox machinery has to come back.
+describe("the wildcard and a sandbox hostname", () => {
+  it("covers every hostname a sandbox answers on", () => {
+    const domain = "sbx.localhost";
+    const host = hostFor({ slug: "tkt-1", label: "admin-api", project: "acme", domain });
+    expect(baseCertificateNames(domain)).toContain(`*.${domain}`);
+    // What `*.<domain>` means: exactly one label above the domain.
+    expect(host.slice(0, -(domain.length + 1))).not.toContain(".");
   });
 });
 

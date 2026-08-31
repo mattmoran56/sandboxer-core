@@ -70,6 +70,8 @@ import {
   removeWorktree,
   repoSlugFromUrl,
   sanitizeSlug,
+  slugCeilingFor,
+  SLUG_MAX,
   startSandbox,
   status,
   stopSandbox,
@@ -81,6 +83,7 @@ import {
   type Project,
   type ResolvedConfig,
   type Sandbox,
+  type Worktree,
 } from "@sandboxr/core";
 
 import { flagBoolean, flagList, flagNumber, flagString, parseArgs, type ParsedArgs } from "./args.js";
@@ -355,6 +358,10 @@ async function target(
     explicit: args.positional[positionalIndex] ?? flagString(args, "slug"),
     worktreeDir: facts.directory,
     branch: facts.branch === "?" ? undefined : facts.branch,
+    // The project's own ceiling, not the tool's: the slug shares one DNS label
+    // with the longest hostname label and the project name (contracts §3.1), and
+    // core's `up` derives it the same way from the same config.
+    max: slugCeilingFor(config),
   });
   return { config, slug, worktree: facts.worktree };
 }
@@ -991,13 +998,14 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
 
   if (sub === "ls" || sub === "list") {
     const worktrees = await listWorktrees(project);
+    const slugMax = await slugMaxOf(worktrees, env);
     // The display name is a label somebody chose, keyed on the same
     // `<project>/<slug>` the dashboard uses — never part of any identifier, so
     // it is decoration on this listing and nothing reads it back.
     const named = await Promise.all(
       worktrees.map(async (worktree) => ({
         ...worktree,
-        displayName: await readDisplayName(project.name, slugOf(worktree), env),
+        displayName: await readDisplayName(project.name, slugOf(worktree, slugMax), env),
       })),
     );
     if (out.json) {
@@ -1053,6 +1061,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
   // name: a worktree cut before the naming changed, or one added by hand, still
   // has to be reachable.
   const worktrees = await listWorktrees(project);
+  const slugMax = await slugMaxOf(worktrees, env);
   const found =
     worktrees.find((worktree) => worktree.branch === branch) ??
     worktrees.find((worktree) => basename(worktree.path) === sanitizeSlug(branch));
@@ -1073,7 +1082,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
       return 1;
     }
 
-    const slug = slugOf(found);
+    const slug = slugOf(found, slugMax);
     const stored = await writeDisplayName(project.name, slug, args.positional[3] as string, env);
     if (out.json) out.data({ project: project.name, branch: found.branch, slug, displayName: stored });
     // The slug is printed alongside on purpose: it is what the hostname, the
@@ -1088,7 +1097,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
   // Tidiness, not correctness — the same posture `down` takes with a keep-alive
   // marker. A name left behind by a worktree removed some other way is inert:
   // nothing reads it until a worktree of that slug is listed again.
-  await removeDisplayName(project.name, slugOf(found), env);
+  await removeDisplayName(project.name, slugOf(found, slugMax), env);
   if (out.json) out.data({ project: project.name, branch: found.branch, path: found.path, removed: true });
   out.ok(`removed ${found.path}`);
   return 0;
@@ -1099,10 +1108,35 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
  *
  * Here rather than inline so the listing and the rename cannot disagree about
  * which file a worktree's name lives in — two spellings of one derivation is
- * how a rename lands on a key nothing reads.
+ * how a rename lands on a key nothing reads. `max` is part of that: the ceiling
+ * is a property of the project's config (contracts §3.1), so a caller that let
+ * it default would derive a longer slug than `up` does for any project whose DNS
+ * budget binds.
  */
-function slugOf(worktree: { path: string; branch: string }): string {
-  return deriveSlug({ worktreeDir: basename(worktree.path), branch: worktree.branch });
+function slugOf(worktree: { path: string; branch: string }, max: number): string {
+  return deriveSlug({ worktreeDir: basename(worktree.path), branch: worktree.branch, max });
+}
+
+/**
+ * One project's slug ceiling, read from whichever worktree carries a config.
+ *
+ * Any of them will do — the ceiling comes from the `project:` name and the
+ * longest hostname label, both of which are the same in every worktree of a
+ * project — so this stops at the first that reads. A project with no readable
+ * config anywhere falls back to `SLUG_MAX`, which is honest: with no config
+ * there are no hostnames, so there is no budget to be spending.
+ */
+async function slugMaxOf(worktrees: readonly Worktree[], env: NodeJS.ProcessEnv): Promise<number> {
+  for (const worktree of worktrees) {
+    if (!worktree.exists) continue;
+    try {
+      return slugCeilingFor(await loadConfig(worktree.path, { enforceAccess: false, env }));
+    } catch {
+      // A worktree whose config is missing or unreadable is not this command's
+      // problem to report; the next one may well have it.
+    }
+  }
+  return SLUG_MAX;
 }
 
 function noProject(out: Output, name: string): number {
@@ -1566,7 +1600,7 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
   out.line();
   out.line(`  dashboard   ${report.dashboardUrl}`);
   const suffix = report.dashboardUrl.slice(`${report.scheme}://${report.domain}`.length);
-  out.line(`  sandboxes   ${report.scheme}://<slug>.<label>.<project>.${report.domain}${suffix}`);
+  out.line(`  sandboxes   ${report.scheme}://<slug>--<label>--<project>.${report.domain}${suffix}`);
   out.line();
   // `.localhost` resolves to the loopback address with no configuration at all,
   // which is the whole reason it is the default — saying so once here saves the

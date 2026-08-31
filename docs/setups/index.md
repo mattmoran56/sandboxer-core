@@ -50,7 +50,7 @@ without also handing them a terminal.
 | Thing | Default | Set by |
 |---|---|---|
 | Domain | `sbx.localhost` | `SANDBOXR_DOMAIN` |
-| Sandbox hostname | `<slug>.<label>.<project>.<domain>` | derived — see [how it works](../how-it-works.md) |
+| Sandbox hostname | `<slug>--<label>--<project>.<domain>` | derived — see [how it works](../how-it-works.md) |
 | Dashboard hostname | `<domain>`, the bare domain, and never a sandbox hostname | fixed |
 | Router bind address | `127.0.0.1`, ports 80 and 443 | `sandboxr init --bind`, `--http-port`, `--https-port` |
 | Host state | `~/.sandboxr` | `SANDBOXR_HOME` |

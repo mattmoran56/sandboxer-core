@@ -52,7 +52,6 @@ import {
   discardCertificateEntry,
   issueCertificate,
   mkcertAvailable,
-  sandboxCertificateNames,
   writeCertificateEntry,
   type Certificate,
 } from "./tls.js";
@@ -287,9 +286,11 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
 
   // --- the certificate ---------------------------------------------------------
   //
-  // The base one only: it carries the domain and one wildcard under it, which is
-  // the dashboard. A sandbox is three labels deep and no wildcard reaches it, so
-  // each one gets its own certificate when it starts.
+  // One certificate for the machine: the domain, for the dashboard, and one
+  // wildcard under it, which since contracts §3.2 flattened a sandbox hostname
+  // into a single label is every sandbox as well. This used to be "the base one
+  // only", with a second certificate issued per sandbox on `up`, because a TLS
+  // wildcard covers exactly one label and a sandbox was three deep.
   let cert: Certificate | undefined;
   if (options.tls !== false) {
     if (!(await mkcertAvailable())) {
@@ -313,6 +314,7 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   // a stale one from a previous run would have every command print URLs on a
   // scheme nothing is listening on.
   else await rm(join(files.dynamic, `cert-${domain}.yml`), { force: true });
+  await sweepSandboxCertificates(files.dynamic, domain, env, log);
   await startRouter({ env, docker, cert, files, bind: options.bind, ports, log });
 
   // --- the dashboard -----------------------------------------------------------
@@ -338,43 +340,36 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
 }
 
 /**
- * Issues the certificate one sandbox needs, and tells the router about it.
+ * Removes the per-sandbox certificates an installation from before flattening
+ * left behind.
  *
- * Called when a sandbox starts, because the hostnames it covers are a fact about
- * that sandbox's plan. Traefik watches the directory, so no reload is needed.
- * A no-op when the router is not serving TLS.
+ * There is exactly one certificate now — `cert-<domain>.yml` — so every other
+ * `cert-*.yml` in the dynamic directory was issued by a version that gave each
+ * sandbox its own, and it names hostnames that no longer exist. Left alone they
+ * are only untidy rather than harmful: Traefik would keep loading certificates
+ * for names nothing resolves to. They are swept anyway, because a directory
+ * whose contents nothing in the codebase writes is the sort of thing that gets
+ * read as a mechanism by the next person to look.
+ *
+ * Swept from `init` rather than from an upgrade step because `init` is the one
+ * command that owns the router's files, and it is what has to run after an
+ * upgrade in any case.
  */
-export async function ensureSandboxCertificate(input: {
-  project: string;
-  slug: string;
-  labels: readonly string[];
-  env?: NodeJS.ProcessEnv | undefined;
-  log?: ((line: string) => void) | undefined;
-}): Promise<Certificate | undefined> {
-  const env = input.env ?? process.env;
-  if (routerScheme(env) !== "https") return undefined;
-
-  const domain = domainOf(env);
-  const name = `${input.project}-${input.slug}`;
-  const hosts = sandboxCertificateNames({ slug: input.slug, project: input.project, domain, labels: input.labels });
-  const cert = await issueCertificate(name, hosts, { env });
-  if (!cert) {
-    input.log?.(`Could not issue a certificate for ${input.slug} — its hostnames will not validate.`);
-    return undefined;
-  }
-  await writeCertificateEntry(join(paths(env).state, "dynamic"), cert, TLS_DIR);
-  return cert;
-}
-
-/** Removes a sandbox's certificate and the router's entry for it. */
-export async function discardSandboxCertificate(
-  project: string,
-  slug: string,
-  env: NodeJS.ProcessEnv = process.env,
+async function sweepSandboxCertificates(
+  dynamicDir: string,
+  domain: string,
+  env: NodeJS.ProcessEnv,
+  log: (line: string) => void,
 ): Promise<void> {
-  const name = `${project}-${slug}`;
-  await discardCertificateEntry(join(paths(env).state, "dynamic"), name);
-  await discardCertificate(name, env);
+  const entries = await readdir(dynamicDir).catch((): string[] => []);
+  for (const entry of entries) {
+    if (!entry.startsWith("cert-") || !entry.endsWith(".yml")) continue;
+    const name = entry.slice("cert-".length, -".yml".length);
+    if (name === domain) continue;
+    await discardCertificateEntry(dynamicDir, name);
+    await discardCertificate(name, env);
+    log(`Removed the per-sandbox certificate ${name}; the wildcard on ${domain} covers it now.`);
+  }
 }
 
 export interface TeardownOptions {

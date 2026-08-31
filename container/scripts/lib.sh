@@ -108,8 +108,16 @@ svc_id() {
 # The hostname a label is served on. The domain comes from the environment so
 # one image serves every domain; baking it in is what made the source
 # implementation's domain override a no-op.
+#
+# One DNS label above the domain, its three parts joined by `--` (contracts
+# §3.2). It used to be three dotted labels, and what changed it was TLS rather
+# than DNS: a TLS wildcard covers exactly one label, so the deeper shape could be
+# covered by no wildcard certificate and needed one per sandbox. This has to
+# agree character for character with `hostFor` in packages/core/src/naming.ts --
+# the router outside is matching the same string, and a mismatch is a 404 from
+# Caddy on a request the router was right to forward.
 fqdn() {
-  printf '%s.%s.%s.%s\n' \
+  printf '%s--%s--%s.%s\n' \
     "${SANDBOXR_SLUG:?SANDBOXR_SLUG is required}" \
     "$1" \
     "$(plan .project)" \

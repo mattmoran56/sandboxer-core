@@ -60,20 +60,61 @@ A slug identifies one sandbox. Derived, in order of preference, from:
 5. the worktree directory name
 
 Sanitising: lowercase, every character outside `[a-z0-9-]` becomes `-`, runs of `-`
-collapse, leading and trailing `-` are stripped.
+collapse, leading and trailing `-` are stripped. A slug therefore never contains `--`,
+which §3.2 depends on.
 
-**Length ceiling is 31 characters.** Over that, keep the first 22 characters, append `-`
-and the first 8 characters of the SHA-256 of the *raw* input.
+**The ceiling is `min(31, 63 - len(longest label) - len(project) - 4)`.** Over it, keep
+the first `ceiling - 9` characters, append `-` and the first 8 characters of the SHA-256
+of the *raw* input.
 
-> Why hashed rather than truncated: a slug ends up inside a database advisory lock name.
-> Two long branch names often share a prefix, and truncation would let two sandboxes
-> collide on one lock. This ceiling is load-bearing — do not raise it without checking
-> the lock-name budget of every driver.
+Two separate limits meet in that expression, and they are not interchangeable:
+
+> **31 is the lock-name budget, and it is a maximum that may never be raised.** A slug ends
+> up inside a database advisory lock name, and MySQL's `GET_LOCK` truncates names at 64
+> characters. Two long branch names often share a prefix, and truncation would let two
+> sandboxes collide on one lock — which is why an over-long slug is *hashed* rather than
+> cut. Do not raise 31 without re-checking the lock-name budget of every driver.
+
+> **The subtraction is the DNS-label budget, and it may only lower the ceiling.** §3.2 puts
+> the slug, the label and the project in **one** DNS label, and a DNS label is limited to 63
+> characters. Two separators of two characters each cost 4, so the slug's share is
+> `63 - len(longest label) - len(project) - 4`. When that arithmetic allows more than 31 it
+> is ignored: the lock budget still binds. `min` is the whole rule, and getting it the wrong
+> way round would produce slugs that fit a hostname and collide on a lock.
+
+Worked: project `redeployable` (12) with a longest label of `company` (7) gives
+`63 - 12 - 7 - 4 = 40`, so the ceiling stays **31**. A project named
+`redeployable-platform-services` (30) with a longest label of `admin-console` (13) gives
+`63 - 30 - 13 - 4 = 16`, and 16 is what binds.
+
+The hashed form survives a lowered ceiling because it is expressed against the ceiling
+rather than against a fixed 22: the hash is always the last 9 characters, so the collision
+protection is the last thing to be given up rather than the first.
+
+**A ceiling below 12 is refused when the config is read**, naming the project, the longest
+label and the budget. Under 12 the hashed form leaves fewer than three characters of
+readable prefix, so every branch of any length reduces to a hash — and below 10 the form
+does not fit at all. Discovering that as an invalid hostname at `up` time, one sandbox at a
+time, is the failure this refusal exists to replace.
+
+The `s3` label counts as a label here. Whenever the project declares object storage that store
+answers on a hostname like any other app, so it spends the same budget; a calculation that ignored
+it would leave exactly one hostname over the limit and every other one fine.
+
+The ceiling is a property of the project, so **every derivation of a slug for a project has
+to use that project's config** — `up`, the CLI's worktree listing, and the dashboard's
+sidebar all pass it. A screen that can read no config for a project falls back to 31; that is
+honest rather than a drift, because a project with no readable config has no hostnames either.
+
+**A worktree's directory name is not a slug and keeps the plain 31**, because it is a path
+and spends none of the hostname budget. The two are already allowed to differ — the order of
+preference above derives a slug from the branch before the directory — and for a project
+whose budget binds they routinely will.
 
 ### 3.2 Hostnames
 
 ```
-<slug>.<label>.<project>.<domain>      an app or api inside a sandbox
+<slug>--<label>--<project>.<domain>    an app or api inside a sandbox
 <domain>                               the dashboard (the control plane)
 ```
 
@@ -81,7 +122,35 @@ and the first 8 characters of the SHA-256 of the *raw* input.
 - `project` is `project` in the config file.
 - `domain` is `SANDBOXR_DOMAIN`, default `sbx.lcl`.
 
-Example: `feat-123.app.acme.sbx.lcl`
+Example: `feat-123--app--acme.sbx.lcl`
+
+**One DNS label above the domain, and that is a TLS requirement rather than a preference.**
+A *DNS* wildcard does match more than one label — RFC 4592's closest-encloser rule, and both
+Cloudflare and Route 53 document it — so the older three-label shape resolved perfectly well.
+A *TLS* wildcard matches exactly one label, and `*.*.example.com` is not a valid certificate
+name; issuers reject it and mkcert refuses it outright. So a sandbox three labels deep could
+be covered by no wildcard certificate at all, and the answer was a certificate per sandbox,
+issued on `up` and discarded on `down`. Flattened to one label, `*.<domain>` covers every
+sandbox that will ever exist — the base certificate `init` already issues — and the whole
+per-sandbox certificate mechanism is gone.
+
+**`--` is the separator, and no component may contain it.** Slugs cannot (the sanitiser
+collapses runs of `-`), and `project:` and every `label:` are refused by the schema if they
+do. That is what makes the flattened label reversible: splitting on `--` yields exactly
+three parts, or the host is not a sandbox hostname. Nothing may relax either rule without
+also deciding how `a--b--c--d.<domain>` is to be read, because there is no answer.
+
+Two things read a hostname back into its parts and both rely on that. The router's
+`HostRegexp` rules have to recognise a sandbox hostname without knowing any sandbox, for the
+private-app handshake. And the dashboard's `projectFromForwardedHost` decides which project's
+grant a forwarded request is checked against — the permissive direction of a mistake there
+grants a session a project it was never given, so it calls **core's `parseHost`** rather than
+spelling the pattern out again. Both express a component as `[a-z0-9]+(-[a-z0-9]+)*` —
+single hyphens only — so neither can read `a--b` as one label.
+
+`parseHost` is the named reverse of `hostFor` and lives beside it. It answers undefined for
+the bare domain, for a host under another domain, for anything more than one label deep, and
+for a label that does not divide into exactly three parts.
 
 The dashboard lives on the bare domain and **never** on a per-sandbox hostname. The
 terminal is a route *within* the dashboard (`/p/<project>/s/<slug>/terminal`), so it
@@ -628,7 +697,7 @@ The authoritative schema is `packages/core/src/config/schema.ts` (Zod). This sec
 the human description; if the two disagree, the schema wins and this file gets fixed.
 
 ```yaml
-project: acme                  # required, [a-z0-9-], used in hostnames
+project: acme                  # required, [a-z0-9-] with no `--`, used in hostnames
 sandboxr: ">=0.1.0"            # minimum tool version; a mismatch is a clear error
 
 database:
@@ -693,9 +762,9 @@ Everything a sandbox runs is one of:
 
 | Kind | Declared as | How it runs | Served at |
 |---|---|---|---|
-| **backend** | `backends[]` | build once to a binary, supervised, listens on a port | `<slug>.<label>...` proxied |
-| **static** | `frontends[]` with `out:` | build on demand into a directory | `<slug>.<label>...` file server |
-| **server** | `frontends[]` with `serve:` | long-running process, listens on a port | `<slug>.<label>...` proxied |
+| **backend** | `backends[]` | build once to a binary, supervised, listens on a port | `<slug>--<label>--…` proxied |
+| **static** | `frontends[]` with `out:` | build on demand into a directory | `<slug>--<label>--…` file server |
+| **server** | `frontends[]` with `serve:` | long-running process, listens on a port | `<slug>--<label>--…` proxied |
 
 The third kind is what Cloudflare Workers projects need (`wrangler dev`). Do not collapse
 it into the other two.

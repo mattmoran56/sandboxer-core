@@ -14,6 +14,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
+import { DNS_LABEL_MAX, SLUG_MIN, slugCeiling } from "../naming.js";
 import { TOOL_VERSION } from "../tool-version.js";
 import { publicAccessViolations } from "./access.js";
 import { CONFIG_FILENAME, isWorkspaceProjectDir, locateConfig, type ConfigOrigin } from "./locate.js";
@@ -125,6 +126,7 @@ export function resolveConfig(document: unknown, file: string, options: ResolveO
   };
 
   checkLabels(resolved, file);
+  checkHostBudget(resolved, file);
   checkRoutes(resolved, file);
   checkFileDatabaseOwner(resolved, file);
 
@@ -334,7 +336,7 @@ function resolveSecrets(raw: RawConfig): SecretsConfig {
 }
 
 /**
- * Every runtime answers on `<slug>.<label>.<project>.<domain>`, so two runtimes
+ * Every runtime answers on `<slug>--<label>--<project>.<domain>`, so two runtimes
  * sharing a label would share a hostname and one would be unreachable.
  */
 function checkLabels(config: ResolvedConfig, file: string): void {
@@ -361,6 +363,61 @@ function checkLabels(config: ResolvedConfig, file: string): void {
     }
     names.add(backend.name);
   }
+}
+
+/**
+ * Every hostname label this project serves.
+ *
+ * The declared runtimes, plus `s3` when the sandbox runs object storage of its
+ * own: that store answers on a hostname like any other app, so it spends the
+ * same DNS-label budget, and a project whose arithmetic ignored it would have
+ * one hostname over the limit and every other one fine.
+ */
+export function hostLabels(config: ResolvedConfig): string[] {
+  const labels = [...config.frontends, ...config.backends].map((runtime) => runtime.label);
+  if (config.storage.driver === "minio") labels.push("s3");
+  return [...new Set(labels)];
+}
+
+/**
+ * The slug ceiling this project's config implies.
+ *
+ * The one function anything outside core should call for it, because it is the
+ * pairing of the project name with the *longest* label that decides the answer,
+ * and a caller that picked either half on its own would get a ceiling that is
+ * quietly too generous. Everything that derives a slug for a project — `up`, the
+ * CLI's listing, the dashboard's worktree view — has to agree on this number, or
+ * the name on the screen is not the name the sandbox gets.
+ */
+export function slugCeilingFor(config: ResolvedConfig): number {
+  return slugCeiling(config.project, hostLabels(config));
+}
+
+/**
+ * Whether this project leaves a slug worth having.
+ *
+ * Contracts §3.2 puts the slug, the longest hostname label and the project name
+ * in one DNS label, and a DNS label stops at 63 characters. So a long project
+ * name and a long label do not fail on their own — they quietly spend the slug's
+ * share of the budget, and what breaks is the *next* branch with a long name, at
+ * `up`, as a hostname that resolves to nothing. Refused here instead, once, with
+ * the three numbers named, because this is the only place all three are known
+ * before anything has been started.
+ */
+function checkHostBudget(config: ResolvedConfig, file: string): void {
+  const labels = hostLabels(config);
+  const ceiling = slugCeilingFor(config);
+  if (ceiling >= SLUG_MIN) return;
+
+  const longest = labels.reduce((a, b) => (b.length > a.length ? b : a), "");
+  throw new ConfigError(
+    file,
+    `project "${config.project}" (${config.project.length} characters) with its longest label "${longest}" ` +
+      `(${longest.length}) leaves a slug budget of ${ceiling}, under the minimum of ${SLUG_MIN}. ` +
+      `A sandbox hostname is one DNS label — <slug>--<label>--<project> — capped at ${DNS_LABEL_MAX} characters. ` +
+      "Shorten the project name or the label.",
+    "project",
+  );
 }
 
 /**

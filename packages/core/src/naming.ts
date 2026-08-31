@@ -16,14 +16,80 @@ import { createHash } from "node:crypto";
  * so a truncated slug would let two sandboxes collide on one lock. This ceiling
  * is load-bearing: raising it means re-checking the lock-name budget of every
  * driver.
+ *
+ * `slugCeiling` may lower it for one project and may never raise it — see there.
  */
 export const SLUG_MAX = 31;
 
-/** Characters kept from the prefix when a slug has to be hashed. */
-const SLUG_PREFIX_MAX = 22;
-
 /** Length of the SHA-256 prefix appended to an over-long slug. */
 const SLUG_HASH_LEN = 8;
+
+/** What the hashed form costs: the separator plus the hash itself. */
+const SLUG_HASH_COST = SLUG_HASH_LEN + 1;
+
+/**
+ * The hard ceiling on one DNS label, from RFC 1035.
+ *
+ * It matters here because contracts §3.2 puts the slug, the hostname label and
+ * the project name inside a *single* label — see `hostFor` for why — so all
+ * three share these 63 characters.
+ */
+export const DNS_LABEL_MAX = 63;
+
+/**
+ * The separator between the three components of a flattened sandbox hostname.
+ *
+ * Two hyphens, and what makes two hyphens unambiguous rather than merely
+ * unlikely is that no component may contain one: `sanitizeSlug` collapses runs
+ * of `-`, and the config schema refuses a `project:` or a `label:` holding `--`.
+ * Splitting on it therefore yields exactly three parts, or the host is not one
+ * of ours.
+ */
+export const HOST_SEPARATOR = "--";
+
+/**
+ * One component of a flattened hostname, as a regular-expression source.
+ *
+ * Single hyphens only, so this cannot read `a--b` as one component — which is
+ * what keeps the router's rules and the dashboard's forwarded-host parse
+ * agreeing with `hostFor` about where a hostname divides. A source string rather
+ * than a RegExp because one of the two consumers is Go's regexp engine inside
+ * Traefik and the other is JavaScript's; what is written here is the syntax both
+ * read the same way.
+ */
+export const HOST_COMPONENT = "[a-z0-9]+(?:-[a-z0-9]+)*";
+
+const HOST_COMPONENT_RE = new RegExp(`^${HOST_COMPONENT}$`);
+
+/**
+ * The smallest slug ceiling worth running with.
+ *
+ * Below 10 the hashed form does not fit at all — `-` plus 8 hex characters —
+ * and below 12 it leaves under three characters of readable prefix, so every
+ * branch name of any length collapses to a hash and the slug stops naming
+ * anything. A project that cannot clear this is refused when its config is read
+ * rather than one invalid hostname at a time on `up`.
+ */
+export const SLUG_MIN = 12;
+
+/**
+ * The slug ceiling for one project: `min(31, 63 - longest label - project - 4)`.
+ *
+ * **The `min` is the whole rule and it only ever points one way.** 31 is the
+ * lock-name budget on `SLUG_MAX` above, and it is a maximum: a slug that fits a
+ * hostname but collides with another sandbox on an advisory lock is the failure
+ * that ceiling exists to prevent, and when it happens it looks like a hung
+ * migration rather than like a naming problem. The subtraction is the DNS-label
+ * budget — the flattened hostname spends `len(slug) + 2 + len(label) + 2 +
+ * len(project)` of its 63 characters, so what is left is the slug's share. It
+ * may lower the ceiling and never raise it: a project whose arithmetic allows 40
+ * still gets 31.
+ */
+export function slugCeiling(project: string, labels: readonly string[]): number {
+  const longest = labels.reduce((max, label) => Math.max(max, label.length), 0);
+  const budget = DNS_LABEL_MAX - longest - project.length - 2 * HOST_SEPARATOR.length;
+  return Math.min(SLUG_MAX, budget);
+}
 
 /**
  * A ticket-style id: a letter run, a dash, digits. Matched anywhere, any case.
@@ -52,7 +118,13 @@ export class NamingError extends Error {
  * input, never a plain truncation, so two long names sharing a prefix stay
  * distinct.
  */
-export function sanitizeSlug(raw: string): string {
+export function sanitizeSlug(raw: string, max: number = SLUG_MAX): string {
+  // Clamped rather than trusted: `SLUG_MAX` is the lock-name budget, and a
+  // caller passing a DNS budget that happens to be larger must not raise it.
+  const ceiling = Math.min(max, SLUG_MAX);
+  if (ceiling < SLUG_MIN) {
+    throw new NamingError(`slug ceiling of ${ceiling} is below the minimum of ${SLUG_MIN}`);
+  }
   const folded = raw
     .toLowerCase()
     .replace(SAFE, "-")
@@ -62,12 +134,19 @@ export function sanitizeSlug(raw: string): string {
   if (folded === "") {
     throw new NamingError(`slug "${raw}" is empty after sanitising`);
   }
-  if (folded.length <= SLUG_MAX) return folded;
+  if (folded.length <= ceiling) return folded;
 
   const hash = createHash("sha256").update(raw).digest("hex").slice(0, SLUG_HASH_LEN);
-  // The prefix is trimmed of trailing dashes so the join never produces `--`,
-  // which is legal but reads as a typo in a hostname.
-  const prefix = folded.slice(0, SLUG_PREFIX_MAX).replace(/-+$/, "");
+  // The prefix is trimmed of trailing dashes for two reasons now. It always read
+  // as a typo in a hostname; since the hostname became one flat label it would
+  // also be a *second* separator inside a component, and the parse back out has
+  // no reading for that.
+  //
+  // The prefix is measured against the ceiling rather than a fixed 22, so the
+  // hash keeps all 8 of its characters when a project's DNS budget lowers the
+  // ceiling. Shortening the hash instead would quietly weaken the collision
+  // protection this whole branch exists for.
+  const prefix = folded.slice(0, ceiling - SLUG_HASH_COST).replace(/-+$/, "");
   return `${prefix}-${hash}`;
 }
 
@@ -80,6 +159,14 @@ export interface DeriveSlugInput {
   branch?: string | undefined;
   /** Overrides the ticket-id pattern for a team that spells them differently. */
   ticketPattern?: RegExp | undefined;
+  /**
+   * The project's slug ceiling, from `slugCeiling`. Absent means `SLUG_MAX`.
+   *
+   * Passed rather than looked up because it is a property of the project's
+   * config, and two derivations of one worktree's slug that disagreed about it
+   * would put a name on the dashboard that is not the one `up` uses.
+   */
+  max?: number | undefined;
 }
 
 /**
@@ -93,20 +180,21 @@ export interface DeriveSlugInput {
 export function deriveSlug(input: DeriveSlugInput): string {
   const { explicit, worktreeDir, branch } = input;
   const ticket = input.ticketPattern ?? DEFAULT_TICKET_PATTERN;
+  const max = input.max ?? SLUG_MAX;
 
-  if (explicit && explicit.trim() !== "") return sanitizeSlug(explicit);
+  if (explicit && explicit.trim() !== "") return sanitizeSlug(explicit, max);
 
   const dirTicket = worktreeDir?.match(ticket);
-  if (dirTicket) return sanitizeSlug(dirTicket[0]);
+  if (dirTicket) return sanitizeSlug(dirTicket[0], max);
 
   const branchTicket = branch?.match(ticket);
-  if (branchTicket) return sanitizeSlug(branchTicket[0]);
+  if (branchTicket) return sanitizeSlug(branchTicket[0], max);
 
   // "HEAD" is what git reports for a detached worktree, which is the shape you
   // get for a branch already checked out somewhere else. It names nothing.
-  if (branch && branch !== "HEAD") return sanitizeSlug(branch);
+  if (branch && branch !== "HEAD") return sanitizeSlug(branch, max);
 
-  if (worktreeDir) return sanitizeSlug(worktreeDir);
+  if (worktreeDir) return sanitizeSlug(worktreeDir, max);
 
   throw new NamingError("cannot derive a slug: no explicit name, worktree or branch");
 }
@@ -127,7 +215,20 @@ export interface HostParts {
 }
 
 /**
- * Builds one sandbox hostname: `<slug>.<label>.<project>.<domain>`.
+ * Builds one sandbox hostname: `<slug>--<label>--<project>.<domain>`.
+ *
+ * **One DNS label above the domain, because a TLS wildcard covers exactly one.**
+ * A DNS wildcard does match deeper — RFC 4592's closest-encloser rule — so the
+ * older `<slug>.<label>.<project>.<domain>` resolved perfectly well. But
+ * `*.*.example.com` is not a valid certificate name, so nothing wildcard could
+ * cover a sandbox and every sandbox needed a certificate of its own, issued on
+ * `up` and discarded on `down`. Flattened, the single `*.<domain>` already on the
+ * base certificate covers every sandbox there will ever be.
+ *
+ * The three components share the 63 characters of that one label, which is what
+ * `slugCeiling` subtracts from. Over-length throws rather than truncating: a
+ * hostname silently cut to 63 characters resolves to nothing, and "the app does
+ * not load" names none of its cause.
  *
  * The dashboard lives on the bare domain and never on a per-sandbox hostname,
  * so there is deliberately no helper for that here.
@@ -140,8 +241,44 @@ export function hostFor(parts: HostParts): string {
     ["project", parts.project],
   ] as const) {
     if (value === "") throw new NamingError(`hostFor: ${field} is empty`);
+    // A component holding the separator makes the hostname unreadable in the
+    // literal sense: the router and the dashboard both split on `--` to recover
+    // the project, and four parts have no reading.
+    if (value.includes(HOST_SEPARATOR)) {
+      throw new NamingError(`hostFor: ${field} "${value}" contains the "${HOST_SEPARATOR}" separator`);
+    }
   }
-  return `${parts.slug}.${parts.label}.${parts.project}.${domain}`;
+  const label = [parts.slug, parts.label, parts.project].join(HOST_SEPARATOR);
+  if (label.length > DNS_LABEL_MAX) {
+    throw new NamingError(
+      `hostname label "${label}" is ${label.length} characters, over the ${DNS_LABEL_MAX}-character DNS limit`,
+    );
+  }
+  return `${label}.${domain}`;
+}
+
+/**
+ * Recovers `{ slug, label, project }` from a sandbox hostname, or undefined.
+ *
+ * The reverse of `hostFor`, and it lives beside it so the two cannot drift apart
+ * about where a hostname divides. Undefined for the dashboard's own bare domain,
+ * for a host under some other domain, and for anything whose single label does
+ * not divide into exactly three `--`-separated components — which is what makes
+ * `<domain>.evil.example` a refusal rather than a near miss.
+ */
+export function parseHost(host: string, domain: string): { slug: string; label: string; project: string } | undefined {
+  const bare = host.toLowerCase();
+  const suffix = `.${domain.toLowerCase()}`;
+  if (!bare.endsWith(suffix)) return undefined;
+
+  const flat = bare.slice(0, -suffix.length);
+  if (flat === "" || flat.includes(".")) return undefined;
+
+  const parts = flat.split(HOST_SEPARATOR);
+  if (parts.length !== 3) return undefined;
+  if (!parts.every((part) => HOST_COMPONENT_RE.test(part))) return undefined;
+
+  return { slug: parts[0] as string, label: parts[1] as string, project: parts[2] as string };
 }
 
 export function urlFor(parts: HostParts): string {

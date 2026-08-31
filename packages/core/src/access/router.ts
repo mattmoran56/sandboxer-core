@@ -18,7 +18,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Docker } from "../docker.js";
-import { NETWORK } from "../naming.js";
+import { HOST_COMPONENT, HOST_SEPARATOR, NETWORK } from "../naming.js";
 import { paths } from "../paths.js";
 import type { Certificate } from "./tls.js";
 
@@ -97,9 +97,16 @@ export function regexLiteral(value: string): string {
  * front-end to a project must not require the router to be told about it. The
  * slug and project are fixed, and the label in the middle is whatever the plan
  * says — which the container itself is the right thing to resolve.
+ *
+ * All three now live in one DNS label (contracts §3.2), so the pattern matches
+ * inside a label rather than across dots. The middle is `HOST_COMPONENT` and not
+ * `[a-z0-9-]+`, and the difference is load-bearing: the looser class would match
+ * a label containing `--`, and this rule and the handshake rule below would then
+ * disagree with `hostFor` about where `<slug>--<label>--<project>` divides.
  */
 export function sandboxRule(slug: string, project: string, domain: string): string {
-  return `HostRegexp(\`^${regexLiteral(slug)}\\.[a-z0-9-]+\\.${regexLiteral(project)}\\.${regexLiteral(domain)}$\`)`;
+  const sep = regexLiteral(HOST_SEPARATOR);
+  return `HostRegexp(\`^${regexLiteral(slug)}${sep}${HOST_COMPONENT}${sep}${regexLiteral(project)}\\.${regexLiteral(domain)}$\`)`;
 }
 
 /**
@@ -183,12 +190,16 @@ export function routeLabels(input: RouteLabelInput): Record<string, string> {
  * only ever issued for a hostname the session's grant covers. What it costs a
  * public project is the prefix itself, which is why the prefix is reserved.
  *
- * The host pattern counts labels rather than naming anything: three above the
- * domain is a sandbox, and the dashboard's own bare domain has none, so this
- * cannot shadow the control plane.
+ * The host pattern names nothing: one label above the domain, divided by `--`
+ * into exactly three components, is a sandbox — and the dashboard's own bare
+ * domain has no label at all, so this cannot shadow the control plane. It used
+ * to count *three* labels above the domain, which was the same statement before
+ * contracts §3.2 flattened a sandbox hostname into one.
  */
 export function handshakeRule(domain: string): string {
-  const host = `HostRegexp(\`^[a-z0-9-]+\\.[a-z0-9-]+\\.[a-z0-9-]+\\.${regexLiteral(domain)}$\`)`;
+  const sep = regexLiteral(HOST_SEPARATOR);
+  const flat = [HOST_COMPONENT, HOST_COMPONENT, HOST_COMPONENT].join(sep);
+  const host = `HostRegexp(\`^${flat}\\.${regexLiteral(domain)}$\`)`;
   return `${host} && PathPrefix(\`${HANDSHAKE_PATH}\`)`;
 }
 

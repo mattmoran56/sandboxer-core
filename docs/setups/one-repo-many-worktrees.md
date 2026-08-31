@@ -237,7 +237,7 @@ means re-checking every driver's lock-name budget.
 
 | Thing | Pattern |
 |---|---|
-| Hostname | `<slug>.<label>.<project>.<domain>` |
+| Hostname | `<slug>--<label>--<project>.<domain>` |
 | Container | `sandboxr-<project>-<slug>` |
 | Volumes | `sandboxr-{data,blob,bin,www}-<project>-<slug>` |
 | Dependency volume | `sandboxr-deps-<first 16 hex of sha256 of the lockfile>` |

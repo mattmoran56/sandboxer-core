@@ -18,7 +18,7 @@ deeper.
 
 ```mermaid
 flowchart TB
-  b["Browser<br/>https://tkt-4821.app.acme.sbx.localhost"]
+  b["Browser<br/>https://tkt-4821--app--acme.sbx.localhost"]
   dns["Name resolution<br/>anything under .localhost is 127.0.0.1"]
   r["<b>The shared router</b> — Traefik, one per machine<br/>terminates TLS · matches the hostname · picks a container"]
   ir["<b>The sandbox's own router</b> — Caddy, inside the container<br/>generated from the plan at every boot"]
@@ -59,7 +59,7 @@ Written by `sandboxRouteLabels` in `packages/core/src/access/router.ts`. `<conta
 | Label | Value |
 |---|---|
 | `traefik.enable` | `true` |
-| `traefik.http.routers.<container>.rule` | `` HostRegexp(`^<slug>\.[a-z0-9-]+\.<project>\.<domain>$`) `` |
+| `traefik.http.routers.<container>.rule` | `` HostRegexp(`^<slug>--[a-z0-9]+(?:-[a-z0-9]+)*--<project>\.<domain>$`) `` |
 | `traefik.http.routers.<container>.entrypoints` | `websecure` when the router terminates TLS, otherwise `web` |
 | `traefik.http.routers.<container>.service` | `<container>` |
 | `traefik.http.routers.<container>.tls` | `true`, only when the router terminates TLS |
@@ -67,7 +67,10 @@ Written by `sandboxRouteLabels` in `packages/core/src/access/router.ts`. `<conta
 | `traefik.http.routers.<container>.middlewares` | `sandboxr-auth@file`, **only** when `access.apps` is `private` |
 
 The slug and the project are escaped as regular-expression literals, so a name containing a dot
-cannot widen the rule.
+cannot widen the rule. The middle of the pattern is deliberately `[a-z0-9]+(?:-[a-z0-9]+)*` and not
+`[a-z0-9-]+`: single hyphens only, so a label containing `--` cannot match. `--` is what divides a
+hostname into its three parts, and a rule that read `a--b` as one label would disagree with the rest
+of sandboxr about where a hostname divides.
 
 There is **one router entry per sandbox, not per app**: the label in the middle of the rule is a
 wildcard. Adding a front-end to a project therefore never requires telling the shared router about
@@ -82,15 +85,20 @@ of every sandbox listing: `sandboxr.role=router` and `sandboxr.role=dashboard`.
 
 </details>
 
-### Certificates are per sandbox
+### One certificate, for the whole machine
 
-A DNS wildcard matches exactly one label. A sandbox hostname is three labels above the domain. So
-`*.<domain>` reaches the dashboard and nothing else, and there is no wildcard that reaches a
-sandbox.
+**A TLS wildcard matches exactly one label**, and `*.*.example.com` is not a valid certificate name.
+That is the constraint that decided the shape of a sandbox hostname: one label above the domain, so
+that `*.<domain>` covers every sandbox there will ever be.
 
-Each sandbox therefore gets its own certificate, with its hostnames listed. mkcert issues it when
-the sandbox starts and it is removed when the sandbox goes. Traefik picks between certificates by
-SNI and watches the directory, so nothing reloads.
+It is a fact about TLS rather than about DNS, and the two are easy to confuse. A *DNS* wildcard does
+match more than one label (RFC 4592). So the older `<slug>.<label>.<project>.<domain>` resolved
+perfectly well — it was the certificate that could not be written, and the answer was one
+certificate per sandbox, issued on `up` and removed on `down`. Flattening the hostname removed the
+mechanism entirely.
+
+mkcert issues the one certificate when `init` runs. Traefik watches the directory, so nothing
+reloads, and starting a sandbox no longer touches TLS at all.
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — no trusted certificate, and the redirect that would follow</summary>
@@ -106,7 +114,8 @@ mkcert is installed. The two disagree in the common case — mkcert installed *a
 mkcert refuses a multi-level wildcard outright (`"*.*.example" is not a valid hostname`). Trying it
 produces no certificate at all and a router that quietly falls back to plain HTTP.
 
-The base certificate covers the domain, one wildcard under it, `localhost`, `127.0.0.1` and `::1`.
+The certificate covers the domain, one wildcard under it, `localhost`, `127.0.0.1` and `::1` — and
+the wildcard is what covers every sandbox, because a sandbox hostname is one label deep.
 mkcert is the only issuer sandboxr supports, because it is the only one that can make a browser
 trust a local name with no public DNS record. There is no ACME support — see
 [What is built](../reference/status.md).
@@ -167,7 +176,7 @@ below.
 At every boot the container generates its own router configuration from
 [`plan.json`](plan-json.md). Host matchers here are **exact**: one per label the plan declares.
 
-Take `https://tkt-4821.app.acme.sbx.localhost/api/orders`, with this in the config:
+Take `https://tkt-4821--app--acme.sbx.localhost/api/orders`, with this in the config:
 
 ```yaml
 routes:
@@ -291,7 +300,7 @@ diagnostic in this whole section.
 That last row is the single fastest check:
 
 ```bash
-curl -s https://tkt-4821.app.acme.sbx.localhost/__sandboxr/live
+curl -s https://tkt-4821--app--acme.sbx.localhost/__sandboxr/live
 ```
 
 > [!NOTE] The 503 page names a command that does not exist yet
