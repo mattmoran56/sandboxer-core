@@ -857,9 +857,15 @@ while the tab is hidden or while an action is running, a failed poll leaves the 
 on screen and says it is stale rather than blanking the page, and returning to the tab refreshes
 at once.
 
-**The HTML shell** is served at `/`, `/new`, `/settings`, `/repos`, `/p/:project`,
-`/p/:project/branches`, `/p/:project/w/:slug` and `/p/:project/s/:slug`. Every one of them
-returns the same document; the app decides what to draw. `/assets/*` serves the built bundle.
+**The HTML shell** is served at `/`, `/worktrees`, `/new`, `/settings`, `/repos`,
+`/p/:project`, `/p/:project/branches`, `/p/:project/w/:slug` and `/p/:project/s/:slug`. Every
+one of them returns the same document; the app decides what to draw. `/assets/*` serves the
+built bundle.
+
+`/worktrees` is the sidebar's list as a pane. It exists because the sidebar is not drawn below
+the `lg` breakpoint and a phone would otherwise have no way to browse the machine at all — so
+it is a route with a URL, reachable by bookmark and named in the manifest's shortcuts, rather
+than a drawer the app opens over itself.
 
 **Six files are served from the origin root**, and each is there because the name is
 referenced from somewhere that cannot be rebuilt with the bundle, so none of them can carry a
