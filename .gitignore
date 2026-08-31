@@ -11,3 +11,7 @@ secrets/*.env
 
 # Wrangler's dev-server scratch, in any example that really runs.
 .wrangler/
+
+# Worktrees a Claude Code agent cuts for itself. Each is its own checkout, and
+# committing one embeds a repository inside this one.
+.claude/worktrees/
