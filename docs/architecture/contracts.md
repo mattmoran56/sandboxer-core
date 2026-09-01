@@ -1142,9 +1142,27 @@ while the tab is hidden or while an action is running, a failed poll leaves the 
 on screen and says it is stale rather than blanking the page, and returning to the tab refreshes
 at once.
 
-**The HTML shell** is served at `/`, `/new`, `/settings`, `/repos`, `/p/:project`,
-`/p/:project/branches`, `/p/:project/w/:slug` and `/p/:project/s/:slug`. Every one of them
-returns the same document; the app decides what to draw. `/assets/*` serves the built bundle.
+**The HTML shell** is served at `/`, `/worktrees`, `/new`, `/settings`, `/repos`,
+`/p/:project`, `/p/:project/branches`, `/p/:project/w/:slug` and `/p/:project/s/:slug`. Every
+one of them returns the same document; the app decides what to draw. `/assets/*` serves the
+built bundle.
+
+`/worktrees` is the sidebar's list as a pane. It exists because the sidebar is not drawn below
+the `md` breakpoint and a phone would otherwise have no way to browse the machine at all — so
+it is a route with a URL, reachable by bookmark, named in the manifest's shortcuts and given a
+tab of its own in the bottom bar, rather than a panel the shell opens over itself. Being a
+route is what makes it a history entry, which is what the back gesture has to have.
+
+**Six files are served from the origin root**, and each is there because the name is
+referenced from somewhere that cannot be rebuilt with the bundle, so none of them can carry a
+content hash: `/manifest.webmanifest`, `/sw.js`, and the four `/icons/*.png`. They are public,
+for the same reason `/assets/*` is — build artefacts, no state, nothing that says whether a
+project exists — and they are served from a **closed table of six paths**, not a directory,
+which is the posture `/assets/*` takes with its filename pattern.
+
+`/sw.js` has to be at the root rather than under `/assets/`: a service worker may only control
+paths below the one it was served from, and the app it exists for is at `/`. It and the
+manifest are `no-cache`; a held worker script is a worker that cannot be replaced.
 
 `/p/<project>/w/<slug>` and `/p/<project>/s/<slug>` are one view — the sandbox is something
 that comes and goes on top of the worktree. The `s` form is kept because it is what an action's
