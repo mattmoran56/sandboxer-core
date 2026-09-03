@@ -173,8 +173,19 @@ export {
 } from "./worktree.js";
 export type { AddInput, Branch, Worktree } from "./worktree.js";
 
-export { WorktreeDeleteError, deleteWorktree, projectSlugCeiling } from "./worktree-delete.js";
-export type { DeleteWorktreeInput, WorktreeDeletion } from "./worktree-delete.js";
+export { WorktreeDeleteError, deleteWorktree, projectSlugCeiling, worktreeSlugs } from "./worktree-delete.js";
+export type { DeleteWorktreeInput, WorktreeDeletion, WorktreeSlug } from "./worktree-delete.js";
+
+export { freshenBranch, pullReport, pullWorktree, statusPaths, untrackedBlocks } from "./pull.js";
+export type {
+  FreshenInput,
+  FreshenOutcome,
+  FreshenResult,
+  PullInput,
+  PullRefusal,
+  PullRefusalKind,
+  PullResult,
+} from "./pull.js";
 
 export {
   DISPLAY_NAME_MAX,

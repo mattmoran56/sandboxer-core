@@ -19,6 +19,7 @@ import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
 import { loadConfig, slugCeilingFor } from "./config/load.js";
 import { branchOf } from "./git.js";
 import { SLUG_MAX, sanitizeSlug } from "./naming.js";
+import { freshenBranch } from "./pull.js";
 import { samePath } from "./paths.js";
 import type { Project } from "./workspace.js";
 import {
@@ -312,7 +313,7 @@ async function remoteBranchExists(run: Runner, project: Project, branch: string)
  * |---|---|
  * | a base was given | `worktree add -b <branch> <path> <base>` |
  * | local, checked out nowhere | `worktree add <path> <branch>` |
- * | local, checked out somewhere else | `worktree add --detach <path> refs/heads/<branch>` |
+ * | local, checked out somewhere else | `worktree add --detach <path> <the freshest ref>` |
  * | only on the remote | `worktree add -b <branch> <path> origin/<branch>` |
  *
  * git refuses to check out one branch in two places, and a branch is very often
@@ -320,6 +321,16 @@ async function remoteBranchExists(run: Runner, project: Project, branch: string)
  * case — it is the normal way to run a branch somebody is working on. It costs
  * nothing, because git.ts's `branchOf` recovers the branch name from a detached
  * tree via `git branch --points-at HEAD`.
+ *
+ * **Every one of those rows resolves a ref, and `freshenBranch` runs first so
+ * the refs are current.** It fetches the mirror, fast-forwards the local branch
+ * onto `origin/<branch>` where that is safe, and reports what it did. Where it
+ * is not safe — the branch is checked out elsewhere, or has commits origin does
+ * not — nothing is moved: the detached row starts from `origin/<branch>` where
+ * that is strictly ahead, and a diverged branch is checked out where it stands
+ * with a line saying which commit that is and how far it is from the remote. A
+ * worktree that already exists is handed back before any of this, so starting a
+ * sandbox never pulls a checkout somebody may be working in.
  */
 export async function addWorktree(input: AddInput): Promise<Worktree> {
   const run = input.run ?? nodeRunner;
@@ -352,12 +363,32 @@ export async function addWorktree(input: AddInput): Promise<Worktree> {
   // the recovered name would detach every later worktree for no reason.
   const heldElsewhere = before.some((entry) => !entry.detached && entry.branch === branch);
 
+  // Every row of the table above resolves a ref, and a ref is only as fresh as
+  // the last fetch — so the fetch happens first, and where the local branch is
+  // behind origin it is fast-forwarded onto it. See `freshenBranch` in pull.ts
+  // for what it will and will not move; it never throws, so an unreachable
+  // remote costs freshness rather than the worktree.
+  //
+  // **Before the checkout, where `claimSlug` is after it, and neither order is
+  // interchangeable.** This decides which *commit* the checkout lands on, so it
+  // has to happen while there is still a ref to move and no working tree hanging
+  // off it — moving a branch out from under a checkout is the thing this file
+  // spends a paragraph refusing to do. `claimSlug` decides what the worktree is
+  // *called*, which needs the directory to exist and the sibling listing to
+  // compare against, so it can only run once git has answered. They touch
+  // nothing in common: one writes refs in the mirror, the other writes a file
+  // under `SANDBOXR_HOME`, and a slug is never read from a ref.
+  const fresh = await freshenBranch({ project, branch, base: input.base, heldElsewhere, run, log });
+
   let args: string[];
   if (input.base !== undefined && input.base.trim() !== "") {
     args = ["worktree", "add", "-b", branch, path, input.base.trim()];
   } else if (await localBranchExists(run, project, branch)) {
+    // `fresh.startRef` and not `refs/heads/<branch>`: a branch held by another
+    // worktree cannot have its ref moved, so the freshest commit this checkout
+    // can be detached at is `origin/<branch>`.
     args = heldElsewhere
-      ? ["worktree", "add", "--detach", path, `refs/heads/${branch}`]
+      ? ["worktree", "add", "--detach", path, fresh.startRef]
       : ["worktree", "add", path, branch];
   } else if (await remoteBranchExists(run, project, branch)) {
     args = ["worktree", "add", "-b", branch, path, `origin/${branch}`];

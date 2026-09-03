@@ -196,6 +196,13 @@ has actually been run, rather than merely written:
 **Unit-tested only:** the whole `gh` path, which is driven from recorded output rather than the real
 binary; and cloning or fetching a private repository with the mounted credentials.
 
+**Pulling a worktree** — `sandboxr worktree pull` and the dashboard's Pull from Git — is
+**unit-tested only.** Every decision it makes is driven from a fake git rather than a real
+repository, and neither the command nor the button has been run against a real remote. What *has*
+been run against real git is the other half: cutting a worktree fetches first, and the test suite
+drives both outcomes on a real repository — a local branch behind the remote being fast-forwarded
+onto its tip, and a diverged one being checked out where it stands with nothing moved.
+
 </details>
 
 ### The project-level config

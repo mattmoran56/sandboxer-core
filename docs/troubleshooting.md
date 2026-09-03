@@ -893,13 +893,51 @@ hand and then `sandboxr up` from inside the worktree.
 | Where the branch is | What sandboxr runs |
 |---|---|
 | A local branch nothing has checked out | `git worktree add <path> <branch>` |
-| A local branch checked out somewhere else | `git worktree add --detach <path> refs/heads/<branch>` |
+| A local branch checked out somewhere else | `git worktree add --detach <path> <the freshest safe ref>` |
 | Only on the remote | `git worktree add -b <branch> <path> origin/<branch>` |
 | A new branch off a base | `git worktree add -b <branch> <path> <base>` |
 
 A worktree created the second way is **detached**, which is git working as intended rather than a
 failure. sandboxr recovers the branch name from the commit, so the sandbox is still labelled and
 still reachable at the hostname you expect.
+
+Every one of those resolves a ref, so sandboxr fetches the project's mirror first and moves the
+local branch up to the remote where that is a fast-forward and the branch is checked out nowhere.
+A branch checked out elsewhere is never moved — the new worktree is detached at `origin/<branch>`
+instead. See [Projects, worktrees and lifetimes](guides/managed-sandboxes.md).
+
+</details>
+
+### A worktree is running old code
+
+The commits are on the remote and the checkout is behind. Pull it, then restart the sandbox:
+
+```bash
+sandboxr worktree pull acme feat/tkt-4821
+sandboxr stop feat-tkt-4821 && sandboxr start feat-tkt-4821
+```
+
+From the dashboard both are buttons on the worktree — **Pull from Git**, then **Restart
+services**. A front-end is built rather than merely run, so rebuild those as well: **Rebuild
+front-ends**, or `sandboxr reload feat-tkt-4821 --web built`.
+
+<details class="failure">
+<summary><b>If it goes wrong</b> — the four things a pull refuses, and what each one wants</summary>
+
+A pull **fast-forwards or refuses**, and a refusal changes nothing on disk. It lists every reason
+at once, so there is no fixing one and running it again to be told the next.
+
+| What it says | What to do |
+|---|---|
+| `N files have uncommitted changes that the incoming commits also change: …` | Commit, stash or discard those files. Only files the incoming commits also touch are in the way |
+| `N untracked files would be overwritten by the incoming commits: …` | Move or delete them |
+| `<branch> has N commits that origin/<branch> does not` | There is no fast-forward to make. Push them, or drop them |
+| `origin has no branch called <branch>` | It was deleted or renamed on the remote |
+| `This worktree is on <sha> and no branch points at it` | Check it out on a branch first |
+
+A pull never merges, never rebases and never discards, so none of these can lose work. A file a
+sandbox's own build wrote — a generated `.env.local` beside a package — is ignored and does not
+block anything.
 
 </details>
 
