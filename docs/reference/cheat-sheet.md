@@ -66,11 +66,11 @@ Full surface, with every flag: [CLI commands](cli.md).
 ## Names
 
 ```
-<slug>.<label>.<project>.<domain>     one app or api inside a sandbox
+<slug>--<label>--<project>.<domain>     one app or api inside a sandbox
 <domain>                              the dashboard, and nothing else
 ```
 
-`tkt-4821.app.acme.sbx.localhost`
+`tkt-4821--app--acme.sbx.localhost`
 
 | Thing | Shape | Example |
 |---|---|---|

@@ -245,8 +245,9 @@ The full list is in [Environment variables](../reference/environment.md).
 - Images `sandboxr/base:<tool version>` and `sandboxr/dashboard:<tool version>`, each also tagged
   `:latest`. Both are protected from `sandboxr prune`.
 - A certificate for the domain and one wildcard under it, in `~/.sandboxr/tls`, when mkcert's root
-  is trusted. That wildcard covers the dashboard only — a sandbox hostname is three labels deep,
-  so each sandbox gets its own certificate when it starts.
+  is trusted. That is the only certificate on the machine: a sandbox hostname is one label deep, so
+  the wildcard covers every sandbox as well as the dashboard, and starting a sandbox issues
+  nothing.
 - Containers `sandboxr-router` and `sandboxr-dashboard`.
 
 **Timeouts**: the base image build is allowed 30 minutes, the dashboard image 10.

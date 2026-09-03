@@ -224,7 +224,7 @@ gets its own state — never `down`.
 - **TLS is used when it is already trusted, and skipped when it is not.** Installing mkcert's
   root needs an administrator password.
 - **Nothing is published beyond loopback.** `--bind` is how somebody says otherwise on purpose.
-- **One router entry per sandbox, not per app.** A `HostRegexp` rule with the label wildcarded.
+- **One router entry per sandbox, not per app.** A `HostRegexp` rule with the label wildcarded, inside the one DNS label a hostname is.
   The container is the right thing to resolve a label.
 - **The handshake router's priority is explicit.** Traefik would otherwise order rules by their
   length.

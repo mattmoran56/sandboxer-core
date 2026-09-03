@@ -30,7 +30,7 @@ edit it.
 ## Naming and hostnames
 
 **A hostname label must be unique within a project.** Every runtime answers on
-`<slug>.<label>.<project>.<domain>`, so two runtimes sharing a label would share a hostname
+`<slug>--<label>--<project>.<domain>`, so two runtimes sharing a label would share a hostname
 and one of them would be unreachable. Backends and front-ends share one namespace.
 
 > `label "app" is already used by backend api`
@@ -40,8 +40,25 @@ target.
 
 > `two backends are called "api"`
 
-**A label is a hostname label.** Lowercase letters, digits and dashes, not starting or
-ending with a dash, at most 63 characters. So is `project`.
+**A label is a hostname label.** Lowercase letters, digits and **single** dashes, not
+starting or ending with a dash, at most 63 characters. So is `project`.
+
+> `must be lowercase letters, digits and single dashes, with no leading, trailing or doubled dash`
+
+The doubled dash is refused rather than merely discouraged: `--` is what joins the three
+parts of a hostname, so a label containing one would make `a--b--c--d.<domain>` a name with
+no single reading.
+
+**A project's name and its longest label share a budget with the slug.** The three sit in
+one DNS label, and a DNS label stops at 63 characters, so what is left for the slug is
+`63 - len(longest label) - len(project) - 4`. Slugs are capped at 31 characters anyway, so
+this only matters when the subtraction gives *less* than 31 — a long project name with a
+long label shortens every slug the project produces, and one that leaves fewer than 12
+characters is refused when the config is read rather than discovered as a broken hostname
+later.
+
+> `project "…" (52 characters) with its longest label "administration" (14) leaves a slug
+> budget of 5, under the minimum of 12`
 
 > `must be a hostname label: lowercase, digits and dashes`
 

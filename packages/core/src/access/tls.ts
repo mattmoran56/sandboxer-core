@@ -1,16 +1,24 @@
 /**
- * The certificates the router serves.
+ * The certificate the router serves. One, for the whole machine.
  *
- * A DNS wildcard matches exactly one label, and a sandbox hostname is three
- * labels above the domain — `<slug>.<label>.<project>.<domain>`. So no single
- * wildcard can cover a sandbox, and mkcert refuses a multi-level one outright
- * (`"*.*.example" is not a valid hostname`). Trying it produces no certificate
- * at all and a router that quietly falls back to plain http.
+ * **A TLS wildcard matches exactly one label**, and `*.*.example.com` is not a
+ * valid certificate name — mkcert refuses it outright
+ * (`"*.*.example" is not a valid hostname`), producing no certificate at all and
+ * a router that quietly falls back to plain http.
  *
- * The answer is one certificate per sandbox, with its hostnames listed
- * explicitly, issued when the sandbox starts and removed when it goes. Traefik
- * picks between them by SNI, and the base certificate — the domain and one
- * wildcard under it — covers the dashboard.
+ * That is a fact about TLS and not about DNS, and the two were confused here for
+ * a long time. A *DNS* wildcard does match more than one label — RFC 4592's
+ * closest-encloser rule, which Cloudflare and Route 53 both document — so the
+ * old `<slug>.<label>.<project>.<domain>` resolved perfectly well and only the
+ * certificate could not be written. The answer then was a certificate per
+ * sandbox, with its hostnames listed, issued on `up` and discarded on `down`.
+ *
+ * Contracts §3.2 now flattens a sandbox hostname into a single label
+ * (`<slug>--<label>--<project>.<domain>`), so the `*.<domain>` already on the
+ * base certificate covers every sandbox that will ever exist. The whole
+ * per-sandbox mechanism is gone: no `sandboxCertificateNames`, no issue on
+ * `up`, no discard on `down`, and nothing for two sandboxes starting at once to
+ * race over.
  *
  * mkcert is the only issuer supported, because it is the only one that can make
  * a browser trust a local name without a public DNS record. It is optional:
@@ -41,23 +49,15 @@ export interface TlsOptions {
 }
 
 /**
- * The names the base certificate carries.
+ * The names the one certificate carries.
  *
- * The domain itself, for the dashboard, and one wildcard under it. Anything
- * deeper is a sandbox and gets its own certificate — a wildcard cannot reach it.
+ * The domain itself, for the dashboard, and one wildcard under it — which since
+ * hostnames were flattened to a single label is every sandbox hostname on the
+ * machine as well. Nothing sandboxr serves is deeper than this, and nothing may
+ * become deeper without bringing back a certificate per sandbox.
  */
 export function baseCertificateNames(domain: string): string[] {
   return [domain, `*.${domain}`, "localhost", "127.0.0.1", "::1"];
-}
-
-/** Every hostname one sandbox answers on. Listed, because a wildcard cannot reach them. */
-export function sandboxCertificateNames(input: {
-  slug: string;
-  project: string;
-  domain: string;
-  labels: readonly string[];
-}): string[] {
-  return input.labels.map((label) => `${input.slug}.${label}.${input.project}.${input.domain}`);
 }
 
 /** Whether mkcert is installed and runnable. */
@@ -145,7 +145,7 @@ async function readTextOrEmpty(path: string): Promise<string> {
   }
 }
 
-/** Removes a certificate and its manifest. Used when a sandbox goes. */
+/** Removes a certificate and its manifest. */
 export async function discardCertificate(name: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const dir = paths(env).tls;
   for (const file of [`${name}.pem`, `${name}-key.pem`, `${name}.hosts`]) {

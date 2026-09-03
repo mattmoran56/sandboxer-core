@@ -400,7 +400,7 @@ a first build of something deliberately excluded from `--all`.
 ## The router
 
 `gen-caddyfile.sh` writes `/run/sandboxr/Caddyfile` at every boot from the plan and
-the environment. Host matchers are exact: `<slug>.<label>.<project>.<domain>`.
+the environment. Host matchers are exact: `<slug>--<label>--<project>.<domain>`.
 
 The domain comes from `SANDBOXR_DOMAIN`. This is worth stating because the source
 implementation hardcoded its domain in thirteen places in a static Caddyfile, and

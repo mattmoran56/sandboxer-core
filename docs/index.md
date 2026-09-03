@@ -11,7 +11,7 @@ file storage. Several run at once, so two branches can be open in two browser ta
 ```bash
 cd .worktrees/tkt-4821
 sandboxr up
-# https://tkt-4821.app.acme.sbx.localhost
+# https://tkt-4821--app--acme.sbx.localhost
 ```
 
 ## Hand this to your agent

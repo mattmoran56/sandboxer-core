@@ -43,9 +43,9 @@ acme     tkt-4907  running   12h    tkt-4907*         /home/dev/acme/.worktrees/
 Three branches, three URLs, three databases, all live at the same time:
 
 ```
-https://tkt-4821.app.acme.sbx.localhost
-https://tkt-4907.app.acme.sbx.localhost
-https://fix-nav.app.acme.sbx.localhost
+https://tkt-4821--app--acme.sbx.localhost
+https://tkt-4907--app--acme.sbx.localhost
+https://fix-nav--app--acme.sbx.localhost
 ```
 
 The first one was slow. The rest were not — the expensive work was already done and shared, which
