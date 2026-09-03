@@ -303,7 +303,7 @@ describe("up", () => {
     expect(await readFile(envFile, "utf8")).toContain("SANDBOXR_SLUG=tkt-1");
     // http, not https: the URL follows what the router is actually serving, and
     // this home has never been through `init`, so nothing terminates TLS.
-    expect(result.urls.app).toBe("http://tkt-1.app.acme.sbx.localhost");
+    expect(result.urls.app).toBe("http://tkt-1--app--acme.sbx.localhost");
     expect(result.seed.source).toBe("fixtures");
   });
 
@@ -324,7 +324,7 @@ describe("up", () => {
       env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
     });
 
-    expect(result.urls.app).toBe("https://tkt-1.app.acme.sbx.localhost");
+    expect(result.urls.app).toBe("https://tkt-1--app--acme.sbx.localhost");
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
     expect(runArguments).toContain("traefik.http.routers.sandboxr-acme-tkt-1.entrypoints=websecure");
     expect(runArguments).toContain("traefik.http.routers.sandboxr-acme-tkt-1.tls=true");
@@ -345,7 +345,7 @@ describe("up", () => {
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
     expect(runArguments).toContain("traefik.enable=true");
     expect(runArguments).toContain(
-      "traefik.http.routers.sandboxr-acme-tkt-1.rule=HostRegexp(`^tkt-1\\.[a-z0-9-]+\\.acme\\.sbx\\.localhost$`)",
+      "traefik.http.routers.sandboxr-acme-tkt-1.rule=HostRegexp(`^tkt-1--[a-z0-9]+(?:-[a-z0-9]+)*--acme\\.sbx\\.localhost$`)",
     );
     // Port 80 is the sandbox's own router, which is what splits by label.
     expect(runArguments).toContain("traefik.http.services.sandboxr-acme-tkt-1.loadbalancer.server.port=80");
@@ -669,7 +669,7 @@ describe("status", () => {
     });
     expect(result.migrations).toBe("ok");
     expect(result.built).toEqual(["app"]);
-    expect(result.services[0]).toMatchObject({ name: "api", up: true, url: "http://tkt-1.api.acme.sbx.localhost" });
+    expect(result.services[0]).toMatchObject({ name: "api", up: true, url: "http://tkt-1--api--acme.sbx.localhost" });
     expect(result.worktreeMissing).toBe(true);
   });
 

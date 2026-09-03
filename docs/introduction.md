@@ -42,7 +42,7 @@ sandboxr up
 ```
 
 A short while later the project is serving at
-`https://tkt-4821.app.acme.sbx.localhost`. It has a database of its own, and your branch's
+`https://tkt-4821--app--acme.sbx.localhost`. It has a database of its own, and your branch's
 migrations have already run against it. Break it however you like. `sandboxr down` throws away
 the container, the database and the uploaded files, and never touches the worktree itself.
 

@@ -16,8 +16,9 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
+import { loadConfig, slugCeilingFor } from "./config/load.js";
 import { branchOf } from "./git.js";
-import { sanitizeSlug } from "./naming.js";
+import { SLUG_MAX, sanitizeSlug } from "./naming.js";
 import { samePath } from "./paths.js";
 import type { Project } from "./workspace.js";
 import {
@@ -437,7 +438,17 @@ async function claimSlug(
   // token would move a live sandbox's name out from under it.
   if (await readRecordedSlug(key.project, key.worktreeDir, env)) return;
 
-  const want = await slugFor({ worktree: created.path, project: project.name, branch: created.branch, env });
+  // **The ceiling has to be the project's, or a collision is what overflows the
+  // hostname.** A sandbox hostname is one DNS label — `<slug>--<label>--<project>`
+  // — and `slugCeiling` lowers `SLUG_MAX` for a project that already spends most
+  // of those 63 characters on its own name and its longest label (contracts
+  // §3.1, §3.2). A given slug is longer than the one it replaces, so sizing it
+  // against a flat 31 would let *only the collided worktree* produce a label
+  // over the limit. That does not look like a naming bug when it happens; it
+  // looks like a hostname that does not resolve.
+  const max = await ceilingFor(created.path, env);
+
+  const want = await slugFor({ worktree: created.path, project: project.name, branch: created.branch, max, env });
 
   const taken = new Set<string>();
   for (const sibling of before) {
@@ -448,6 +459,7 @@ async function claimSlug(
           worktree: sibling.path,
           project: project.name,
           branch: sibling.branch === UNKNOWN ? undefined : sibling.branch,
+          max,
           env,
         }),
       );
@@ -459,12 +471,37 @@ async function claimSlug(
 
   if (!taken.has(want)) return;
 
-  const given = uniqueSlug(want, taken);
+  const given = uniqueSlug(want, taken, undefined, max);
   await writeRecordedSlug(key.project, key.worktreeDir, given, env);
   log(
     `another worktree of ${project.name} already answers to "${want}", so this one is "${given}" — ` +
       "a slug names a container, four volumes and a migration lock, and two worktrees cannot share them",
   );
+}
+
+/**
+ * The slug ceiling the worktree just cut will be subject to.
+ *
+ * Read from that worktree's own config, because the ceiling comes from the
+ * `project:` name and the longest hostname label and there is nowhere else on
+ * this code path that knows either: `addWorktree` has a workspace `Project`,
+ * which is a directory name and a bare clone, and deliberately not a resolved
+ * config. `enforceAccess: false` for the reason every other read-only caller
+ * passes it — refusing to cut a worktree because its config would not be allowed
+ * to *start* is a refusal in the wrong place.
+ *
+ * `SLUG_MAX` when nothing can be read, which is honest rather than a guess: a
+ * branch carrying no `sandboxr.yaml`, with no project-level one above it, has no
+ * declared project name and no labels, so it has no hostname to have a budget
+ * for. Inventing a ceiling from a name that is not the config's would give a
+ * different answer from the one `up` uses the moment a config appears.
+ */
+async function ceilingFor(worktree: string, env?: NodeJS.ProcessEnv): Promise<number> {
+  try {
+    return slugCeilingFor(await loadConfig(worktree, { enforceAccess: false, ...(env ? { env } : {}) }));
+  } catch {
+    return SLUG_MAX;
+  }
 }
 
 /**

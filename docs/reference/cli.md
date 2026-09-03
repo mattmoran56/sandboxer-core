@@ -100,9 +100,9 @@ Prints the domain, the dashboard URL and the hostname shape. `--json` returns th
 - `The certificate is issued but its root is not trusted.`
 - `No SANDBOXR_PASSWORD is set, so the dashboard will admit nobody.`
 
-The certificate covers the domain and one wildcard under it — which is enough for the dashboard and
-not for a sandbox, since a sandbox hostname is three labels deep. Each sandbox gets its own
-certificate when it starts.
+The certificate covers the domain and one wildcard under it, and that is the whole machine: a
+sandbox hostname is one label deep, so the wildcard reaches every sandbox as well as the dashboard.
+Starting a sandbox issues no certificate of its own.
 
 `init` never installs a trust root implicitly. `mkcert -install` is the one step that needs an
 administrator password, so it is left to you.

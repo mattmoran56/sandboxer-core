@@ -118,9 +118,10 @@ gives it one of its own instead:
 another worktree of acme already answers to "tkt-4821", so this one is "tkt-4821-7k2f"
 ```
 
-Four random characters on the end, so the name is still readable and still fits the 31-character
-ceiling. It is written down, because random characters cannot be worked out again, and everything
-from then on — the hostname, `sandboxr ls`, the dashboard — uses it.
+Four random characters on the end, so the name is still readable and still fits the ceiling — the
+project's own, which for a long project name and a long label is lower than 31. It is written down,
+because random characters cannot be worked out again, and everything from then on — the hostname,
+`sandboxr ls`, the dashboard — uses it.
 
 When you cut the worktree yourself, in your own repository, sandboxr never saw it happen and
 cannot warn you.
@@ -258,27 +259,39 @@ on a page and start a container under a different one.
 
 **The collision check** is in `addWorktree` (`packages/core/src/worktree.ts`), which already has the
 project's other worktrees in hand. After the worktree exists on disk it resolves every sibling's
-slug, and if the new one's derived slug is among them it calls `uniqueSlug(base, taken)` —
-`<base>-<token>`, `token` being four characters of `[a-z0-9]` from `node:crypto`, re-rolled if it
-is taken — and records it. `<base>` is trimmed, trailing dashes stripped, so the total stays inside
-`SLUG_MAX`. A UUID would blow that budget and be unreadable. `removeWorktree` deletes the record.
+slug, and if the new one's derived slug is among them it calls
+`uniqueSlug(base, taken, token, max)` — `<base>-<token>`, `token` being four characters of
+`[a-z0-9]` from `node:crypto`, re-rolled if it is taken — and records it. `<base>` is trimmed to
+`max - 5`, trailing dashes stripped, so the total stays inside the ceiling. **`max` is the
+project's ceiling and not `SLUG_MAX`**: a given slug is five characters longer than the one it
+replaces and sits in the same hostname, so sized against a flat 31 a collision would be the one
+thing in a budget-bound project that pushes a hostname over 63 characters — which shows up as a
+name that does not resolve, not as anything about slugs. `addWorktree` gets that number by loading
+the config of the worktree it just cut, falling back to `SLUG_MAX` when there is none to read. A
+UUID would blow both budgets and be unreadable. `removeWorktree` deletes the record.
 
 **Sanitising** (`sanitizeSlug`), in order: lowercase; `[^a-z0-9-]+` → `-`; `-+` → `-`; strip leading
 and trailing `-`. An empty result throws `NamingError: slug "<raw>" is empty after sanitising`.
 
-**Ceiling:** `SLUG_MAX = 31`. Over it: `folded.slice(0, 22)` with trailing dashes trimmed, then `-`,
-then `sha256(raw).hex.slice(0, 8)`. The hash is of the **raw** input, not the folded form. The
-trailing-dash trim exists so the join never produces `--`.
+**Ceiling:** `min(SLUG_MAX, 63 - len(longest label) - len(project) - 4)`, where `SLUG_MAX = 31`.
+Over it: `folded.slice(0, ceiling - 9)` with trailing dashes trimmed, then `-`, then
+`sha256(raw).hex.slice(0, 8)`. The hash is of the **raw** input, not the folded form. The
+trailing-dash trim exists so the join never produces `--`, which is the separator inside a
+flattened hostname.
 
 **Why 31:** `lockName(project, slug)` builds `sandboxr_migrate_<project>_<slug>` and throws if it
 exceeds 64 characters, which is where MySQL's `GET_LOCK` silently truncates. Raising `SLUG_MAX`
 means re-checking every driver's lock-name budget.
 
+**Why the subtraction:** a sandbox hostname is one DNS label — `<slug>--<label>--<project>` — and a
+DNS label stops at 63 characters. It may only *lower* the ceiling: a project whose arithmetic
+allows 40 still gets 31, because the lock budget still binds. See contracts §3.1.
+
 **Every name derived from a slug:**
 
 | Thing | Pattern |
 |---|---|
-| Hostname | `<slug>.<label>.<project>.<domain>` |
+| Hostname | `<slug>--<label>--<project>.<domain>` |
 | Container | `sandboxr-<project>-<slug>` |
 | Volumes | `sandboxr-{data,blob,bin,www}-<project>-<slug>` |
 | Dependency volume | `sandboxr-deps-<first 16 hex of sha256 of the lockfile>` |

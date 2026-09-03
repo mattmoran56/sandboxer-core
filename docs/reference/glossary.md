@@ -151,8 +151,8 @@ agent grant is a standing permission a project has given a session. See
 
 ## H
 
-**Hostname** — `<slug>.<label>.<project>.<domain>`, for example
-`tkt-4821.app.acme.sbx.localhost`. See [How it works, in five steps](../how-it-works.md).
+**Hostname** — `<slug>--<label>--<project>.<domain>`, for example
+`tkt-4821--app--acme.sbx.localhost`. See [How it works, in five steps](../how-it-works.md).
 
 ## I
 

@@ -17,7 +17,7 @@ Run the sandboxr demo project and confirm it serves a page.
 
 Read docs/getting-started/demo-project.md and follow it. From the sandboxr checkout, cd into
 examples/demo-worker, run `sandboxr up demo1`, then fetch
-https://demo1.app.demo.sbx.localhost/api/notes and confirm it returns two seeded notes. Report the
+https://demo1--app--demo.sbx.localhost/api/notes and confirm it returns two seeded notes. Report the
 JSON you got back.
 
 Stop and ask me if:
@@ -48,7 +48,7 @@ sandboxr up demo1
 ==> Applied fixtures from seeds/fixtures.sql
   ok Sandbox demo1 is running
 
-  app          https://demo1.app.demo.sbx.localhost
+  app          https://demo1--app--demo.sbx.localhost
 ```
 
 Open that URL. You get a guestbook with two notes in it. Leave one — it goes into this sandbox's
@@ -57,7 +57,7 @@ own database and nowhere else.
 There is also a machine-readable answer, which is what makes this a good check for an agent:
 
 ```bash
-curl -s https://demo1.app.demo.sbx.localhost/api/notes
+curl -s https://demo1--app--demo.sbx.localhost/api/notes
 ```
 
 ```json
@@ -408,8 +408,8 @@ renders.
 cd examples/demo-worker
 sandboxr up demo1                                            # 0 healthy, 3 degraded
 sandboxr status demo1                                        # 0 healthy, 3 degraded
-curl -sf https://demo1.app.demo.sbx.localhost/__sandboxr/live # ok
-curl -sf https://demo1.app.demo.sbx.localhost/api/notes       # two notes
+curl -sf https://demo1--app--demo.sbx.localhost/__sandboxr/live # ok
+curl -sf https://demo1--app--demo.sbx.localhost/api/notes       # two notes
 sandboxr db shell demo1                                      # read-only sqlite prompt
 sandboxr logs demo1 --tail 200
 sandboxr down demo1

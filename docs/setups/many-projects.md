@@ -162,9 +162,9 @@ have a `tkt-4821`. `--project NAME` is how you say which:
 The hostname shape does not change. There is simply a project label in it, and now it varies:
 
 ```
-https://tkt-4821.app.acme.sbx.localhost      acme's checkout branch
-https://tkt-4821.api.acme.sbx.localhost      the same sandbox's api
-https://main.app.demo.sbx.localhost          a different project entirely
+https://tkt-4821--app--acme.sbx.localhost      acme's checkout branch
+https://tkt-4821--api--acme.sbx.localhost      the same sandbox's api
+https://main--app--demo.sbx.localhost          a different project entirely
 https://sbx.localhost                        the dashboard, for all of them
 ```
 

@@ -20,7 +20,7 @@ export type {
   StorageConfig,
   ToolchainConfig,
 } from "./config/types.js";
-export { ConfigError, loadConfig, projectPath, resolveConfig } from "./config/load.js";
+export { ConfigError, hostLabels, loadConfig, projectPath, resolveConfig, slugCeilingFor } from "./config/load.js";
 export type { LoadOptions, ResolveOptions } from "./config/load.js";
 export {
   CONFIG_FILENAME,
@@ -72,6 +72,7 @@ export {
   PROTECTED_IMAGES,
   SHARED_VOLUMES,
   SLUG_MAX,
+  SLUG_MIN,
   containerName,
   depsVolumeName,
   deriveSlug,
@@ -79,7 +80,9 @@ export {
   imageRepository,
   lockName,
   parseContainerName,
+  parseHost,
   sanitizeSlug,
+  slugCeiling,
   urlFor,
   volumeName,
 } from "./naming.js";
@@ -229,7 +232,6 @@ export {
   domainOf,
   routerScheme,
   ensureBaseImage,
-  ensureSandboxCertificate,
   issueCertificate,
   originFor,
   portSuffix,

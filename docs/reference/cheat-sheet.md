@@ -66,11 +66,11 @@ Full surface, with every flag: [CLI commands](cli.md).
 ## Names
 
 ```
-<slug>.<label>.<project>.<domain>     one app or api inside a sandbox
+<slug>--<label>--<project>.<domain>     one app or api inside a sandbox
 <domain>                              the dashboard, and nothing else
 ```
 
-`tkt-4821.app.acme.sbx.localhost`
+`tkt-4821--app--acme.sbx.localhost`
 
 | Thing | Shape | Example |
 |---|---|---|
@@ -91,12 +91,13 @@ Full surface, with every flag: [CLI commands](cli.md).
 
 Slug order of preference: an explicit argument, a slug recorded for the worktree, a ticket id
 (`/[a-z]+-[0-9]+/i`) in the worktree directory name, that pattern in the branch name, the branch
-name, the directory name. Over 31 characters it becomes the first 22 characters plus `-` plus 8 hex
-of the SHA-256 of the raw input.
+name, the directory name. The ceiling is `min(31, 63 - longest label - project - 4)` — the second
+half is the one DNS label a hostname is, and may only lower it. Over the ceiling a slug becomes the
+first `ceiling - 9` characters plus `-` plus 8 hex of the SHA-256 of the raw input.
 
 Two worktrees of one project that would derive the same slug: the second one sandboxr cuts is given
-`<slug>-<4 random characters>` instead, recorded in `state/slug/`. Worktrees you cut yourself are
-not covered — name one explicitly.
+`<slug>-<4 random characters>` instead, sized against that same ceiling and recorded in
+`state/slug/`. Worktrees you cut yourself are not covered — name one explicitly.
 
 ## States
 

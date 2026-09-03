@@ -68,15 +68,60 @@ them deriving while another reads the record is drift: the dashboard would show 
 and `up` would start a container under another.
 
 Sanitising: lowercase, every character outside `[a-z0-9-]` becomes `-`, runs of `-`
-collapse, leading and trailing `-` are stripped.
+collapse, leading and trailing `-` are stripped. A slug therefore never contains `--`,
+which §3.2 depends on.
 
-**Length ceiling is 31 characters.** Over that, keep the first 22 characters, append `-`
-and the first 8 characters of the SHA-256 of the *raw* input.
+**The ceiling is `min(31, 63 - len(longest label) - len(project) - 4)`.** Over it, keep
+the first `ceiling - 9` characters, append `-` and the first 8 characters of the SHA-256
+of the *raw* input.
 
-> Why hashed rather than truncated: a slug ends up inside a database advisory lock name.
-> Two long branch names often share a prefix, and truncation would let two sandboxes
-> collide on one lock. This ceiling is load-bearing — do not raise it without checking
-> the lock-name budget of every driver.
+Two separate limits meet in that expression, and they are not interchangeable:
+
+> **31 is the lock-name budget, and it is a maximum that may never be raised.** A slug ends
+> up inside a database advisory lock name, and MySQL's `GET_LOCK` truncates names at 64
+> characters. Two long branch names often share a prefix, and truncation would let two
+> sandboxes collide on one lock — which is why an over-long slug is *hashed* rather than
+> cut. Do not raise 31 without re-checking the lock-name budget of every driver.
+
+> **The subtraction is the DNS-label budget, and it may only lower the ceiling.** §3.2 puts
+> the slug, the label and the project in **one** DNS label, and a DNS label is limited to 63
+> characters. Two separators of two characters each cost 4, so the slug's share is
+> `63 - len(longest label) - len(project) - 4`. When that arithmetic allows more than 31 it
+> is ignored: the lock budget still binds. `min` is the whole rule, and getting it the wrong
+> way round would produce slugs that fit a hostname and collide on a lock.
+
+Worked: project `redeployable` (12) with a longest label of `company` (7) gives
+`63 - 12 - 7 - 4 = 40`, so the ceiling stays **31**. A project named
+`redeployable-platform-services` (30) with a longest label of `admin-console` (13) gives
+`63 - 30 - 13 - 4 = 16`, and 16 is what binds.
+
+The hashed form survives a lowered ceiling because it is expressed against the ceiling
+rather than against a fixed 22: the hash is always the last 9 characters, so the collision
+protection is the last thing to be given up rather than the first.
+
+**A ceiling below 12 is refused when the config is read**, naming the project, the longest
+label and the budget. Under 12 the hashed form leaves fewer than three characters of
+readable prefix, so every branch of any length reduces to a hash — and below 10 the form
+does not fit at all. Discovering that as an invalid hostname at `up` time, one sandbox at a
+time, is the failure this refusal exists to replace.
+
+The `s3` label counts as a label here. Whenever the project declares object storage that store
+answers on a hostname like any other app, so it spends the same budget; a calculation that ignored
+it would leave exactly one hostname over the limit and every other one fine.
+
+The ceiling is a property of the project, so **every resolution of a slug for a project has
+to use that project's config** — `up`, the CLI's worktree listing, the dashboard's sidebar
+and `addWorktree` all pass it, and `slugFor` carries it to the derivation, to the sanitising
+of an explicit name, and to the collision token below. `addWorktree` is the awkward one: it
+holds a workspace project, which is a directory and a bare clone rather than a resolved
+config, so it loads the config of the worktree it has just cut. Anything that can read no
+config falls back to 31; that is honest rather than a drift, because a project with no
+readable config has no hostnames either.
+
+**A worktree's directory name is not a slug and keeps the plain 31**, because it is a path
+and spends none of the hostname budget. The two are already allowed to differ — the order of
+preference above derives a slug from the branch before the directory — and for a project
+whose budget binds they routinely will.
 
 #### Two worktrees on one ticket, and the slug one of them is given
 
@@ -99,20 +144,33 @@ never wrote it.
 The rule: **on collision the worktree is given a slug, not refused.** When `addWorktree`
 cuts a worktree, it compares the slug that worktree would derive against the resolved slugs
 of the project's other worktrees, and on a match assigns `<base>-<token>` — four random
-characters from `[a-z0-9]`, re-rolled if the token is taken — trimming `<base>` so the
-result stays inside the 31-character ceiling. `eng-3941-7k2f`.
+characters from `[a-z0-9]`, re-rolled if the token is taken. `eng-3941-7k2f`.
 
-Three things about that decision are load-bearing:
+Four things about that decision are load-bearing:
 
-- **A short token, never a UUID.** The ceiling is the `GET_LOCK` budget, and a
-  36-character UUID would blow it outright. It would also destroy the readability the
-  ticket-id rule exists to provide: the point is that the result is still a name somebody
-  can read off a screen and type into a URL.
+- **The token is sized against the project's ceiling, not against 31.** A given slug is
+  five characters longer than the one it replaces, and it is the same slug in the same
+  hostname, so it spends the same DNS-label budget. `<base>` is trimmed to
+  `ceiling - 5` — trailing `-` stripped, so the join never produces the `--` §3.2 reads as
+  a separator — and the result is `≤ ceiling` like any derived slug. Sized against a flat
+  31 instead, a collision would be the *only* thing in a budget-bound project that pushes a
+  hostname past 63 characters, and the symptom of that is a name that does not resolve
+  rather than anything that mentions a slug.
+- **A short token, never a UUID.** Both ceilings forbid it: a 36-character UUID blows the
+  31-character `GET_LOCK` budget outright, and blows a lowered DNS ceiling by more still.
+  It would also destroy the readability the ticket-id rule exists to provide: the point is
+  that the result is a name somebody can read off a screen and type into a URL.
 - **A random token cannot be re-derived, so it is written down** — `state/slug/…`, §4.2.3.
   That file is why rule 2 exists.
 - **Refusing would be worse.** A collision is most likely in exactly the case the ticket-id
   rule is most useful, and a refusal at `worktree add` would make the readable-slug rule a
   trap.
+
+Worked, in the second project above — `redeployable-platform-services` with `admin-console`,
+ceiling 16. Two branches on one ticket derive the ticket id `platformwork-3941`, hashed to
+`platfor-3fb10da9` because 17 is over 16. The second worktree is given
+`platfor-3fb-7k2f` — 16 again — and its hostname label is `16 + 2 + 13 + 2 + 30 = 63`
+characters. Exactly at the limit, which is the point: the arithmetic has no slack to lose.
 
 **Scope.** The check happens where the collision can be seen: `addWorktree`, which has the
 sibling worktrees in hand. It therefore covers worktrees sandboxr cuts, under
@@ -125,7 +183,7 @@ name, which is worse than the problem.
 ### 3.2 Hostnames
 
 ```
-<slug>.<label>.<project>.<domain>      an app or api inside a sandbox
+<slug>--<label>--<project>.<domain>    an app or api inside a sandbox
 <domain>                               the dashboard (the control plane)
 ```
 
@@ -133,7 +191,35 @@ name, which is worse than the problem.
 - `project` is `project` in the config file.
 - `domain` is `SANDBOXR_DOMAIN`, default `sbx.lcl`.
 
-Example: `feat-123.app.acme.sbx.lcl`
+Example: `feat-123--app--acme.sbx.lcl`
+
+**One DNS label above the domain, and that is a TLS requirement rather than a preference.**
+A *DNS* wildcard does match more than one label — RFC 4592's closest-encloser rule, and both
+Cloudflare and Route 53 document it — so the older three-label shape resolved perfectly well.
+A *TLS* wildcard matches exactly one label, and `*.*.example.com` is not a valid certificate
+name; issuers reject it and mkcert refuses it outright. So a sandbox three labels deep could
+be covered by no wildcard certificate at all, and the answer was a certificate per sandbox,
+issued on `up` and discarded on `down`. Flattened to one label, `*.<domain>` covers every
+sandbox that will ever exist — the base certificate `init` already issues — and the whole
+per-sandbox certificate mechanism is gone.
+
+**`--` is the separator, and no component may contain it.** Slugs cannot (the sanitiser
+collapses runs of `-`), and `project:` and every `label:` are refused by the schema if they
+do. That is what makes the flattened label reversible: splitting on `--` yields exactly
+three parts, or the host is not a sandbox hostname. Nothing may relax either rule without
+also deciding how `a--b--c--d.<domain>` is to be read, because there is no answer.
+
+Two things read a hostname back into its parts and both rely on that. The router's
+`HostRegexp` rules have to recognise a sandbox hostname without knowing any sandbox, for the
+private-app handshake. And the dashboard's `projectFromForwardedHost` decides which project's
+grant a forwarded request is checked against — the permissive direction of a mistake there
+grants a session a project it was never given, so it calls **core's `parseHost`** rather than
+spelling the pattern out again. Both express a component as `[a-z0-9]+(-[a-z0-9]+)*` —
+single hyphens only — so neither can read `a--b` as one label.
+
+`parseHost` is the named reverse of `hostFor` and lives beside it. It answers undefined for
+the bare domain, for a host under another domain, for anything more than one label deep, and
+for a label that does not divide into exactly three parts.
 
 The dashboard lives on the bare domain and **never** on a per-sandbox hostname. The
 terminal is a route *within* the dashboard (`/p/<project>/s/<slug>/terminal`), so it
@@ -565,9 +651,14 @@ Three rules about the key and the value:
   the same reason (§4.1): this names a directory on disk, not a container.
 - **The value is validated on the way in and on the way back out, through one function.**
   It must be what `sanitizeSlug` produces — `[a-z0-9]` in dash-separated runs, at most 31
-  characters. Writing something else throws; **reading** something else is *no recorded
-  slug*, so the worktree derives its slug again, which is what every worktree that never
-  collided does anyway. A file hand-edited into a hostname nobody meant is the failure this
+  characters. **31 and not the project's ceiling, deliberately**: this is an outer bound on
+  a file somebody could edit, and a recorded slug written under a lower ceiling is under 31
+  already. Reading the file cannot see a config — the whole point of the store is that it is
+  consulted before one is loaded — so checking against a per-project number here would mean
+  the validator and the writer disagreeing about which project they were talking about.
+  Writing something else throws; **reading** something else is *no recorded slug*, so the
+  worktree derives its slug again, which is what every worktree that never collided does
+  anyway. A file hand-edited into a hostname nobody meant is the failure this
   avoids.
 
 Unlike the display name, this value **is** an identifier: it is the container name, every
@@ -724,7 +815,7 @@ The authoritative schema is `packages/core/src/config/schema.ts` (Zod). This sec
 the human description; if the two disagree, the schema wins and this file gets fixed.
 
 ```yaml
-project: acme                  # required, [a-z0-9-], used in hostnames
+project: acme                  # required, [a-z0-9-] with no `--`, used in hostnames
 sandboxr: ">=0.1.0"            # minimum tool version; a mismatch is a clear error
 
 database:
@@ -789,9 +880,9 @@ Everything a sandbox runs is one of:
 
 | Kind | Declared as | How it runs | Served at |
 |---|---|---|---|
-| **backend** | `backends[]` | build once to a binary, supervised, listens on a port | `<slug>.<label>...` proxied |
-| **static** | `frontends[]` with `out:` | build on demand into a directory | `<slug>.<label>...` file server |
-| **server** | `frontends[]` with `serve:` | long-running process, listens on a port | `<slug>.<label>...` proxied |
+| **backend** | `backends[]` | build once to a binary, supervised, listens on a port | `<slug>--<label>--…` proxied |
+| **static** | `frontends[]` with `out:` | build on demand into a directory | `<slug>--<label>--…` file server |
+| **server** | `frontends[]` with `serve:` | long-running process, listens on a port | `<slug>--<label>--…` proxied |
 
 The third kind is what Cloudflare Workers projects need (`wrangler dev`). Do not collapse
 it into the other two.

@@ -5,6 +5,8 @@
 // - readRecordedSlug: no file, no directory, a hand-edited file and a huge file all read as "no recorded slug"
 // - slugToken: four characters of [a-z0-9]
 // - uniqueSlug: appends a token, re-rolls against the taken set, and keeps the result inside SLUG_MAX
+// - uniqueSlug: honours a project's lower ceiling, so a collision cannot be what overflows the one DNS label a hostname is
+// - slugFor: carries the ceiling to the derivation and to an explicit name
 // - worktreeKey: keys a managed worktree on its directory name, from inside it too, and refuses one outside the workspace
 // - slugFor: explicit beats recorded beats derived, and a recorded slug is read by every caller
 // - slugFor: a branch of "?" is folded away rather than sanitised into a throw
@@ -15,7 +17,7 @@ import { join } from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { NamingError, SLUG_MAX } from "./naming.js";
+import { DNS_LABEL_MAX, NamingError, SLUG_MAX, SLUG_MIN, hostFor, slugCeiling } from "./naming.js";
 import { paths } from "./paths.js";
 import {
   SLUG_TOKEN_LEN,
@@ -168,6 +170,52 @@ describe("uniqueSlug", () => {
   it("gives up rather than looping for ever", () => {
     expect(() => uniqueSlug("eng-3941", ["eng-3941-7k2f"], () => "7k2f")).toThrow(NamingError);
   });
+
+  // The reason this argument exists. A sandbox hostname is one DNS label,
+  // `<slug>--<label>--<project>`, so a project with a long name and a long label
+  // gets a ceiling well under 31 — and a *given* slug is longer than the one it
+  // replaces. Sized against the flat 31, a collision would be the only thing in
+  // the project that pushes a hostname past 63 characters, and the symptom is a
+  // name that does not resolve rather than anything that mentions a slug.
+  describe("under a project's own ceiling", () => {
+    const project = "acme-platform-monorepo";
+    const label = "storefront-preview-alpha";
+    const max = slugCeiling(project, [label]);
+
+    it("is a ceiling worth testing against — below 31 and above the minimum", () => {
+      expect(max).toBe(13);
+      expect(max).toBeLessThan(SLUG_MAX);
+      expect(max).toBeGreaterThanOrEqual(SLUG_MIN);
+    });
+
+    it("keeps the given slug inside it", () => {
+      const given = uniqueSlug("eng-3941", ["eng-3941"], () => "7k2f", max);
+      expect(given).toBe("eng-3941-7k2f");
+      expect(given.length).toBeLessThanOrEqual(max);
+    });
+
+    it("keeps the flattened hostname inside the DNS label", () => {
+      const given = uniqueSlug("eng-3941", ["eng-3941"], () => "7k2f", max);
+      const host = hostFor({ slug: given, label, project, domain: "sbx.lcl" });
+      expect(host.split(".")[0]).toHaveLength(DNS_LABEL_MAX);
+      expect(() => hostFor({ slug: given, label, project, domain: "sbx.lcl" })).not.toThrow();
+    });
+
+    it("trims a long base rather than overflowing the ceiling", () => {
+      const given = uniqueSlug("feat-the-whole-checkout-flow", ["x"], () => "7k2f", max);
+      expect(given.length).toBeLessThanOrEqual(max);
+      expect(given.endsWith("-7k2f")).toBe(true);
+      expect(given).not.toContain("--");
+      expect(() => hostFor({ slug: given, label, project, domain: "sbx.lcl" })).not.toThrow();
+    });
+
+    // Clamped like `sanitizeSlug` clamps: the 31 is the advisory-lock budget, and
+    // a DNS budget that happens to be larger must not be able to raise it.
+    it("never raises the ceiling above SLUG_MAX", () => {
+      const given = uniqueSlug("a".repeat(40), [], () => "7k2f", 60);
+      expect(given.length).toBeLessThanOrEqual(SLUG_MAX);
+    });
+  });
 });
 
 describe("worktreeKey", () => {
@@ -215,6 +263,20 @@ describe("slugFor", () => {
     const path = await managed("acme", "feat-eng-3941-run-selector");
     await writeRecordedSlug("acme", "feat-eng-3941-run-selector", "eng-3941-7k2f", env);
     expect(await slugFor({ worktree: path, branch: "feat/eng-3941-run-selector", env })).toBe("eng-3941-7k2f");
+  });
+
+  it("carries the ceiling into the derivation", async () => {
+    const path = await managed("acme", "feat-eng-3941-run-selector");
+    // Under a ceiling of 13 the branch name is hashed rather than kept whole, so
+    // this is the number being honoured and not merely accepted.
+    const slug = await slugFor({ worktree: path, project: "acme", branch: "chore/bump-every-dependency", max: 13, env });
+    expect(slug.length).toBeLessThanOrEqual(13);
+  });
+
+  it("carries the ceiling to an explicit name too", async () => {
+    const path = await managed("acme", "spike");
+    const slug = await slugFor({ explicit: "a-name-far-longer-than-the-budget", worktree: path, max: 13, env });
+    expect(slug.length).toBeLessThanOrEqual(13);
   });
 
   it("lets an explicit argument beat a recorded slug", async () => {

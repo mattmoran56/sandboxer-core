@@ -29,7 +29,7 @@ flowchart TB
   b["Anyone with the URL"]
   o["Someone with the password"]
   r["The shared router"]
-  app["tkt-4821.app.acme.…<br/><i>the app tier</i>"]
+  app["tkt-4821--app--acme.…<br/><i>the app tier</i>"]
   dash["sbx.localhost<br/><i>the control tier</i>"]
   dk[("The Docker socket")]
   b --> r --> app
@@ -178,7 +178,7 @@ dashboard, you go straight back with nothing asked.
 ```mermaid
 sequenceDiagram
   participant B as Browser
-  participant A as tkt-4821.app.acme.…
+  participant A as tkt-4821--app--acme.…
   participant D as sbx.localhost
   B->>A: GET /orders
   A->>B: 303 to the dashboard (forward-auth said no)
@@ -246,7 +246,7 @@ identity provider, a session of its own, an API key — sandboxr neither sees no
 ### One token per hostname
 
 A sandbox serves a hostname per app label, and each one gets its own cookie the first time
-you open it. Opening `tkt-4821.app.acme.…` does not open `tkt-4821.api.acme.…`. Navigating to
+you open it. Opening `tkt-4821--app--acme.…` does not open `tkt-4821--api--acme.…`. Navigating to
 the second runs the handshake again, invisibly, and leaves a second cookie.
 
 That is the point: a token captured from one app is worth nothing at the next. It has one

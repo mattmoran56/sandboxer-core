@@ -78,7 +78,7 @@ that file is a contract.
 | `sandbox/env.ts` | The environment handed to a container |
 | `drivers/` | `mysql`, `d1`/`sqlite` (one file driver), `none`, and the migration runner |
 | `access/router.ts` | The shared router: its labels, its rules, its config, `startRouter`, `stopRouter` |
-| `access/tls.ts` | mkcert: `issueCertificate`, `caTrusted`, and the per-sandbox certificate names |
+| `access/tls.ts` | mkcert: `issueCertificate`, `caTrusted`, and `baseCertificateNames` — the machine's one certificate |
 | `access/dashboard.ts` | The dashboard container's own `docker run` arguments |
 | `access/index.ts` | `initAccess`, `teardownAccess`, `accessStatus`, `ensureBaseImage` |
 | `agent/` | Claude Code sessions: the stream parser, the transcript store, the launch arguments, permissions and grants |

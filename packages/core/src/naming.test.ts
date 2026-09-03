@@ -1,8 +1,12 @@
 // Tests for slug, hostname and docker-name derivation:
 // - sanitizeSlug: lowercasing, illegal-character folding, dash collapsing, trimming, empty input
 // - sanitizeSlug: the length ceiling, its off-by-one, hash stability, and two long shared-prefix names not colliding
+// - sanitizeSlug: a lowered ceiling still hashes rather than truncates, and a ceiling above 31 cannot raise it
+// - slugCeiling: the min(31, 63 - label - project - 4) rule, both worked examples, and the case that binds
 // - deriveSlug: the full order of preference, ticket detection in directory and branch, detached HEAD, no input at all
-// - hostFor / urlFor: hostname shape, the default domain, an overridden domain, empty components
+// - deriveSlug: a project's ceiling reaching every branch of the derivation
+// - hostFor / urlFor: the flattened one-label hostname, the 63-character limit, `--` in a component, empty components
+// - parseHost: the round trip, the bare domain, a deeper host, a suffix match, and a component holding `--`
 // - containerName / volumeName / depsVolumeName: the shapes fixed by contracts §3.3
 // - SHARED_VOLUMES: the Claude credential volume is listed there, which is what keeps gc off it
 // - parseContainerName: round-trip with and without a known project, and the shapes it refuses to guess at
@@ -14,15 +18,19 @@ import {
   CLAUDE_VOLUME,
   DEFAULT_DOMAIN,
   NamingError,
+  DNS_LABEL_MAX,
   SHARED_VOLUMES,
   SLUG_MAX,
+  SLUG_MIN,
   containerName,
   depsVolumeName,
   deriveSlug,
   hostFor,
   lockName,
   parseContainerName,
+  parseHost,
   sanitizeSlug,
+  slugCeiling,
   urlFor,
   volumeName,
 } from "./naming.js";
@@ -102,11 +110,74 @@ describe("sanitizeSlug", () => {
 
     it("never joins the prefix and the hash with a double dash", () => {
       // Character 23 of the folded name is a dash, so an untrimmed prefix would
-      // produce `...-` + `-hash`.
+      // produce `...-` + `-hash`. Since contracts §3.2 flattened the hostname
+      // into one label this is no longer only a matter of taste: `--` is the
+      // separator, and a slug containing one has no unambiguous reading.
       const slug = sanitizeSlug("aaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbb");
       expect(slug).not.toContain("--");
       expect(slug.length).toBeLessThanOrEqual(SLUG_MAX);
     });
+  });
+
+  describe("a lowered ceiling", () => {
+    const long = "feat/some-extremely-long-branch-name-that-will-not-fit-anywhere";
+
+    it("caps at the ceiling it is given", () => {
+      expect(sanitizeSlug(long, 16)).toHaveLength(16);
+    });
+
+    // The whole point of lowering it against the DNS budget rather than
+    // truncating the finished slug: the hash has to survive, or two long
+    // branches sharing a prefix collide on one advisory lock.
+    it("keeps all eight hash characters", () => {
+      expect(sanitizeSlug(long, 16)).toMatch(/^[a-z-]+-[0-9a-f]{8}$/);
+    });
+
+    it("still keeps two shared-prefix names apart", () => {
+      const a = sanitizeSlug("feature/really-long-shared-prefix-alpha-variant-one", 16);
+      const b = sanitizeSlug("feature/really-long-shared-prefix-alpha-variant-two", 16);
+      expect(a).not.toBe(b);
+    });
+
+    // The lock-name budget is a maximum. A caller handing in a bigger number —
+    // which a generous DNS budget really does produce — must not raise it.
+    it("cannot be raised above SLUG_MAX", () => {
+      expect(sanitizeSlug(long, 60)).toHaveLength(SLUG_MAX);
+    });
+
+    it("refuses a ceiling below the minimum", () => {
+      expect(() => sanitizeSlug("anything", SLUG_MIN - 1)).toThrow(NamingError);
+    });
+  });
+});
+
+describe("slugCeiling", () => {
+  // The example this rule was written from: the arithmetic allows 40, and the
+  // lock-name budget still holds it at 31.
+  it("stays at SLUG_MAX when the DNS budget is generous", () => {
+    expect(63 - "redeployable".length - "company".length - 4).toBe(40);
+    expect(slugCeiling("redeployable", ["app", "company"])).toBe(SLUG_MAX);
+  });
+
+  // The case that matters: a long project and a long label really do take the
+  // ceiling below 31, and the slug has to give way rather than the hostname.
+  it("falls below SLUG_MAX when the DNS budget binds", () => {
+    expect(slugCeiling("redeployable-platform-services", ["app", "admin-console"])).toBe(16);
+  });
+
+  it("measures the longest label, not the first", () => {
+    expect(slugCeiling("acme", ["a", "a-very-long-label-indeed"])).toBe(
+      slugCeiling("acme", ["a-very-long-label-indeed"]),
+    );
+  });
+
+  // Which is what makes the ceiling safe to hand straight to `sanitizeSlug`.
+  it("leaves the longest possible hostname exactly at the DNS limit", () => {
+    const project = "redeployable-platform-services";
+    const label = "admin-console";
+    const slug = "a".repeat(slugCeiling(project, [label]));
+    expect(hostFor({ slug, label, project, domain: "d" })).toBe(`${[slug, label, project].join("--")}.d`);
+    expect([slug, label, project].join("--")).toHaveLength(DNS_LABEL_MAX);
   });
 });
 
@@ -155,30 +226,89 @@ describe("deriveSlug", () => {
     const fromDir = deriveSlug({ worktreeDir: "tkt-4821" });
     expect(fromBranch).toBe(fromDir);
   });
+
+  // Every branch of the derivation has to honour the project's ceiling, not
+  // just the one the first test happens to take.
+  it.each([
+    ["an explicit name", { explicit: "a-branch-name-far-too-long-for-this-project" }],
+    ["the branch", { branch: "a-branch-name-far-too-long-for-this-project" }],
+    ["the directory", { worktreeDir: "a-branch-name-far-too-long-for-this-project" }],
+  ])("applies the ceiling to %s", (_name, input) => {
+    expect(deriveSlug({ ...input, max: 16 })).toHaveLength(16);
+  });
 });
 
 describe("hostFor", () => {
-  it("builds slug.label.project.domain", () => {
+  // One label above the domain, because a TLS wildcard covers exactly one.
+  it("builds one label: slug--label--project.domain", () => {
     expect(hostFor({ slug: "tkt-4821", label: "app", project: "acme" })).toBe(
-      `tkt-4821.app.acme.${DEFAULT_DOMAIN}`,
+      `tkt-4821--app--acme.${DEFAULT_DOMAIN}`,
     );
   });
 
+  it("puts a sandbox exactly one label under the domain", () => {
+    const host = hostFor({ slug: "tkt-4821", label: "app", project: "acme", domain: "sbx.example.com" });
+    expect(host.slice(0, -".sbx.example.com".length)).not.toContain(".");
+  });
+
   it("uses the domain it is given", () => {
-    expect(hostFor({ slug: "s", label: "api", project: "p", domain: "sbx.dev" })).toBe("s.api.p.sbx.dev");
+    expect(hostFor({ slug: "s", label: "api", project: "p", domain: "sbx.dev" })).toBe("s--api--p.sbx.dev");
   });
 
   it("keeps a dashed label intact", () => {
-    expect(hostFor({ slug: "s", label: "hiring-api", project: "p", domain: "d" })).toBe("s.hiring-api.p.d");
+    expect(hostFor({ slug: "s", label: "hiring-api", project: "p", domain: "d" })).toBe("s--hiring-api--p.d");
   });
 
   it("prefixes https for a url", () => {
-    expect(urlFor({ slug: "s", label: "app", project: "p", domain: "d" })).toBe("https://s.app.p.d");
+    expect(urlFor({ slug: "s", label: "app", project: "p", domain: "d" })).toBe("https://s--app--p.d");
   });
 
   it.each(["slug", "label", "project"] as const)("refuses an empty %s", (field) => {
     const parts = { slug: "s", label: "l", project: "p", domain: "d" };
     expect(() => hostFor({ ...parts, [field]: "" })).toThrow(NamingError);
+  });
+
+  // A component holding the separator makes the hostname unreadable in the
+  // literal sense: four parts have no reading.
+  it.each(["slug", "label", "project"] as const)("refuses a %s holding the separator", (field) => {
+    const parts = { slug: "s", label: "l", project: "p", domain: "d" };
+    expect(() => hostFor({ ...parts, [field]: "a--b" })).toThrow(NamingError);
+  });
+
+  // Truncating instead would resolve to nothing, and "the app does not load"
+  // names none of its cause.
+  it("refuses a label over the DNS limit", () => {
+    expect(() => hostFor({ slug: "a".repeat(60), label: "app", project: "acme", domain: "d" })).toThrow(NamingError);
+  });
+});
+
+describe("parseHost", () => {
+  it("round-trips what hostFor built", () => {
+    const parts = { slug: "tkt-4821", label: "admin-api", project: "acme" };
+    expect(parseHost(hostFor({ ...parts, domain: "sbx.dev" }), "sbx.dev")).toEqual(parts);
+  });
+
+  // The dashboard's own hostname. It is the control plane and must never read
+  // as a sandbox.
+  it("refuses the bare domain", () => {
+    expect(parseHost("sbx.dev", "sbx.dev")).toBeUndefined();
+  });
+
+  it("refuses more than one label above the domain", () => {
+    expect(parseHost("a.tkt-1--app--acme.sbx.dev", "sbx.dev")).toBeUndefined();
+  });
+
+  // A suffix match rather than a domain match is how an open redirect gets in.
+  it("refuses a domain that is only a suffix", () => {
+    expect(parseHost("tkt-1--app--acme.sbx.dev.evil.example", "sbx.dev")).toBeUndefined();
+  });
+
+  it.each([
+    ["two components", "tkt-1--app.sbx.dev"],
+    ["four components", "tkt-1--app--acme--extra.sbx.dev"],
+    ["a leading dash", "-tkt-1--app--acme.sbx.dev"],
+  ])("refuses %s", (_name, host) => {
+    expect(parseHost(host, "sbx.dev")).toBeUndefined();
   });
 });
 

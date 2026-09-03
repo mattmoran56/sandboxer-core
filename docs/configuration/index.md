@@ -93,7 +93,7 @@ Three things are happening here.
 package inside it — so this app's code is at `web/packages/web`.
 
 `label` is the app's own name in a hostname. This app will answer on
-`<slug>.app.acme.sbx.localhost`. The [hostname shape](../how-it-works.md) is explained
+`<slug>--app--acme.sbx.localhost`. The [hostname shape](../how-it-works.md) is explained
 elsewhere; here it is enough to know that the label is the part you choose.
 
 `defaults` applies to every app in the list, so a project with six apps that build the

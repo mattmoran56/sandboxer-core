@@ -12,10 +12,8 @@ import { dirname, join } from "node:path";
 
 import {
   ROUTER_CONTAINER,
-  discardSandboxCertificate,
   domainOf,
   ensureBaseImage,
-  ensureSandboxCertificate,
   hostGhToken,
   portSuffix,
   routerPorts,
@@ -23,7 +21,7 @@ import {
   sandboxRouteLabels,
 } from "../access/index.js";
 import { allowsRealCredentials } from "../config/access.js";
-import { loadConfig } from "../config/load.js";
+import { loadConfig, slugCeilingFor } from "../config/load.js";
 import { workspaceWorktree } from "../config/locate.js";
 import { decideGithub, loadMachineConfig, resolveTtl } from "../config/machine.js";
 import { resolveDeps } from "../config/deps.js";
@@ -43,9 +41,9 @@ import { sandboxActivity } from "./activity.js";
 import { parseTtl, planExpiry, type ExpiryCandidate, type ExpiryPlan } from "./expiry.js";
 import { isKeptAlive, removeKeep } from "./keep.js";
 import { ensureProjectImage } from "../image.js";
-import { NETWORK, containerName, volumeName } from "../naming.js";
+import { NETWORK, containerName, urlFor, volumeName } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
-import { containerEnv, labelsOf, renderEnvFile, urlsFor } from "./env.js";
+import { containerEnv, renderEnvFile, urlsFor } from "./env.js";
 import { envDigest, readProjectSecrets } from "../secrets.js";
 import { planGc } from "./gc.js";
 import { planPrune, type PruneResult } from "./prune.js";
@@ -120,6 +118,14 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     explicit: options.slug,
     worktree: facts.worktree,
     branch: facts.branch,
+    // The ceiling is this project's, not the tool's: the slug shares one DNS
+    // label with the longest hostname label and the project name (contracts
+    // §3.1). `resolveConfig` has already refused a config whose budget is
+    // unusable, so this can only be a workable number by the time it is read.
+    // It reaches the collision token too — `addWorktree` sizes `<base>-<token>`
+    // against the same number, so a given slug cannot be the one thing that
+    // overflows the label.
+    max: slugCeilingFor(config),
     env,
   });
   const domain = domainOf(env);
@@ -292,12 +298,6 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
       })
     ).tag;
 
-  // Issued before the container starts, so the router already holds a
-  // certificate for these hostnames by the time anything asks for one. A
-  // sandbox is three labels deep and no wildcard reaches it, so this is per
-  // sandbox rather than once for the machine.
-  await ensureSandboxCertificate({ project: config.project, slug, labels: labelsOf(config), env, log });
-
   // What git inside the container needs from the host, and who it commits as.
   // Both are read here rather than in runArgs, which is a pure function over an
   // input record precisely so every mount can be asserted without a daemon.
@@ -439,10 +439,9 @@ export async function down(project: string, slug: string, options: DownOptions =
     return;
   }
   await docker.rm(container, { force: true });
-  // The certificate names this sandbox's hostnames and nothing else's, so it
-  // goes with it. Left behind, the router would keep offering a certificate for
-  // a host that no longer answers.
-  await discardSandboxCertificate(project, slug, options.env ?? process.env);
+  // No certificate to discard: since hostnames were flattened to one DNS label
+  // the machine's `*.<domain>` covers every sandbox, so `up` issues nothing per
+  // sandbox and `down` has nothing per sandbox to take away.
   // Above the `keep` early return on purpose: `--keep` preserves a sandbox's
   // data, but the container is gone either way and a keep-alive marker for a
   // container that no longer exists means nothing. It is tidiness rather than
@@ -503,8 +502,11 @@ export async function status(project: string, slug: string, options: StatusOptio
       label: backend.label,
       port: backend.port,
       up: sandbox.state === "stopped" ? false : await probe(docker, container, backend.port, backend.health),
+      // `urlFor` rather than a template, because this had spelled the hostname
+      // by hand and so had a second opinion about its shape — which is exactly
+      // what flattening it to one label broke.
       url:
-        `${routerScheme(env)}://${slug}.${backend.label}.${project}.${domain}` +
+        urlFor({ slug, label: backend.label, project, domain, scheme: routerScheme(env) }) +
         portSuffix(routerScheme(env), routerPorts(env)),
     });
   }

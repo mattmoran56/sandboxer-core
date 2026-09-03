@@ -14,16 +14,30 @@
 
 import { z } from "zod";
 
-/** Project names go into hostnames, so they share the hostname alphabet. */
-const projectName = z
+/**
+ * One component of a sandbox hostname: a project name, or a runtime's label.
+ *
+ * Lowercase, digits and **single** hyphens. The doubled hyphen is refused rather
+ * than merely discouraged: contracts §3.2 joins the slug, the label and the
+ * project with `--` into one DNS label, so a component holding `--` would make
+ * `a--b--c--d.<domain>` a hostname with no single reading — and both the router's
+ * rule and the dashboard's forwarded-host parse have to read one back out.
+ *
+ * 63 because that is the whole DNS label these three now share; `slugCeiling`
+ * and `checkHostBudget` are what enforce the part of it that actually binds.
+ */
+const hostComponent = z
   .string()
-  .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, "must be lowercase letters, digits and dashes");
-
-/** One hostname label: `<slug>.<label>.<project>.<domain>`. */
-const hostLabel = z
-  .string()
-  .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, "must be a hostname label: lowercase, digits and dashes")
+  .regex(
+    /^[a-z0-9]+(-[a-z0-9]+)*$/,
+    "must be lowercase letters, digits and single dashes, with no leading, trailing or doubled dash",
+  )
   .max(63);
+
+const projectName = hostComponent;
+
+/** One hostname label: `<slug>--<label>--<project>.<domain>`. */
+const hostLabel = hostComponent;
 
 const port = z.number().int().min(1).max(65535);
 

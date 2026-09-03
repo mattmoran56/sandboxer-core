@@ -20,6 +20,9 @@
  * The rule, from §3.1: on collision the second worktree is **given** a slug —
  * `<base>-<token>`, four random characters — rather than refused. Refusing would
  * make the readable-ticket rule a trap in exactly the case it is most useful.
+ * The given slug is sized against the *project's* ceiling and not the tool's, so
+ * a collision cannot be the thing that pushes a hostname over its DNS label — see
+ * `uniqueSlug`.
  *
  * **A random token cannot be re-derived, so it has to be written down.** That is
  * this file. It follows worktree-name.ts's precedent for where mutable host
@@ -51,21 +54,24 @@ import { randomInt } from "node:crypto";
 import { basename, dirname } from "node:path";
 
 import { workspaceWorktree } from "./config/locate.js";
-import { NamingError, SLUG_MAX, deriveSlug, sanitizeSlug } from "./naming.js";
+import { NamingError, SLUG_MAX, deriveSlug, sanitizeSlug, type DeriveSlugInput } from "./naming.js";
 import { paths } from "./paths.js";
 
 /**
  * How many characters of randomness a given slug carries.
  *
- * Four, and not a UUID, because `SLUG_MAX` is 31 and the reason for it is
- * load-bearing: the slug ends up inside a MySQL `GET_LOCK` name that truncates
- * at 64 characters. A 36-character UUID would blow that budget outright, and
- * would also destroy the readability the ticket-id rule exists to provide — the
- * point of the rule is that `eng-3941-7k2f` is still a name somebody can read
- * off a screen and type into a URL. Four characters of `[a-z0-9]` is 1.7 million
- * values against the two or three worktrees a ticket ever has at once, and the
- * generator re-rolls against the taken set anyway, so the budget is spent on
- * readability rather than on collision headroom nothing needs.
+ * Four, and not a UUID, because the budget it is spending is tight and there are
+ * two ceilings on it. `SLUG_MAX` is 31, because the slug ends up inside a MySQL
+ * `GET_LOCK` name that truncates at 64 characters; and `slugCeiling` lowers that
+ * further for a project whose own name and longest hostname label already spend
+ * most of the 63 characters of the single DNS label a sandbox hostname is. A
+ * 36-character UUID would blow both outright, and would also destroy the
+ * readability the ticket-id rule exists to provide — the point of the rule is
+ * that `eng-3941-7k2f` is still a name somebody can read off a screen and type
+ * into a URL. Four characters of `[a-z0-9]` is 1.7 million values against the two
+ * or three worktrees a ticket ever has at once, and the generator re-rolls
+ * against the taken set anyway, so the budget is spent on readability rather
+ * than on collision headroom nothing needs.
  */
 export const SLUG_TOKEN_LEN = 4;
 
@@ -178,14 +184,33 @@ export function slugToken(): string {
 /**
  * A slug that reads like `base` and is not in `taken`.
  *
- * The base is trimmed so that `<base>-<token>` still fits `SLUG_MAX` — the
- * ceiling is the lock-name budget and a given slug is subject to it exactly like
- * a derived one — and trailing dashes are stripped from the trimmed base so the
- * join never produces `--`, which is legal and reads as a typo.
+ * **`max` is the project's ceiling, not the tool's, and passing the wrong one
+ * breaks a hostname rather than a name.** `slugCeiling` lowers `SLUG_MAX` for a
+ * project whose name and longest hostname label already spend the 63 characters
+ * of the one DNS label a sandbox hostname is (contracts §3.1, §3.2). A given
+ * slug is subject to that budget exactly like a derived one — it is the same
+ * slug, in the same hostname — so sizing `<base>-<token>` against a flat 31 here
+ * would let a collision be the one thing that pushes a label over 63. The
+ * symptom of that is a hostname that resolves to nothing, which reads as a
+ * broken router and not as a naming bug.
+ *
+ * Clamped rather than trusted, the way `sanitizeSlug` clamps: a caller handing
+ * in a DNS budget that happens to exceed `SLUG_MAX` must not raise the lock-name
+ * ceiling.
+ *
+ * Trailing dashes are stripped from the trimmed base so the join never produces
+ * `--` — which, since the hostname became one flat label, is the separator
+ * between its components and has no reading inside one.
  */
-export function uniqueSlug(base: string, taken: Iterable<string>, token: () => string = slugToken): string {
+export function uniqueSlug(
+  base: string,
+  taken: Iterable<string>,
+  token: () => string = slugToken,
+  max: number = SLUG_MAX,
+): string {
   const used = new Set(taken);
-  const room = SLUG_MAX - (SLUG_TOKEN_LEN + 1);
+  const ceiling = Math.min(max, SLUG_MAX);
+  const room = ceiling - (SLUG_TOKEN_LEN + 1);
   const trimmed = base.slice(0, room).replace(/-+$/, "");
   if (trimmed === "") throw new NamingError(`cannot build a unique slug from "${base}"`);
 
@@ -210,6 +235,14 @@ export interface SlugForInput {
   project?: string | undefined;
   branch?: string | undefined;
   ticketPattern?: RegExp | undefined;
+  /**
+   * The project's slug ceiling, from `slugCeilingFor`. Absent means `SLUG_MAX`.
+   *
+   * Passed rather than looked up, for `DeriveSlugInput.max`'s reason: it is a
+   * property of the project's config, and this module resolves slugs for
+   * worktrees whose config it has deliberately not read.
+   */
+  max?: number | undefined;
   env?: NodeJS.ProcessEnv | undefined;
 }
 
@@ -256,7 +289,11 @@ export function worktreeKey(
  * which sandbox a worktree owns.
  */
 export async function slugFor(input: SlugForInput): Promise<string> {
-  if (input.explicit !== undefined && input.explicit.trim() !== "") return sanitizeSlug(input.explicit);
+  // The ceiling applies to a name somebody passed too. `sanitizeSlug` clamps it
+  // to `SLUG_MAX`, so handing it through unconditionally is safe.
+  if (input.explicit !== undefined && input.explicit.trim() !== "") {
+    return sanitizeSlug(input.explicit, input.max ?? SLUG_MAX);
+  }
 
   const key = worktreeKey(input.worktree, input.project, input.env);
   if (key) {
@@ -276,14 +313,11 @@ export async function slugFor(input: SlugForInput): Promise<string> {
  * the CLI already dropped it by hand and the dashboard did not, which is one
  * derivation of a slug behaving differently from another.
  */
-export function slugInputFor(input: SlugForInput): {
-  worktreeDir?: string | undefined;
-  branch?: string | undefined;
-  ticketPattern?: RegExp | undefined;
-} {
+export function slugInputFor(input: SlugForInput): DeriveSlugInput {
   return {
     worktreeDir: input.worktree === undefined || input.worktree === "" ? undefined : basename(input.worktree),
     branch: input.branch === undefined || input.branch === "?" || input.branch === "" ? undefined : input.branch,
     ticketPattern: input.ticketPattern,
+    max: input.max,
   };
 }

@@ -202,7 +202,7 @@ Run the sandboxr demo project and confirm it serves a page.
 
 Read docs/getting-started/demo-project.md and follow it. From the sandboxr checkout, cd into
 examples/demo-worker, run `sandboxr up demo1`, then fetch
-https://demo1.app.demo.sbx.localhost/api/notes and confirm it returns two seeded notes. Report the
+https://demo1--app--demo.sbx.localhost/api/notes and confirm it returns two seeded notes. Report the
 JSON you got back.
 
 Stop and ask me if:
