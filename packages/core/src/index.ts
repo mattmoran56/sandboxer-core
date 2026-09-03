@@ -112,6 +112,7 @@ export {
 } from "./sandbox/index.js";
 export type {
   DownOptions,
+  DownReport,
   ExpireOptions,
   GcOptions,
   GcPlan,
@@ -171,6 +172,9 @@ export {
   removeWorktree,
 } from "./worktree.js";
 export type { AddInput, Branch, Worktree } from "./worktree.js";
+
+export { WorktreeDeleteError, deleteWorktree, projectSlugCeiling } from "./worktree-delete.js";
+export type { DeleteWorktreeInput, WorktreeDeletion } from "./worktree-delete.js";
 
 export {
   DISPLAY_NAME_MAX,

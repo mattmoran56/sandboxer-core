@@ -246,6 +246,13 @@ git worktree remove .worktrees/tkt-4821
 sandboxr gc                # reap sandboxes whose worktree is gone
 ```
 
+Those two are the long way round, and they leave the sandbox running in between. A worktree cut
+into sandboxr's own workspace is finished off in one command, sandbox first:
+
+```bash
+sandboxr worktree delete acme feat/tkt-4821
+```
+
 <details class="failure">
 <summary><b>If it goes wrong</b> — the failures specific to a first <code>up</code></summary>
 

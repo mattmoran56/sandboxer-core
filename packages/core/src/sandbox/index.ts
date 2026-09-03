@@ -7,7 +7,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import {
@@ -52,6 +52,7 @@ import { BUILT_MANIFEST, MIGRATE_STATE, WITH_ENV, WWW_DIR, seedMount } from "./l
 import { backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
 import type {
   DownOptions,
+  DownReport,
   ExpireOptions,
   GcOptions,
   GcPlan,
@@ -429,16 +430,19 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
 }
 
 /** Removes a sandbox, and by default everything it owned. */
-export async function down(project: string, slug: string, options: DownOptions = {}): Promise<void> {
+export async function down(project: string, slug: string, options: DownOptions = {}): Promise<DownReport> {
   const docker = options.docker ?? defaultDocker;
   const log = options.log ?? noop;
+  const env = options.env ?? process.env;
   const container = containerName(project, slug);
+  const removed: string[] = [];
 
   if (!(await docker.containerExists(container))) {
     log(`No sandbox called ${slug}`);
-    return;
+    return { removed };
   }
   await docker.rm(container, { force: true });
+  removed.push(container);
   // No certificate to discard: since hostnames were flattened to one DNS label
   // the machine's `*.<domain>` covers every sandbox, so `up` issues nothing per
   // sandbox and `down` has nothing per sandbox to take away.
@@ -448,19 +452,68 @@ export async function down(project: string, slug: string, options: DownOptions =
   // correctness — the marker records which instance it was written for, so a
   // leftover one fails closed — but leaving it would make `docker rm` and
   // `sandboxr down` differ for no reason.
-  await removeKeep(project, slug, options.env ?? process.env);
+  await removeKeep(project, slug, env);
 
   if (options.keep) {
     log(`Removed ${slug}, kept its volumes`);
-    return;
+    return { removed };
   }
   // Everything the sandbox owned goes with it. This is the payoff for keeping
   // the database inside the container rather than in a shared server: there is
   // no schema left behind to find later.
   for (const purpose of ["data", "blob", "bin", "www"] as const) {
-    await docker.volumeRm(volumeName(purpose, project, slug));
+    const volume = volumeName(purpose, project, slug);
+    if (await docker.volumeRm(volume)) removed.push(volume);
   }
+
+  // …and the files on the host that are named after it (contracts §4). They are
+  // *generated*, every one of them: the plan and the environment are rewritten
+  // by the next `up`, and the log directory is a bind mount the container fills.
+  // Left behind they are a leak with no route back — nothing but this call knows
+  // the slug, and once the worktree is gone nothing can derive it again — which
+  // is how `~/.sandboxr/build` and `~/.sandboxr/logs` fill up with the names of
+  // sandboxes that stopped existing months ago.
+  //
+  // Under `--keep` none of it goes, and that is the same line the volumes are on:
+  // `--keep` means the container went and its data stayed.
+  const p = paths(env);
+  for (const file of [
+    join(p.build, project, `${slug}.plan.json`),
+    p.envFile(project, slug),
+    // The attach heartbeat, whose absence is what "nobody is holding a socket on
+    // this" means. Removing it is tidiness rather than correctness — a stale one
+    // only ever contributes an old timestamp to `max(startedAt, lastActive)`
+    // (§4.2.2) — but a file naming a container that no longer exists is exactly
+    // what the next reader takes for a mechanism.
+    p.attachFile(project, slug),
+    p.logsFor(project, slug),
+  ]) {
+    try {
+      // Asked before the removal so the report names what really went. `rm
+      // --force` cannot tell us: it succeeds on a path that was never there,
+      // and a teardown claiming to have removed four files that did not exist
+      // is a report nobody can check anything against.
+      const there = existsSync(file);
+      await rm(file, { recursive: true, force: true });
+      if (there) removed.push(file);
+    } catch (error) {
+      // Reported and not thrown. A log directory the host will not let us remove
+      // — root-owned by something inside the container, a full disk — must not
+      // turn a sandbox that is genuinely gone into a failed teardown.
+      log(`Could not remove ${file}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // Two files are deliberately not in that list, and both for one reason: they
+  // are keyed on the *worktree*, which outlives every sandbox cut from it. The
+  // display name (§4.2.1) would undo a rename the next time somebody deleted
+  // and restarted a sandbox; the recorded slug (§4.2.3) is worse — it is what
+  // this very slug was read from, so taking it here would hand the next `up` a
+  // freshly derived name and leave everything above under the old one.
+  // `deleteWorktree` removes both, because that is the operation the worktree
+  // does not survive.
   log(`Removed ${slug} and its data`);
+  return { removed };
 }
 
 /** Every sandbox on this machine, read from container labels. */

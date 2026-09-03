@@ -303,8 +303,10 @@ Show me the sandboxes on this machine and explain what state each one is in.
 Read docs/guides/lifecycle.md first. Run `sandboxr ls`, then `sandboxr status <slug>`
 for anything that is not `running`, and tell me in plain words what is wrong with it.
 
-Do not run `sandboxr down`, `sandboxr gc` or `sandboxr prune --yes` without asking me
-first — those three remove things. Stop and tell me if Docker is not running.
+Do not run `sandboxr down`, `sandboxr worktree delete`, `sandboxr gc` or
+`sandboxr prune --yes` without asking me first — those four remove things, and
+`worktree delete` removes the directory on disk as well. Stop and tell me if Docker is
+not running.
 ```
 
 ### Projects, worktrees and lifetimes

@@ -1,16 +1,20 @@
 ---
 title: Start, stop, list, clean up
-description: The nine commands that create, inspect and remove sandboxes, what each one really removes, and why none of them can lose your work.
+description: The ten commands that create, inspect and remove sandboxes, what each one really removes, and why only one of them can reach your worktree.
 ---
 
-Nine commands do almost everything: `up`, `ls`, `status`, `stop`, `start`, `down`, `expire`,
-`gc` and `prune`. This page says what each one does and, more importantly, what each one
-removes.
+Ten commands do almost everything: `up`, `ls`, `status`, `stop`, `start`, `down`, `expire`,
+`gc`, `prune` and `worktree delete`. This page says what each one does and, more
+importantly, what each one removes.
 
 Start with the reassuring part. **Deleting a sandbox cannot lose your work.** Your
 [worktree](../reference/glossary.md) — your branch, your commits, the file you have not
 saved yet — lives on your own disk and is only *mounted* into the container. Removing the
 container removes a copy of a running system. The code was never in there.
+
+One command is the exception, and it is the one directly below `down`: `worktree delete`
+removes the sandbox *and* the directory. It asks first, and it refuses while there is
+anything in that directory nothing else has a copy of.
 
 ```prompt
 Show me the sandboxes on this machine and explain what state each one is in.
@@ -18,8 +22,10 @@ Show me the sandboxes on this machine and explain what state each one is in.
 Read docs/guides/lifecycle.md first. Run `sandboxr ls`, then `sandboxr status <slug>`
 for anything that is not `running`, and tell me in plain words what is wrong with it.
 
-Do not run `sandboxr down`, `sandboxr gc` or `sandboxr prune --yes` without asking me
-first — those three remove things. Stop and tell me if Docker is not running.
+Do not run `sandboxr down`, `sandboxr worktree delete`, `sandboxr gc` or
+`sandboxr prune --yes` without asking me first — those four remove things, and
+`worktree delete` removes the directory on disk as well. Stop and tell me if Docker is
+not running.
 ```
 
 Every command takes an optional **slug** — the short name a sandbox is known by. You rarely
@@ -227,17 +233,109 @@ sandboxr down --keep     # the container only; the volumes stay
 | `sandboxr-blob-…` — file storage | The seed cache in `~/.sandboxr/cache` |
 | `sandboxr-bin-…` — built binaries | The shared dependency volume |
 | `sandboxr-www-…` — built front-ends | The project's image, and Go's caches |
-| This sandbox's certificate | Its logs in `~/.sandboxr/logs/<project>/<slug>/` |
-| Its keep-alive marker, if it had one | Any other sandbox |
+| Its logs in `~/.sandboxr/logs/<project>/<slug>/` | The name you gave the worktree |
+| Its generated plan and environment in `~/.sandboxr/build/` | Any other sandbox |
+| Its keep-alive marker, if it had one | |
 
-Removing the certificate matters: it names this sandbox's hostnames and nothing else's, so
-leaving it behind would have the router offering a certificate for a host that no longer
-answers.
+Everything in the left column is named after the sandbox, and nothing else on the machine
+can work out that name once the worktree it came from is gone — so a teardown that left any
+of it behind would leave it for good.
+
+The name you gave the worktree is the one thing here filed against the *worktree* rather
+than the sandbox, and it stays: a name that vanished every time you deleted and restarted a
+sandbox would be a name that undid itself.
+
+> [!NOTE] There is no per-sandbox certificate to remove
+> There was one, once. Every sandbox now answers on a single hostname label under the
+> machine's domain, which the machine's own `*.<domain>` certificate already covers, so
+> `up` issues nothing per sandbox and `down` has nothing to take away. `sandboxr init`
+> sweeps up any left behind by an older version.
 
 `down` on a sandbox that does not exist is not an error. It says so and returns `0`.
 
 `--keep` is for when you want a fresh container against the same database. The next `up`
-restores nothing and starts in seconds.
+restores nothing and starts in seconds. It keeps everything in that left column except the
+container and the keep-alive marker — the container is gone either way, and a marker for a
+container that is not there means nothing.
+
+## `worktree delete` — remove the sandbox *and* the worktree
+
+`down` deliberately leaves your worktree alone. When you are finished with a branch
+altogether, this is the command that removes both — **in that order, which is the whole
+point of it being one command**:
+
+```bash
+sandboxr worktree delete acme feat/tkt-4821
+```
+
+The sandbox goes first because a volume cannot be removed while its container is running,
+and because everything a sandbox owns is named after the worktree it was cut from. Remove
+the directory first — with `git worktree remove`, or the older `sandboxr worktree rm` — and
+the container is left running with nothing left to name it, waiting for `gc`.
+
+**It refuses if there is anything in that worktree nothing else has a copy of**, and says
+what it found:
+
+- **uncommitted changes** — they exist only in that directory, and it names the files;
+- **commits that are on no remote** — these are *not* lost with the directory (they live in
+  the project's clone on this machine), but nothing here will have that branch checked out
+  any more.
+
+`--force` goes ahead anyway. There is no `--force` in the dashboard: the button refuses and
+tells you what to do about it, because "ask again, harder" is not a confirmation.
+
+> [!WARNING] Two branches on one ticket can still share a sandbox
+> A slug is taken from a ticket id in the worktree's name, so `feat/eng-3941-answers` and
+> `feat/eng-3941-selector` both derive `eng-3941`. Worktrees cut now get a slug of their own
+> when that happens, but ones cut before that guard existed are left as they are — renaming a
+> worktree whose sandbox is running would strand the container. So a machine that has been
+> upgraded can still have two worktrees on one container, and deleting either then **keeps**
+> the sandbox and says which other worktree is still using it. Only the directory goes.
+
+<details class="agent">
+<summary><b>Details for an agent</b> — what a delete removes, in order, and every refusal</summary>
+
+`sandboxr worktree delete <project> <branch> [--force]`. `<project>` is the workspace
+directory name, `<branch>` the branch that worktree has checked out. In the dashboard it is
+the `worktree-delete` action, project-scoped, taking the same `branch`.
+
+The order, and it is fixed:
+
+1. resolve every worktree of the project and the slug each one **answers to** — core's
+   `slugFor`, which reads `~/.sandboxr/state/slug/<project>/<worktree dir>` before it
+   derives anything, so a worktree that was given a slug is compared under that one
+   (contracts §3.1, §4.2.3);
+2. keep the sandbox if another worktree answers to the same slug — it is named, and only
+   step 4 runs. Siblings are matched by path, never by slug: the slug is the thing that may
+   not be unique;
+3. `down` on the sandbox: container (forced, running or not), the four volumes,
+   `~/.sandboxr/build/<project>/<slug>.plan.json` and `.env`,
+   `~/.sandboxr/logs/<project>/<slug>/`, `~/.sandboxr/state/attach/<project>/<slug>` and
+   the keep-alive marker;
+4. `git -C <workspace>/<project>/repo.git worktree remove --force <path>`, then
+   `worktree prune` — which also forgets the given slug, if there was one;
+5. `~/.sandboxr/state/name/<project>/<slug>` — the display name — unless a sibling worktree
+   shares that slug, in which case it is that sibling's name too and it stays.
+
+Exit codes: `0` when it happened, `1` for every refusal. Nothing is removed before a
+refusal. The refusals:
+
+| Refusal | `--force` gets past it |
+|---|---|
+| `no worktree called <name> in <project>` | no |
+| `<slug> is the slug of N worktrees` — name the branch instead | no |
+| `<path> has N uncommitted changes` — the first five are listed | yes |
+| `<branch> has N commits that is on no remote` | yes |
+
+A worktree with no sandbox deletes cleanly and says `there was nothing to tear down`. A
+worktree whose directory is already gone deletes cleanly too — that is the stale entry in
+git's admin files, and clearing it is the point.
+
+The dirty check is core's `dirtyFiles` with `DEFAULT_DIRTY_IGNORE`, so a `.env.local` a
+sandbox's own build wrote does not count. git's own `worktree remove` is blunter, which is
+why the removal passes `--force` to git *after* this check has decided.
+
+</details>
 
 ## `expire` — stop whatever has gone idle
 

@@ -105,6 +105,20 @@ export interface DownOptions extends CommonOptions {
   keep?: boolean | undefined;
 }
 
+/**
+ * What a teardown actually removed.
+ *
+ * Named artefacts rather than a count, because the caller this exists for is
+ * `deleteWorktree`, which reports its work item by item — a destructive
+ * operation that answers "done" leaves the reader to check by hand whether the
+ * container they were worried about is gone. A name here is a container name, a
+ * volume name or an absolute path, and only ever one that really went: a volume
+ * docker had already reclaimed, or a file the host refused to remove, is absent.
+ */
+export interface DownReport {
+  removed: string[];
+}
+
 export interface ListOptions extends CommonOptions {
   /** Only sandboxes of one project. */
   project?: string | undefined;
