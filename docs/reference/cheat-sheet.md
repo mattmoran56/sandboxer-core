@@ -42,6 +42,7 @@ you found. Do not start, stop or remove anything. Stop and tell me if Docker is 
 | Exempt it from the idle clock | `sandboxr keep <slug>` |
 | Throw it away | `sandboxr down <slug>` |
 | Throw away the container, keep the data | `sandboxr down <slug> --keep` |
+| Finish with a branch: its sandbox, then its worktree | `sandboxr worktree delete <project> <branch>` |
 | Stop everything that has gone idle | `sandboxr expire` |
 | Clean up after deleted worktrees | `sandboxr gc` |
 | Get disk back | `sandboxr prune` then `sandboxr prune --yes` |

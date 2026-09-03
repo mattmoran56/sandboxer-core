@@ -98,7 +98,8 @@ sandboxr worktree ls acme
 sandboxr worktree add acme tkt-4821
 sandboxr worktree add acme tkt-5000 --base staging   # create the branch too
 sandboxr worktree name acme tkt-4821 "the checkout flow rewrite"
-sandboxr worktree rm acme tkt-4821
+sandboxr worktree rm acme tkt-4821          # the directory only
+sandboxr worktree delete acme tkt-4821      # its sandbox first, then the directory
 ```
 
 `worktree add` finds or creates: asking twice for the same branch gives you the same worktree, not a
@@ -110,7 +111,17 @@ That last case is the interesting one. Git refuses to check a branch out twice, 
 worktree **detached** and recovers the branch name from the commit. `worktree ls` marks it with a
 `~`. The sandbox is still labelled with the branch and still answers on the hostname you expect.
 
-`worktree rm` refuses a worktree with uncommitted work in it unless you pass `--force`.
+`worktree rm` refuses a worktree with uncommitted work in it unless you pass `--force`. It removes
+the directory and nothing else, so a sandbox running on that worktree is left behind for `gc`.
+
+`worktree delete` is the one you usually want when you are finished with a branch: it tears the
+sandbox down **first** — the container, its database, its uploads and the files on the host named
+after it — and then removes the directory. The order is forced, because everything a sandbox owns is
+named after the worktree it was cut from. It refuses, having removed nothing, when the worktree has
+uncommitted changes or commits that are on no remote, and names them; `--force` overrides it. Where
+two worktrees still answer to one slug — which a worktree cut before `worktree add` began guarding
+against it can — deleting either **keeps** that sandbox and tells you which worktree is still using
+it.
 
 `worktree name` is the one that costs nothing. Ticket ids make good addresses and poor labels, so you
 can call a worktree what the work actually is and see that in the listing instead. **Nothing else
@@ -250,6 +261,7 @@ workspace path and handed to `rm` on a failed clone.
 | `worktree ls <project>` | — | Branch, short head, path. `~` marks detached; `(GONE)` marks an entry git still lists whose directory is not on disk |
 | `worktree add <project> <branch>` | `--base REF` | Find-or-create. Refuses a branch name starting with `-` or containing `..` |
 | `worktree rm <project> <branch>` | `--force` | Maps branch to path through the listing, then `worktree remove` followed by `worktree prune`. The disk decides success, not the exit code |
+| `worktree delete <project> <branch>` | `--force` | `down` on the sandbox, then `worktree rm`, then the display name. Refuses on uncommitted changes or commits on no remote; keeps a sandbox another worktree resolves to |
 | `worktree name <project> <branch> <name>` | — | Writes `~/.sandboxr/state/name/<project>/<slug>`. Bounded at 60 characters, no line breaks; `""` removes it. Touches no identifier |
 
 `worktree add` picks its git invocation like this:

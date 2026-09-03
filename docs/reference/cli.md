@@ -371,7 +371,8 @@ pick rather than a worktree you made by hand.
 | `sandboxr project prs <name>` | Open pull requests, as `gh` reports them |
 | `sandboxr worktree ls <project>` | Every worktree cut from it. `list` is an alias |
 | `sandboxr worktree add <project> <branch> [--base REF]` | Cut one, or hand back the one already there |
-| `sandboxr worktree rm <project> <branch> [--force]` | Remove it. `remove` is an alias |
+| `sandboxr worktree rm <project> <branch> [--force]` | Remove the directory, leaving any sandbox on it behind. `remove` is an alias |
+| `sandboxr worktree delete <project> <branch> [--force]` | Remove its sandbox **first**, then the directory |
 | `sandboxr worktree name <project> <branch> <name>` | Call it something a person can read. An empty name (`""`) hands it back to its branch |
 
 Marks in the output: `*` after a repository name means a fork; `*` after a pull-request number means
@@ -408,6 +409,19 @@ that work is gone.
 `worktree add` may write one file too: `~/.sandboxr/state/slug/<project>/<worktree directory>`,
 holding the slug the new worktree was given because the one it would have derived was already
 another worktree's. It says so on the way. `worktree rm` deletes it.
+
+**`worktree delete` is `down` and `rm` as one ordered operation**, and the order is not a
+preference. A volume cannot be removed while its container runs, and every artefact a sandbox owns
+is named after the worktree (contracts §3.1) — so removing the directory first destroys the input
+you needed to find what to clean up, which is how `rm` leaves an orphan for `gc`. It refuses,
+removing nothing, when the worktree has uncommitted changes or commits that are on no remote; the
+message names them and `--force` overrides it. It resolves every worktree of the project through the
+same `slugFor` the dashboard and `up` use, so a worktree that was *given* a slug is compared under
+the name it actually has — and where two worktrees still answer to one slug, which is possible for
+any cut before `worktree add` began guarding it, deleting either **keeps** the sandbox and says
+which other worktree is using it. A slug that names two worktrees is refused outright rather than
+deleting whichever came first. What goes, in order, is in
+[Start, stop, list, clean up](../guides/lifecycle.md).
 
 `worktree name` writes one file, `~/.sandboxr/state/name/<project>/<slug>`, and does nothing else.
 **The name is presentation only**: the slug, the hostname, the container name and every URL are

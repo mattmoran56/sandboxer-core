@@ -24,6 +24,7 @@ import {
   cloneProject,
   containerName,
   declaredNames,
+  deleteWorktree,
   decideGithub,
   describeProjectSecrets,
   slugFor,
@@ -59,6 +60,7 @@ import {
   persistenceAdvice,
   projectDirectories,
   projectIdentities,
+  projectSlugCeiling,
   prune,
   resolveTtl,
   reviewProjectEntries,
@@ -71,19 +73,18 @@ import {
   repoSlugFromUrl,
   sanitizeSlug,
   slugCeilingFor,
-  SLUG_MAX,
   startSandbox,
   status,
   stopSandbox,
   teardownAccess,
   up,
   workspaceWorktree,
+  WorktreeDeleteError,
   writeDisplayName,
   writeKeep,
   type Project,
   type ResolvedConfig,
   type Sandbox,
-  type Worktree,
 } from "@sandboxr/core";
 
 import { flagBoolean, flagList, flagNumber, flagString, parseArgs, type ParsedArgs } from "./args.js";
@@ -141,8 +142,10 @@ WORKTREES
   worktree ls <project>        Every worktree cut from a project
   worktree add <project> <branch>   Cut one for a branch
      --base REF                ...creating the branch off this ref
-  worktree rm <project> <branch>    Remove one
+  worktree rm <project> <branch>    Remove one, leaving its sandbox behind
      --force                   ...even with uncommitted work in it
+  worktree delete <project> <branch>  Remove its sandbox, then the worktree
+     --force                   ...even with work in it that nothing else has
   worktree name <project> <branch> <name>   Call it something a person can read
                                An empty name ("") hands it back to its branch
 
@@ -989,8 +992,16 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
   const name = args.positional[1];
   const branch = args.positional[2];
 
-  if (sub !== "ls" && sub !== "list" && sub !== "add" && sub !== "rm" && sub !== "remove" && sub !== "name") {
-    out.error("usage: sandboxr worktree ls|add|rm|name <project> [branch]");
+  if (
+    sub !== "ls" &&
+    sub !== "list" &&
+    sub !== "add" &&
+    sub !== "rm" &&
+    sub !== "remove" &&
+    sub !== "delete" &&
+    sub !== "name"
+  ) {
+    out.error("usage: sandboxr worktree ls|add|rm|delete|name <project> [branch]");
     return 1;
   }
   if (name === undefined) {
@@ -1064,6 +1075,44 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     out.ok(`${worktree.branch} at ${worktree.path}`);
     out.dim(`      sandboxr up --project ${project.name} --branch ${worktree.branch}`);
     return 0;
+  }
+
+  // `delete` resolves the worktree itself, because the order it works in — the
+  // sandbox, then the directory — is core's and not this file's. `rm` below is
+  // the other half on its own: it removes the directory and leaves whatever was
+  // running on it for `gc` to find.
+  if (sub === "delete") {
+    try {
+      const done = await deleteWorktree({
+        project,
+        branch,
+        force: flagBoolean(args, "force"),
+        env,
+        log: (line) => out.line(line),
+      });
+      if (out.json) out.data(done);
+      // Item by item, because this is the point at which somebody finds out
+      // whether the thing they were worried about actually went.
+      for (const item of done.removed) out.dim(`      removed ${item}`);
+      for (const item of done.kept) out.warn(`kept ${item}`);
+      if (done.sandbox === "shared") {
+        out.ok(`removed the worktree ${done.path}, and kept its sandbox`);
+        return 0;
+      }
+      out.ok(
+        done.sandbox === "removed"
+          ? `removed ${done.slug} and the worktree ${done.path}`
+          : `removed the worktree ${done.path} — it had no sandbox`,
+      );
+      return 0;
+    } catch (error) {
+      if (!(error instanceof WorktreeDeleteError)) throw error;
+      // The refusal is already written for a reader, over several lines, and
+      // naming the files it is protecting. Reprinting it as one summary line
+      // would throw away the part that says what to do about it.
+      for (const line of error.message.split("\n")) out.error(line);
+      return 1;
+    }
   }
 
   // Both of the remaining subcommands take a branch but work on a worktree, and
@@ -1142,26 +1191,16 @@ async function slugOf(
 }
 
 /**
- * One project's slug ceiling, read from whichever worktree carries a config.
+ * One project's slug ceiling — core's, because `worktree delete` needs the same
+ * answer and two of it is one too many.
  *
- * Any of them will do — the ceiling comes from the `project:` name and the
- * longest hostname label, both of which are the same in every worktree of a
- * project — so this stops at the first that reads. A project with no readable
- * config anywhere falls back to `SLUG_MAX`, which is honest: with no config
- * there are no hostnames, so there is no budget to be spending.
+ * It was spelled out here, beside the listing that wanted it. The delete has to
+ * resolve *every* worktree of a project against the ceiling, so the loop moved
+ * into core as `projectSlugCeiling` and this is the name the calls below have
+ * always used. `slugFor` cannot stand in for it: that function *takes* `max`,
+ * and this is what works `max` out (contracts §3.1).
  */
-async function slugMaxOf(worktrees: readonly Worktree[], env: NodeJS.ProcessEnv): Promise<number> {
-  for (const worktree of worktrees) {
-    if (!worktree.exists) continue;
-    try {
-      return slugCeilingFor(await loadConfig(worktree.path, { enforceAccess: false, env }));
-    } catch {
-      // A worktree whose config is missing or unreadable is not this command's
-      // problem to report; the next one may well have it.
-    }
-  }
-  return SLUG_MAX;
-}
+const slugMaxOf = projectSlugCeiling;
 
 function noProject(out: Output, name: string): number {
   out.error(`no project called ${name} in the workspace`);

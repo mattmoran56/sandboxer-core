@@ -2,6 +2,7 @@
 // - list: builds sandboxes from labels, filters by project, sorts, and ignores a container that is not ours
 // - list: a stopped container is never asked for its markers
 // - down: removes the container and every volume it owned; --keep leaves the volumes
+// - down: removes the plan, environment, heartbeat and logs the sandbox was named after
 // - down: a slug with no container is reported rather than treated as an error
 // - up: writes the environment file, carries the labels, and starts the container
 // - up: refuses a public sandbox that would carry real credentials, and names both ways out
@@ -16,6 +17,7 @@
 // - prune: removes a superseded project image and leaves the newest one alone
 // - prune: the build cache is out of scope unless it is asked for
 
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -245,9 +247,14 @@ describe("list", () => {
 });
 
 describe("down", () => {
+  /** A home of its own per test, so a teardown cannot reach the machine's real one. */
+  async function tempHome(): Promise<string> {
+    return mkdtemp(join(tmpdir(), "sbx-down-"));
+  }
+
   it("removes the container and every volume it owned", async () => {
     const { docker, argsOf } = fakeDocker({ exists: true });
-    await down("acme", "tkt-1", { docker });
+    const report = await down("acme", "tkt-1", { docker, env: { SANDBOXR_HOME: await tempHome() } });
     expect(argsOf("rm")[0]?.[0]).toBe("sandboxr-acme-tkt-1");
     expect(argsOf("volumeRm").map((args) => args[0])).toEqual([
       "sandboxr-data-acme-tkt-1",
@@ -255,20 +262,55 @@ describe("down", () => {
       "sandboxr-bin-acme-tkt-1",
       "sandboxr-www-acme-tkt-1",
     ]);
+    expect(report.removed).toContain("sandboxr-acme-tkt-1");
+    expect(report.removed).toContain("sandboxr-data-acme-tkt-1");
   });
 
-  it("keeps the volumes when asked", async () => {
+  // The generated files are named after the sandbox and nothing else can derive
+  // that name once the worktree has gone, so a teardown that leaves them behind
+  // leaves them forever.
+  it("removes the plan, the environment, the heartbeat and the logs it was named after", async () => {
+    const home = await tempHome();
+    await mkdir(join(home, "build", "acme"), { recursive: true });
+    await mkdir(join(home, "logs", "acme", "tkt-1"), { recursive: true });
+    await mkdir(join(home, "state", "attach", "acme"), { recursive: true });
+    await writeFile(join(home, "build", "acme", "tkt-1.plan.json"), "{}\n");
+    await writeFile(join(home, "build", "acme", "tkt-1.env"), "A=1\n");
+    await writeFile(join(home, "state", "attach", "acme", "tkt-1"), "now\n");
+
+    const { docker } = fakeDocker({ exists: true });
+    await down("acme", "tkt-1", { docker, env: { SANDBOXR_HOME: home } });
+
+    expect(existsSync(join(home, "build", "acme", "tkt-1.plan.json"))).toBe(false);
+    expect(existsSync(join(home, "build", "acme", "tkt-1.env"))).toBe(false);
+    expect(existsSync(join(home, "state", "attach", "acme", "tkt-1"))).toBe(false);
+    expect(existsSync(join(home, "logs", "acme", "tkt-1"))).toBe(false);
+  });
+
+  // `--keep` means the container went and its data stayed, and the generated
+  // files are on the same line as the volumes.
+  it("keeps the volumes, and everything else it owned, when asked", async () => {
+    const home = await tempHome();
+    await mkdir(join(home, "logs", "acme", "tkt-1"), { recursive: true });
+
     const { docker, argsOf } = fakeDocker({ exists: true });
-    await down("acme", "tkt-1", { docker, keep: true });
+    await down("acme", "tkt-1", { docker, keep: true, env: { SANDBOXR_HOME: home } });
+
     expect(argsOf("volumeRm")).toHaveLength(0);
+    expect(existsSync(join(home, "logs", "acme", "tkt-1"))).toBe(true);
   });
 
   it("says so rather than failing when there is no such sandbox", async () => {
     const { docker, argsOf } = fakeDocker({ exists: false });
     const lines: string[] = [];
-    await down("acme", "ghost", { docker, log: (line) => lines.push(line) });
+    const report = await down("acme", "ghost", {
+      docker,
+      env: { SANDBOXR_HOME: await tempHome() },
+      log: (line) => lines.push(line),
+    });
     expect(lines.join(" ")).toMatch(/No sandbox called ghost/);
     expect(argsOf("rm")).toHaveLength(0);
+    expect(report.removed).toEqual([]);
   });
 });
 
