@@ -597,6 +597,76 @@ the same credentials, not a second permission.
 The vocabulary is fixed: core's type is `PullState`, its reader is `createPullIndex`, the API field
 is `pull` on `WorktreeDto` — an object of `{ number, state, title, url }`, or `null`.
 
+#### 4.1.3 Bringing a worktree up to the remote
+
+A managed worktree is a place a sandbox **runs**, not a place anybody edits: the commits arrive
+from a different machine and land on the remote. Two operations bring one up to date, and both
+live in `packages/core/src/pull.ts`.
+
+**The remote is talked to in exactly one way: `fetchProject` on the project's mirror.** It
+updates `refs/remotes/origin/*` in `repo.git`, which every linked worktree shares, so one fetch
+serves all of them. A `git fetch` run inside a worktree would be a second refspec and a second
+answer, which is the failure the bare-clone refspec in §4.1 exists to prevent.
+
+**`pullWorktree` fast-forwards a worktree that exists.** It never merges, never rebases and
+never discards, because the whole value of the operation is that its failure is visible.
+
+- It works on a **detached** worktree, which is the ordinary state of one whose branch is open
+  elsewhere: the branch name comes from `branchOf`, and the target is
+  `refs/remotes/origin/<branch>`. A detached fast-forward moves `HEAD` and deliberately leaves
+  `refs/heads/<branch>` where it was.
+- The preflight reports **every** reason it would fail, never the first: local commits the
+  remote does not have, uncommitted changes to files the incoming commits also change, and
+  untracked files the incoming commits would overwrite. The dirty check is `dirtyFiles` with
+  `DEFAULT_DIRTY_IGNORE`, so a file a sandbox's own build wrote does not block a pull.
+- A refusal names the branch and the actual files, and **nothing on disk is touched**. `git
+  merge --ff-only` is the only command that writes.
+
+**`freshenBranch` does the same job for a worktree that does not exist yet**, and
+`addWorktree` calls it before it resolves any ref. Every creation path in §4.1 starts from a
+ref, and a ref is only as fresh as the last fetch, so a worktree cut for a branch — or for a
+pull request's head branch, which arrives as an ordinary branch name — used to land on whatever
+the mirror happened to hold. After the fetch:
+
+| What is true of the branch | What happens |
+|---|---|
+| A base was given | The base decides, and the fetch has made it current |
+| Only on origin | The worktree is cut from `origin/<branch>` |
+| Local, behind origin, checked out nowhere | `refs/heads/<branch>` is fast-forwarded onto origin's tip, compare-and-swap on the sha it had |
+| Local, behind origin, **checked out elsewhere** | Nothing is moved; the worktree is detached at `origin/<branch>` |
+| Local, with commits origin does not have | Nothing is moved, and the worktree is cut where the branch stands |
+
+**A branch another worktree has checked out is never moved.** `update-ref` will move it and git
+does not stop it the way `git branch -f` does, and the other worktree then shows every incoming
+change as an uncommitted *reversal* — indistinguishable, on screen, from an editor having eaten
+somebody's work.
+
+**A diverged branch is reported, not refused.** The worktree is still created: refusing would be
+worse than the staleness, and silently checking out old code is the thing being fixed. So the
+lines say which commit it landed on, that it is not the remote's tip, and how far apart the two
+are. A fetch that fails costs freshness and a sentence, never the worktree.
+
+**One wording, in core.** `pullReport` turns a result into the lines a person reads, and its
+first line is a self-contained headline. The CLI prints them and the dashboard streams them, so
+the two cannot describe one refusal two ways.
+
+**Freshening runs before the checkout, claiming a slug (§3.1) runs after it, and the order is
+fixed.** Freshening decides which *commit* the worktree lands on, so it has to happen while
+there is still a ref to move and no working tree hanging off it. Claiming decides what the
+worktree is *called*, which needs the directory to exist and the sibling listing to compare
+against. They share nothing: one writes refs in the mirror, the other writes a file under
+`SANDBOXR_HOME`, and no slug is ever read out of a ref.
+
+A worktree that already exists is handed back before any of this — starting a sandbox never
+pulls a checkout somebody may be working in. That is what the button in §8 is for.
+
+**Resolving which worktree a pull acts on goes through `slugFor` (§3.1), never `deriveSlug`.**
+The dashboard posts back the slug on the row somebody clicked, and a worktree that collided
+with a sibling was *given* one carrying a random token — which cannot be re-derived. A deriving
+match answers a different worktree, or none, for exactly the rows that were renamed, and the
+failure is a fast-forward applied to somebody else's checkout. The CLI does not resolve a slug
+at all here: `worktree pull` addresses the worktree by path.
+
 ### 4.2 Keep-alive, and where mutable state is allowed to live
 
 A keep-alive marker exempts one sandbox from its idle limit. It cannot be a label — a running
@@ -1966,6 +2036,18 @@ Three rules, and all three are load-bearing:
   that does not qualify yields no destination at all rather than a fallback, because sending
   the reader somewhere plausible is a false claim about where the thing is.
 
+**An action's scope is part of its identity**, and the route enforces it: a `sandbox` action
+must arrive on a route naming a sandbox, and the route refuses one whose slug is not a live
+container. So the scope answers "what does this act on", never "where is the button drawn".
+
+`pull` is the case that makes the distinction load-bearing. It brings one worktree up to its
+branch's head on the remote (§4.1.3), and it is **project-scoped, taking the worktree's slug as
+an argument** — because a worktree exists whether or not a container does, and the sequence it
+exists for is pull, then restart, which starts from a sandbox that is stopped. Sandbox-scoped, it
+would be unavailable at exactly the moment it is wanted. `worktree-delete` is project-scoped for
+the same reason and names a *branch* rather than a slug, because two worktrees cut before the
+collision guard existed can still answer to one slug (§3.1).
+
 ### 8.1 Destructive actions, and what a browser may not force
 
 A destructive entry carries a `confirm` sentence, and the sentence **names what is lost**
@@ -1978,6 +2060,13 @@ operation because something would be lost — `worktree delete` on a dirty workt
 action reports the refusal and stops. There is no `force` argument on the closed table, and
 adding one would make the confirmation the *second* dialog rather than the last word. The
 override is the CLI's `--force`, run by somebody at the machine.
+
+**An action that refuses rather than destroying is not destructive, and must not ask.** `pull`
+fast-forwards or it refuses, so there is nothing a confirmation could name as lost — and a
+confirmation on an action that cannot lose anything is what teaches people to click through the
+ones that can. Its refusal is reported the way any other is: a non-zero exit, and a
+`sandboxr-failed:` line so the verdict at the top of the sheet carries the reason rather than an
+exit code.
 
 ## 9. Conventions
 

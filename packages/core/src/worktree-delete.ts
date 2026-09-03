@@ -65,7 +65,7 @@ export class WorktreeDeleteError extends Error {
 }
 
 /** One worktree and the slug it answers to, as `slugFor` resolves it. */
-interface WorktreeSlug {
+export interface WorktreeSlug {
   worktree: Worktree;
   slug: string;
 }
@@ -107,8 +107,15 @@ export async function projectSlugCeiling(
  * top of this file. A worktree whose name resolves to nothing is dropped instead
  * of throwing: `deriveSlug` refuses a directory that sanitises to the empty
  * string, and one unusable sibling must not make the whole project undeletable.
+ *
+ * Exported because a delete is not the only thing that has to turn a slug the
+ * browser posted back into a directory — `pull` does too (§8) — and two loops
+ * over `slugFor` in two packages is exactly the second implementation the store
+ * exists to prevent. It is not free: it lists the worktrees and reads a config
+ * to find the ceiling. That is the right trade for something somebody pressed a
+ * button to do, and the wrong one for anything on the dashboard's poll.
  */
-async function worktreeSlugs(
+export async function worktreeSlugs(
   project: Project,
   options: { run?: Runner | undefined; env?: NodeJS.ProcessEnv | undefined } = {},
 ): Promise<WorktreeSlug[]> {

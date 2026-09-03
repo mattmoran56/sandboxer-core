@@ -8,6 +8,10 @@
 // - addWorktree: two branches on one ticket derive one slug, so the second worktree is given a unique one and it is recorded
 // - addWorktree: a worktree that collided keeps its given slug when the same branch is asked for again
 // - addWorktree: a collision in a project whose DNS budget lowers the ceiling still fits it, and its hostname fits one DNS label
+// - addWorktree: a local branch behind origin is fast-forwarded, so the checkout is the tip
+// - addWorktree: a diverged local branch is checked out where it stands, and nothing is discarded
+// - addWorktree: a worktree that is both behind the remote and in collision lands on the tip AND
+//   is given a slug of its own — the freshen and the claim sit either side of the checkout
 // - listWorktrees: a directory deleted by hand is still listed, with exists:false
 // - listWorktrees: `committed` is git's own ISO date, and "" for every way reading it can fail
 // - listWorktrees: `created` is the directory's birthtime, or "" where the filesystem has none
@@ -21,7 +25,7 @@
 
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -206,6 +210,83 @@ describe("worktrees on a real repository", () => {
       const worktree = await addWorktree({ project, branch: "feat/pushed-later" });
       expect(worktree.branch).toBe("feat/pushed-later");
       expect(worktree.detached).toBe(false);
+    },
+    GIT_TIMEOUT,
+  );
+
+  // The staleness this exists to fix: the mirror has a local ref for the branch,
+  // somebody has pushed since, and nothing on the creation path fetched — so the
+  // worktree used to be cut at whatever the last fetch happened to leave behind.
+  it(
+    "cuts a worktree at origin's tip when the local branch is behind",
+    async () => {
+      await git(source, "checkout", "-b", "feat/moves-on");
+      await writeFile(join(source, "README.md"), "first\n");
+      await git(source, "commit", "-am", "first");
+      await git(source, "checkout", "main");
+      // Fetched once so the mirror has a local branch, then left behind.
+      await git(project.repo, "fetch", "origin");
+      await git(project.repo, "branch", "feat/moves-on", "origin/feat/moves-on");
+
+      await git(source, "checkout", "feat/moves-on");
+      await writeFile(join(source, "README.md"), "second\n");
+      await git(source, "commit", "-am", "second");
+      await git(source, "checkout", "main");
+
+      const lines: string[] = [];
+      const worktree = await addWorktree({ project, branch: "feat/moves-on", log: (line) => lines.push(line) });
+
+      const tip = (await git(source, "rev-parse", "feat/moves-on")).trim();
+      expect((await git(worktree.path, "rev-parse", "HEAD")).trim()).toBe(tip);
+      expect((await readFile(join(worktree.path, "README.md"), "utf8")).trim()).toBe("second");
+      // The local ref moved with it, so the branch and the checkout agree.
+      expect((await git(project.repo, "rev-parse", "feat/moves-on")).trim()).toBe(tip);
+      expect(lines.join(" ")).toContain("Fast-forwarded feat/moves-on");
+    },
+    GIT_TIMEOUT,
+  );
+
+  // The case a reader will not predict. The mirror's branch has a commit origin
+  // does not, so there is no fast-forward to make: the worktree is still created
+  // — refusing would be worse than the staleness — and nothing is discarded.
+  it(
+    "checks a diverged local branch out where it stands, and says so out loud",
+    async () => {
+      await git(source, "checkout", "-b", "feat/diverges");
+      await writeFile(join(source, "README.md"), "theirs\n");
+      await git(source, "commit", "-am", "theirs");
+      await git(source, "checkout", "main");
+      await git(project.repo, "fetch", "origin");
+
+      // A local commit the remote has never seen, made in the mirror itself.
+      const held: Project = { ...project, worktrees: join(root, "wt-diverge-src") };
+      const scratch = await addWorktree({ project: held, branch: "feat/diverges" });
+      await git(scratch.path, "config", "user.email", "test@example.com");
+      await git(scratch.path, "config", "user.name", "Test");
+      await writeFile(join(scratch.path, "README.md"), "ours\n");
+      await git(scratch.path, "commit", "-am", "ours");
+      const ours = (await git(scratch.path, "rev-parse", "HEAD")).trim();
+      await removeWorktree(held, scratch.path);
+
+      // ...and a second commit on origin, so the two really have diverged.
+      await git(source, "checkout", "feat/diverges");
+      await writeFile(join(source, "NOTES.md"), "later\n");
+      await git(source, "add", ".");
+      await git(source, "commit", "-m", "later");
+      await git(source, "checkout", "main");
+
+      const lines: string[] = [];
+      const worktree = await addWorktree({
+        project: { ...project, worktrees: join(root, "wt-diverge") },
+        branch: "feat/diverges",
+        log: (line) => lines.push(line),
+      });
+
+      expect((await git(worktree.path, "rev-parse", "HEAD")).trim()).toBe(ours);
+      // Nothing was moved and nothing was thrown away.
+      expect((await git(project.repo, "rev-parse", "feat/diverges")).trim()).toBe(ours);
+      expect(lines.join(" ")).toContain("that origin/feat/diverges does not, so it was not moved");
+      expect(lines.join(" ")).toContain("which is not origin's tip");
     },
     GIT_TIMEOUT,
   );
@@ -415,6 +496,54 @@ describe("two worktrees on one ticket", () => {
 
       await removeWorktree(project, path, { force: true, env });
       expect(await readRecordedSlug(project.name, "feat-eng-3941-labs-run-selector", env)).toBeNull();
+    },
+    GIT_TIMEOUT,
+  );
+
+  /**
+   * The two halves of `addWorktree` that were written separately, run together.
+   *
+   * Freshening decides which *commit* the checkout lands on and claiming decides
+   * what it is *called*, and they sit either side of the checkout — so a worktree
+   * that is both behind the remote and in collision with a sibling has to come
+   * out on the remote's tip **and** with a slug of its own. Neither half is
+   * observable through the other, which is exactly why nothing would have caught
+   * one of them quietly skipping.
+   */
+  it(
+    "lands a collided worktree on the remote's tip and still gives it a slug of its own",
+    async () => {
+      const source = project.origin;
+      const first = "feat/eng-7000-first";
+      const second = "feat/eng-7000-second";
+
+      for (const branch of [first, second]) {
+        await git(source, "checkout", "-b", branch, "main");
+        await writeFile(join(source, "README.md"), `${branch} one\n`);
+        await git(source, "commit", "-am", `${branch} one`);
+      }
+      await git(source, "checkout", "main");
+      // The mirror learns about both, and then falls behind: the second branch
+      // moves on and nothing fetches. Without the freshen, the worktree cut
+      // below is a checkout of the commit on this line rather than the tip.
+      await git(project.repo, "fetch", "origin");
+      await git(source, "checkout", second);
+      await writeFile(join(source, "README.md"), `${second} two\n`);
+      await git(source, "commit", "-am", `${second} two`);
+      await git(source, "checkout", "main");
+
+      await addWorktree({ project, branch: first, env });
+      const two = await addWorktree({ project, branch: second, env });
+
+      // Freshened: the checkout is the commit the remote has now.
+      const tip = (await git(source, "rev-parse", second)).trim();
+      expect((await git(two.path, "rev-parse", "HEAD")).trim()).toBe(tip);
+
+      // Claimed: and the slug is still the given one, written down, because a
+      // sibling of this ticket already answers to the derived name.
+      const slug = await slugFor({ worktree: two.path, project: project.name, branch: two.branch, env });
+      expect(slug).toMatch(/^eng-7000-[a-z0-9]{4}$/);
+      expect(await readRecordedSlug(project.name, basename(two.path), env)).toBe(slug);
     },
     GIT_TIMEOUT,
   );

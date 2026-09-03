@@ -62,6 +62,8 @@ import {
   projectIdentities,
   projectSlugCeiling,
   prune,
+  pullReport,
+  pullWorktree,
   resolveTtl,
   reviewProjectEntries,
   readDisplayName,
@@ -148,6 +150,10 @@ WORKTREES
      --force                   ...even with work in it that nothing else has
   worktree name <project> <branch> <name>   Call it something a person can read
                                An empty name ("") hands it back to its branch
+  worktree pull <project> <branch>  Fast-forward it onto the branch's head on
+                               the remote. Never merges, never discards: where
+                               local changes or commits are in the way it says
+                               which and changes nothing
 
 DATABASE
   db seed [--seed SOURCE]      Produce or refresh the seed artifact
@@ -999,9 +1005,10 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     sub !== "rm" &&
     sub !== "remove" &&
     sub !== "delete" &&
-    sub !== "name"
+    sub !== "name" &&
+    sub !== "pull"
   ) {
-    out.error("usage: sandboxr worktree ls|add|rm|delete|name <project> [branch]");
+    out.error("usage: sandboxr worktree ls|add|rm|delete|name|pull <project> [branch]");
     return 1;
   }
   if (name === undefined) {
@@ -1149,6 +1156,28 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     // them.
     if (stored === null) out.ok(`${found.branch} goes by its branch name again (slug ${slug})`);
     else out.ok(`${found.branch} is now "${stored}" (slug ${slug}, unchanged)`);
+    return 0;
+  }
+
+  if (sub === "pull") {
+    // Every sentence is core's, so this and the dashboard cannot word one
+    // refusal two ways. A refusal exits 1 because it is a refusal: nothing was
+    // changed, and a script that carried on would run yesterday's code.
+    //
+    // The worktree is addressed by its *path*, which is what `found` carries and
+    // what a pull acts on. Nothing here resolves a slug, and that is deliberate:
+    // a slug names a container, and this command never touches one.
+    const result = await pullWorktree({ project, worktree: found.path, log: (line) => out.step(line) });
+    const [headline = "", ...rest] = pullReport(result);
+    if (out.json) out.data(result);
+
+    if (result.outcome === "refused") {
+      out.error(headline);
+      for (const line of rest) out.line(line);
+      return 1;
+    }
+    out.ok(headline);
+    for (const line of rest) out.dim(`      ${line}`);
     return 0;
   }
 

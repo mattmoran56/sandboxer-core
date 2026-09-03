@@ -374,6 +374,7 @@ pick rather than a worktree you made by hand.
 | `sandboxr worktree rm <project> <branch> [--force]` | Remove the directory, leaving any sandbox on it behind. `remove` is an alias |
 | `sandboxr worktree delete <project> <branch> [--force]` | Remove its sandbox **first**, then the directory |
 | `sandboxr worktree name <project> <branch> <name>` | Call it something a person can read. An empty name (`""`) hands it back to its branch |
+| `sandboxr worktree pull <project> <branch>` | Fast-forward it onto the branch's head on the remote. Never merges, never discards |
 
 Marks in the output: `*` after a repository name means a fork; `*` after a pull-request number means
 draft; `~` after a branch means the worktree is detached, because that branch is checked out
@@ -430,6 +431,24 @@ so. The name is bounded at 60 characters and may not contain a line break or a c
 an empty name removes the file. `worktree ls` grows a `NAME` column once something in the project
 has one, and `--json` always carries `displayName`, which is `null` when there is none. `worktree
 rm` removes a worktree's name along with it.
+
+`worktree pull` fast-forwards a checkout onto its branch's head on the remote and does nothing
+else — no merge, no rebase, no reset. It fetches the **project's mirror**, so it is the same
+conversation with the remote that `project fetch` has, and it works on a detached worktree, which
+is the ordinary state of one whose branch is checked out somewhere else. It exits `0` for
+`already up to date` and for a fast-forward, and `1` for a refusal, having changed nothing. A
+refusal lists every reason at once and names the files: uncommitted changes to files the incoming
+commits also change, untracked files those commits would overwrite, and commits here that the
+remote does not have. `--json` carries `outcome`, `branch`, `detached`, `from`, `to`, `commits`
+and `refusals`. A file a sandbox's own build wrote — `.env.local` beside a package — does not
+block a pull. See [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+
+`worktree add` fetches before it resolves anything, so a new worktree lands on the remote's
+current tip rather than on whatever the last fetch left behind. Where the local branch is behind
+and checked out nowhere it is fast-forwarded onto the remote; where it is checked out elsewhere
+the new worktree is detached at `origin/<branch>` and the branch ref is left alone; where it has
+commits the remote does not, nothing moves and the command prints which commit the worktree
+landed on and how far that is from the remote.
 
 </details>
 
@@ -562,10 +581,11 @@ usage tree on stderr.
 | `secrets set`, `secrets unset`, `secrets edit`, `secrets import` | project | Writes the project's secrets file. Running sandboxes pick the change up on a restart |
 | `project ls`, `project available`, `project prs`, `worktree ls` | workspace | No |
 | `project clone`, `project fetch` | workspace | Writes a project directory; a fetch never touches local work |
-| `worktree add` | one project | Creates a checkout |
+| `worktree add` | one project | Creates a checkout, fetching first so it lands on the remote's tip. May write one slug file under `~/.sandboxr/state/slug/`, when the new worktree would have taken a sibling's slug |
+| `worktree pull` | one worktree | Fast-forwards it, or refuses and changes nothing. Never merges or discards |
 | `worktree rm` | one project | Removes a checkout, and with `--force` any uncommitted work in it |
+| `worktree delete` | one worktree | Removes its sandbox — container, database, uploads — and then the checkout. Refuses while there is work nothing else has a copy of, unless `--force` |
 | `worktree name` | one project | Writes one label file under `~/.sandboxr/state/name/`. No identifier moves |
-| `worktree add` | one project | May write one slug file under `~/.sandboxr/state/slug/`, when the new worktree would have taken a sibling's slug |
 
 ## How a slug is resolved to a project
 
