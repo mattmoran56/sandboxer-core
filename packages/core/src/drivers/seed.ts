@@ -59,8 +59,19 @@ export function chooseSeed(config: ResolvedConfig, options: ChooseSeedOptions = 
   if (config.database.driver === "none" || !seed) return { source: "none" };
 
   const allowed = new Set(permittedSeeds(config));
-  const available = (source: SeedSource): boolean => {
-    if (!allowed.has(source as "fixtures" | "file" | "local")) return false;
+
+  // **Two independent tests, and the refusal below has to be able to tell them
+  // apart.** `permitted` is policy — what §5.3 allows this sandbox to be seeded
+  // from. `reachable` is this machine — whether the container is up and the
+  // dump is on this disk. They were one boolean once, and so every refusal read
+  // as an access refusal: a *private* project whose only source was
+  // `local.container: taxonomy_db` was told "public apps may only be seeded
+  // from fixtures or an anonymised dump; set access.apps to private". It
+  // already was private. The container had simply exited, and the only advice
+  // in the message — make the sandbox public — was the one change that would
+  // have made things worse.
+  const permitted = (source: SeedSource): boolean => allowed.has(source as "fixtures" | "file" | "local");
+  const reachable = (source: SeedSource): boolean => {
     if (source === "local") return options.localAvailable !== false;
     if (source === "file") return options.fileAvailable !== false;
     return true;
@@ -68,7 +79,7 @@ export function chooseSeed(config: ResolvedConfig, options: ChooseSeedOptions = 
 
   const order: SeedSource[] = options.prefer ? [options.prefer] : ["local", "file", "fixtures"];
   for (const source of order) {
-    if (!available(source)) continue;
+    if (!permitted(source) || !reachable(source)) continue;
     if (source === "local" && seed.local) {
       return {
         source: "local",
@@ -89,13 +100,48 @@ export function chooseSeed(config: ResolvedConfig, options: ChooseSeedOptions = 
         `permitted sources are ${[...allowed].join(", ") || "none"}`,
     );
   }
-  if (seed.local || seed.file) {
-    throw new SeedError(
-      `${config.project}: no permissible seed source. Public apps may only be seeded from fixtures or an ` +
-        "anonymised dump (contracts §5.3); set access.apps to private, or add database.seed_from.fixtures",
-    );
+
+  // One clause per source the config actually names, and never the wrong one.
+  // A source excluded by policy keeps the §5.3 wording, which is correct there;
+  // a source that policy allows and the machine cannot reach names the thing —
+  // the container, or the path — so the reader knows what to start or fetch.
+  // Both kinds are reported when both apply: picking one would put the reader
+  // back where the folded boolean left them.
+  const clauses: string[] = [];
+  let blocked = false;
+  for (const [source, missing] of namedSources(seed)) {
+    if (!permitted(source)) {
+      blocked = true;
+      clauses.push(
+        `database.seed_from.${source} is not permitted: public apps may only be seeded from fixtures ` +
+          "or an anonymised dump (contracts §5.3)",
+      );
+    } else if (!reachable(source)) {
+      clauses.push(`database.seed_from.${source} is permitted here but not available: ${missing}`);
+    }
+  }
+  if (clauses.length > 0) {
+    const fix = blocked
+      ? "Set access.apps to private, or add database.seed_from.fixtures"
+      : "Make one of them available here, or add database.seed_from.fixtures";
+    throw new SeedError(`${config.project}: no usable seed source. ${clauses.join(". ")}. ${fix}`);
   }
   return { source: "none" };
+}
+
+/**
+ * The sources a config names, each with the sentence that describes it being
+ * missing from this machine.
+ *
+ * `fixtures` is deliberately absent: it is a path inside the repository the
+ * sandbox is cut from, so it is never permitted-but-unreachable, and a config
+ * that declares it never reaches the refusal above at all.
+ */
+function namedSources(seed: NonNullable<ResolvedConfig["database"]["seedFrom"]>): Array<[SeedSource, string]> {
+  const named: Array<[SeedSource, string]> = [];
+  if (seed.local) named.push(["local", `the container "${seed.local.container}" is not running`]);
+  if (seed.file) named.push(["file", `the dump "${seed.file}" was not found here`]);
+  return named;
 }
 
 export interface CacheEntry<M = Record<string, string | number>> {

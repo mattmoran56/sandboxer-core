@@ -179,6 +179,18 @@ export {
 } from "./worktree-name.js";
 
 export {
+  SLUG_TOKEN_LEN,
+  normaliseRecordedSlug,
+  readRecordedSlug,
+  removeRecordedSlug,
+  slugFor,
+  slugToken,
+  uniqueSlug,
+  writeRecordedSlug,
+} from "./worktree-slug.js";
+export type { SlugForInput } from "./worktree-slug.js";
+
+export {
   alreadyAdded,
   createPullIndex,
   ghAvailable,

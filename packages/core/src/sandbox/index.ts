@@ -38,11 +38,12 @@ import { hostClaudeCredentials } from "../agent/credentials.js";
 import { gitFacts, gitMounts, hostGitIdentity } from "../git.js";
 import { findProject, projectDirectories } from "../workspace.js";
 import { addWorktree } from "../worktree.js";
+import { slugFor } from "../worktree-slug.js";
 import { sandboxActivity } from "./activity.js";
 import { parseTtl, planExpiry, type ExpiryCandidate, type ExpiryPlan } from "./expiry.js";
 import { isKeptAlive, removeKeep } from "./keep.js";
 import { ensureProjectImage } from "../image.js";
-import { NETWORK, containerName, deriveSlug, volumeName } from "../naming.js";
+import { NETWORK, containerName, volumeName } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { containerEnv, labelsOf, renderEnvFile, urlsFor } from "./env.js";
 import { envDigest, readProjectSecrets } from "../secrets.js";
@@ -110,10 +111,16 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // plan. A project-level config in the workspace is the other way round: the
   // file is above the worktree, and `root` is still the worktree.
   const projectRoot = config.root;
-  const slug = deriveSlug({
+  // `slugFor` and not `deriveSlug`: a worktree whose derived slug collided with
+  // a sibling's was given one of its own when it was cut, and that is written
+  // down rather than derivable. Deriving here while the dashboard read the
+  // record would put the container `up` starts under a different name from the
+  // one every page shows.
+  const slug = await slugFor({
     explicit: options.slug,
-    worktreeDir: facts.directory,
-    branch: facts.branch === "?" ? undefined : facts.branch,
+    worktree: facts.worktree,
+    branch: facts.branch,
+    env,
   });
   const domain = domainOf(env);
   const scheme = routerScheme(env);
@@ -641,6 +648,10 @@ async function resolveWorktree(
     branch: options.branch,
     ...(options.base === undefined ? {} : { base: options.base }),
     log,
+    // The same environment the slug is read back through further down. Without
+    // it a collision recorded under `process.env`'s home would be invisible to
+    // an `up` pointed at another one, and the two would disagree about the name.
+    ...(options.env === undefined ? {} : { env: options.env }),
   });
   log(`Worktree ${worktree.path}`);
   return worktree.path;

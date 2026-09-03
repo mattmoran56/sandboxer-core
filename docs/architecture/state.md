@@ -342,6 +342,7 @@ Some things must **outlive** a container. Those live under `SANDBOXR_HOME`, whic
 | `config.yaml` | The machine's own settings, written by hand |
 | `state/keep/<project>/<slug>` | Operator intent, stamped with the instance it applies to |
 | `state/name/<project>/<slug>` | What to call one worktree — a label, deliberately not stamped |
+| `state/slug/<project>/<worktree dir>` | The slug a worktree was given when two branches on one ticket would have shared one — random, so it cannot be derived again |
 | `state/attach/<project>/<slug>` | A socket is open on this sandbox right now — a fact no other process can see |
 
 `SANDBOXR_HOME` is deliberately never inside a repository, so `git clean -xdf` cannot destroy your

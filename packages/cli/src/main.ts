@@ -26,7 +26,7 @@ import {
   declaredNames,
   decideGithub,
   describeProjectSecrets,
-  deriveSlug,
+  slugFor,
   docker,
   down,
   driverContext,
@@ -351,10 +351,15 @@ async function target(
   // accident would make the CLI and the dashboard disagree about one worktree.
   const config = await loadConfig(worktree, { enforceAccess: false, env });
   const facts = await gitFacts(worktree);
-  const slug = deriveSlug({
+  // `slugFor` and not `deriveSlug`, for the reason core records on the store: a
+  // worktree whose derived slug collided with a sibling's was given one of its
+  // own, and it is written down rather than derivable. A CLI still deriving
+  // would address a different sandbox from the one the dashboard shows.
+  const slug = await slugFor({
     explicit: args.positional[positionalIndex] ?? flagString(args, "slug"),
-    worktreeDir: facts.directory,
-    branch: facts.branch === "?" ? undefined : facts.branch,
+    worktree: facts.worktree,
+    branch: facts.branch,
+    env,
   });
   return { config, slug, worktree: facts.worktree };
 }
@@ -997,7 +1002,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     const named = await Promise.all(
       worktrees.map(async (worktree) => ({
         ...worktree,
-        displayName: await readDisplayName(project.name, slugOf(worktree), env),
+        displayName: await readDisplayName(project.name, await slugOf(project.name, worktree, env), env),
       })),
     );
     if (out.json) {
@@ -1041,6 +1046,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
       branch,
       base: flagString(args, "base"),
       log: (line) => out.warn(line),
+      env,
     });
     if (out.json) out.data(worktree);
     out.ok(`${worktree.branch} at ${worktree.path}`);
@@ -1073,7 +1079,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
       return 1;
     }
 
-    const slug = slugOf(found);
+    const slug = await slugOf(project.name, found, env);
     const stored = await writeDisplayName(project.name, slug, args.positional[3] as string, env);
     if (out.json) out.data({ project: project.name, branch: found.branch, slug, displayName: stored });
     // The slug is printed alongside on purpose: it is what the hostname, the
@@ -1084,25 +1090,35 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     return 0;
   }
 
-  await removeWorktree(project, found.path, { force: flagBoolean(args, "force") });
+  // Read *before* the removal: `removeWorktree` forgets a given slug along with
+  // the worktree, and asking afterwards would derive a different one and clear
+  // the name of whichever worktree that slug actually belongs to.
+  const removedSlug = await slugOf(project.name, found, env);
+  await removeWorktree(project, found.path, { force: flagBoolean(args, "force"), env });
   // Tidiness, not correctness — the same posture `down` takes with a keep-alive
   // marker. A name left behind by a worktree removed some other way is inert:
   // nothing reads it until a worktree of that slug is listed again.
-  await removeDisplayName(project.name, slugOf(found), env);
+  await removeDisplayName(project.name, removedSlug, env);
   if (out.json) out.data({ project: project.name, branch: found.branch, path: found.path, removed: true });
   out.ok(`removed ${found.path}`);
   return 0;
 }
 
 /**
- * The slug a worktree's sandbox takes, derived exactly as `up` derives it.
+ * The slug a worktree's sandbox takes, resolved exactly as `up` resolves it.
  *
  * Here rather than inline so the listing and the rename cannot disagree about
  * which file a worktree's name lives in — two spellings of one derivation is
- * how a rename lands on a key nothing reads.
+ * how a rename lands on a key nothing reads. Async because a worktree that
+ * collided with a sibling was *given* its slug, and a given slug is read from
+ * the store rather than derived.
  */
-function slugOf(worktree: { path: string; branch: string }): string {
-  return deriveSlug({ worktreeDir: basename(worktree.path), branch: worktree.branch });
+async function slugOf(
+  project: string,
+  worktree: { path: string; branch: string },
+  env: NodeJS.ProcessEnv,
+): Promise<string> {
+  return slugFor({ worktree: worktree.path, project, branch: worktree.branch, env });
 }
 
 function noProject(out: Output, name: string): number {

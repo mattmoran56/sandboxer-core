@@ -16,6 +16,10 @@ sandboxr <command> [slug] [flags]
 It looks for a ticket-shaped id in the directory name, then in the branch name, then uses the branch,
 then the directory. `--slug NAME` and the bare positional argument mean the same thing.
 
+A worktree that was *given* a slug — because the one it would have taken was already a sibling's —
+keeps that one, and it beats everything but a name you pass. See
+[One repo, many branches](../setups/one-repo-many-worktrees.md).
+
 Four commands are the exception: `stop`, `start`, `keep` and `unkeep`. They act on a sandbox
 elsewhere on the machine, so they want the slug spelled out.
 
@@ -401,6 +405,10 @@ composition of it lives in core so the two cannot disagree (contracts §4.1.2).
 worktree added by hand is still removable. `--force` removes one with uncommitted work in it, and
 that work is gone.
 
+`worktree add` may write one file too: `~/.sandboxr/state/slug/<project>/<worktree directory>`,
+holding the slug the new worktree was given because the one it would have derived was already
+another worktree's. It says so on the way. `worktree rm` deletes it.
+
 `worktree name` writes one file, `~/.sandboxr/state/name/<project>/<slug>`, and does nothing else.
 **The name is presentation only**: the slug, the hostname, the container name and every URL are
 still derived from the branch and the directory, and the command prints the slug alongside to say
@@ -543,6 +551,7 @@ usage tree on stderr.
 | `worktree add` | one project | Creates a checkout |
 | `worktree rm` | one project | Removes a checkout, and with `--force` any uncommitted work in it |
 | `worktree name` | one project | Writes one label file under `~/.sandboxr/state/name/`. No identifier moves |
+| `worktree add` | one project | May write one slug file under `~/.sandboxr/state/slug/`, when the new worktree would have taken a sibling's slug |
 
 ## How a slug is resolved to a project
 

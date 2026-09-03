@@ -62,15 +62,22 @@ to the same string, and the two sandboxes would then share one database lock.
 <details class="agent">
 <summary><b>Details for an agent</b> — how a slug is derived, why it is hashed, and the lock-name budget</summary>
 
-From `packages/core/src/naming.ts`:
+From `packages/core/src/naming.ts` (rules 3 to 6) and `packages/core/src/worktree-slug.ts`
+(rules 1 and 2, and the resolver `slugFor` that puts them in this order):
 
 1. An explicit argument (`sandboxr up my-slug`), if non-blank.
-2. A ticket id in the worktree directory's **basename**, matched by
+2. A slug recorded for this worktree at
+   `~/.sandboxr/state/slug/<project>/<worktree dir>`, written when the slug it would
+   derive was already another worktree's.
+3. A ticket id in the worktree directory's **basename**, matched by
    `/[a-z]+-[0-9]+/i`.
-3. The same pattern in the branch name.
-4. The branch name itself — unless it is `HEAD`, which is what git reports for a detached
+4. The same pattern in the branch name.
+5. The branch name itself — unless it is `HEAD`, which is what git reports for a detached
    worktree and names nothing.
-5. The worktree directory's basename.
+6. The worktree directory's basename.
+
+Rules 3 to 6 are `deriveSlug`, which is pure. Rule 2 reads a file, which is why the order
+lives in `slugFor` and why every caller — `up`, the dashboard, the CLI — goes through it.
 
 If none of those exist: `NamingError: cannot derive a slug: no explicit name, worktree or
 branch`. A name that sanitises to nothing gives
@@ -88,6 +95,12 @@ Why hashed and not truncated: `feature/checkout-redesign-part-one` and
 `feature/checkout-redesign-part-two` truncate to the same string. Two sandboxes would then
 share one advisory lock, and one migration would silently wait on the other. Raising the
 ceiling means re-checking the lock-name budget of every driver.
+
+The ceiling is also why a *given* slug uses four random characters rather than a UUID.
+`sandboxr worktree add` compares the slug a new worktree would derive against the ones its
+siblings resolve to, and on a match assigns `<base>-<token>` with `<base>` trimmed so the
+whole thing still fits in 31. A 36-character UUID would not, and would be unreadable if it
+did.
 
 </details>
 

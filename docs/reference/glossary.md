@@ -137,6 +137,13 @@ The shared router asks the dashboard whether the visitor's session is good, on e
 **Garbage collection** — `sandboxr gc`. It reaps sandboxes whose worktree is gone, then removes
 sandboxr volumes nothing owns. See [Start, stop, list, clean up](../guides/lifecycle.md).
 
+**Given slug** — the slug sandboxr assigns a worktree whose derived slug was already another
+worktree's: `tkt-4821-7k2f`, four random characters on the end. Two branches on one ticket derive one
+slug, and a slug names the container, the volumes and the database lock — so one slug would be one
+sandbox for two branches. It is recorded, because random characters cannot be derived again, and it
+applies to worktrees sandboxr cut rather than ones you cut yourself. See
+[One repo, many branches](../setups/one-repo-many-worktrees.md).
+
 **Grant** — two senses, both narrow. A password's grant is the set of projects it may control. An
 agent grant is a standing permission a project has given a session. See
 [Access and security](../access.md) and
@@ -314,10 +321,12 @@ in memory whether or not anyone opens it. See
 conversation, so you can ask something without disturbing the run. See
 [Agent sessions in the dashboard](../guides/agent-sessions.md).
 
-**Slug** — the short name for one sandbox, and the first piece of its hostname. Derived, in order of
-preference, from an explicit argument, a ticket-style id in the worktree directory name, that pattern
-in the branch name, the branch name, then the directory name. Capped at **31 characters**, and hashed
-rather than truncated past that. See [How it works, in five steps](../how-it-works.md).
+**Slug** — the short name for one sandbox, and the first piece of its hostname. Resolved, in order of
+preference, from an explicit argument, a slug recorded for the worktree, a ticket-style id in the
+worktree directory name, that pattern in the branch name, the branch name, then the directory name.
+Capped at **31 characters**, and hashed rather than truncated past that. Two worktrees of one project
+cannot share one, so the second worktree sandboxr cuts for a ticket is *given* a slug — see
+[Given slug](#g). See [How it works, in five steps](../how-it-works.md).
 
 **Snapshot** — the schema of a sandbox's database, printed. Two snapshots and `diff` is how you see
 what a migration changed. See [Testing a migration](../guides/testing-a-migration.md).

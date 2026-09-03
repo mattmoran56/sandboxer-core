@@ -51,13 +51,21 @@ alone leaves it serving an HTML shell with nothing behind it.
 
 ### 3.1 Slug
 
-A slug identifies one sandbox. Derived, in order of preference, from:
+A slug identifies one sandbox. Resolved, in order of preference, from:
 
 1. an explicit argument
-2. a ticket-style id anywhere in the worktree directory name (`/[a-z]+-[0-9]+/i`)
-3. that same pattern in the branch name
-4. the branch name
-5. the worktree directory name
+2. **a slug recorded for this worktree** — see below
+3. a ticket-style id anywhere in the worktree directory name (`/[a-z]+-[0-9]+/i`)
+4. that same pattern in the branch name
+5. the branch name
+6. the worktree directory name
+
+Rules 3 to 6 are the *derivation*, and it is a pure function: `deriveSlug` in
+`packages/core/src/naming.ts` does no IO. Rule 2 is a file, so the whole order lives in
+`slugFor` in `packages/core/src/worktree-slug.ts`. **Every read path goes through
+`slugFor`** — `up`, the dashboard's worktree view and the CLI's listing and rename. One of
+them deriving while another reads the record is drift: the dashboard would show one slug
+and `up` would start a container under another.
 
 Sanitising: lowercase, every character outside `[a-z0-9-]` becomes `-`, runs of `-`
 collapse, leading and trailing `-` are stripped.
@@ -69,6 +77,50 @@ and the first 8 characters of the SHA-256 of the *raw* input.
 > Two long branch names often share a prefix, and truncation would let two sandboxes
 > collide on one lock. This ceiling is load-bearing — do not raise it without checking
 > the lock-name budget of every driver.
+
+#### Two worktrees on one ticket, and the slug one of them is given
+
+A ticket id beats the rest of the name because that is what makes a slug readable —
+`eng-3941` rather than `feat-eng-3941-labs-answers-page`. The cost is that **two branches
+on one ticket derive one slug**:
+
+```
+wt/feat-eng-3941-labs-answers-page   feat/eng-3941-labs-answers-page  -> eng-3941
+wt/feat-eng-3941-labs-run-selector   feat/eng-3941-labs-run-selector  -> eng-3941
+```
+
+Everything is keyed on `<project>-<slug>`, so that is not two sandboxes with a confusing
+pair of names — it is **one sandbox**. The container, all four volumes (§3.3), the router's
+host rule (§3.2), the migration advisory lock and the `state/name` and `state/attach` files
+are shared, and `up` replaces a container it finds rather than refusing, so starting the
+second worktree tears the first one's sandbox down and hands its database to a branch that
+never wrote it.
+
+The rule: **on collision the worktree is given a slug, not refused.** When `addWorktree`
+cuts a worktree, it compares the slug that worktree would derive against the resolved slugs
+of the project's other worktrees, and on a match assigns `<base>-<token>` — four random
+characters from `[a-z0-9]`, re-rolled if the token is taken — trimming `<base>` so the
+result stays inside the 31-character ceiling. `eng-3941-7k2f`.
+
+Three things about that decision are load-bearing:
+
+- **A short token, never a UUID.** The ceiling is the `GET_LOCK` budget, and a
+  36-character UUID would blow it outright. It would also destroy the readability the
+  ticket-id rule exists to provide: the point is that the result is still a name somebody
+  can read off a screen and type into a URL.
+- **A random token cannot be re-derived, so it is written down** — `state/slug/…`, §4.2.3.
+  That file is why rule 2 exists.
+- **Refusing would be worse.** A collision is most likely in exactly the case the ticket-id
+  rule is most useful, and a refusal at `worktree add` would make the readable-slug rule a
+  trap.
+
+**Scope.** The check happens where the collision can be seen: `addWorktree`, which has the
+sibling worktrees in hand. It therefore covers worktrees sandboxr cuts, under
+`<workspace>/<project>/wt` (§4.1). A worktree somebody keeps in their own `.worktrees/`
+directory is not managed by sandboxr, has no record, and can still collide — the fix there
+is an explicit slug. **Collisions already on disk are not migrated**: renaming a worktree
+that already has a running sandbox would orphan its container and its volumes under the old
+name, which is worse than the problem.
 
 ### 3.2 Hostnames
 
@@ -272,6 +324,7 @@ Three consequences are part of the contract:
   config.yaml            the machine's own settings — see §4.3
   state/keep/<project>/<slug>  keeps one sandbox alive past its idle limit — see §4.2
   state/name/<project>/<slug>  what to call one worktree on screen — see §4.2.1
+  state/slug/<project>/<worktree dir>  the slug a worktree was given on a collision — see §4.2.3
   state/attach/<project>/<slug>  a socket is being held open on this sandbox — see §4.2.2
   workspace/<project>/   a project the dashboard can start a sandbox for — see §4.1
   workspace/<project>/sandboxr.yaml  optional project-level config — see §5.6
@@ -488,6 +541,49 @@ lists — and the slug stays wherever it is the thing that identifies the *sandb
 in the worktree's `Slug` fact, in the Sandbox panel, in the container name and in every hostname. A
 page that showed only the name would leave somebody who renamed a worktree "the checkout flow
 rewrite" unable to read off the address its apps answer on.
+
+#### 4.2.3 A worktree's given slug
+
+Two branches on one ticket derive one slug (§3.1). When `addWorktree` sees that, it assigns
+the new worktree `<base>-<token>` and writes it to `state/slug/<project>/<worktree dir>`.
+**A random token cannot be re-derived, so the file is the only place the answer exists** —
+which is what makes it state rather than a cache.
+
+It passes §4.2's test — *does this file's correctness depend on a container?* — the same way
+§4.2.1's display name does. It records a decision nothing observes, `docker ps` has no
+opinion about it, and it names the **worktree**, which outlives every sandbox cut from it,
+so there is no `sandboxr.created` stamp and there must not be one: stamping it would move a
+live sandbox's name the first time somebody pressed Rebuild.
+
+Three rules about the key and the value:
+
+- **The key is the worktree's *directory* name, never its slug.** The slug is the thing
+  being decided, so it cannot also be the key. The directory name is unique by construction
+  — `addWorktree` names it `sanitizeSlug(branch)` — where the derived slug is exactly what
+  is not.
+- **`<project>` is the workspace *directory* name**, like `state/name/` beside it and for
+  the same reason (§4.1): this names a directory on disk, not a container.
+- **The value is validated on the way in and on the way back out, through one function.**
+  It must be what `sanitizeSlug` produces — `[a-z0-9]` in dash-separated runs, at most 31
+  characters. Writing something else throws; **reading** something else is *no recorded
+  slug*, so the worktree derives its slug again, which is what every worktree that never
+  collided does anyway. A file hand-edited into a hostname nobody meant is the failure this
+  avoids.
+
+Unlike the display name, this value **is** an identifier: it is the container name, every
+hostname and the migration lock name. That is why the validation is strict and why every
+read path goes through `slugFor` (§3.1) rather than deriving for itself.
+
+A stale record is inert. `removeWorktree` deletes it, which is tidiness rather than
+correctness — a record naming a directory that no longer exists is only read again if a
+worktree is cut at that name, and then it is a slug that was free anyway.
+
+The vocabulary is fixed: the file is `state/slug/<project>/<worktree dir>`, core's functions
+are `readRecordedSlug` / `writeRecordedSlug` / `removeRecordedSlug` with
+`normaliseRecordedSlug` as the validator, `worktreeKey` maps a path to the key, `uniqueSlug`
+generates the given slug and `slugFor` is the resolver. There is no CLI command and no API
+route for it: a slug is assigned once, when the worktree is cut, and moving it afterwards
+would orphan a container and its volumes.
 
 #### 4.2.2 The attach heartbeat: the one activity signal that is written
 

@@ -120,6 +120,20 @@ export interface Paths {
    * than a container.
    */
   nameFile(project: string, slug: string): string;
+  /**
+   * The slug assigned to one worktree, when derivation could not be trusted to
+   * produce a unique one.
+   *
+   * **Keyed on the worktree's directory name, not on a slug**, and that is the
+   * whole point of the file: the slug is the thing being decided, so it cannot
+   * also be the key. The directory name is unique by construction — `addWorktree`
+   * names it `sanitizeSlug(branch)` — where the derived slug is not, because two
+   * branches on one ticket derive one slug (§3.1).
+   *
+   * `<project>` is the workspace *directory* name, like `nameFile` above and for
+   * the same reason: this names a directory on disk, not a container.
+   */
+  slugFile(project: string, worktreeDir: string): string;
 }
 
 /**
@@ -157,6 +171,7 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     keepFile: (project, slug) => join(home, "state", "keep", project, slug),
     attachFile: (project, slug) => join(home, "state", "attach", project, slug),
     nameFile: (project, slug) => join(home, "state", "name", project, slug),
+    slugFile: (project, worktreeDir) => join(home, "state", "slug", project, worktreeDir),
   };
 }
 

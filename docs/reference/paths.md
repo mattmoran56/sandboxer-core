@@ -38,6 +38,7 @@ Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.
 | `state/` | Router config, the dynamic config directory, the dashboard's session key | yes |
 | `state/keep/<project>/<slug>` | Keeps one sandbox alive past its idle limit | **no** — see below |
 | `state/name/<project>/<slug>` | What to call one worktree on screen | **yes** — see below |
+| `state/slug/<project>/<worktree dir>` | The slug a worktree was given when it collided with a sibling | **yes** — see below |
 | `state/attach/<project>/<slug>` | When a socket was last held open on one sandbox | yes — see below |
 | `secrets/<project>.env` | Third-party credentials, mode 0600. **A file you edit** — see below | yes |
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
@@ -131,6 +132,32 @@ name and every URL are still built from the branch and the directory. Set it wit
 branch. The file is plain text and you can edit it by hand — one that has been
 edited into something that is not a name (more than 60 characters, or with a line break in it) is
 read as *no name*, so the worktree shows its branch again rather than showing something broken.
+
+### A worktree's given slug
+
+`state/slug/<project>/<worktree dir>` exists for one situation: two branches on one ticket.
+`feat/eng-3941-answers-page` and `feat/eng-3941-run-selector` both derive the slug `eng-3941`,
+and a slug is what names the container, the volumes, the hostname and the database lock — so
+without this the two branches would be one sandbox, and starting the second would take the
+first one's database.
+
+When sandboxr cuts the second worktree it notices, gives it a slug of its own — `eng-3941-7k2f`,
+four random characters — and writes it here. **The random part cannot be worked out again, so
+this file is the only place the answer exists.** Everything that needs the slug reads it from
+here first and derives only when there is nothing to read.
+
+It is keyed on the worktree's *directory* name rather than on a slug, because the slug is the
+thing the file decides. It survives `down` and every rebuild, for the same reason a worktree's
+name does: it belongs to the worktree, not to a container. `sandboxr worktree rm` deletes it.
+
+You can edit it by hand, and a file edited into something that is not a slug reads as *nothing
+recorded* — the worktree goes back to the slug it derives. That is visible and undoable, which
+is what you want from a value that ends up in a hostname.
+
+> [!NOTE] Only worktrees sandboxr cut for you
+> The check happens when sandboxr creates a worktree, so it covers the ones under
+> `workspace/<project>/wt/`. Worktrees you keep yourself, in your own repository, can still
+> collide — pass a name with `sandboxr up <name>` if two of them share a ticket.
 
 ### The workspace
 
