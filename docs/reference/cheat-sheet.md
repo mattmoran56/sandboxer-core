@@ -89,9 +89,15 @@ Full surface, with every flag: [CLI commands](cli.md).
 | Router container | `sandboxr-router` | |
 | Dashboard container | `sandboxr-dashboard` | |
 
-Slug order of preference: an explicit argument, a ticket id (`/[a-z]+-[0-9]+/i`) in the worktree
-directory name, that pattern in the branch name, the branch name, the directory name. Over 31
-characters it becomes the first 22 characters plus `-` plus 8 hex of the SHA-256 of the raw input.
+Slug order of preference: an explicit argument, a slug recorded for the worktree, a ticket id
+(`/[a-z]+-[0-9]+/i`) in the worktree directory name, that pattern in the branch name, the branch
+name, the directory name. The ceiling is `min(31, 63 - longest label - project - 4)` — the second
+half is the one DNS label a hostname is, and may only lower it. Over the ceiling a slug becomes the
+first `ceiling - 9` characters plus `-` plus 8 hex of the SHA-256 of the raw input.
+
+Two worktrees of one project that would derive the same slug: the second one sandboxr cuts is given
+`<slug>-<4 random characters>` instead, sized against that same ceiling and recorded in
+`state/slug/`. Worktrees you cut yourself are not covered — name one explicitly.
 
 ## States
 
@@ -128,6 +134,8 @@ logs/<project>/<slug>/            per-sandbox logs — survive `down`
 tls/                              certificate and key
 state/                            router config, dashboard session secret
 state/keep/<project>/<slug>       keep-alive marker
+state/name/<project>/<slug>       what to call one worktree on screen
+state/slug/<project>/<wt dir>     the slug a worktree was given on a collision
 secrets/<project>.env             third-party credentials, mode 0600 — you edit this
 build/<project>/<slug>.env        the generated per-sandbox environment
 build/<project>/<slug>.plan.json  the plan for one sandbox

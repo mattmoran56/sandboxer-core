@@ -1,6 +1,7 @@
 // Tests for seed-source choice and the content-addressed cache:
 // - chooseSeed: the preference order, availability of each source, an explicit preference, no sources at all
 // - chooseSeed: a public sandbox is offered only fixtures or an anonymised dump, and refuses with a message when it has neither
+// - chooseSeed: the refusal separates access from availability — a permitted-but-unreachable source names what to start or fetch, a blocked one cites §5.3, and both are reported when both apply
 // - cacheEntry: the name carries the project and the key, and the meta file sits beside the artifact
 // - ageHours / isFresh: fresh, expired, missing, force, and an unparseable timestamp
 // - partialPath: an interrupted artifact cannot be mistaken for a complete one
@@ -82,6 +83,66 @@ describe("chooseSeed", () => {
     // tool simply not working.
     it("refuses, citing §5.3, when it has no permissible source", () => {
       expect(() => chooseSeed(configWith({ local: { container: "src" } }, "public"))).toThrow(/5\.3/);
+    });
+  });
+
+  // The two filters — what access permits, and what this machine can reach —
+  // are independent, and the message has to say which one applied. Conflating
+  // them told somebody with a private project and a stopped container to make
+  // the sandbox public.
+  describe("the refusal", () => {
+    const localOnly = { local: { container: "taxonomy_db", database: "app" } };
+
+    it("names the container that is not running, rather than blaming access", () => {
+      const call = () => chooseSeed(configWith(localOnly), { localAvailable: false });
+      expect(call).toThrow(/database\.seed_from\.local is permitted here but not available/);
+      expect(call).toThrow(/the container "taxonomy_db" is not running/);
+    });
+
+    it("does not tell a private project to change its access", () => {
+      const call = () => chooseSeed(configWith(localOnly), { localAvailable: false });
+      expect(call).not.toThrow(/5\.3/);
+      expect(call).not.toThrow(/access\.apps/);
+      expect(call).toThrow(/Make one of them available here/);
+    });
+
+    it("names the dump that is not on this disk", () => {
+      const call = () => chooseSeed(configWith({ file: "/seeds/d.sql" }), { fileAvailable: false });
+      expect(call).toThrow(/database\.seed_from\.file is permitted here but not available/);
+      expect(call).toThrow(/the dump "\/seeds\/d\.sql" was not found here/);
+    });
+
+    it("cites §5.3 for a source access excluded, and offers the access fix", () => {
+      const call = () => chooseSeed(configWith(localOnly, "public"));
+      expect(call).toThrow(/database\.seed_from\.local is not permitted/);
+      expect(call).toThrow(/Set access\.apps to private/);
+    });
+
+    // A public project with an anonymised dump that is not on this machine and
+    // a live fork it may not use: one source is out on policy, the other on
+    // availability, and silently reporting either alone sends the reader to the
+    // wrong fix.
+    it("reports both reasons when both apply", () => {
+      const config = configWith(
+        { local: { container: "taxonomy_db" }, file: "/seeds/d.sql", anonymised: true },
+        "public",
+      );
+      const call = () => chooseSeed(config, { fileAvailable: false });
+      expect(call).toThrow(/database\.seed_from\.local is not permitted/);
+      expect(call).toThrow(/database\.seed_from\.file is permitted here but not available/);
+      expect(call).toThrow(/Set access\.apps to private/);
+    });
+
+    it("still names the permitted set for an explicit preference", () => {
+      expect(() => chooseSeed(configWith(all, "public"), { prefer: "local" })).toThrow(
+        /permitted sources are fixtures/,
+      );
+    });
+
+    // Nothing to refuse: the config names no source at all, so there is no
+    // rule to cite and no container to start.
+    it("answers none when the config names nothing", () => {
+      expect(chooseSeed(configWith({ anonymised: true }))).toEqual({ source: "none" });
     });
   });
 });

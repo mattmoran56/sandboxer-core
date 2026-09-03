@@ -57,10 +57,11 @@ have to choose it. sandboxr derives it, and the order it tries is fixed:
 | It looks for | Example | Result |
 |---|---|---|
 | 1. A name you passed | `sandboxr up checkout-demo` | `checkout-demo` |
-| 2. A ticket id in the **worktree directory** name | `.worktrees/tkt-4821` | `tkt-4821` |
-| 3. A ticket id in the **branch** name | `feat/TKT-4821-rework` | `tkt-4821` |
-| 4. The **branch** name | `chore/bump-deps` | `chore-bump-deps` |
-| 5. The **worktree directory** name | `.worktrees/spike` | `spike` |
+| 2. A slug this worktree was given | see [when two worktrees want the same name](#when-two-worktrees-want-the-same-name) | `tkt-4821-7k2f` |
+| 3. A ticket id in the **worktree directory** name | `.worktrees/tkt-4821` | `tkt-4821` |
+| 4. A ticket id in the **branch** name | `feat/TKT-4821-rework` | `tkt-4821` |
+| 5. The **branch** name | `chore/bump-deps` | `chore-bump-deps` |
+| 6. The **worktree directory** name | `.worktrees/spike` | `spike` |
 
 A ticket id is a run of letters, a dash, then digits — `TKT-4821`, `abc-77` — matched anywhere in
 the name and in any case. It wins over the rest of the name because that is what makes a slug
@@ -103,13 +104,31 @@ Two worktrees can derive the same slug. The usual way is two branches that menti
 `.worktrees/tkt-4821` and `.worktrees/tkt-4821-retry` both derive `tkt-4821`.
 
 The slug is what names everything, so an identical slug means an identical container name and
-identical volume names. **The second `up` replaces the first sandbox and inherits its data.** It
-says `Replacing the existing tkt-4821 sandbox` while it does it, and the new container mounts the
-volumes the old one was using — so the second branch is now looking at the first branch's database.
+identical volume names — one sandbox, shared by two unrelated branches. The second `up` replaces
+the first sandbox and mounts the volumes it was using, so the second branch ends up looking at the
+first branch's database.
 
-> [!WARNING] This is not caught for you
-> Nothing refuses a collision, because from the outside it looks exactly like restarting a sandbox
-> after a config change, which is a thing people do constantly.
+**Which of these happens depends on who cut the worktree.**
+
+When sandboxr cut it — `sandboxr worktree add`, or the dashboard's New worktree — it compares the
+slug the new worktree would take against the ones its siblings already answer to, and on a match
+gives it one of its own instead:
+
+```
+another worktree of acme already answers to "tkt-4821", so this one is "tkt-4821-7k2f"
+```
+
+Four random characters on the end, so the name is still readable and still fits the ceiling — the
+project's own, which for a long project name and a long label is lower than 31. It is written down,
+because random characters cannot be worked out again, and everything from then on — the hostname,
+`sandboxr ls`, the dashboard — uses it.
+
+When you cut the worktree yourself, in your own repository, sandboxr never saw it happen and
+cannot warn you.
+
+> [!WARNING] A collision between worktrees you cut yourself is not caught
+> Nothing refuses it, because from the outside the second `up` looks exactly like restarting a
+> sandbox after a config change, which is a thing people do constantly.
 
 The fix is to name one of them yourself:
 
@@ -119,6 +138,10 @@ sandboxr up tkt-4821-retry --worktree ~/code/acme/.worktrees/tkt-4821-retry
 
 `sandboxr ls` is how you spot it: two rows cannot have the same slug, so a slug you expected to see
 twice appearing once is the symptom.
+
+Worktrees that already collide are left alone. Renaming one that has a running sandbox would leave
+its container and its volumes stranded under the old name, which is worse than the problem — so the
+guard applies to worktrees cut from now on, and an existing pair is fixed by naming one.
 
 ## What every sandbox of one repo shares
 
@@ -210,28 +233,59 @@ nothing owns and nothing has mounted. Shared and dependency volumes are left alo
 <details class="agent">
 <summary><b>Details for an agent</b> — the derivation rules exactly, and every name they produce</summary>
 
-**Derivation** (`deriveSlug` in `packages/core/src/naming.ts`), first match wins:
+**Resolution** (`slugFor` in `packages/core/src/worktree-slug.ts`), first match wins:
 
 1. `explicit` — the positional argument to `up`, or `--slug`. Trimmed; an empty string does not count.
-2. The first match of `/[a-z]+-[0-9]+/i` in the worktree directory's **basename**.
-3. The first match of the same pattern in the branch name.
-4. The branch name, unless it is the literal `HEAD` — which is what git reports for a detached
+2. The slug recorded at `$SANDBOXR_HOME/state/slug/<project>/<worktree dir>`, if there is one and
+   it reads back as a slug. `<project>` is the workspace *directory* name, and the key is the
+   worktree's directory name, never a slug. Only worktrees under `<workspace>/<project>/wt` can
+   have one.
+
+Rules 3 to 6 are the **derivation** (`deriveSlug` in `packages/core/src/naming.ts`), which is pure:
+
+3. The first match of `/[a-z]+-[0-9]+/i` in the worktree directory's **basename**.
+4. The first match of the same pattern in the branch name.
+5. The branch name, unless it is the literal `HEAD` — which is what git reports for a detached
    worktree and names nothing.
-5. The worktree directory's basename.
+6. The worktree directory's basename.
 
 With none of those available it throws `NamingError: cannot derive a slug: no explicit name,
 worktree or branch`.
 
+**Every read path calls `slugFor`, not `deriveSlug`** — `up` in `packages/core/src/sandbox/index.ts`,
+`worktreeView` in `packages/server/src/core/adapter.ts`, and `target`/`slugOf` in
+`packages/cli/src/main.ts`. One of them deriving while another read the record would show one slug
+on a page and start a container under a different one.
+
+**The collision check** is in `addWorktree` (`packages/core/src/worktree.ts`), which already has the
+project's other worktrees in hand. After the worktree exists on disk it resolves every sibling's
+slug, and if the new one's derived slug is among them it calls
+`uniqueSlug(base, taken, token, max)` — `<base>-<token>`, `token` being four characters of
+`[a-z0-9]` from `node:crypto`, re-rolled if it is taken — and records it. `<base>` is trimmed to
+`max - 5`, trailing dashes stripped, so the total stays inside the ceiling. **`max` is the
+project's ceiling and not `SLUG_MAX`**: a given slug is five characters longer than the one it
+replaces and sits in the same hostname, so sized against a flat 31 a collision would be the one
+thing in a budget-bound project that pushes a hostname over 63 characters — which shows up as a
+name that does not resolve, not as anything about slugs. `addWorktree` gets that number by loading
+the config of the worktree it just cut, falling back to `SLUG_MAX` when there is none to read. A
+UUID would blow both budgets and be unreadable. `removeWorktree` deletes the record.
+
 **Sanitising** (`sanitizeSlug`), in order: lowercase; `[^a-z0-9-]+` → `-`; `-+` → `-`; strip leading
 and trailing `-`. An empty result throws `NamingError: slug "<raw>" is empty after sanitising`.
 
-**Ceiling:** `SLUG_MAX = 31`. Over it: `folded.slice(0, 22)` with trailing dashes trimmed, then `-`,
-then `sha256(raw).hex.slice(0, 8)`. The hash is of the **raw** input, not the folded form. The
-trailing-dash trim exists so the join never produces `--`.
+**Ceiling:** `min(SLUG_MAX, 63 - len(longest label) - len(project) - 4)`, where `SLUG_MAX = 31`.
+Over it: `folded.slice(0, ceiling - 9)` with trailing dashes trimmed, then `-`, then
+`sha256(raw).hex.slice(0, 8)`. The hash is of the **raw** input, not the folded form. The
+trailing-dash trim exists so the join never produces `--`, which is the separator inside a
+flattened hostname.
 
 **Why 31:** `lockName(project, slug)` builds `sandboxr_migrate_<project>_<slug>` and throws if it
 exceeds 64 characters, which is where MySQL's `GET_LOCK` silently truncates. Raising `SLUG_MAX`
 means re-checking every driver's lock-name budget.
+
+**Why the subtraction:** a sandbox hostname is one DNS label — `<slug>--<label>--<project>` — and a
+DNS label stops at 63 characters. It may only *lower* the ceiling: a project whose arithmetic
+allows 40 still gets 31, because the lock budget still binds. See contracts §3.1.
 
 **Every name derived from a slug:**
 
@@ -246,6 +300,7 @@ means re-checking every driver's lock-name budget.
 | Generated environment | `$SANDBOXR_HOME/build/<project>/<slug>.env` |
 | Plan | `$SANDBOXR_HOME/build/<project>/<slug>.plan.json` |
 | Keep-alive marker | `$SANDBOXR_HOME/state/keep/<project>/<slug>` |
+| Given slug | `$SANDBOXR_HOME/state/slug/<project>/<worktree directory>` — keyed on the directory, not the slug |
 
 `<project>` here is the `project:` field in `sandboxr.yaml`, not a directory name.
 
@@ -282,8 +337,14 @@ step people miss. `sandboxr ls` prints the slug it chose beside the branch it ca
 **A slug ending in eight random-looking characters.** The name was over 31 characters, so it was
 hashed. Pass a shorter name explicitly if you want a readable URL.
 
-**Two branches sharing one database.** They derived the same slug. See the collision section above.
-`sandboxr down` one of them and bring it back with an explicit name.
+**Two branches sharing one database.** They derived the same slug, and neither worktree was cut by
+sandboxr, so nothing was there to notice. See the collision section above. `sandboxr down` one of
+them and bring it back with an explicit name.
+
+**A slug with four extra characters on the end that you did not ask for.** Another worktree of the
+project already answered to the slug this one would have taken, so it was given
+`<slug>-<4 characters>` when it was cut. `sandboxr worktree add` says so at the time, and the value
+is in `$SANDBOXR_HOME/state/slug/<project>/<worktree directory>`.
 
 **`fatal: not a git repository: /Users/…/repo.git/worktrees/x` inside a sandbox.** The repository was
 not mounted. Normally that means the project is a subdirectory of a larger repository, which

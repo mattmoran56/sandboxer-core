@@ -496,6 +496,56 @@ A volume filled in by an older version has no marker and is repaired the same wa
 
 ## Databases
 
+### `no usable seed source`
+
+`up` could not use any of the seed sources the config names, and the message says, per source,
+which of the two reasons applied.
+
+**Not available here** names the thing that is missing:
+
+```
+acme: no usable seed source. database.seed_from.local is permitted here but not available:
+the container "taxonomy_db" is not running. Make one of them available here, or add
+database.seed_from.fixtures
+```
+
+Start the container, or fetch the dump to the path the config gives. Nothing about access needs
+changing.
+
+**Not permitted** is a §5.3 refusal, and only a public project ever sees it:
+
+```
+acme: no usable seed source. database.seed_from.local is not permitted: public apps may only
+be seeded from fixtures or an anonymised dump (contracts §5.3). Set access.apps to private, or
+add database.seed_from.fixtures
+```
+
+<details class="failure">
+<summary><b>If it goes wrong</b> — why the two reasons are separate, and what it looks like when both apply</summary>
+
+The two tests are independent. **Access** decides what a sandbox is *allowed* to be seeded from — a
+public app may only use fixtures or a dump marked `anonymised: true`. **Availability** decides what
+this machine can *reach* right now — whether the source container is running, whether the dump is on
+this disk.
+
+They used to be one check, so every refusal read as an access refusal. A private project whose only
+source was a `local:` container that had exited was told to set `access.apps` to private — which it
+already was — with the only other suggestion being to make the sandbox public. That is the one change
+that would have made things worse.
+
+When both apply, both are reported, in one message:
+
+```
+acme: no usable seed source. database.seed_from.local is not permitted: public apps may only be
+seeded from fixtures or an anonymised dump (contracts §5.3). database.seed_from.file is permitted
+here but not available: the dump "/seeds/acme.sql" was not found here. Set access.apps to private,
+or add database.seed_from.fixtures
+```
+
+`--seed local|file|fixtures` forces one source, and its refusal names the permitted set instead.
+
+</details>
+
 ### `no seed artifact in /sandboxr/cache`, and you declared a `file:`
 
 The container found nothing to restore, so it started from an empty database. Check that the plan
@@ -714,6 +764,35 @@ Two messages, and both mean the marker would have been meaningless.
 
 Without it a keep-alive stamp could not tell one container from a successor with the same slug, so
 the marker would outlive the sandbox it was meant for.
+
+</details>
+
+### A worktree's slug has four characters on the end you did not ask for
+
+Another worktree of the same project already answered to the slug this one would have taken —
+almost always two branches on one ticket, since a ticket id in the name beats the branch. A slug
+names the container, all four volumes and the database lock, so two worktrees cannot share one:
+the second one sandboxr cut was given `<slug>-<4 characters>` instead, and `sandboxr worktree add`
+said so at the time.
+
+Nothing needs fixing. The name is in
+`~/.sandboxr/state/slug/<project>/<worktree directory>` if you want to read it.
+
+<details class="failure">
+<summary><b>If it goes wrong</b> — the same two branches without the guard, and why it is not repaired for you</summary>
+
+Without it, both worktrees resolve to one slug, so they are one container and one set of volumes.
+`up` replaces a container it finds rather than refusing — that is how a rebuild works — so starting
+the second worktree tears the first one's sandbox down and hands its database to a branch that never
+wrote it. Nothing downstream can tell the two apart.
+
+The guard runs when sandboxr **cuts** a worktree, so it covers `sandboxr worktree add` and the
+dashboard's New worktree, and not a worktree you cut yourself with `git worktree add`. For those,
+pass a name: `sandboxr up <name>`.
+
+Collisions already on disk are deliberately left alone. Renaming a worktree that has a running
+sandbox would leave its container and its volumes stranded under the old name — `sandboxr down` one
+of them and bring it up with an explicit slug instead.
 
 </details>
 

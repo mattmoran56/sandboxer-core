@@ -36,11 +36,13 @@ came from your directory or your branch, and nowhere else.
 In order of preference, stopping at the first that applies:
 
 1. An explicit argument (`sandboxr up my-name`).
-2. A ticket-style id anywhere in the worktree **directory** name, matching `/[a-z]+-[0-9]+/i`.
-3. That same pattern in the **branch** name.
-4. The branch name itself. A detached worktree reports `HEAD`, which names nothing and is
+2. A slug recorded for this worktree, in `~/.sandboxr/state/slug/`. Written only when the
+   slug the worktree would derive was already a sibling's — see below.
+3. A ticket-style id anywhere in the worktree **directory** name, matching `/[a-z]+-[0-9]+/i`.
+4. That same pattern in the **branch** name.
+5. The branch name itself. A detached worktree reports `HEAD`, which names nothing and is
    skipped.
-5. The worktree directory name.
+6. The worktree directory name.
 
 Then sanitised: lowercased, every character outside `[a-z0-9-]` replaced with `-`, runs of `-`
 collapsed, leading and trailing `-` stripped.
@@ -50,8 +52,15 @@ the first 8 hex characters of the SHA-256 of the *raw* input. It is hashed rathe
 because a slug ends up inside a database advisory lock name, and two long branch names often
 share a prefix — truncation would let two sandboxes collide on one lock.
 
-Source: `packages/core/src/naming.ts`. Depth on collisions and how many worktrees fit on one
-machine: [One repo, many branches](setups/one-repo-many-worktrees.md).
+**Two branches on one ticket derive one slug**, and a slug names the container, the volumes
+and the database lock — so that would be one sandbox for two branches. When sandboxr cuts the
+worktree itself it catches this and gives the new one `<slug>-<4 random characters>`, which is
+what rule 2 reads back. Four characters and not a UUID: the ceiling is a lock-name budget, and
+a name nobody can read defeats the point of the ticket-id rule.
+
+Source: `packages/core/src/naming.ts` for the derivation, `packages/core/src/worktree-slug.ts`
+for the recorded slug and the collision check. Depth on collisions and how many worktrees fit
+on one machine: [One repo, many branches](setups/one-repo-many-worktrees.md).
 
 </details>
 

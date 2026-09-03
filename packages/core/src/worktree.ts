@@ -16,10 +16,19 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
+import { loadConfig, slugCeilingFor } from "./config/load.js";
 import { branchOf } from "./git.js";
-import { sanitizeSlug } from "./naming.js";
+import { SLUG_MAX, sanitizeSlug } from "./naming.js";
 import { samePath } from "./paths.js";
 import type { Project } from "./workspace.js";
+import {
+  readRecordedSlug,
+  removeRecordedSlug,
+  slugFor,
+  uniqueSlug,
+  worktreeKey,
+  writeRecordedSlug,
+} from "./worktree-slug.js";
 
 export interface Worktree {
   /** Absolute path to the top of the worktree. */
@@ -69,6 +78,14 @@ export interface AddInput {
   run?: Runner | undefined;
   /** Progress and warnings, one line at a time. */
   log?: ((line: string) => void) | undefined;
+  /**
+   * The environment `SANDBOXR_HOME` is read from, for the slug record.
+   *
+   * Taken as an argument rather than read off `process.env` for paths.ts's
+   * reason: a test has to be able to point the whole tree at a temporary
+   * directory without mutating the process.
+   */
+  env?: NodeJS.ProcessEnv | undefined;
 }
 
 const UNKNOWN = "?";
@@ -374,7 +391,117 @@ export async function addWorktree(input: AddInput): Promise<Worktree> {
 
   const [created] = await hydrate(run, [entry]);
   if (!created) throw new WorktreeError(`git created ${path} but does not list it as a worktree`);
+
+  await claimSlug(project, created, before, log, input.env);
   return created;
+}
+
+/**
+ * Gives this worktree a slug of its own when the one it would derive is already
+ * another worktree's.
+ *
+ * **This is the only place a collision can be seen.** §3.1 prefers a ticket id
+ * found anywhere in the directory name over the branch, so two branches on one
+ * ticket derive one slug — and every name is built from `<project>-<slug>`, so
+ * that is one container, one set of volumes, one host rule and one migration
+ * lock shared by two unrelated branches. `up` replaces a container it finds
+ * rather than refusing, so the second worktree to start would tear the first
+ * one's sandbox down and inherit its database. Nothing downstream can catch
+ * that: from `up`'s side it is indistinguishable from restarting a sandbox after
+ * a config change, which is a thing people do constantly.
+ *
+ * Here, the sibling worktrees are already in hand — `before` is the listing this
+ * function took to decide how to create the worktree — so the check costs
+ * nothing beyond the small reads that resolve each sibling's slug.
+ *
+ * Existing collisions on disk are deliberately **not** migrated. Renaming a
+ * worktree that already has a running sandbox would orphan its container and its
+ * volumes under the old name, which is a worse failure than the one being
+ * prevented; this guards worktrees cut from now on.
+ */
+async function claimSlug(
+  project: Project,
+  created: Worktree,
+  before: RawWorktree[],
+  log: (line: string) => void,
+  env?: NodeJS.ProcessEnv,
+): Promise<void> {
+  // Only a worktree under `<workspace>/<project>/wt` can hold a record, which is
+  // every worktree this function creates — but a caller may hand it a `Project`
+  // pointing somewhere else, and inventing a record for a directory outside the
+  // workspace would put a value into a hostname that nothing else would read.
+  const key = worktreeKey(created.path, project.name, env);
+  if (!key) return;
+
+  // Find-or-create reaches here for a worktree git had pruned and re-added, and
+  // a worktree that has already been given a slug keeps it: rolling a second
+  // token would move a live sandbox's name out from under it.
+  if (await readRecordedSlug(key.project, key.worktreeDir, env)) return;
+
+  // **The ceiling has to be the project's, or a collision is what overflows the
+  // hostname.** A sandbox hostname is one DNS label — `<slug>--<label>--<project>`
+  // — and `slugCeiling` lowers `SLUG_MAX` for a project that already spends most
+  // of those 63 characters on its own name and its longest label (contracts
+  // §3.1, §3.2). A given slug is longer than the one it replaces, so sizing it
+  // against a flat 31 would let *only the collided worktree* produce a label
+  // over the limit. That does not look like a naming bug when it happens; it
+  // looks like a hostname that does not resolve.
+  const max = await ceilingFor(created.path, env);
+
+  const want = await slugFor({ worktree: created.path, project: project.name, branch: created.branch, max, env });
+
+  const taken = new Set<string>();
+  for (const sibling of before) {
+    if (samePath(sibling.path, created.path)) continue;
+    try {
+      taken.add(
+        await slugFor({
+          worktree: sibling.path,
+          project: project.name,
+          branch: sibling.branch === UNKNOWN ? undefined : sibling.branch,
+          max,
+          env,
+        }),
+      );
+    } catch {
+      // A sibling whose name derives to nothing has no slug to collide with,
+      // and refusing to cut *this* worktree because of it would be absurd.
+    }
+  }
+
+  if (!taken.has(want)) return;
+
+  const given = uniqueSlug(want, taken, undefined, max);
+  await writeRecordedSlug(key.project, key.worktreeDir, given, env);
+  log(
+    `another worktree of ${project.name} already answers to "${want}", so this one is "${given}" — ` +
+      "a slug names a container, four volumes and a migration lock, and two worktrees cannot share them",
+  );
+}
+
+/**
+ * The slug ceiling the worktree just cut will be subject to.
+ *
+ * Read from that worktree's own config, because the ceiling comes from the
+ * `project:` name and the longest hostname label and there is nowhere else on
+ * this code path that knows either: `addWorktree` has a workspace `Project`,
+ * which is a directory name and a bare clone, and deliberately not a resolved
+ * config. `enforceAccess: false` for the reason every other read-only caller
+ * passes it — refusing to cut a worktree because its config would not be allowed
+ * to *start* is a refusal in the wrong place.
+ *
+ * `SLUG_MAX` when nothing can be read, which is honest rather than a guess: a
+ * branch carrying no `sandboxr.yaml`, with no project-level one above it, has no
+ * declared project name and no labels, so it has no hostname to have a budget
+ * for. Inventing a ceiling from a name that is not the config's would give a
+ * different answer from the one `up` uses the moment a config appears.
+ */
+async function ceilingFor(worktree: string, env?: NodeJS.ProcessEnv): Promise<number> {
+  try {
+    return slugCeilingFor(await loadConfig(worktree, { enforceAccess: false, ...(env ? { env } : {}) }));
+  } catch {
+    return SLUG_MAX;
+  }
 }
 
 /**
@@ -389,7 +516,7 @@ export async function addWorktree(input: AddInput): Promise<Worktree> {
 export async function removeWorktree(
   project: Project,
   path: string,
-  options: { run?: Runner | undefined; force?: boolean | undefined } = {},
+  options: { run?: Runner | undefined; force?: boolean | undefined; env?: NodeJS.ProcessEnv | undefined } = {},
 ): Promise<void> {
   const run = options.run ?? nodeRunner;
 
@@ -398,6 +525,13 @@ export async function removeWorktree(
   await git(run, project.repo, ["worktree", "prune"]);
 
   if (existsSync(path)) throw failure(args, removed);
+
+  // Tidiness, not correctness — the same posture `down` takes with a keep-alive
+  // marker. A record left behind names a directory that no longer exists, and
+  // the next worktree cut at that name would simply be handed a slug it had no
+  // collision to justify.
+  const key = worktreeKey(path, project.name, options.env);
+  if (key) await removeRecordedSlug(key.project, key.worktreeDir, options.env);
 }
 
 /**

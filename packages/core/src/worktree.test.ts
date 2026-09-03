@@ -5,6 +5,9 @@
 // - addWorktree: find-or-create returns the worktree already there rather than failing
 // - addWorktree: a post-checkout hook that fails after the checkout does not lose the worktree
 // - addWorktree: a branch name beginning "-" or containing ".." is refused
+// - addWorktree: two branches on one ticket derive one slug, so the second worktree is given a unique one and it is recorded
+// - addWorktree: a worktree that collided keeps its given slug when the same branch is asked for again
+// - addWorktree: a collision in a project whose DNS budget lowers the ceiling still fits it, and its hostname fits one DNS label
 // - listWorktrees: a directory deleted by hand is still listed, with exists:false
 // - listWorktrees: `committed` is git's own ISO date, and "" for every way reading it can fail
 // - listWorktrees: `created` is the directory's birthtime, or "" where the filesystem has none
@@ -20,15 +23,18 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { ExecResult, Runner } from "./docker.js";
+import { loadConfig, slugCeilingFor } from "./config/load.js";
 import { branchOf } from "./git.js";
+import { DNS_LABEL_MAX, SLUG_MAX, hostFor, slugCeiling } from "./naming.js";
 import type { Project } from "./workspace.js";
 import { addWorktree, listBranches, listWorktrees, parseWorktreeList, removeWorktree } from "./worktree.js";
+import { readRecordedSlug, slugFor } from "./worktree-slug.js";
 
 const exec = promisify(execFile);
 
@@ -306,6 +312,226 @@ describe("a post-checkout hook that fails", () => {
       expect(worktree.exists).toBe(true);
       expect(worktree.branch).toBe("main");
       expect(lines.join("\n")).toMatch(/hook failed/);
+    },
+    GIT_TIMEOUT,
+  );
+});
+
+/**
+ * Two branches on one ticket, which §3.1's readable-slug rule guarantees will
+ * happen.
+ *
+ * The worktrees have to be cut inside a real workspace, because that layout is
+ * what a slug record is keyed on — this is the one test where
+ * `SANDBOXR_WORKSPACE` is load-bearing rather than incidental.
+ */
+describe("two worktrees on one ticket", () => {
+  let root: string;
+  let env: NodeJS.ProcessEnv;
+  let project: Project;
+
+  const first = "feat/eng-3941-labs-answers-page";
+  const second = "feat/eng-3941-labs-run-selector";
+
+  beforeAll(async () => {
+    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxr-worktree-slug-")));
+    const source = join(root, "source");
+    const workspace = join(root, "workspace");
+    env = { SANDBOXR_HOME: join(root, "home"), SANDBOXR_WORKSPACE: workspace };
+
+    await exec("git", ["init", "-b", "main", source]);
+    await git(source, "config", "user.email", "test@example.com");
+    await git(source, "config", "user.name", "Test");
+    await writeFile(join(source, "README.md"), "one\n");
+    await git(source, "add", ".");
+    await git(source, "commit", "-m", "one");
+    for (const branch of [first, second]) {
+      await git(source, "checkout", "-b", branch, "main");
+      await writeFile(join(source, "README.md"), `${branch}\n`);
+      await git(source, "commit", "-am", branch);
+    }
+    await git(source, "checkout", "main");
+
+    const repo = join(workspace, "acme", "repo.git");
+    await exec("git", ["clone", "--bare", source, repo]);
+    await git(repo, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    await git(repo, "fetch", "origin");
+
+    project = {
+      name: "acme",
+      repo,
+      worktrees: join(workspace, "acme", "wt"),
+      base: "main",
+      origin: source,
+    };
+  }, GIT_TIMEOUT);
+
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it(
+    "gives the second worktree a slug of its own, and writes it down",
+    async () => {
+      const lines: string[] = [];
+      const one = await addWorktree({ project, branch: first, env });
+      const two = await addWorktree({ project, branch: second, env, log: (line) => lines.push(line) });
+
+      // The whole point: without the guard both of these are `eng-3941`, so the
+      // second `up` would replace the first one's container and mount its data
+      // volume — one sandbox for two unrelated branches.
+      const slugOne = await slugFor({ worktree: one.path, project: project.name, branch: one.branch, env });
+      const slugTwo = await slugFor({ worktree: two.path, project: project.name, branch: two.branch, env });
+
+      expect(slugOne).toBe("eng-3941");
+      expect(slugTwo).not.toBe(slugOne);
+      expect(slugTwo).toMatch(/^eng-3941-[a-z0-9]{4}$/);
+      expect(lines.join("\n")).toMatch(/already answers to "eng-3941"/);
+
+      // Recorded, because a random token cannot be derived again.
+      expect(await readRecordedSlug(project.name, basename(two.path), env)).toBe(slugTwo);
+      expect(await readRecordedSlug(project.name, basename(one.path), env)).toBeNull();
+    },
+    GIT_TIMEOUT,
+  );
+
+  it(
+    "keeps the slug it was given when the same branch is asked for again",
+    async () => {
+      const before = await readRecordedSlug(project.name, "feat-eng-3941-labs-run-selector", env);
+      const again = await addWorktree({ project, branch: second, env });
+
+      expect(again.path).toBe(join(project.worktrees, "feat-eng-3941-labs-run-selector"));
+      expect(await readRecordedSlug(project.name, basename(again.path), env)).toBe(before);
+    },
+    GIT_TIMEOUT,
+  );
+
+  it(
+    "forgets the record when the worktree goes",
+    async () => {
+      const path = join(project.worktrees, "feat-eng-3941-labs-run-selector");
+      expect(await readRecordedSlug(project.name, "feat-eng-3941-labs-run-selector", env)).not.toBeNull();
+
+      await removeWorktree(project, path, { force: true, env });
+      expect(await readRecordedSlug(project.name, "feat-eng-3941-labs-run-selector", env)).toBeNull();
+    },
+    GIT_TIMEOUT,
+  );
+});
+
+/**
+ * The same collision, in a project whose hostname budget binds.
+ *
+ * A sandbox hostname is one DNS label — `<slug>--<label>--<project>` — so a long
+ * project name and a long runtime label leave the slug well under 31 characters
+ * (contracts §3.1, §3.2). A *given* slug is longer than the one it replaces, so
+ * this is the case where a collision, and only a collision, could push a hostname
+ * past 63 characters. The numbers below are chosen to land exactly on the limit,
+ * because a test with slack in it would not notice the arithmetic drifting.
+ */
+describe("a collision under a project's own ceiling", () => {
+  let root: string;
+  let env: NodeJS.ProcessEnv;
+  let project: Project;
+
+  // One ticket, two branches — and a ticket id of 17 characters, which is over
+  // the ceiling below. That matters: it makes the *derived* slug the hashed form
+  // and therefore 13 characters long, so `<base>-<token>` only fits if the base
+  // is trimmed against the project's ceiling rather than the tool's 31. A short
+  // ticket id would fit either way and the test would prove nothing.
+  const first = "feat/platformwork-3941-answers";
+  const second = "feat/platformwork-3941-selector";
+
+  /** 22 characters, and deliberately not the workspace directory name. */
+  const declared = "acme-platform-monorepo";
+  /** 24 characters, the longest label the project serves. */
+  const label = "storefront-preview-alpha";
+
+  beforeAll(async () => {
+    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxr-worktree-ceiling-")));
+    const source = join(root, "source");
+    const workspace = join(root, "workspace");
+    env = { SANDBOXR_HOME: join(root, "home"), SANDBOXR_WORKSPACE: workspace };
+
+    await exec("git", ["init", "-b", "main", source]);
+    await git(source, "config", "user.email", "test@example.com");
+    await git(source, "config", "user.name", "Test");
+    await writeFile(join(source, "README.md"), "one\n");
+    await git(source, "add", ".");
+    await git(source, "commit", "-m", "one");
+    for (const branch of [first, second]) {
+      await git(source, "checkout", "-b", branch, "main");
+      await writeFile(join(source, "README.md"), `${branch}\n`);
+      await git(source, "commit", "-am", branch);
+    }
+    await git(source, "checkout", "main");
+
+    const projectDir = join(workspace, "acme");
+    const repo = join(projectDir, "repo.git");
+    await exec("git", ["clone", "--bare", source, repo]);
+    await git(repo, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    await git(repo, "fetch", "origin");
+
+    // A project-level config (§5.6), so both worktrees read the same one without
+    // either branch carrying a file. This is what gives `addWorktree` a project
+    // name and a label to compute a ceiling from at all.
+    await writeFile(
+      join(projectDir, "sandboxr.yaml"),
+      [
+        `project: ${declared}`,
+        'sandboxr: ">=0.1.0"',
+        "access:",
+        "  apps: private",
+        "frontends:",
+        "  apps:",
+        `    - { label: ${label}, package: web, build: npx vite build, out: dist }`,
+        "",
+      ].join("\n"),
+    );
+
+    project = { name: "acme", repo, worktrees: join(projectDir, "wt"), base: "main", origin: source };
+  }, GIT_TIMEOUT);
+
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it(
+    "gives a slug that fits the ceiling and a hostname that fits one DNS label",
+    async () => {
+      // Guard the premise: if this stops being under 31 the test proves nothing.
+      const max = slugCeiling(declared, [label]);
+      expect(max).toBe(13);
+      expect(max).toBeLessThan(SLUG_MAX);
+
+      const one = await addWorktree({ project, branch: first, env });
+      const two = await addWorktree({ project, branch: second, env });
+
+      // And guard the mechanism: `addWorktree` computes the ceiling by loading
+      // the config from the worktree it just cut, so a project-level file that
+      // could not be reached from there would silently give it `SLUG_MAX` and
+      // leave this test asserting nothing.
+      expect(slugCeilingFor(await loadConfig(one.path, { enforceAccess: false, env }))).toBe(max);
+
+      const slugOne = await slugFor({ worktree: one.path, project: project.name, branch: one.branch, max, env });
+      const slugTwo = await slugFor({ worktree: two.path, project: project.name, branch: two.branch, max, env });
+
+      // Hashed, because the ticket id is longer than this project's ceiling.
+      expect(slugOne).toMatch(/^plat-[0-9a-f]{8}$/);
+      expect(slugOne).toHaveLength(max);
+      expect(slugTwo).toMatch(/^[a-z0-9-]+-[a-z0-9]{4}$/);
+      expect(slugTwo).not.toBe(slugOne);
+      // The assertion the whole describe exists for. Sized against `SLUG_MAX`
+      // this is 18 characters, and the hostname below is 68.
+      expect(slugTwo.length).toBeLessThanOrEqual(max);
+
+      // The point of the whole exercise: both hostnames are legal DNS labels,
+      // and the given one lands exactly on the limit rather than over it.
+      const host = (slug: string) => hostFor({ slug, label, project: declared, domain: "sbx.lcl" });
+      expect(() => host(slugOne)).not.toThrow();
+      expect(() => host(slugTwo)).not.toThrow();
+      expect(host(slugTwo).split(".")[0]).toHaveLength(DNS_LABEL_MAX);
     },
     GIT_TIMEOUT,
   );
