@@ -68,7 +68,7 @@ export const SchemePicker = ({ className }: { className?: string }) => {
           <span
             data-scheme={scheme.id}
             aria-hidden="true"
-            className="size-3.5 rounded-full bg-gradient-brand"
+            className="size-3.5 rounded-full bg-brand"
           />
           <span className="sr-only">{scheme.name}</span>
         </button>
