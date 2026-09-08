@@ -226,6 +226,18 @@ Set these on the [orchestrator](../guides/orchestrator.md) daemon's own process.
 | `SANDBOXR_TELEGRAM_CHAT_ID` | — | The group voice chat the userbot joins |
 | `SANDBOXR_TELEGRAM_USER_ID` | — | Who it brings into that chat |
 
+To run the orchestrator **inside the dashboard** instead, set these on the dashboard's own
+process (see [In the dashboard](../guides/orchestrator.md#in-the-dashboard)):
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SANDBOXR_ORCHESTRATOR` | off | Any non-empty value but `0` turns on the dashboard's Orchestrator panel |
+| `SANDBOXR_ORCHESTRATOR_STALL_MS` | model default | How long a quiet session waits before it is a question — lower it to try the panel out |
+| `SANDBOXR_VOICE_SOCKET` | — | The voice sidecar's socket, to speak escalations and carry the browser's audio |
+
+The voice sidecar reads `SANDBOXR_VOICE_STREAMED` (or `--streamed`): set it so the sidecar's device
+is the socket rather than a local microphone, which is what the browser and the container both need.
+
 The **hook command** each session runs reads one variable of its own,
 `SANDBOXR_ORCHESTRATOR_URL`. Unset, it posts to `http://127.0.0.1:4600/hooks`, which is right for
 `claude` on the host. A session running inside a sandbox container needs it set to the daemon's

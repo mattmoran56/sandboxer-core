@@ -197,12 +197,20 @@ The Python sidecars' logic — the message protocols, the on-device end-of-speec
 engine state machine, the call frame bridge — is covered by `pytest` with no audio and no
 network.
 
+The orchestrator also runs **inside the dashboard**, behind `SANDBOXR_ORCHESTRATOR`, with a browser
+panel that lists escalations and answers questions. The server side of it — the notifier, the
+fork-backed summariser, the Telegram config store, the sockets — is unit-tested, as is the panel
+itself (the list, answering, the Telegram form). The whole dashboard suite stays green with the
+feature off, which is the safety story: unset, none of it exists.
+
 **What has not been run, and needs your Linux VM to be.** The audio itself: Whisper, Piper,
 Silero and the microphone have not been exercised by these tests, because they need a real
-device and real models. A **live Telegram call** has not been placed — it needs real credentials
-and a real account, and pytgcalls' audio API must be confirmed against the installed version.
-Treat the `spokenChars` heard-boundary as an estimate until a real voice has been talked over.
-[The orchestrator guide](../guides/orchestrator.md) has the steps to run all of this on a VM.
+device and real models. The **browser audio** — capturing the microphone, streaming it to the
+sidecar, playing the reply — is written and its toggle is tested, but the sound itself needs a
+real browser and a running sidecar. A **live Telegram call** has not been placed — it needs real
+credentials and a real account, and pytgcalls' audio API must be confirmed against the installed
+version. Treat the `spokenChars` heard-boundary as an estimate until a real voice has been talked
+over. [The orchestrator guide](../guides/orchestrator.md) has the steps to run all of this on a VM.
 
 ## The managed layer
 
