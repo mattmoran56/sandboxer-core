@@ -2178,6 +2178,24 @@ with the call as the audio.
 
 ### 10.6 The daemon, and what never leaves the machine
 
+**Everything the orchestrator adds is a host process, not a sandbox.** The daemon, the voice
+sidecar and the telegram sidecar run on the machine, beside Docker — they must, because voice
+owns the microphone, the telegram userbot owns the account login, and the daemon needs the Docker
+socket to fork a session. The sandboxes are the subjects, not part of it. Four links join them:
+the **run index** (a host file the daemon polls), **hooks** (an HTTP POST from a session to the
+daemon), **summaries** (`docker exec` from the daemon into a sandbox, §10.2), and **voice/calls**
+(local sockets to the sidecars). The **base package owns no side effects at all** — it opens no
+socket, spawns nothing, reads no environment — so the whole decision path is testable without any
+of the above; the daemon is the one place those edges live, which is also why it is a separate
+package from the base it cannot be depended on by.
+
+**One reachability boundary is left manual, not defaulted.** The index feed reaches the daemon
+whatever started a session, because it is a file. A hook runs where `claude` runs: for a session
+`claude` runs on the host it reaches the loopback ingest port, and for one the dashboard runs
+*inside a sandbox container* it does not, because the port binds loopback on the host. Wiring the
+in-container case — `SANDBOXR_ORCHESTRATOR_URL` in the sandbox pointing at the daemon on the
+docker-bridge gateway — is deliberately a manual step, because loopback-only is the safe default.
+
 `sandboxr-orchestrator` reads `SANDBOXR_HOME`, polls the index, serves the hook port
 (`SANDBOXR_ORCHESTRATOR_PORT`, default 4600, loopback), and routes escalations: voice
 (`SANDBOXR_VOICE_SOCKET`) takes everything, Telegram (`SANDBOXR_TELEGRAM_SOCKET`,
