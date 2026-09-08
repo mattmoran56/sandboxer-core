@@ -15,3 +15,5 @@ secrets/*.env
 # Worktrees a Claude Code agent cuts for itself. Each is its own checkout, and
 # committing one embeds a repository inside this one.
 .claude/worktrees/
+__pycache__/
+.venv/
