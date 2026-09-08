@@ -52,6 +52,7 @@ one thing wrong in the details.
 | **A sandbox expiring on its own over a full lifetime** | See below |
 | **`sandboxr prune --yes`** | See below |
 | **`gh` against a private repository** | Pull requests list against a public repo. Cloning and fetching a private one from inside the dashboard container, using the mounted `gh` credentials, has not been done |
+| **The orchestrator, voice and Telegram** | See below |
 
 ### The dashboard's browser app
 
@@ -170,6 +171,38 @@ and its figures match `docker system df`.
 **Nothing has been removed by it.** The removal path is unit-tested against a fake daemon. What a
 real run would settle is that `docker image rm` accepts the references the plan builds, and that the
 space the report promised is the space that comes back.
+
+## The orchestrator, voice and Telegram
+
+The newest layer, and the one whose split between "run" and "not run" is sharpest, because
+half of it is host software and half of it is a microphone.
+
+**What is built and tested in software, end to end.** The whole decision path is exercised by
+the test suites, with the microphone and the phone replaced by test doubles that speak the real
+wire protocols:
+
+- The orchestrator noticing a change — a session finishing, blocking, stalling, erroring, a
+  subagent failing — from the run index, the event stream and Claude Code's hooks, and deciding
+  whether it is worth telling you and whether to tell or to ask.
+- The voice layer speaking an update, asking a question, and — the subtle part — tracking to the
+  character how much of an announcement you heard before you cut in, and rewriting the session
+  history to match what you actually know.
+- The Telegram layer placing a call, waiting for you to join, asking over the call, and hanging
+  up; a call nobody answers treated as an unanswered question.
+- The end-to-end test drives the real notifier stack through a real orchestrator: a finished
+  session is announced at the desk, and an urgent notification places a Telegram call, asks over
+  it, captures a barge-in, and rewrites the on-call history.
+
+The Python sidecars' logic — the message protocols, the on-device end-of-speech endpointer, the
+engine state machine, the call frame bridge — is covered by `pytest` with no audio and no
+network.
+
+**What has not been run, and needs your Linux VM to be.** The audio itself: Whisper, Piper,
+Silero and the microphone have not been exercised by these tests, because they need a real
+device and real models. A **live Telegram call** has not been placed — it needs real credentials
+and a real account, and pytgcalls' audio API must be confirmed against the installed version.
+Treat the `spokenChars` heard-boundary as an estimate until a real voice has been talked over.
+[The orchestrator guide](../guides/orchestrator.md) has the steps to run all of this on a VM.
 
 ## The managed layer
 

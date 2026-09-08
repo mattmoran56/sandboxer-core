@@ -563,6 +563,25 @@ if opening a session fails — do not put a token anywhere except the dashboard'
 environment.
 ```
 
+### The orchestrator, voice and Telegram
+
+Sets up the orchestrator and proves the parts that do not need a microphone.
+
+**Needs first:** The packages built, and Docker running for summaries.  
+**From:** [The orchestrator, voice and Telegram](../guides/orchestrator.md)
+
+```prompt
+Set up the orchestrator for sandboxr on this machine and prove the parts that do not need
+a microphone.
+
+Read docs/guides/orchestrator.md first. Build every package, run the test suites, and start
+the orchestrator daemon with no voice or Telegram configured so it logs what it would say.
+Point a sandbox session's hooks at the hook bin and show me an escalation appearing in the
+log. Stop and tell me if Docker is not running. Do NOT put any Telegram credential anywhere
+except the sidecar's own environment, and do not attempt a real Telegram call — tell me what
+I would run on my Linux VM for the voice and call parts instead.
+```
+
 ## Looking after the machine
 
 ### On a server, for a team

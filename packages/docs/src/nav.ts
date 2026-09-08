@@ -76,6 +76,7 @@ export const NAV: readonly NavGroup[] = [
       { slug: "guides/testing-a-migration", label: "Testing a migration" },
       { slug: "guides/agents-in-a-sandbox", label: "Your own agent in a sandbox" },
       { slug: "guides/agent-sessions", label: "Agent sessions in the dashboard" },
+      { slug: "guides/orchestrator", label: "The orchestrator, voice and Telegram" },
       { slug: "guides/docker-capacity", label: "Giving Docker the whole machine" },
     ],
   },

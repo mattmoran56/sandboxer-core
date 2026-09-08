@@ -2081,3 +2081,111 @@ exit code.
   regression test. Test files sit beside their source as `<name>.test.ts`.
 - **Formatting:** two-space indent, double quotes, semicolons, trailing commas, 100-char
   lines.
+
+## 10. The orchestrator, voice, and Telegram
+
+The orchestrator is a second reader of sessions, opposite to the dashboard: the dashboard
+shows you one session, the orchestrator watches all of them and tells you only when one
+needs you. It is its own process, and it never shows a conversation — it produces
+**escalations**, and voice and Telegram turn those into sound.
+
+**Packages, and the dependency direction is a DAG.** `@sandboxr/orchestrator` is the base:
+the model, the policy, the escalation types, the `Notifier`/`Forker`/`Summariser`/`Responder`
+interfaces, the hook ingest server, and the store feeder — core-only, pure where it can be.
+`@sandboxr/voice` and `@sandboxr/telegram` each depend on it and implement `Notifier`.
+`@sandboxr/orchestrator-daemon` sits on top of all three and is the only one that wires
+sockets and reads the environment. Nothing depends back up the chain; voice must never import
+telegram, and the base must never import either.
+
+**Only `container/` is bash, and everything host-side is TypeScript — except the two audio
+sidecars, which are Python by necessity.** On-device speech recognition, neural
+text-to-speech and Telegram group-call media are Python ecosystems; the sidecars live under
+`sidecars/` (not `packages/`), each a `_sidecar` package with a testable stdlib core and heavy
+engines behind an optional extra. Their control planes are TypeScript. This is the one
+sanctioned exception to the language rule, and it is confined to `sidecars/`.
+
+### 10.1 What the orchestrator folds, and what it raises
+
+Three feeds, each seeing what the others cannot: the **index** (`runs.json`, §7.2.3) for state
+and titles; the **event** stream for the fine grain; and **hooks** (§10.4) for the push — a
+subagent's failure stated rather than inferred, and latency the transcript cannot match. The
+model is a pure reducer: `now` is an argument, so every signal — a stall, a blocked session, a
+failed subagent — is testable without a container or a timer. A fork of a session (a `/btw`) is
+never watched; it is only ever the mechanism by which the parent is summarised.
+
+Signals are a closed set: `needs-input`, `error`, `failed`, `finished`, `subagent-failed`,
+`stalled`, each with a fixed severity (`info` | `attention` | `urgent`). The **policy** is a
+pure function from one signal to an **escalation** or to silence, split on one line: a
+**question** is raised only where a person can still change the outcome (needs-input, error,
+stalled); everything else is an **update**. A severity floor is the one knob.
+
+The orchestrator never blocks ingestion on a person: delivery is dispatched, coalesced by
+`(signal, session)`, and held to one open question per session at a time.
+
+### 10.2 Summaries reuse `/btw`
+
+A session summary is a side question. The orchestrator depends only on a one-method `Forker`;
+the daemon's `DockerForker` builds the exact fork command core already defines (`agentArgv`
+with `--resume … --fork-session --tools "" --strict-mcp-config`, §7.2.1), opens it with
+`sideQuestionPreamble`, runs it over `docker exec` with stdin closed so the one-shot fork ends
+after one answer, and reads the answer through core's own `normalise`. No second way to talk to
+a session, and no reimplementation of the fork.
+
+### 10.3 The voice protocol, and the heard/unheard boundary
+
+Voice is split brain (TypeScript) and body (Python sidecar) across one newline-delimited-JSON
+socket. The body owns the microphone, the speech-to-text, the voice, and — the part that must
+be on-device and low-latency — the decision of when a person has started and stopped speaking.
+The `protocol` module is the single source of the wire shape; the Python side mirrors it.
+
+The whole protocol is shaped around **barge-in**. Two facts must survive a person talking over
+an announcement: how much of it they heard, and what they said. The first is knowable only in
+the body, where the audio clock is, so `speaking-interrupted` carries `spokenChars` — the
+boundary between heard and unheard, an estimate mapped from the audio clock and retreated to a
+whole word so a person is credited with slightly less, never more. An interruption is **two
+messages** (the cut, then the transcribed words that caused it) that the brain reassembles into
+one outcome.
+
+The brain keeps two records from that boundary. The **`AnnouncementLedger`** tracks, per
+announcement, how much was heard. The **`SessionHistory`** is the account of what the person
+actually knows, and an interruption **rewrites** it: the cut announcement is trimmed to the
+heard prefix, the unheard tail kept as a retraction, and the reply recorded — so the history
+matches what is in the person's head, not what was sent to the speaker. This is the one place
+"what was said" and "what was heard" are deliberately different, and every downstream decision
+uses the second.
+
+### 10.4 Hooks
+
+Claude Code's hooks are pointed at `sandboxr-orchestrator-hook`, a bin whose one guarantee is
+that it is harmless: it forwards the payload and **exits 0 with empty stdout no matter what**,
+because a `PreToolUse` hook that is slow or errors can block a tool. The ingest server binds
+loopback, needs no auth (a local process handing a local process a local payload), and answers
+200 to everything but an unknown route — a hook must never be able to wedge a session with the
+orchestrator's opinion of its payload. `SubagentStop`, `Notification`, `Stop`, `PreToolUse` and
+`PostToolUse` are modelled; everything else parses to null.
+
+### 10.5 The Telegram control protocol, and the call
+
+Telegram is the notifier for when the person is away from the desk: a question rings them, an
+update leaves a text. A real one-to-one Telegram call is not programmable, so the userbot
+(Telethon) joins a **group voice chat** and brings the person in; pytgcalls carries the audio.
+The control protocol (`call`, `hangup`, `text`; `calling`, `joined`, `left`, `ended`, `error`)
+is signalling only — it is kept apart from the voice protocol, which carries the conversation
+once the person is on the call. `TelegramCall.call()` resolves on `joined` and rejects on
+ring-out or `ended`; nobody answering is a normal outcome, not an error. The conversation over
+the call is an ordinary `VoiceNotifier` reused whole — the same barge-in and history rewrite,
+with the call as the audio.
+
+### 10.6 The daemon, and what never leaves the machine
+
+`sandboxr-orchestrator` reads `SANDBOXR_HOME`, polls the index, serves the hook port
+(`SANDBOXR_ORCHESTRATOR_PORT`, default 4600, loopback), and routes escalations: voice
+(`SANDBOXR_VOICE_SOCKET`) takes everything, Telegram (`SANDBOXR_TELEGRAM_SOCKET`,
+`…_CHAT_ID`, `…_USER_ID`) takes the urgent, and a log notifier is the floor under both so a
+machine with neither still runs and stays observable. It degrades to logging when a sidecar is
+absent, so it is safe to start first.
+
+The whole point of the Python sidecars is that **speech never leaves the machine**: recognition
+(Whisper), synthesis (Piper), voice-activity detection (Silero) and the end-of-speech decision
+all run locally. The Telegram audio is the one exception, and it is the person's own call on
+their own account. Telegram credentials are read from the environment only, never a flag.
