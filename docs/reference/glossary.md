@@ -41,6 +41,11 @@ Declared under `backends:`. See [The three runtime kinds](../configuration/runti
 **Bare domain** — the domain on its own, with nothing in front of it. That is the dashboard's
 hostname, and it is never a sandbox's. See [Access and security](../access.md).
 
+**Barge-in** — talking over the orchestrator while it is speaking. It stops, works out how much
+of the announcement you actually heard, and takes what you said as your reply — and never
+afterwards acts as though you heard the part it had not reached. See
+[The orchestrator, voice and Telegram](../guides/orchestrator.md).
+
 **Base image** — the generic image every sandbox on the machine shares: the supervisor, the
 in-container router, the object store, `git`, `gh`, `claude` and the container scripts. Nothing
 project-specific. Built by `sandboxr init`. See [Install it](../getting-started/install.md).
@@ -109,6 +114,10 @@ other way round, and removes only with `--yes`. See [CLI commands](cli.md).
 **Entrypoint** — the script that runs *before* the supervisor: it reads the plan, exports the
 computed environment, writes the router config and generates the service list. See
 [The startup graph](../architecture/startup.md).
+
+**Escalation** — what the orchestrator raises when a session needs you: an **update** for
+something to know, or a **question** for something only you can decide. Voice and Telegram turn it
+into sound. See [The orchestrator, voice and Telegram](../guides/orchestrator.md).
 
 **Expire** — stopping every sandbox that has sat unused past its limit. It stops; it never removes.
 See [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
@@ -214,6 +223,10 @@ not ready. See [The startup graph](../architecture/startup.md).
 `sandboxr up --with <label>` asks for it. See
 [The three runtime kinds](../configuration/runtime-kinds.md).
 
+**Orchestrator** — a second reader of your sessions, opposite to the dashboard: it watches all of
+them at once and tells you, out loud, only when one needs you. It runs as a program on the host,
+not inside a sandbox. See [The orchestrator, voice and Telegram](../guides/orchestrator.md).
+
 **Owner** — for `d1` and `sqlite`, the single service allowed to open the database file. Every other
 service is denied the file's location outright. See [Databases](../databases.md).
 
@@ -318,8 +331,12 @@ in memory whether or not anyone opens it. See
 [agent session](#a). See [Access and security](../access.md).
 
 **Side question** — a `/btw` in an agent session: a second, read-only process forked off the
-conversation, so you can ask something without disturbing the run. See
-[Agent sessions in the dashboard](../guides/agent-sessions.md).
+conversation, so you can ask something without disturbing the run. It is also how the orchestrator
+summarises a session. See [Agent sessions in the dashboard](../guides/agent-sessions.md).
+
+**Sidecar** — one of the two Python programs that are the orchestrator's audio body: `voice` owns
+the microphone and speakers, `telegram` places the call. Each runs on the host, beside the daemon,
+reached over a socket. See [The orchestrator, voice and Telegram](../guides/orchestrator.md).
 
 **Slug** — the short name for one sandbox, and the first piece of its hostname. Resolved, in order of
 preference, from an explicit argument, a slug recorded for the worktree, a ticket-style id in the

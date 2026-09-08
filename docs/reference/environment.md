@@ -211,6 +211,62 @@ one container on the machine holding a credential.
 
 </details>
 
+### For the orchestrator
+
+Set these on the [orchestrator](../guides/orchestrator.md) daemon's own process. It also reads
+`SANDBOXR_HOME` — the same run index the dashboard writes — and reuses `SANDBOXR_CLAUDE_TOKEN` and
+`SANDBOXR_CLAUDE_MODEL` above to fork a session for a summary.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SANDBOXR_ORCHESTRATOR_PORT` | `4600` | The loopback port Claude Code's hooks post to |
+| `SANDBOXR_ORCHESTRATOR_SUMMARIES` | on | `0` stops it forking sessions for summaries |
+| `SANDBOXR_VOICE_SOCKET` | — | The voice sidecar's socket. Unset runs without voice |
+| `SANDBOXR_TELEGRAM_SOCKET` | — | The telegram sidecar's socket. Unset runs without calls |
+| `SANDBOXR_TELEGRAM_CHAT_ID` | — | The group voice chat the userbot joins |
+| `SANDBOXR_TELEGRAM_USER_ID` | — | Who it brings into that chat |
+
+The **hook command** each session runs reads one variable of its own,
+`SANDBOXR_ORCHESTRATOR_URL`. Unset, it posts to `http://127.0.0.1:4600/hooks`, which is right for
+`claude` on the host. A session running inside a sandbox container needs it set to the daemon's
+address on the docker-bridge gateway — see the reachability note in
+[the orchestrator guide](../guides/orchestrator.md#2-point-the-hooks-at-the-daemon).
+
+<details class="agent">
+<summary><b>Details for an agent</b> — the two Python sidecars' own variables</summary>
+
+Each sidecar takes the same values as a flag or an environment variable, because the daemon's
+wiring starts it, not a person. Every one has a `--flag` twin; the flag wins where both are given.
+
+**The voice sidecar** (`sidecars/voice`). A Piper voice model is the one hard requirement:
+
+| Variable | Default | What it is |
+|---|---|---|
+| `SANDBOXR_VOICE_SOCKET` | `/tmp/sandboxr-voice.sock` | The socket the daemon connects to |
+| `SANDBOXR_PIPER_MODEL` | — | Path to a Piper `.onnx` voice. Required |
+| `SANDBOXR_PIPER_CONFIG` | beside the model | The voice's JSON config, if it is not alongside |
+| `SANDBOXR_WHISPER_SIZE` | `base.en` | The Whisper model size |
+| `SANDBOXR_WHISPER_DEVICE` | `cpu` | Where Whisper runs |
+| `SANDBOXR_WHISPER_COMPUTE` | `int8` | Its compute type |
+| `SANDBOXR_VAD_THRESHOLD` | `0.5` | How loud counts as speech, for Silero |
+| `SANDBOXR_ENDPOINT_SILENCE_MS` | `700` | The silence that ends a turn |
+
+**The telegram sidecar** (`sidecars/telegram`) takes the same Piper and Whisper variables, plus
+its own. The three credentials are **read from the environment only, never a flag**, because a
+flag lands in shell history and process listings:
+
+| Variable | Default | What it is |
+|---|---|---|
+| `SANDBOXR_TELEGRAM_SOCKET` | `/tmp/sandboxr-telegram.sock` | The socket the daemon connects to |
+| `SANDBOXR_TELEGRAM_API_ID`, `SANDBOXR_TELEGRAM_API_HASH` | — | From `my.telegram.org`. Required, environment only |
+| `SANDBOXR_TELEGRAM_SESSION` | `sandboxr` | The Telethon session name |
+| `SANDBOXR_TELEGRAM_CHAT_ID`, `SANDBOXR_TELEGRAM_USER_ID` | — | The group voice chat, and who to bring in |
+
+The daemon itself also reads `SANDBOXR_CLAUDE_HAS_LOGIN` (`1` when the machine shares a Claude
+login, so a summary fork withholds the setup token just as the dashboard does).
+
+</details>
+
 ### The one variable that is not ours
 
 | Variable | Default | What it does |
