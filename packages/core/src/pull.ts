@@ -18,6 +18,18 @@
  * that its failure is visible. Somebody who has half a day's work in a running
  * worktree finds out from a sentence naming their files, not from a reflog.
  *
+ * **One case is not a fast-forward and still moves: a rewritten upstream.** A
+ * rebase and force-push leaves origin holding an equivalent of every commit this
+ * worktree has, under new shas. Comparing shas calls that a divergence and
+ * refuses; comparing *patches*, with `git cherry`, shows there is nothing to
+ * lose. So a divergence is measured by patch, and when no commit here is absent
+ * from origin the worktree is moved onto it — by `checkout`, which still refuses
+ * to overwrite an uncommitted change, and never by `reset --hard`. The rule the
+ * paragraph above states is intact: nothing is discarded. What changed is that
+ * "discarded" is now judged by content rather than by identity, because a
+ * managed worktree is where a rewritten branch is the ordinary case rather than
+ * the exception — and refusing it left no way forward that was not a terminal.
+ *
  * **Every reason, not the first.** A refusal lists all of them. Fixing one and
  * pressing the button again to be told about the next is how a two-minute job
  * takes twenty.
@@ -102,7 +114,13 @@ export interface PullRefusal {
 }
 
 export interface PullResult {
-  outcome: "up-to-date" | "fast-forwarded" | "refused";
+  /**
+   * `replaced` is the rewritten-upstream case: not a fast-forward, but origin
+   * already carries an equivalent of every commit the worktree had, so moving
+   * onto it loses nothing. Callers that only ask whether a pull happened should
+   * test for `refused`, not list the successes.
+   */
+  outcome: "up-to-date" | "fast-forwarded" | "replaced" | "refused";
   /** The branch, or `?` when it could not be named. */
   branch: string;
   /** Checked out detached, which is the ordinary state of a managed worktree. */
@@ -145,6 +163,19 @@ function nameThem(items: string[], cap: number, total = items.length): string {
 
 const plural = (count: number, one: string, many = `${one}s`): string =>
   `${count} ${count === 1 ? one : many}`;
+
+/**
+ * One `git cherry -v` line as `<short sha> <subject>`.
+ *
+ * The line arrives as `+ <full sha> <subject>` or `- <full sha> <subject>`; the
+ * sign is stripped by the caller, which is the thing it is reading. The sha is
+ * shortened here rather than asking git for an abbreviated one, because `cherry`
+ * has no `--abbrev` and the alternative is a second `log` over the same commits.
+ */
+const cherryCommit = (line: string): string => {
+  const [sha = "", ...rest] = line.slice(1).trim().split(/\s+/);
+  return [short(sha), ...rest].join(" ").trim();
+};
 
 /**
  * The paths one line of `git status --porcelain` is about.
@@ -282,22 +313,56 @@ export async function pullWorktree(input: PullInput): Promise<PullResult> {
   // Ahead of the remote as well as behind it, or on an unrelated history: either
   // way `--ff-only` would refuse, and so does this — before anything is touched,
   // and with the commits named.
+  //
+  // **Counted by patch, not by hash, and that is the load-bearing part.** When
+  // somebody rebases the branch and force-pushes it, every commit this worktree
+  // holds is still on origin — under a new sha. `rev-list target..head` compares
+  // shas, so it reports the whole pre-rebase history as work at risk: a branch
+  // rebuilt once said "107 local commits not on origin" when ten were really
+  // absent, and named five that were already there. The number and the names are
+  // the only things somebody can act on, so both being wrong made a two-minute
+  // job look impossible. `git cherry` compares patch ids and marks a commit `+`
+  // when nothing equivalent is upstream and `-` when something is.
+  let replaced = false;
   const ancestor = await git(run, worktree, ["merge-base", "--is-ancestor", head, target]);
   if (ancestor.code !== 0) {
-    // Counted with `rev-list --count` and named with `log`, because the log is
-    // capped: a worktree fifty commits ahead would otherwise be reported as
-    // exactly fifty ahead, which is a number somebody would act on.
-    const ours = await git(run, worktree, ["log", "--format=%h %s", `--max-count=${NAMED_COMMITS}`, `${target}..${head}`]);
-    const counted = await git(run, worktree, ["rev-list", "--count", `${target}..${head}`]);
-    const local = lines(ours.stdout);
-    const ahead = Number.parseInt(counted.stdout.trim(), 10);
-    const total = Number.isFinite(ahead) ? ahead : local.length;
-    refusals.push({
-      kind: "diverged",
-      summary: `${plural(total, "local commit")} not on origin/${branch}`,
-      message: `${branch} has ${plural(total, "commit")} that origin/${branch} does not: ${nameThem(local, NAMED_COMMITS, total)}. That is not a fast-forward, and sandboxr will not merge or rebase for you — push or drop those commits, then pull again.`,
-      files: local,
-    });
+    const cherry = await git(run, worktree, ["cherry", "-v", target, head]);
+    const classified = cherry.code === 0;
+    const unique = classified ? lines(cherry.stdout).filter((line) => line.startsWith("+")).map(cherryCommit) : [];
+
+    if (classified && unique.length === 0) {
+      // A pure upstream rewrite: origin carries an equivalent of every commit
+      // here, so there is nothing this could lose. Not a fast-forward either —
+      // the move below is a checkout rather than a merge.
+      replaced = true;
+    } else {
+      // Named from `cherry` when it answered, so the refusal lists the commits
+      // that would really be lost. When it could not, the old sha comparison
+      // stands: an unreadable classification has to refuse, never assume.
+      let local = unique;
+      let total = unique.length;
+      if (!classified) {
+        // Counted with `rev-list --count` and named with `log`, because the log
+        // is capped: a worktree fifty commits ahead would otherwise be reported
+        // as exactly fifty ahead, which is a number somebody would act on.
+        const ours = await git(run, worktree, [
+          "log",
+          "--format=%h %s",
+          `--max-count=${NAMED_COMMITS}`,
+          `${target}..${head}`,
+        ]);
+        const counted = await git(run, worktree, ["rev-list", "--count", `${target}..${head}`]);
+        const ahead = Number.parseInt(counted.stdout.trim(), 10);
+        local = lines(ours.stdout);
+        total = Number.isFinite(ahead) ? ahead : local.length;
+      }
+      refusals.push({
+        kind: "diverged",
+        summary: `${plural(total, "local commit")} not on origin/${branch}`,
+        message: `${branch} has ${plural(total, "commit")} that origin/${branch} does not: ${nameThem(local, NAMED_COMMITS, total)}. That is not a fast-forward, and sandboxr will not merge or rebase for you — push or drop those commits, then pull again.`,
+        files: local,
+      });
+    }
   }
 
   // What the incoming commits touch. `diff --name-only` between the two commits
@@ -351,22 +416,40 @@ export async function pullWorktree(input: PullInput): Promise<PullResult> {
   // that is checked out elsewhere. `branchOf` keeps naming the worktree
   // correctly regardless — with no local branch at the new commit it falls
   // through to the remote-tracking ref and strips the remote.
-  log(`Fast-forwarding ${branch} to ${short(target)}…`);
-  const merged = await git(run, worktree, ["merge", "--ff-only", target]);
-  if (merged.code !== 0) {
-    const detail = (merged.stderr || merged.stdout).trim().split("\n").slice(-8);
+  //
+  // When origin rewrote the branch there is no fast-forward to make, so the move
+  // is a checkout onto its commit. Still never `reset --hard`: `checkout` carries
+  // over an uncommitted change that does not collide and refuses outright when
+  // one would be overwritten, so the promise that this button cannot silently
+  // destroy work holds for a rewritten upstream too. It is only reached once
+  // `git cherry` has proved origin already has an equivalent of every commit
+  // here — the check above — so there is no history to lose either.
+  //
+  // Detached moves HEAD alone; on a branch, `-B` moves the branch with it. git
+  // will not move a branch checked out in another worktree, and cannot be asked
+  // to here: this worktree is the one holding it.
+  const move = replaced
+    ? detached
+      ? ["checkout", "--detach", target]
+      : ["checkout", "-B", branch, target]
+    : ["merge", "--ff-only", target];
+  log(replaced ? `Moving ${branch} onto ${short(target)}…` : `Fast-forwarding ${branch} to ${short(target)}…`);
+  const moved = await git(run, worktree, move);
+  if (moved.code !== 0) {
+    const detail = (moved.stderr || moved.stdout).trim().split("\n").slice(-8);
+    const verb = replaced ? "move" : "fast-forward";
     return refused(branch, detached, head, [
       {
         kind: "failed",
-        summary: "git refused the fast-forward",
-        message: `git refused to fast-forward ${branch}, and said:\n${detail.join("\n")}`,
+        summary: `git refused the ${verb}`,
+        message: `git refused to ${verb} ${branch}, and said:\n${detail.join("\n")}`,
         files: [],
       },
     ]);
   }
 
   return {
-    outcome: "fast-forwarded",
+    outcome: replaced ? "replaced" : "fast-forwarded",
     branch,
     detached,
     from: short(head),
@@ -402,6 +485,20 @@ export function pullReport(result: PullResult): string[] {
         ? [
             `This worktree is detached, so its HEAD moved and the local branch ${subject} did not — which is what keeps the branch usable in the checkout that holds it.`,
           ]
+        : []),
+    ];
+  }
+
+  if (result.outcome === "replaced") {
+    return [
+      `Moved ${subject} from ${result.from} to ${result.to}, ${plural(result.commits, "commit")} from origin/${subject}.`,
+      // Said plainly, because "moved" rather than "fast-forwarded" is the one
+      // difference somebody would want explained, and the reason it was safe is
+      // the whole justification for doing it at all.
+      `origin/${subject} was rebuilt — rebased or force-pushed — so this was not a fast-forward. Every commit this worktree had is already on origin under a new hash, so nothing was lost.`,
+      "Restart the sandbox's services to run the new code.",
+      ...(result.detached
+        ? [`This worktree is detached, so its HEAD moved and the local branch ${subject} did not.`]
         : []),
     ];
   }
