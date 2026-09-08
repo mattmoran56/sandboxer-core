@@ -2207,3 +2207,45 @@ The whole point of the Python sidecars is that **speech never leaves the machine
 (Whisper), synthesis (Piper), voice-activity detection (Silero) and the end-of-speech decision
 all run locally. The Telegram audio is the one exception, and it is the person's own call on
 their own account. Telegram credentials are read from the environment only, never a flag.
+
+### 10.7 In the dashboard, and audio over the browser
+
+The orchestrator owns no side effects, so it runs in two places from one engine. As a
+standalone **daemon** (§10.6), and — behind `SANDBOXR_ORCHESTRATOR` — **inside the dashboard
+server**, where the two edges it needs are already present: the live session registry, so a
+summary is a real `/btw` fork taken through `AgentSessions.fork` rather than a `docker exec`,
+and a websocket to the browser, so an escalation is a card and an answer is a click. When the
+variable is unset, `startOrchestrator` returns null and every route and gateway treats null as
+"the feature does not exist" — an un-opted-in dashboard is unchanged, which is the safety story.
+
+Two sockets and two routes, all gated on a password that covers **every** project (`*`), because
+the orchestrator watches across projects and an escalation about one names a sandbox another
+login may not see:
+
+- **`/orchestrator`** — the panel. `ready` (recent cards + open question ids) on attach, then
+  `escalation` and `answered` frames out; `answer` and `digest` in. A question is answered once,
+  by whoever answers first; the `answered` frame clears every other tab's card.
+- **`/orchestrator/audio`** — the audio relay, only when a voice is configured. Binary PCM both
+  ways with the browser; `audio-in`/`audio-out` on the sidecar transport.
+- **`GET/PUT /api/orchestrator/telegram`** — the call targets and the enable switch. **Never the
+  api id, hash or session**: those are secrets, stay in the sidecar's environment, and have no
+  web field. **`GET /api/orchestrator`** answers `{enabled}` so the browser can decide whether to
+  draw the panel; it is the one route a disabled dashboard still answers.
+
+**Audio on the web streams to the sidecar; it does not use the browser's own speech.** Browser
+speech recognition ships audio to a vendor cloud, which would break "speech never leaves the
+machine". So the browser is only a microphone and a speaker: it streams PCM to the voice sidecar
+(running in **streamed mode** — the socket is its device), which recognises and synthesises
+locally and streams the spoken audio back. The `audio-in`/`audio-out` frames carry it, base64 so
+the protocol stays one JSON object per line, and the sidecar paces `audio-out` one tick at a time
+so the heard boundary stays honest at a barge-in.
+
+**Voice is never a second asker.** The dashboard panel is the one thing that awaits a question's
+answer. Voice speaks the question and, through the sidecar's transcript of what the browser's
+microphone heard, submits the answer to whatever question the panel has open — so clicking and
+talking are one answer arriving two ways, not two racing.
+
+**Streamed audio is also what makes the sidecars containerisable.** With the browser doing the
+raw audio I/O, a sidecar needs no audio device, so it ships as an image that runs the same on any
+machine and reaches the dashboard over a Unix socket on a shared volume. The desk build (a real
+device, via sounddevice) and the streamed build (no device) are the same body with different ends.
