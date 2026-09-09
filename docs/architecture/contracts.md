@@ -458,6 +458,7 @@ Three consequences are part of the contract:
   build/<project>/<slug>.env  the generated per-sandbox environment
   bin/                   host-built helper binaries
   config.yaml            the machine's own settings — see §4.3
+  soul.md                the orchestrator agent's character, as prose — see §10.7
   state/keep/<project>/<slug>  keeps one sandbox alive past its idle limit — see §4.2
   state/name/<project>/<slug>  what to call one worktree on screen — see §4.2.1
   state/slug/<project>/<worktree dir>  the slug a worktree was given on a collision — see §4.2.3
@@ -2238,7 +2239,7 @@ and a websocket to the browser, so an escalation is a card and an answer is a cl
 variable is unset, `startOrchestrator` returns null and every route and gateway treats null as
 "the feature does not exist" — an un-opted-in dashboard is unchanged, which is the safety story.
 
-Two sockets and two routes, all gated on a password that covers **every** project (`*`), because
+Two sockets and three routes, all gated on a password that covers **every** project (`*`), because
 the orchestrator watches across projects and an escalation about one names a sandbox another
 login may not see:
 
@@ -2251,6 +2252,14 @@ login may not see:
   api id, hash or session**: those are secrets, stay in the sidecar's environment, and have no
   web field. **`GET /api/orchestrator`** answers `{enabled}` so the browser can decide whether to
   draw the panel; it is the one route a disabled dashboard still answers.
+- **`GET/PUT /api/orchestrator/soul`** — `{text}`, the orchestrator agent's character, stored as
+  prose in `$SANDBOXR_HOME/soul.md` and capped at 8000 characters. **Only the orchestrator reads
+  it**; a sandbox session's prompt is core's and is untouched by it. It is appended **after** the
+  operational system prompt under a heading limiting it to manner, so it can never widen what the
+  agent may do — the allowlist and `--permission-prompt-tool` remain the only things that decide
+  that. Absent or empty means no section at all and a byte-identical prompt. It is read when a
+  conversation opens, never at construction: `--append-system-prompt` is fixed for the life of the
+  `claude` process, so an edit lands on the **next** conversation and every surface must say so.
 
 **Audio on the web streams to the sidecar; it does not use the browser's own speech.** Browser
 speech recognition ships audio to a vendor cloud, which would break "speech never leaves the
