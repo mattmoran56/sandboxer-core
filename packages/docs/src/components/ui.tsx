@@ -27,8 +27,11 @@ const BUTTON_BASE =
   "disabled:pointer-events-none disabled:opacity-45 active:translate-y-px";
 
 const BUTTON_TONES: Record<ButtonTone, string> = {
-  primary: "bg-gradient-brand text-brand-ink shadow-brand hover:brightness-[1.06]",
-  default: "bg-surface text-ink border border-line hover:bg-hover",
+  primary: "bg-brand text-brand-ink border border-brand hover:brightness-[1.08]",
+  // `line-strong` and not `line`, which is the dashboard's reason carried over
+  // with the copy: a button drawn in the same hairline as the surface it sits on
+  // stops reading as a control at all.
+  default: "bg-surface text-ink border border-line-strong hover:bg-hover",
   ghost: "text-ink-muted hover:bg-hover hover:text-ink",
   quiet: "bg-sunken text-ink-muted border border-transparent hover:bg-hover hover:text-ink",
 };
@@ -115,7 +118,7 @@ export const Segmented = <T extends string>({
         onClick={() => onChange(option.value)}
         className={cn(
           "inline-flex h-7 items-center gap-1.5 rounded-[0.4rem] px-2.5 text-xs font-medium transition-colors",
-          value === option.value ? "bg-surface text-ink shadow-card" : "text-ink-muted hover:text-ink",
+          value === option.value ? "bg-surface text-ink shadow-raise" : "text-ink-muted hover:text-ink",
         )}
       >
         {option.label}

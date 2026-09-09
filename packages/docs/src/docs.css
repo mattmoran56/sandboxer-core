@@ -563,11 +563,14 @@
  * introductory sentences (see AUTHORING.md), and it has to be the thing the eye
  * lands on before the prose.
  *
- * So this is **the one place the accent is allowed to be loud**: a full brand
- * gradient across the bar, the brand's own glow under the card, and a border in
- * the brand rather than the neutral line. Everywhere else on the site the brand is
- * a link colour and a 5%-tinted callout, which is what leaves this one room to
- * shout.
+ * So this is **the one place the accent is allowed to be loud**: a flat brand
+ * bar across the top and a border in the brand rather than the neutral line.
+ * Everywhere else on the site the brand is a link colour and a 5%-tinted callout,
+ * which is what leaves this one room to shout.
+ *
+ * It used to be louder still — a two-hue gradient across the bar and the brand's
+ * own glow under the card. Tide II spends the brand as a single flat ink, and the
+ * card is loud enough being the only saturated thing on the page.
  */
 @layer base {
   .sbx-prompt {
@@ -577,9 +580,6 @@
     border: 1px solid var(--sb-brand-line);
     border-radius: var(--radius-panel);
     background: var(--sb-surface);
-    box-shadow:
-      var(--shadow-panel),
-      0 14px 40px -26px color-mix(in oklab, var(--sb-brand) 60%, transparent);
   }
 
   .sbx-prompt__bar {
@@ -587,7 +587,7 @@
     align-items: center;
     gap: 0.6rem;
     padding: 0.5rem 0.6rem 0.5rem 0.9rem;
-    background-image: linear-gradient(135deg, var(--sb-brand), var(--sb-brand-2));
+    background: var(--sb-brand);
     color: var(--sb-brand-ink);
   }
 
@@ -688,7 +688,7 @@
   }
 
   /*
-   * On the prompt's gradient bar the button is a solid chip rather than a bordered
+   * On the prompt's brand bar the button is a solid chip rather than a bordered
    * ghost. A ghost button on a saturated background is either invisible or a
    * smudge, and this is the button the whole card exists to be pressed.
    */
@@ -708,7 +708,7 @@
     filter: brightness(1.04);
   }
 
-  /* The ring is the page's own focus ring; on the gradient it needs the offset
+  /* The ring is the page's own focus ring; on the brand bar it needs the offset
      colour to be the bar rather than the surface behind it. */
   .sbx-prompt__copy:focus-visible {
     outline-color: var(--sb-brand-ink);

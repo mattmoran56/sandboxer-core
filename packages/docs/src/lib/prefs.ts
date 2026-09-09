@@ -48,7 +48,7 @@ export const PREFS_KEY = "sandboxr.docs.prefs.v1";
 export interface SchemeInfo {
   id: SchemeId;
   name: string;
-  /** What the pair of hues is, in words, for the swatch's label. */
+  /** What the hue is, in words, for the swatch's label. */
   note: string;
 }
 
@@ -60,9 +60,9 @@ export interface SchemeInfo {
  * this site's own copy. `tokens.css` is the shared thing, and it is imported.
  */
 export const SCHEMES: readonly SchemeInfo[] = [
-  { id: "tide", name: "Tide", note: "teal into blue" },
-  { id: "cobalt", name: "Cobalt", note: "deep blue into sky" },
-  { id: "fern", name: "Fern", note: "lime into teal" },
+  { id: "tide", name: "Tide", note: "deep teal" },
+  { id: "cobalt", name: "Cobalt", note: "deep blue" },
+  { id: "fern", name: "Fern", note: "moss green" },
 ];
 
 const isOneOf = <T extends string>(value: unknown, allowed: readonly T[]): value is T =>

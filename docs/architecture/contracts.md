@@ -1448,7 +1448,7 @@ is additionally checked against the session's grant.
 | Route | Answers |
 |---|---|
 | `GET /api/bootstrap` | The domain, the session, the closed action table (§8), and the default lifetime the new-sandbox form offers. What the app needs before it can draw anything |
-| `GET /api/workspace` | Every project, every worktree and every sandbox on the machine, plus a summary. The one call the sidebar and the home view are drawn from. Each worktree carries the state of its pull request, from a cached per-repository index rather than a `gh` call per row (§4.1.2) |
+| `GET /api/workspace` | Every project, every worktree and every sandbox on the machine, plus a summary. The one call the sidebar and the home view are drawn from. Each worktree carries the state of its pull request, from a cached per-repository index rather than a `gh` call per row (§4.1.2), and the agent session live on it, from the server's own registry (§7.2) |
 | `GET /api/projects/:project` | One project's worktrees, branches and open pull requests. The list is read live, so it is the authoritative one; the state on each worktree beside it comes from the index and may be up to five minutes behind |
 | `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its project's config declares |
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
@@ -1575,6 +1575,40 @@ two, `store.ts` changes and nothing else does.
 
 `sessionId` is the load-bearing field. It is the only thing that makes `claude --resume` possible
 after a container restart, and it exists nowhere else.
+
+**A worktree carries the session live on it, so a list of worktrees can be sorted by who is
+waiting on a person.** `agent` on `WorktreeDto` is `{ state, asks }` or `null`:
+
+| Field | Meaning |
+|---|---|
+| `state` | The run's state — `running`, `idle`, `needs-input`, `done`, `failed` |
+| `asks` | How many permission questions the session is stopped on (§7.2.2). A count, not the questions |
+
+Three properties fix what it may and may not say:
+
+- **It is the live registry, never the run index.** A row's question is "is something happening
+  on this branch now", and a run that ended on Tuesday is not an answer to it. The registry is
+  in the server's memory, so a dashboard restart empties it and `null` is then the truth: the
+  process really is gone (§7.2's note on what does not survive a restart).
+- **It is keyed on the worktree's own `<project>/<slug>`** — the pair every agent route takes,
+  which is the workspace directory and not the `project:` out of a sandboxr.yaml. Keying it on
+  the sandbox would answer `null` for every project that renamed itself.
+- **`/btw` forks are not counted.** A side question is a second `claude` in the same container
+  with no tools at all (§7.2.1), so it is neither working on the worktree nor able to be waiting
+  on a person about it. The registry leaves them out by testing whether an entry *is* a fork,
+  not by its key: `activity()` re-keys every live session from its own project and slug, which a
+  fork shares with its parent.
+
+**`SandboxDto` carries the same field, keyed on the sandbox's own `<project>/<slug>`.** It is
+there for the one row that has no worktree behind it: a sandbox git no longer lists a worktree
+for still gets a row, synthesised from the sandbox so the container stays reachable, and without
+this it was the one row on which a live session went unreported. The sandbox's key is the
+`project:` out of its sandboxr.yaml rather than the workspace directory, so where a project's two
+names differ this answers `null` — which is already "no session", so a missed join costs a word
+on a row and can never mislabel one.
+
+Facts, like every other field: the browser turns `running` into "agent working" and a turn
+stopped on a question into "waiting on you", and it is the browser that groups a list by them.
 
 ### 7.2.1 Side questions: `/btw`
 

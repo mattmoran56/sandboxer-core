@@ -117,7 +117,7 @@ const Site = ({ body }: { body?: { slug: string; html: string } }) => {
       */}
       <a
         href="#content"
-        className="sr-only rounded-lg bg-surface px-3 py-2 text-sm text-ink shadow-panel focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-30"
+        className="sr-only rounded-control border border-line bg-surface px-3 py-2 text-sm text-ink shadow-pop focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-30"
       >
         Skip to the page
       </a>

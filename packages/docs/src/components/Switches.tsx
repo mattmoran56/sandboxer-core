@@ -40,8 +40,12 @@ export const ThemeSwitch = ({ className }: { className?: string }) => {
  * `data-scheme` on the swatch itself, not just on `<html>`. The scheme blocks in
  * `tokens.css` are plain attribute selectors, so an element carrying the
  * attribute resolves the brand tokens to *that* scheme's hues — which means a
- * swatch can show the gradient it would give you without a single hex here and
- * without three hard-coded gradients to keep in step with the palette.
+ * swatch shows the hue it would actually give you without a single hex here, and
+ * without three hard-coded colours to keep in step with the palette.
+ *
+ * A flat `bg-brand` and no gradient, because Tide II spends the brand as one
+ * ink: a swatch that blended two hues would be advertising a second one that no
+ * longer exists.
  */
 export const SchemePicker = ({ className }: { className?: string }) => {
   const { prefs, set } = usePrefs();
@@ -68,7 +72,7 @@ export const SchemePicker = ({ className }: { className?: string }) => {
           <span
             data-scheme={scheme.id}
             aria-hidden="true"
-            className="size-3.5 rounded-full bg-gradient-brand"
+            className="size-3.5 rounded-full bg-brand"
           />
           <span className="sr-only">{scheme.name}</span>
         </button>
