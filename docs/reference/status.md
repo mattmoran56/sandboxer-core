@@ -198,10 +198,17 @@ engine state machine, the call frame bridge — is covered by `pytest` with no a
 network.
 
 The orchestrator also runs **inside the dashboard**, behind `SANDBOXR_ORCHESTRATOR`, with a browser
-panel that lists escalations and answers questions. The server side of it — the notifier, the
+panel you talk to and that lists what it noticed. The server side of it — the notifier, the
 fork-backed summariser, the Telegram config store, the sockets — is unit-tested, as is the panel
-itself (the list, answering, the Telegram form). The whole dashboard suite stays green with the
-feature off, which is the safety story: unset, none of it exists.
+itself (the conversation, the list, answering, the Telegram form). The whole dashboard suite stays
+green with the feature off, which is the safety story: unset, none of it exists.
+
+The **conversation** is a real Claude Code session, running in its own `sandboxr-orchestrator`
+container and reached with `docker exec` the way a sandbox session is. Its argument vector, its
+model and mode changes, and its socket's gate are unit-tested against a fake Docker; the browser
+renders it with the same component a sandbox session uses, whose own suite is unchanged. What
+those tests do not cover is a real model on the other end — that needs the container built and a
+Claude login on the machine.
 
 **What has not been run, and needs your Linux VM to be.** The audio itself: Whisper, Piper,
 Silero and the microphone have not been exercised by these tests, because they need a real

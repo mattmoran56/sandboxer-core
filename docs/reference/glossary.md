@@ -224,8 +224,10 @@ not ready. See [The startup graph](../architecture/startup.md).
 [The three runtime kinds](../configuration/runtime-kinds.md).
 
 **Orchestrator** — a second reader of your sessions, opposite to the dashboard: it watches all of
-them at once and tells you, out loud, only when one needs you. It runs as a program on the host,
-not inside a sandbox. See [The orchestrator, voice and Telegram](../guides/orchestrator.md).
+them at once and tells you, out loud, only when one needs you. It is also an agent you can talk
+to, with the run of the machine rather than of one worktree. It runs on the host — in the
+dashboard's own process, or as a daemon beside it — and never inside a sandbox. See
+[The orchestrator, voice and Telegram](../guides/orchestrator.md).
 
 **Owner** — for `d1` and `sqlite`, the single service allowed to open the database file. Every other
 service is denied the file's location outright. See [Databases](../databases.md).
