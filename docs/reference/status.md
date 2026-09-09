@@ -197,10 +197,12 @@ The Python sidecars' logic — the message protocols, the on-device end-of-speec
 engine state machine, the call frame bridge — is covered by `pytest` with no audio and no
 network.
 
-The orchestrator also runs **inside the dashboard**, behind `SANDBOXR_ORCHESTRATOR`, with a browser
-panel you talk to and that lists what it noticed. The server side of it — the notifier, the
+The orchestrator also runs **inside the dashboard**, behind `SANDBOXR_ORCHESTRATOR`, as a
+conversation you talk to — and one that raises what it noticed in that same conversation, rather
+than in a list beside it. The server side of it — the notifier, the
 fork-backed summariser, the Telegram config store, the sockets — is unit-tested, as is the panel
-itself (the conversation, the list, answering, the Telegram form). The whole dashboard suite stays
+itself (the conversation, the microphone, the home page's block, the Telegram form), and the
+routing of an escalation through the agent. The whole dashboard suite stays
 green with the feature off, which is the safety story: unset, none of it exists.
 
 The **conversation** is a real Claude Code session, running in its own `sandboxr-orchestrator`
