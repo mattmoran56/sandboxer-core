@@ -28,7 +28,10 @@ const BUTTON_BASE =
 
 const BUTTON_TONES: Record<ButtonTone, string> = {
   primary: "bg-brand text-brand-ink border border-brand hover:brightness-[1.08]",
-  default: "bg-surface text-ink border border-line hover:bg-hover",
+  // `line-strong` and not `line`, which is the dashboard's reason carried over
+  // with the copy: a button drawn in the same hairline as the surface it sits on
+  // stops reading as a control at all.
+  default: "bg-surface text-ink border border-line-strong hover:bg-hover",
   ghost: "text-ink-muted hover:bg-hover hover:text-ink",
   quiet: "bg-sunken text-ink-muted border border-transparent hover:bg-hover hover:text-ink",
 };

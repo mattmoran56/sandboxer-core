@@ -1593,7 +1593,17 @@ Three properties fix what it may and may not say:
   the sandbox would answer `null` for every project that renamed itself.
 - **`/btw` forks are not counted.** A side question is a second `claude` in the same container
   with no tools at all (§7.2.1), so it is neither working on the worktree nor able to be waiting
-  on a person about it.
+  on a person about it. The registry leaves them out by testing whether an entry *is* a fork,
+  not by its key: `activity()` re-keys every live session from its own project and slug, which a
+  fork shares with its parent.
+
+**`SandboxDto` carries the same field, keyed on the sandbox's own `<project>/<slug>`.** It is
+there for the one row that has no worktree behind it: a sandbox git no longer lists a worktree
+for still gets a row, synthesised from the sandbox so the container stays reachable, and without
+this it was the one row on which a live session went unreported. The sandbox's key is the
+`project:` out of its sandboxr.yaml rather than the workspace directory, so where a project's two
+names differ this answers `null` — which is already "no session", so a missed join costs a word
+on a row and can never mislabel one.
 
 Facts, like every other field: the browser turns `running` into "agent working" and a turn
 stopped on a question into "waiting on you", and it is the browser that groups a list by them.
