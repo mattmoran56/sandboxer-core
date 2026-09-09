@@ -2248,15 +2248,52 @@ it, and every example below was found the hard way rather than reasoned about in
   for thought; the raise reached the voice sidecar and left the Telegram sidecar's own copy at
   700, so calls went on cutting people off after the desk had stopped. Both entry points now
   read the default from `EndpointerConfig`, and a test asserts it.
-- **A turn ends two ways, and both are the engine's.** A run of silence is one
+- **A turn ends four ways, and all four are the engine's.** A run of silence is one
   (`EndpointerConfig`); the recognised words ceasing to change is the other, and it exists
   because in a car or on a train there is no silence to wait for — the VAD calls the noise
   speech and the turn never ends. The second reads the partial transcripts, which are already
   filtered hard enough that noise transcribes to nothing, and it is driven by the frame clock
   rather than by partial completions: partials are throttled and skipped while one is running,
   so a timer measured from them stalls exactly when the CPU is busiest, which is while somebody
-  is talking. `finish` is a third, on demand — it *keeps* what was said, where `stop-listening`
-  discards it, and both say so in their docstrings because the names do not.
+  is talking. It also requires `SETTLED_PARTIALS` passes to read the same, because a pass can
+  now be slower than the window it is judged against and one identical pass is evidence of
+  nothing. `finish` is a third, on demand — it *keeps* what was said, where `stop-listening`
+  discards it, and both say so in their docstrings because the names do not. The fourth is the
+  turn having gone on too long (`MAX_TURN_MS`, 30 s — Whisper's own window): the first two can
+  be defeated at once, by a room the VAD calls speech holding one open while somebody dictating
+  without a pause holds the other open, and the buffer then grows for the rest of the session
+  while every partial re-transcribes all of it. **At the cap nothing said is discarded.** A turn
+  with words ends exactly as `finish` ends one, so a long dictation arrives as several messages
+  rather than as the first thirty seconds and silence; a turn with nothing recognised drops its
+  audio and keeps listening, because ending it would put an empty message in front of the brain
+  and close the ear on somebody who has not started answering yet.
+
+- **A partial transcription never runs on the engine thread, and never more than one at a
+  time** (`partials.py`). A partial is a whole Whisper pass — there is no streaming partial from
+  Whisper — and it costs about **0.2 s of CPU per second of audio**, measured on the container.
+  Against a partial every 700 ms, a buffer past about **3.5 s** therefore costs more than the gap
+  between them, so running it on the engine thread put every later frame behind it: turns stopped
+  ending, the buffer grew, the next pass cost more, and live dictation degraded through a session
+  and then stopped. One worker runs the pass and **posts the result back to the engine's own
+  thread**, because the state machine has exactly one writer by design; a partial asked for while
+  one is running is **dropped, not queued**, since a queued one describes audio that has already
+  been superseded. Two more are never asked for at all, and both are about the *final* transcript
+  rather than the partial: one on a silent frame, and one that the measured cost of the last pass
+  says would still be running when the turn is capped. The final runs on the engine thread and
+  waits behind whatever is in the transcriber, so either would double the time the answer takes to
+  arrive in order to refresh a display with words that are about to be sent as a message anyway. A result that lands after its turn ended is dropped too, or it would show the
+  last utterance's words under the next one. `WhisperStt` serialises passes for the same reason —
+  the final transcript runs on the engine thread and would otherwise be inside the model at the
+  same time as a partial.
+
+- **A frame is timed from when it arrived, not from when it was handled.** The endpointer measures
+  runs of speech and silence against the stamp the backend gives each frame, so a body that stamps
+  frames where they are *processed* tells it that a queue's worth of audio arrived at once: a real
+  1.2-second pause measures as nothing and the turn does not end, while the first frame after a
+  slow pass appears to jump seconds into the future. `AudioBackend` and `CallAudioBackend` stamp on
+  a device or adapter thread and are honest by construction; `StreamedAudioBackend` is handled on
+  the engine thread, so the server stamps each `audio-in` as it comes off the socket and hands the
+  stamp down. A backlog may then delay a decision, but it cannot corrupt one.
 - **What was *heard* is never what was *sent*, wherever there is a consumer in between.** Both
   the browser and a Telegram call buffer ahead of the speakers, so the position in the outgoing
   buffer runs ahead of the ear — and that number is not only a progress indicator, it is the
