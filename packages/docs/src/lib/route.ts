@@ -32,6 +32,27 @@ export const OFF_SITE: Readonly<Record<string, string>> = {
 export const NOT_PAGES: readonly string[] = ["architecture/contracts.md", "**/README.md"];
 
 /**
+ * The one directory under `docs/` that holds files rather than pages.
+ *
+ * An image is the only thing a page can point at that is neither another page nor
+ * a URL, and it has the same problem a link has: GitHub can only follow a
+ * **relative file path**, and this site serves files from its root. So every image
+ * lives under `docs/assets/`, a page writes `assets/brand/mark.svg` relative to
+ * itself, and both ends of the build agree on one rule — a file under `docs/assets/`
+ * is served at the same path under the site root. `plugins/assets.ts` copies the
+ * directory into the build; `markdown/links.ts` rewrites the path.
+ *
+ * It is one directory and not "any file that is not Markdown" so that the rewrite
+ * has something to refuse: an image written anywhere else is left exactly as the
+ * author typed it, and is visibly broken on the site rather than silently rewritten
+ * to a path nothing was ever copied to.
+ */
+export const ASSETS_DIR = "assets";
+
+/** True for a path under `docs/` that is one of those files. */
+export const isAssetPath = (path: string): boolean => path.startsWith(`${ASSETS_DIR}/`);
+
+/**
  * A path under `docs/`, as a slug.
  *
  * `index.md` is the front page and its slug is the empty string; a directory's

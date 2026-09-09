@@ -7,6 +7,8 @@
 //  - a <details> body is rendered as Markdown, table and fence and all
 //  - GFM survives: tables, task lists, strikethrough, footnotes
 //  - a fence inside a list item is still highlighted
+//  - an image under docs/assets/ rewritten to its site path, and one that is not
+//    left alone
 //  - a page with no frontmatter renders rather than throwing
 //  - and then the real pages under docs/, asserted on structure and never on prose,
 //    because they are being rewritten while this is being written
@@ -263,6 +265,26 @@ describe("links", () => {
         "[y](../reference/cli.md)\n\n</details>\n",
     );
     expect(html.match(/href="\/reference\/cli\/"/g)).toHaveLength(2);
+  });
+});
+
+describe("images", () => {
+  it("rewrites an image under docs/assets/ to the path the build copies it to", async () => {
+    const { html } = await page("![The mark](../assets/brand/mark.svg)\n");
+    expect(html).toContain('<img src="/assets/brand/mark.svg" alt="The mark"');
+  });
+
+  it("carries the alt text, a title, and the lazy attributes", async () => {
+    const { html } = await page('![The mark](../assets/brand/mark.svg "Three bars")\n');
+    expect(html).toContain('alt="The mark"');
+    expect(html).toContain('title="Three bars"');
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain('decoding="async"');
+  });
+
+  it("leaves an image that is not under docs/assets/ alone", async () => {
+    const { html } = await page("![a](screenshot.png)\n");
+    expect(html).toContain('<img src="screenshot.png"');
   });
 });
 

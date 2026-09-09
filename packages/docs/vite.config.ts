@@ -6,7 +6,11 @@
 //    `docs/` directory as plain Markdown so they read on GitHub without a build.
 //    `plugins/content.ts` reaches up for them, renders them at build time and
 //    hands the app structured data — so nothing is fetched or parsed in the
-//    browser. See that file for what is excluded and why.
+//    browser. See that file for what is excluded and why. `plugins/assets.ts`
+//    does the same for the one thing under `docs/` that is not text: the images
+//    in `docs/assets/`, copied into the build rather than bundled, because a
+//    hashed filename is not something a Markdown file written for GitHub can
+//    know.
 //  - **There are two builds.** The first is the ordinary browser bundle. The
 //    second is an SSR bundle of `src/entry-server.tsx`, which `build/prerender.mjs`
 //    then uses to write one static HTML file per route. That is what makes a deep
@@ -21,10 +25,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwind from "@tailwindcss/vite";
 
+import { docsAssets } from "./plugins/assets.js";
 import { docsContent } from "./plugins/content.js";
 
 export default defineConfig({
-  plugins: [react(), tailwind(), docsContent()],
+  plugins: [react(), tailwind(), docsContent(), docsAssets()],
   build: {
     outDir: "dist",
     emptyOutDir: true,

@@ -39,7 +39,7 @@ import { escapeAttribute } from "./escape.js";
 import { codeBlock, diagramBlock, promptBlock } from "./fences.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { highlight } from "./highlight.js";
-import { resolveDocHref } from "./links.js";
+import { resolveDocAsset, resolveDocHref } from "./links.js";
 import { createSlugger } from "./slug.js";
 import { toPlainText } from "./text.js";
 import type { Frontmatter } from "./types.js";
@@ -137,6 +137,10 @@ export const render = async (input: RenderInput): Promise<Rendered> => {
         const inner = this.parser.parseInline(token.tokens);
         return renderLink(token, inner, input.file);
       },
+
+      image(token: Tokens.Image): string {
+        return renderImage(token, input.file);
+      },
     },
   });
 
@@ -197,6 +201,23 @@ const scan = async (
  * additionally withholds the referrer, and a documentation link has no reason to
  * tell a third-party site which page somebody was reading.
  */
+/**
+ * An image, with its `src` rewritten from the relative path GitHub needs.
+ *
+ * `loading="lazy"` and `decoding="async"` on every one of them: a page's images
+ * are never the thing somebody came for, and neither attribute needs a size to be
+ * safe here — `.sbx-prose img` sets `max-width: 100%; height: auto`, so the layout
+ * does not depend on the image having arrived.
+ *
+ * The alt text is `token.text`, which marked has already reduced to plain text, so
+ * escaping it is the whole of what it needs.
+ */
+const renderImage = (token: Tokens.Image, file: string): string => {
+  const src = resolveDocAsset(token.href, file);
+  const title = token.title ? ` title="${escapeAttribute(token.title)}"` : "";
+  return `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(token.text)}"${title} loading="lazy" decoding="async">`;
+};
+
 const renderLink = (token: Tokens.Link, inner: string, file: string): string => {
   const { href, external } = resolveDocHref(token.href, file);
   const title = token.title ? ` title="${escapeAttribute(token.title)}"` : "";

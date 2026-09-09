@@ -115,13 +115,31 @@ where the reader is in the page. A callout is not a place to hide an instruction
 theme. Keep them to one idea and under about ten nodes — a diagram nobody can read is worse than
 the sentence it replaced.
 
-### 5. Links between pages
+### 5. Links and images
 
 **Relative file paths, always** — `../reference/cli.md`, `getting-started/install.md`. That is the
 only form GitHub can follow. A build plugin rewrites them for the site. An absolute site path
 (`/reference/cli/`) breaks GitHub and is a bug.
 
 Link the first use of any term that has a glossary entry.
+
+**An image is the same rule, and it lives in `docs/assets/`.** Nothing else under `docs/` is
+served as a file.
+
+```md
+![The sandboxr mark](assets/brand/mark.svg)
+```
+
+The path is relative to the page, exactly as a link's is, and it must land under `docs/assets/`.
+`plugins/assets.ts` copies that directory into the build and `markdown/links.ts` rewrites the
+path, so one string is a working relative path on GitHub and a working URL on the site. An image
+written anywhere else is **left exactly as typed** rather than rewritten, so the mistake is
+visible on both instead of tidy on one.
+
+Prefer SVG, and prefer one that carries no font: a face the reader does not have is a word that
+does not appear. Where an SVG has to set text, give it a fallback stack and say so on the page.
+Give every image alt text that says what it shows, because it is read aloud and it is what
+appears when the file does not.
 
 ## What must be true of every page
 
