@@ -307,6 +307,13 @@ behind an optional extra. Their control planes stay TypeScript. See
 Boundaries hold here too: speech never leaves the machine (the Telegram call excepted, which is
 your own account), and the base package never imports voice or telegram.
 
+**The agent you talk to is not in this DAG.** The four packages above are the *watching* half —
+noticing, deciding, saying. The conversation is a real Claude Code session, and it lives in
+`packages/server` (`orchestrator-agent.ts`, its socket, and the MCP server that gives it reach into
+the other sessions) because that is where `AgentSessions` and the Docker client already are. It
+runs in a container of its own, `sandboxr-orchestrator` — the dashboard's image plus `claude` —
+because the dashboard is the password-protected web surface and never holds the Claude login.
+
 ## `container/`
 
 **What it owns.** Everything that runs inside a sandbox. The generic base image. The per-project

@@ -991,6 +991,37 @@ the dashboard is already running has no effect. See
 
 </details>
 
+### A session on macOS says `Not logged in · Please run /login`
+
+**Your `~/.claude/.credentials.json` is being read as a login and is not one.** On macOS that
+file usually holds the OAuth tokens for MCP servers you have signed into, while your account
+login sits in the login keychain.
+
+sandboxr checks only that the file exists and is not empty, so an MCP-only file looks like a
+login. The token you set is then withheld, because a token would override a login, and the
+session is left with no credential at all. Setting `SANDBOXR_CLAUDE_TOKEN` cannot fix it.
+
+Either export the real credential from the keychain into that file — **merging**, not
+overwriting, or you lose the MCP tokens — or move the file aside so the token is used again.
+The commands for both are in
+[Agent sessions](guides/agent-sessions.md#on-macos-that-file-is-usually-not-your-login).
+
+<details class="failure">
+<summary><b>If it goes wrong</b> — checking what the sandbox is actually given</summary>
+
+This is the same test the dashboard makes, and it reports the mount, never whether the file
+holds a login:
+
+```bash
+docker exec sandboxr-acme-tkt-4821 test -s /root/.claude/.credentials.json && echo mounted
+```
+
+An exported credential also goes stale: a rotation writes to the keychain and not to the
+file, and the symptom is this message again. `claude setup-token` is the credential built to
+be long-lived, and it works once nothing is being mistaken for a login.
+
+</details>
+
 ### The repository list is empty, and `gh` works fine on this machine
 
 Settings → Projects lists what the **dashboard's** `gh` can reach, and the dashboard runs in a

@@ -255,7 +255,8 @@ machine out of every server it had been given.
 
 One path inside that volume comes from the host rather than from the volume: when
 `~/.claude/.credentials.json` exists on the host it is bind-mounted read-write over the volume's
-copy, so a login is shared with every sandbox rather than duplicated into each. See §7.2.
+copy, so a login is shared with every sandbox rather than duplicated into each. On macOS that file
+is usually not a login at all, which has a consequence worth knowing. See §7.2.
 
 Images are named under one namespace, and the split between them decides what may be reclaimed:
 
@@ -457,6 +458,7 @@ Three consequences are part of the contract:
   build/<project>/<slug>.env  the generated per-sandbox environment
   bin/                   host-built helper binaries
   config.yaml            the machine's own settings — see §4.3
+  soul.md                the orchestrator agent's character, as prose — see §10.7
   state/keep/<project>/<slug>  keeps one sandbox alive past its idle limit — see §4.2
   state/name/<project>/<slug>  what to call one worktree on screen — see §4.2.1
   state/slug/<project>/<worktree dir>  the slug a worktree was given on a collision — see §4.2.3
@@ -1824,8 +1826,27 @@ Three consequences are part of the contract:
   credential at all.
 - **On Linux, a host login is therefore shared with every sandbox on the machine**, with all of the
   reach described above. That is the supported arrangement, and it is a decision, not an oversight.
-- **On macOS there is no such file** — the credential lives in the login keychain — so nothing is
-  mounted unless a person exports one to that path by hand. See the guide.
+- **On macOS the file is not the login, and may still exist.** The account credential is in the
+  login keychain (service `Claude Code-credentials`, account the username). The file at
+  `~/.claude/.credentials.json` is nonetheless commonly present there, because it is also where
+  Claude Code keeps the OAuth tokens for MCP servers signed into on the host. Existence and size
+  cannot tell those apart, and the contract is that sandboxr never reads the file to find out.
+
+**The macOS false positive is part of the contract, because it is the cost of not reading the
+file.** An MCP-only `~/.claude/.credentials.json` is mounted, `hasLogin`'s `test -s` answers yes,
+`agentEnv` therefore withholds `CLAUDE_CODE_OAUTH_TOKEN`, and the session runs with no credential
+at all. Claude Code reports `Not logged in · Please run /login`, which names neither the mount nor
+the withheld token, and adding a setup-token cannot fix it because the false positive is what
+suppresses the token. Observed on a real container with such a file mounted. The two resolutions
+are both a person's: put a real login in the file — exported from the keychain and **merged**, an
+overwrite destroying the MCP tokens — or take the file out of the mount's way and let the token be
+used. The guide carries both.
+
+An exported keychain credential is a **copy of a rotating credential**: rotation writes to the
+keychain and not to the file, so it goes stale and the symptom is `Not logged in` again.
+`claude setup-token` is the credential built for this; the export is a development-time
+compromise, and the two blob formats being identical is an observation rather than anything
+either side documents.
 
 **The dashboard is given the path at `init`, not left to resolve it.** It runs in a container whose
 `$HOME` is not the person's, so resolving from inside it would find nothing while the CLI found the
@@ -2188,6 +2209,68 @@ matches what is in the person's head, not what was sent to the speaker. This is 
 "what was said" and "what was heard" are deliberately different, and every downstream decision
 uses the second.
 
+### 10.3.1 One voice, three bodies
+
+There is **one voice**, and it has three bodies. Each body is a `Backend` the same `Engine`
+drives, and each differs only in where the audio comes from and goes to:
+
+| Body | Where the audio is | File |
+|---|---|---|
+| `StreamedAudioBackend` | the browser is the microphone and the speaker | `sidecars/voice/voice_sidecar/stream.py` |
+| `AudioBackend` | a real microphone and speaker, at the desk | `sidecars/voice/voice_sidecar/audio.py` |
+| `CallAudioBackend` | a Telegram group voice call | `sidecars/telegram/telegram_sidecar/call_audio.py` |
+
+They share the **brain** (`packages/orchestrator`, `packages/voice`) and the **engines**
+(`engines/piper_tts.py`, `engines/whisper_stt.py`, `endpointer.py`, `engine.py`). The
+boundary between the two is a rule, not a habit:
+
+- **What is said, how fast it is said, what was heard, when a turn ends, and what counts as
+  speech at all — shared.** It belongs in an engine or in the brain, and there is exactly one
+  copy of it.
+- **How bytes reach a speaker and leave a microphone — the backend's own.** Opening a
+  `sounddevice` stream, draining `audio-out` frames to a socket, pushing PCM at pytgcalls,
+  and deriving "playback finished" from whichever signal that device actually has.
+
+**A fix made in one backend is a bug in the other two until it moves.** That is the whole of
+it, and every example below was found the hard way rather than reasoned about in advance:
+
+- **The speaking pace lives on `PiperTts`**, not on a backend. A pace held per backend is a
+  pace that works in the dashboard and silently does not on a phone call.
+- **Piper's output is resampled from its native rate (22050 Hz for most voices) to the 16 kHz
+  everything else assumes**, in `PiperTts` rather than at each device. Handing 22050 Hz to a
+  16 kHz player does not fail; it plays 1.38× too slow and too low, which reads as a deeper,
+  slower voice rather than as a bug, and it defeats the pace control on top.
+- **Whisper's confidence thresholds and its hallucination denylist are in `WhisperStt`.** A
+  breath transcribed as "Thank you." is a message the orchestrator acts on, and it is exactly
+  as wrong on a call as in a browser.
+- **The end-of-turn silence window is `EndpointerConfig`'s**, and nothing else may hold a
+  number for it. Raised from 700 ms to 1200 ms because 700 ended a turn on an ordinary pause
+  for thought; the raise reached the voice sidecar and left the Telegram sidecar's own copy at
+  700, so calls went on cutting people off after the desk had stopped. Both entry points now
+  read the default from `EndpointerConfig`, and a test asserts it.
+- **What was *heard* is never what was *sent*, wherever there is a consumer in between.** Both
+  the browser and a Telegram call buffer ahead of the speakers, so the position in the outgoing
+  buffer runs ahead of the ear — and that number is not only a progress indicator, it is the
+  heard/unheard boundary the session history is rewritten against at a barge-in. Each backend
+  therefore corrects it and errs low: the browser reports its own playback clock, the call
+  bounds it by the wall clock (a call plays at exactly 1×, so nobody can have heard more than
+  the seconds elapsed), and `AudioBackend` alone needs no correction because PortAudio pulls
+  each block just before it is due. That last one is recorded in its docstring so it is not
+  re-audited into a bug.
+- **Stopping playback has to abort the device, not drain it.** Emptying a buffer stops the
+  *next* sample being found; it does not recall what the consumer already holds. In the browser
+  that was up to a second of scheduled speech carrying on over somebody who had already
+  interrupted; at the desk it is PortAudio's output latency, and `stop()` there makes it worse
+  because `stop()` drains — `abort()` is the one that discards. On a call the residue inside
+  the encoder and the far end's jitter buffer cannot be recalled at all, which is a fixed
+  latency rather than a growing queue, and the code says so rather than pretending otherwise.
+
+The rule's weak point is the small amount of frame bookkeeping the three backends genuinely
+repeat — the pre-roll ring that keeps a barge-in's first word, and the per-frame VAD call that
+files a frame and judges it in the same breath. It sits against the frame source, which is why
+it is there three times; it is also the most likely place for the three to drift next, so a
+change to any of it is a change to all three.
+
 ### 10.4 Hooks
 
 Claude Code's hooks are pointed at `sandboxr-orchestrator-hook`, a bin whose one guarantee is
@@ -2252,7 +2335,7 @@ and a websocket to the browser, so an escalation is a card and an answer is a cl
 variable is unset, `startOrchestrator` returns null and every route and gateway treats null as
 "the feature does not exist" — an un-opted-in dashboard is unchanged, which is the safety story.
 
-Two sockets and two routes, all gated on a password that covers **every** project (`*`), because
+Two sockets and three routes, all gated on a password that covers **every** project (`*`), because
 the orchestrator watches across projects and an escalation about one names a sandbox another
 login may not see:
 
@@ -2265,6 +2348,14 @@ login may not see:
   api id, hash or session**: those are secrets, stay in the sidecar's environment, and have no
   web field. **`GET /api/orchestrator`** answers `{enabled}` so the browser can decide whether to
   draw the panel; it is the one route a disabled dashboard still answers.
+- **`GET/PUT /api/orchestrator/soul`** — `{text}`, the orchestrator agent's character, stored as
+  prose in `$SANDBOXR_HOME/soul.md` and capped at 8000 characters. **Only the orchestrator reads
+  it**; a sandbox session's prompt is core's and is untouched by it. It is appended **after** the
+  operational system prompt under a heading limiting it to manner, so it can never widen what the
+  agent may do — the allowlist and `--permission-prompt-tool` remain the only things that decide
+  that. Absent or empty means no section at all and a byte-identical prompt. It is read when a
+  conversation opens, never at construction: `--append-system-prompt` is fixed for the life of the
+  `claude` process, so an edit lands on the **next** conversation and every surface must say so.
 
 **Audio on the web streams to the sidecar; it does not use the browser's own speech.** Browser
 speech recognition ships audio to a vendor cloud, which would break "speech never leaves the
@@ -2274,10 +2365,12 @@ locally and streams the spoken audio back. The `audio-in`/`audio-out` frames car
 the protocol stays one JSON object per line, and the sidecar paces `audio-out` one tick at a time
 so the heard boundary stays honest at a barge-in.
 
-**Voice is never a second asker.** The dashboard panel is the one thing that awaits a question's
-answer. Voice speaks the question and, through the sidecar's transcript of what the browser's
-microphone heard, submits the answer to whatever question the panel has open — so clicking and
-talking are one answer arriving two ways, not two racing.
+**Voice is never a second asker.** There is one conversation, and speech is a way into it, not a
+second channel beside it. What the sidecar hears becomes `agent.send(text)` — an ordinary message
+— and the agent's finished prose is spoken back; escalations reach the agent (`AgentNotifier`),
+which raises them in that same conversation. Talking is typing. The transcript used to be
+submitted as the answer to whatever question the panel had open, which was a second answer channel
+and could settle the wrong question when two were open at once.
 
 **Streamed audio is also what makes the sidecars containerisable.** With the browser doing the
 raw audio I/O, a sidecar needs no audio device, so it ships as an image that runs the same on any

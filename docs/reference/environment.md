@@ -199,7 +199,10 @@ applies to sessions and never to a side question.
 `CLAUDE_CONFIG_DIR` or `$HOME/.claude`, and forwarded to the dashboard, which cannot see your home
 directory to work it out for itself. When that file exists it is bind-mounted read-write into every
 sandbox at `/root/.claude/.credentials.json`, so one login is *shared* rather than copied. Set it
-yourself only for a credential kept somewhere unusual. A path that names nothing is worse than no
+yourself only for a credential kept somewhere unusual. **On macOS that file is usually not a login**
+— it holds MCP OAuth tokens, while the account credential is in the login keychain — and mounting
+one costs you the session's credential entirely:
+[why, and what to do](../guides/agent-sessions.md#on-macos-that-file-is-usually-not-your-login). A path that names nothing is worse than no
 path at all, because Docker answers a missing bind source by creating a directory. So sandboxr
 checks that the file exists and is non-empty before forwarding it. A credential deleted afterwards
 needs another `init` to be noticed.
@@ -232,6 +235,7 @@ process (see [In the dashboard](../guides/orchestrator.md#in-the-dashboard)):
 | Variable | Default | What it does |
 |---|---|---|
 | `SANDBOXR_ORCHESTRATOR` | off | Any non-empty value but `0` turns on the dashboard's Orchestrator panel |
+| `SANDBOXR_VOICE_SOCKET` | unset | The voice sidecar's socket. Without it the panel has no voice toggle and says so — everything else works |
 | `SANDBOXR_ORCHESTRATOR_STALL_MS` | model default | How long a quiet session waits before it is a question — lower it to try the panel out |
 | `SANDBOXR_VOICE_SOCKET` | — | The voice sidecar's socket, to speak escalations and carry the browser's audio |
 
@@ -261,9 +265,12 @@ wiring starts it, not a person. Every one has a `--flag` twin; the flag wins whe
 | `SANDBOXR_WHISPER_DEVICE` | `cpu` | Where Whisper runs |
 | `SANDBOXR_WHISPER_COMPUTE` | `int8` | Its compute type |
 | `SANDBOXR_VAD_THRESHOLD` | `0.5` | How loud counts as speech, for Silero |
-| `SANDBOXR_ENDPOINT_SILENCE_MS` | `700` | The silence that ends a turn |
+| `SANDBOXR_ENDPOINT_SILENCE_MS` | `1200` | The silence that ends a turn |
+| `SANDBOXR_VOICE_RATE` | `1.4` | The starting speaking pace, as a multiple of the voice's own. Clamped to 0.5–3, and overridden by the dashboard's setting once a browser connects |
 
-**The telegram sidecar** (`sidecars/telegram`) takes the same Piper and Whisper variables, plus
+**The telegram sidecar** (`sidecars/telegram`) takes the same Piper, Whisper and end-of-turn
+variables, with the same defaults: a call is the same conversation as the desk, so the pace, the
+recogniser and the moment your turn ends are decided the same way (contracts §10.3.1). It also has
 its own. The three credentials are **read from the environment only, never a flag**, because a
 flag lands in shell history and process listings:
 

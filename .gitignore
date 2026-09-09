@@ -17,3 +17,7 @@ secrets/*.env
 .claude/worktrees/
 __pycache__/
 .venv/
+
+# Piper voices are downloaded, not committed: ~60MB each, and which voice you
+# want is a preference. See docs/guides/orchestrator.md.
+sidecars/models/

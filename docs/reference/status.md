@@ -184,11 +184,20 @@ The Python sidecars' logic — the message protocols, the on-device end-of-speec
 engine state machine, the call frame bridge — is covered by `pytest` with no audio and no
 network.
 
-The orchestrator also runs **inside the dashboard**, behind `SANDBOXR_ORCHESTRATOR`, with a browser
-panel that lists escalations and answers questions. The server side of it — the notifier, the
+The orchestrator also runs **inside the dashboard**, behind `SANDBOXR_ORCHESTRATOR`, as a
+conversation you talk to — and one that raises what it noticed in that same conversation, rather
+than in a list beside it. The server side of it — the notifier, the
 fork-backed summariser, the Telegram config store, the sockets — is unit-tested, as is the panel
-itself (the list, answering, the Telegram form). The whole dashboard suite stays green with the
-feature off, which is the safety story: unset, none of it exists.
+itself (the conversation, the microphone, the home page's block, the Telegram form), and the
+routing of an escalation through the agent. The whole dashboard suite stays
+green with the feature off, which is the safety story: unset, none of it exists.
+
+The **conversation** is a real Claude Code session, running in its own `sandboxr-orchestrator`
+container and reached with `docker exec` the way a sandbox session is. Its argument vector, its
+model and mode changes, and its socket's gate are unit-tested against a fake Docker; the browser
+renders it with the same component a sandbox session uses, whose own suite is unchanged. What
+those tests do not cover is a real model on the other end — that needs the container built and a
+Claude login on the machine.
 
 **What has not been run, and needs your Linux VM to be.** The audio itself: Whisper, Piper,
 Silero and the microphone have not been exercised by these tests, because they need a real
@@ -197,7 +206,14 @@ sidecar, playing the reply — is written and its toggle is tested, but the soun
 real browser and a running sidecar. A **live Telegram call** has not been placed — it needs real
 credentials and a real account, and pytgcalls' audio API must be confirmed against the installed
 version. Treat the `spokenChars` heard-boundary as an estimate until a real voice has been talked
-over. [The orchestrator guide](../guides/orchestrator.md) has the steps to run all of this on a VM.
+over.
+
+One thing that follows from where the voice work lives, because it is easy to read as a stronger
+claim than it is. The pace, the resampling, the recogniser's filters and the moment a turn ends
+are all in the engines every audio path shares (contracts §10.3.1), so a Telegram call gets them
+by construction. That is not the same as having heard them on one, and nobody has.
+
+[The orchestrator guide](../guides/orchestrator.md) has the steps to run all of this on a VM.
 
 ## The managed layer
 
