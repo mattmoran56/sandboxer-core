@@ -2214,6 +2214,15 @@ it, and every example below was found the hard way rather than reasoned about in
   for thought; the raise reached the voice sidecar and left the Telegram sidecar's own copy at
   700, so calls went on cutting people off after the desk had stopped. Both entry points now
   read the default from `EndpointerConfig`, and a test asserts it.
+- **A turn ends two ways, and both are the engine's.** A run of silence is one
+  (`EndpointerConfig`); the recognised words ceasing to change is the other, and it exists
+  because in a car or on a train there is no silence to wait for — the VAD calls the noise
+  speech and the turn never ends. The second reads the partial transcripts, which are already
+  filtered hard enough that noise transcribes to nothing, and it is driven by the frame clock
+  rather than by partial completions: partials are throttled and skipped while one is running,
+  so a timer measured from them stalls exactly when the CPU is busiest, which is while somebody
+  is talking. `finish` is a third, on demand — it *keeps* what was said, where `stop-listening`
+  discards it, and both say so in their docstrings because the names do not.
 - **What was *heard* is never what was *sent*, wherever there is a consumer in between.** Both
   the browser and a Telegram call buffer ahead of the speakers, so the position in the outgoing
   buffer runs ahead of the ear — and that number is not only a progress indicator, it is the

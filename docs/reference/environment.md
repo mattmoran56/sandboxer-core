@@ -266,6 +266,7 @@ wiring starts it, not a person. Every one has a `--flag` twin; the flag wins whe
 | `SANDBOXR_WHISPER_COMPUTE` | `int8` | Its compute type |
 | `SANDBOXR_VAD_THRESHOLD` | `0.5` | How loud counts as speech, for Silero |
 | `SANDBOXR_ENDPOINT_SILENCE_MS` | `1200` | The silence that ends a turn |
+| `SANDBOXR_NO_NEW_WORDS_MS` | `2000` | The second way a turn ends: the recognised words stop changing. For a car, a train, or any room the microphone never hears silence in. `0` disables it |
 | `SANDBOXR_VOICE_RATE` | `1.4` | The starting speaking pace, as a multiple of the voice's own. Clamped to 0.5–3, and overridden by the dashboard's setting once a browser connects |
 
 **The telegram sidecar** (`sidecars/telegram`) takes the same Piper, Whisper and end-of-turn
