@@ -199,7 +199,10 @@ applies to sessions and never to a side question.
 `CLAUDE_CONFIG_DIR` or `$HOME/.claude`, and forwarded to the dashboard, which cannot see your home
 directory to work it out for itself. When that file exists it is bind-mounted read-write into every
 sandbox at `/root/.claude/.credentials.json`, so one login is *shared* rather than copied. Set it
-yourself only for a credential kept somewhere unusual. A path that names nothing is worse than no
+yourself only for a credential kept somewhere unusual. **On macOS that file is usually not a login**
+— it holds MCP OAuth tokens, while the account credential is in the login keychain — and mounting
+one costs you the session's credential entirely:
+[why, and what to do](../guides/agent-sessions.md#on-macos-that-file-is-usually-not-your-login). A path that names nothing is worse than no
 path at all, because Docker answers a missing bind source by creating a directory. So sandboxr
 checks that the file exists and is non-empty before forwarding it. A credential deleted afterwards
 needs another `init` to be noticed.

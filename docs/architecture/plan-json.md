@@ -229,7 +229,7 @@ running.
 | `/workspace/<deps.root>/node_modules` | the shared dependency volume, keyed on the lockfile hash |
 | `/go/cache`, `/go/pkg/mod` | Go's build and module caches, shared machine-wide. Only for a Go toolchain |
 | `/root/.claude` | Claude Code's state, shared machine-wide so an MCP server is authorised once per machine |
-| `/root/.claude/.credentials.json` | the host's own Claude Code login, one file, read-write — and only when that file exists on the host |
+| `/root/.claude/.credentials.json` | the host's own Claude Code credential file, one file, read-write — and only when that file exists on the host. Its login on Linux; on macOS usually the MCP tokens instead, see contracts §7.2 |
 | the worktree's own host path | the worktree a second time, at the path the host calls it |
 | the repository's own host path | the bare repo or `.git` the worktree points at, read-write |
 

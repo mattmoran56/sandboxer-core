@@ -255,7 +255,8 @@ machine out of every server it had been given.
 
 One path inside that volume comes from the host rather than from the volume: when
 `~/.claude/.credentials.json` exists on the host it is bind-mounted read-write over the volume's
-copy, so a login is shared with every sandbox rather than duplicated into each. See §7.2.
+copy, so a login is shared with every sandbox rather than duplicated into each. On macOS that file
+is usually not a login at all, which has a consequence worth knowing. See §7.2.
 
 Images are named under one namespace, and the split between them decides what may be reclaimed:
 
@@ -1790,8 +1791,27 @@ Three consequences are part of the contract:
   credential at all.
 - **On Linux, a host login is therefore shared with every sandbox on the machine**, with all of the
   reach described above. That is the supported arrangement, and it is a decision, not an oversight.
-- **On macOS there is no such file** — the credential lives in the login keychain — so nothing is
-  mounted unless a person exports one to that path by hand. See the guide.
+- **On macOS the file is not the login, and may still exist.** The account credential is in the
+  login keychain (service `Claude Code-credentials`, account the username). The file at
+  `~/.claude/.credentials.json` is nonetheless commonly present there, because it is also where
+  Claude Code keeps the OAuth tokens for MCP servers signed into on the host. Existence and size
+  cannot tell those apart, and the contract is that sandboxr never reads the file to find out.
+
+**The macOS false positive is part of the contract, because it is the cost of not reading the
+file.** An MCP-only `~/.claude/.credentials.json` is mounted, `hasLogin`'s `test -s` answers yes,
+`agentEnv` therefore withholds `CLAUDE_CODE_OAUTH_TOKEN`, and the session runs with no credential
+at all. Claude Code reports `Not logged in · Please run /login`, which names neither the mount nor
+the withheld token, and adding a setup-token cannot fix it because the false positive is what
+suppresses the token. Observed on a real container with such a file mounted. The two resolutions
+are both a person's: put a real login in the file — exported from the keychain and **merged**, an
+overwrite destroying the MCP tokens — or take the file out of the mount's way and let the token be
+used. The guide carries both.
+
+An exported keychain credential is a **copy of a rotating credential**: rotation writes to the
+keychain and not to the file, so it goes stale and the symptom is `Not logged in` again.
+`claude setup-token` is the credential built for this; the export is a development-time
+compromise, and the two blob formats being identical is an observation rather than anything
+either side documents.
 
 **The dashboard is given the path at `init`, not left to resolve it.** It runs in a container whose
 `$HOME` is not the person's, so resolving from inside it would find nothing while the CLI found the
