@@ -2175,6 +2175,68 @@ matches what is in the person's head, not what was sent to the speaker. This is 
 "what was said" and "what was heard" are deliberately different, and every downstream decision
 uses the second.
 
+### 10.3.1 One voice, three bodies
+
+There is **one voice**, and it has three bodies. Each body is a `Backend` the same `Engine`
+drives, and each differs only in where the audio comes from and goes to:
+
+| Body | Where the audio is | File |
+|---|---|---|
+| `StreamedAudioBackend` | the browser is the microphone and the speaker | `sidecars/voice/voice_sidecar/stream.py` |
+| `AudioBackend` | a real microphone and speaker, at the desk | `sidecars/voice/voice_sidecar/audio.py` |
+| `CallAudioBackend` | a Telegram group voice call | `sidecars/telegram/telegram_sidecar/call_audio.py` |
+
+They share the **brain** (`packages/orchestrator`, `packages/voice`) and the **engines**
+(`engines/piper_tts.py`, `engines/whisper_stt.py`, `endpointer.py`, `engine.py`). The
+boundary between the two is a rule, not a habit:
+
+- **What is said, how fast it is said, what was heard, when a turn ends, and what counts as
+  speech at all — shared.** It belongs in an engine or in the brain, and there is exactly one
+  copy of it.
+- **How bytes reach a speaker and leave a microphone — the backend's own.** Opening a
+  `sounddevice` stream, draining `audio-out` frames to a socket, pushing PCM at pytgcalls,
+  and deriving "playback finished" from whichever signal that device actually has.
+
+**A fix made in one backend is a bug in the other two until it moves.** That is the whole of
+it, and every example below was found the hard way rather than reasoned about in advance:
+
+- **The speaking pace lives on `PiperTts`**, not on a backend. A pace held per backend is a
+  pace that works in the dashboard and silently does not on a phone call.
+- **Piper's output is resampled from its native rate (22050 Hz for most voices) to the 16 kHz
+  everything else assumes**, in `PiperTts` rather than at each device. Handing 22050 Hz to a
+  16 kHz player does not fail; it plays 1.38× too slow and too low, which reads as a deeper,
+  slower voice rather than as a bug, and it defeats the pace control on top.
+- **Whisper's confidence thresholds and its hallucination denylist are in `WhisperStt`.** A
+  breath transcribed as "Thank you." is a message the orchestrator acts on, and it is exactly
+  as wrong on a call as in a browser.
+- **The end-of-turn silence window is `EndpointerConfig`'s**, and nothing else may hold a
+  number for it. Raised from 700 ms to 1200 ms because 700 ended a turn on an ordinary pause
+  for thought; the raise reached the voice sidecar and left the Telegram sidecar's own copy at
+  700, so calls went on cutting people off after the desk had stopped. Both entry points now
+  read the default from `EndpointerConfig`, and a test asserts it.
+- **What was *heard* is never what was *sent*, wherever there is a consumer in between.** Both
+  the browser and a Telegram call buffer ahead of the speakers, so the position in the outgoing
+  buffer runs ahead of the ear — and that number is not only a progress indicator, it is the
+  heard/unheard boundary the session history is rewritten against at a barge-in. Each backend
+  therefore corrects it and errs low: the browser reports its own playback clock, the call
+  bounds it by the wall clock (a call plays at exactly 1×, so nobody can have heard more than
+  the seconds elapsed), and `AudioBackend` alone needs no correction because PortAudio pulls
+  each block just before it is due. That last one is recorded in its docstring so it is not
+  re-audited into a bug.
+- **Stopping playback has to abort the device, not drain it.** Emptying a buffer stops the
+  *next* sample being found; it does not recall what the consumer already holds. In the browser
+  that was up to a second of scheduled speech carrying on over somebody who had already
+  interrupted; at the desk it is PortAudio's output latency, and `stop()` there makes it worse
+  because `stop()` drains — `abort()` is the one that discards. On a call the residue inside
+  the encoder and the far end's jitter buffer cannot be recalled at all, which is a fixed
+  latency rather than a growing queue, and the code says so rather than pretending otherwise.
+
+The rule's weak point is the small amount of frame bookkeeping the three backends genuinely
+repeat — the pre-roll ring that keeps a barge-in's first word, and the per-frame VAD call that
+files a frame and judges it in the same breath. It sits against the frame source, which is why
+it is there three times; it is also the most likely place for the three to drift next, so a
+change to any of it is a change to all three.
+
 ### 10.4 Hooks
 
 Claude Code's hooks are pointed at `sandboxr-orchestrator-hook`, a bin whose one guarantee is
@@ -2269,10 +2331,12 @@ locally and streams the spoken audio back. The `audio-in`/`audio-out` frames car
 the protocol stays one JSON object per line, and the sidecar paces `audio-out` one tick at a time
 so the heard boundary stays honest at a barge-in.
 
-**Voice is never a second asker.** The dashboard panel is the one thing that awaits a question's
-answer. Voice speaks the question and, through the sidecar's transcript of what the browser's
-microphone heard, submits the answer to whatever question the panel has open — so clicking and
-talking are one answer arriving two ways, not two racing.
+**Voice is never a second asker.** There is one conversation, and speech is a way into it, not a
+second channel beside it. What the sidecar hears becomes `agent.send(text)` — an ordinary message
+— and the agent's finished prose is spoken back; escalations reach the agent (`AgentNotifier`),
+which raises them in that same conversation. Talking is typing. The transcript used to be
+submitted as the answer to whatever question the panel had open, which was a second answer channel
+and could settle the wrong question when two were open at once.
 
 **Streamed audio is also what makes the sidecars containerisable.** With the browser doing the
 raw audio I/O, a sidecar needs no audio device, so it ships as an image that runs the same on any

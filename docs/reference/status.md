@@ -219,7 +219,14 @@ sidecar, playing the reply — is written and its toggle is tested, but the soun
 real browser and a running sidecar. A **live Telegram call** has not been placed — it needs real
 credentials and a real account, and pytgcalls' audio API must be confirmed against the installed
 version. Treat the `spokenChars` heard-boundary as an estimate until a real voice has been talked
-over. [The orchestrator guide](../guides/orchestrator.md) has the steps to run all of this on a VM.
+over.
+
+One thing that follows from where the voice work lives, because it is easy to read as a stronger
+claim than it is. The pace, the resampling, the recogniser's filters and the moment a turn ends
+are all in the engines every audio path shares (contracts §10.3.1), so a Telegram call gets them
+by construction. That is not the same as having heard them on one, and nobody has.
+
+[The orchestrator guide](../guides/orchestrator.md) has the steps to run all of this on a VM.
 
 ## The managed layer
 
