@@ -2243,6 +2243,15 @@ it, and every example below was found the hard way rather than reasoned about in
 - **Whisper's confidence thresholds and its hallucination denylist are in `WhisperStt`.** A
   breath transcribed as "Thank you." is a message the orchestrator acts on, and it is exactly
   as wrong on a call as in a browser.
+- **What counts as speech is `SileroVad`'s — and so is the buffering that makes it possible.**
+  Silero decides on a fixed 512-sample window and carries LSTM state between windows; none of
+  the three bodies produces 512-sample frames, and the browser's are not even a constant
+  (2048 frames of 48 kHz resampled is about 683). So the re-chunking and the state live in the
+  engine, behind one `is_speech(frame_pcm)` that takes whatever a body has. A body that chunked
+  for itself would be three buffers, three LSTM states and three chances to zero one — and both
+  mistakes return plausible probabilities rather than an error, so nothing would ever say so.
+  The model is faster-whisper's own `silero_vad_v6.onnx`; the `silero-vad` package is not
+  installed and is not needed (§10.6).
 - **The end-of-turn silence window is `EndpointerConfig`'s**, and nothing else may hold a
   number for it. Raised from 700 ms to 1200 ms because 700 ended a turn on an ordinary pause
   for thought; the raise reached the voice sidecar and left the Telegram sidecar's own copy at

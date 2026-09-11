@@ -199,9 +199,10 @@ renders it with the same component a sandbox session uses, whose own suite is un
 those tests do not cover is a real model on the other end — that needs the container built and a
 Claude login on the machine.
 
-**What has not been run, and needs your Linux VM to be.** The audio itself: Whisper, Piper,
-Silero and the microphone have not been exercised by these tests, because they need a real
-device and real models. The **browser audio** — capturing the microphone, streaming it to the
+**What has not been run, and needs your Linux VM to be.** The audio itself: Whisper, Piper and
+the microphone have not been exercised by these tests, because they need a real device and real
+models. Silero is the exception — its chunking and its recurrent state are checked against
+faster-whisper's own batch pass wherever the model is installed, and skipped where it is not. The **browser audio** — capturing the microphone, streaming it to the
 sidecar, playing the reply — is written and its toggle is tested, but the sound itself needs a
 real browser and a running sidecar. A **live Telegram call** has not been placed — it needs real
 credentials and a real account, and pytgcalls' audio API must be confirmed against the installed
