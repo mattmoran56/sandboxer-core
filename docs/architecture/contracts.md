@@ -2251,7 +2251,11 @@ boundary between the two is a rule, not a habit:
 it, and every example below was found the hard way rather than reasoned about in advance:
 
 - **The speaking pace lives on `PiperTts`**, not on a backend. A pace held per backend is a
-  pace that works in the dashboard and silently does not on a phone call.
+  pace somebody implements for the dashboard and forgets to implement for a phone call. What
+  sharing buys is **one implementation**, not one value: the voice sidecar and the telegram
+  sidecar are separate processes with a synthesiser each, so a `configure` reaches the socket it
+  was sent on and no other (§10.3.2). Three docstrings used to say the value travelled; they were
+  wrong, and they say so now.
 - **Piper's output is resampled from its native rate (22050 Hz for most voices) to the 16 kHz
   everything else assumes**, in `PiperTts` rather than at each device. Handing 22050 Hz to a
   16 kHz player does not fail; it plays 1.38× too slow and too low, which reads as a deeper,
@@ -2382,9 +2386,29 @@ Four consequences, each of which is a bug if it is missed:
 - **Which voice speaks is a setting, not a deployment.** `PiperVoices` loads every `.onnx`
   beside the mounted default, lazily, and switches on `configure`; the list travels in `ready`
   and a change in a `voice` event. It is on the shared synthesiser for the reason §10.3.1 gives
-  about the pace: a voice held per backend is a voice that changes in the dashboard and silently
-  does not on a call. The dashboard remembers `ready` and replays it to each tab, because it is
+  about the pace. The dashboard remembers `ready` and replays it to each tab, because it is
   sent once when the *dashboard* connects — long before any browser exists.
+
+**Telegram is the orchestrator's, and none of the above changes that.** The voice became the
+machine's; the phone did not. A worktree's session can be spoken to in the dashboard and can never
+place a call, for three reasons that are worth keeping separate because a change could break any
+one of them on its own:
+
+- **A different sidecar, on a different socket.** `SANDBOXR_VOICE_SOCKET` is the voice body the
+  dashboard relays to; `SANDBOXR_TELEGRAM_SOCKET` is a separate process reached only by the
+  orchestrator daemon (`packages/orchestrator-daemon/src/daemon.ts`). The relay in `voice.ts` holds
+  one transport and it is not that one, so there is no path from an audio socket to a call.
+- **The call is placed by the engine, about a session, not by a session.** `RoutingNotifier` sends
+  escalations at `urgent` to the Telegram notifier; the conversation held over the call is the
+  orchestrator's. A session is a *subject* of a call, never a party to one.
+- **The routes are orchestrator-gated.** `GET/PUT /api/orchestrator/telegram` answer 404 when
+  `SANDBOXR_ORCHESTRATOR` is unset, **even on a machine that has a voice** — which is now a
+  reachable state and was not before. A test pins it.
+
+A consequence worth stating because it reads like a bug otherwise: **the pace and the voice chosen
+in a browser do not reach a call.** The two sidecars share their code, so a fix to how either works
+reaches both; they do not share a process, so a `configure` reaches the socket it was sent on and
+no other. A call speaks at its own sidecar's `SANDBOXR_VOICE_RATE`, in its own mounted voice.
 
 ### 10.4 Hooks
 
