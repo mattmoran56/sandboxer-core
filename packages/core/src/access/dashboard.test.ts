@@ -162,7 +162,7 @@ describe("the GitHub token", () => {
  * it on would turn "this machine has no credential" — which the dashboard can
  * explain — into "the credential is the empty string", which it cannot.
  */
-describe("the agent-session variables", () => {
+describe("the forwarded variables", () => {
   const varsOf = (args: string[]): Record<string, string> => {
     const out: Record<string, string> = {};
     for (let i = 0; i < args.length - 1; i++) {
@@ -203,6 +203,46 @@ describe("the agent-session variables", () => {
     );
     expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_TOKEN");
     expect(vars).not.toHaveProperty("SANDBOXR_CLAUDE_MODEL");
+  });
+
+  it("forwards the database settings, which it used not to at all", () => {
+    // **The dashboard calls core in process**, so anything core reads from the
+    // environment is read from *this container's* environment. Every variable in
+    // "For a MySQL project" was missing from the forwarded list, which did not
+    // give the dashboard a different default — it made those settings do nothing
+    // there while the CLI honoured them.
+    //
+    // `SANDBOXR_SOURCE_DB_PASSWORD` is the one that bites first: seeding by
+    // forking a local container reads it with a default of *empty*, which is
+    // nobody's local MySQL, so `up` from the browser died on "are the source
+    // credentials right?" while the same `up` from a terminal worked.
+    const vars = varsOf(
+      dashboardArgs({
+        domain: "sbx.localhost",
+        tls: true,
+        env: {
+          ...env,
+          SANDBOXR_SOURCE_DB_USER: "rdp_root",
+          SANDBOXR_SOURCE_DB_PASSWORD: "hunter2",
+          SANDBOXR_DB_USER: "app",
+          SANDBOXR_DB_PASSWORD: "app-pw",
+          SANDBOXR_DB_ROOT_PASSWORD: "root-pw",
+          SANDBOXR_DB_NAME: "taxonomy",
+          SANDBOXR_DB_FILE: "/seeds/dump.sql",
+          SANDBOXR_MYSQL_IMAGE: "mysql:8.4",
+          SANDBOXR_CACHE_TTL_HOURS: "48",
+        },
+      }),
+    );
+    expect(vars.SANDBOXR_SOURCE_DB_USER).toBe("rdp_root");
+    expect(vars.SANDBOXR_SOURCE_DB_PASSWORD).toBe("hunter2");
+    expect(vars.SANDBOXR_DB_USER).toBe("app");
+    expect(vars.SANDBOXR_DB_PASSWORD).toBe("app-pw");
+    expect(vars.SANDBOXR_DB_ROOT_PASSWORD).toBe("root-pw");
+    expect(vars.SANDBOXR_DB_NAME).toBe("taxonomy");
+    expect(vars.SANDBOXR_DB_FILE).toBe("/seeds/dump.sql");
+    expect(vars.SANDBOXR_MYSQL_IMAGE).toBe("mysql:8.4");
+    expect(vars.SANDBOXR_CACHE_TTL_HOURS).toBe("48");
   });
 
   it("forwards nothing else beginning SANDBOXR_CLAUDE", () => {

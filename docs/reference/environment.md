@@ -111,7 +111,17 @@ app user gets one anyway, because application config expects one.
 ### For the dashboard
 
 Set these on the dashboard's own process. `sandboxr init` sets the ones that matter, and forwards
-the agent-session ones it finds.
+the agent-session, orchestrator and **database** variables it finds on the host.
+
+> [!IMPORTANT] The database variables above reach the dashboard only since this was fixed
+> The dashboard calls core in process, so everything in *For a MySQL project* is read from the
+> dashboard container's own environment — and none of those names was on the forwarded list. The
+> effect was not a different default in the browser: it was those settings doing nothing there
+> while `sandboxr` in a terminal honoured them. `SANDBOXR_SOURCE_DB_PASSWORD` bites first, because
+> its default is empty and no real local database has an empty root password, so `up` from the
+> browser failed at `could not fingerprint … — are the source credentials right?` while the very
+> message told you to set a variable that could not arrive. If you set these before the fix, run
+> `sandboxr init` again so the container is recreated with them.
 
 | Variable | Default | Range |
 |---|---|---|

@@ -13,8 +13,10 @@
 // - provision: an already-populated database is kept rather than restored over
 // - migrate: no command configured, a failing command marking the failure, a successful one clearing it
 // - describeSeedChoice: one line per source
+// - streamToFile: a binary that is not installed is a failed dump with a legible
+//   reason, not an unhandled 'error' event that takes the whole process down
 
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -39,6 +41,7 @@ import {
   parseColumnOutput,
   restoreArgs,
   snapshotArgs,
+  streamToFile,
 } from "./mysql.js";
 import type { DriverContext } from "./types.js";
 
@@ -420,5 +423,67 @@ describe("describeSeedChoice", () => {
     [{ source: "none" as const }, /no database/],
   ])("describes %s", (choice, want) => {
     expect(describeSeedChoice(choice)).toMatch(want);
+  });
+});
+
+
+describe("streamToFile", () => {
+  /**
+   * **The regression: a missing binary used to kill the process.**
+   *
+   * `spawn` on a binary that is not there emits `error`, and an `error` with no
+   * listener on a ChildProcess is an unhandled error event — not an exception a
+   * caller can catch. `zstd` was absent from the dashboard image while the seed
+   * path spawned it, so the first `up` that reached the dump took down the whole
+   * dashboard: every sandbox action, and the orchestrator's conversation, which
+   * is in memory and does not survive the process.
+   *
+   * These run the real `spawn`, because a fake would be a test of the fake: what
+   * is under test is Node's own behaviour when the binary is absent.
+   */
+  const outPath = async (): Promise<string> =>
+    join(await mkdtemp(join(tmpdir(), "sandboxr-stream-")), "out.bin");
+
+  it("reports a source that is not installed rather than crashing", async () => {
+    const result = await streamToFile(
+      { bin: "sandboxr-no-such-binary", args: [] },
+      undefined,
+      await outPath(),
+    );
+    expect(result.code).not.toBe(0);
+    // Named, because "spawn … ENOENT" says nothing about what it was for, and
+    // the person is looking at a database seed that failed.
+    expect(result.stderr).toContain("sandboxr-no-such-binary is not installed");
+  });
+
+  it("reports a compressor that is not installed rather than crashing", async () => {
+    // The exact shape of the zstd bug: the source is fine and the thing it pipes
+    // through is missing.
+    const result = await streamToFile(
+      { bin: "echo", args: ["hello"] },
+      { bin: "sandboxr-no-such-compressor", args: [] },
+      await outPath(),
+    );
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("sandboxr-no-such-compressor is not installed");
+  });
+
+  it("still streams through a compressor that is there", async () => {
+    const path = await outPath();
+    const result = await streamToFile({ bin: "echo", args: ["hello"] }, { bin: "cat", args: [] }, path);
+    expect(result.code).toBe(0);
+    expect((await readFile(path, "utf8")).trim()).toBe("hello");
+  });
+
+  it("carries a failing source's own complaint back", async () => {
+    // A binary that exists and fails is the ordinary case — bad credentials,
+    // say — and must keep reporting what it said.
+    const result = await streamToFile(
+      { bin: "sh", args: ["-c", "echo nope 1>&2; exit 3"] },
+      undefined,
+      await outPath(),
+    );
+    expect(result.code).toBe(3);
+    expect(result.stderr).toContain("nope");
   });
 });
