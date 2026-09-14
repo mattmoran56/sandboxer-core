@@ -98,17 +98,32 @@ export interface DashboardInput {
 }
 
 /**
- * The agent-session variables the dashboard inherits, if the host set them.
+ * The agent-session and orchestrator variables the dashboard inherits, if the
+ * host set them.
  *
- * A named list rather than "anything starting with SANDBOXR_CLAUDE": a wildcard
- * would forward a variable a future version means something else by, and the
- * dashboard is the one container on the machine holding a credential.
+ * A named list rather than "anything starting with SANDBOXR_": a wildcard would
+ * forward a variable a future version means something else by, and the dashboard
+ * is the one container on the machine holding a credential.
+ *
+ * **The orchestrator entries are why this list is not only about credentials.**
+ * The orchestrator runs inside the dashboard when `SANDBOXR_ORCHESTRATOR` is set
+ * (contracts §10.7), and a flag that never reaches the container is a feature
+ * that cannot be turned on in the one deployment most people use — the dashboard
+ * served on the machine's own domain. The two socket paths travel with it because
+ * a voice or a call is reached through a socket the host created; put one under
+ * `SANDBOXR_HOME`, which is mounted at the same path inside and out, and the
+ * container finds it exactly where the host left it.
  */
 const AGENT_VARIABLES = [
   "SANDBOXR_CLAUDE_TOKEN",
   "SANDBOXR_CLAUDE_MODEL",
   "SANDBOXR_CLAUDE_MCP",
   "SANDBOXR_CLAUDE_PERMISSION_MODE",
+  "SANDBOXR_ORCHESTRATOR",
+  "SANDBOXR_ORCHESTRATOR_STALL_MS",
+  "SANDBOXR_ORCHESTRATOR_SUMMARIES",
+  "SANDBOXR_VOICE_SOCKET",
+  "SANDBOXR_TELEGRAM_SOCKET",
 ] as const;
 
 const agentEnvironment = (env: NodeJS.ProcessEnv): Record<string, string> => {

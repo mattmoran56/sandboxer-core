@@ -279,6 +279,41 @@ This package depends on `@sandboxr/web`, so the two share one design system rath
 
 </details>
 
+## The orchestrator, and `sidecars/`
+
+A second reader of sessions, opposite to the dashboard: it watches all of them and tells you
+only when one needs you. Four TypeScript packages and two Python sidecars, in a strict dependency
+DAG — nothing depends back up the chain, and voice never imports telegram.
+
+- **`packages/orchestrator`** — the base. The model that folds the run index, the event stream
+  and Claude Code's hooks into signals; the policy that turns a signal into an update, a question
+  or silence; the `Notifier` / `Forker` / `Summariser` / `Responder` interfaces; the hook ingest
+  server and the store feeder. Core-only, pure where it can be.
+- **`packages/voice`** — a `Notifier` that speaks and listens. The announcement ledger, the
+  barge-in `Speaker`, and the `SessionHistory` that is rewritten to what you actually heard when
+  you cut in. Drives the voice sidecar over a line protocol.
+- **`packages/telegram`** — a `Notifier` that calls you when you are away. The control protocol
+  and `TelegramCall`; the on-call conversation is a voice `Notifier`, reused whole.
+- **`packages/orchestrator-daemon`** — the top of the stack: wires the above from the environment
+  and runs the loop. Its bin is `sandboxr-orchestrator`.
+
+**`sidecars/`** is the one place host-side code is not TypeScript. On-device speech recognition,
+neural text-to-speech and Telegram group-call media are Python ecosystems, so the audio **body**
+is Python: `sidecars/voice` (Whisper, Piper, Silero) and `sidecars/telegram` (Telethon,
+pytgcalls, reusing the voice engine). Each has a stdlib, `pytest`-covered core and heavy engines
+behind an optional extra. Their control planes stay TypeScript. See
+[the orchestrator guide](../guides/orchestrator.md) and `sidecars/README.md`.
+
+Boundaries hold here too: speech never leaves the machine (the Telegram call excepted, which is
+your own account), and the base package never imports voice or telegram.
+
+**The agent you talk to is not in this DAG.** The four packages above are the *watching* half —
+noticing, deciding, saying. The conversation is a real Claude Code session, and it lives in
+`packages/server` (`orchestrator-agent.ts`, its socket, and the MCP server that gives it reach into
+the other sessions) because that is where `AgentSessions` and the Docker client already are. It
+runs in a container of its own, `sandboxr-orchestrator` — the dashboard's image plus `claude` —
+because the dashboard is the password-protected web surface and never holds the Claude login.
+
 ## `container/`
 
 **What it owns.** Everything that runs inside a sandbox. The generic base image. The per-project

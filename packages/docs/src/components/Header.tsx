@@ -1,10 +1,10 @@
 // The top bar: what this is, how to search it, and how it looks.
 //
-// Sticky and `glass`, exactly as the dashboard's header is, because somebody with
-// the dashboard in one tab and the documentation in the other has to see one
-// product rather than two sites that happen to share a palette. The mark, the
-// serif wordmark, the gradient tile and the three-position theme switch are all
-// the dashboard's, unchanged.
+// Sticky and solid over a hairline, exactly as the dashboard's header is, because
+// somebody with the dashboard in one tab and the documentation in the other has to
+// see one product rather than two sites that happen to share a palette. The mark,
+// the serif wordmark, the flat brand tile and the three-position theme switch are
+// all the dashboard's, unchanged.
 //
 // The search *button* is here rather than a bare keyboard shortcut on purpose. A
 // shortcut nobody is told about is a feature for the person who wrote it, so the
@@ -24,7 +24,7 @@ export const Header = ({
   onSearch: () => void;
   onMenu: () => void;
 }) => (
-  <header className="glass sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:gap-3 sm:px-4">
+  <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-3 sm:gap-3 sm:px-4">
     <IconButton label="Open navigation" className="lg:hidden" onClick={onMenu}>
       <Menu size={18} />
     </IconButton>
@@ -32,7 +32,7 @@ export const Header = ({
     <Link to="/" className="flex items-center gap-2.5 rounded-lg focus-visible:outline-offset-4">
       <span
         aria-hidden="true"
-        className="grid size-7 place-items-center rounded-[0.55rem] bg-gradient-brand text-brand-ink shadow-brand"
+        className="grid size-7 place-items-center rounded-[0.475rem] bg-brand text-brand-ink"
       >
         <Mark />
       </span>

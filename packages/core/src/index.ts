@@ -264,6 +264,14 @@ export {
   teardownAccess,
 } from "./access/index.js";
 export type { AccessReport, AccessStatus, Certificate, InitOptions, TeardownOptions } from "./access/index.js";
+export {
+  ORCHESTRATOR_CONTAINER,
+  ORCHESTRATOR_IMAGE_NAME,
+  orchestratorArgs,
+  startOrchestrator,
+  stopOrchestrator,
+} from "./access/orchestrator.js";
+export type { OrchestratorInput, StartOrchestratorOptions } from "./access/orchestrator.js";
 
 export {
   BLOCKS,

@@ -48,7 +48,7 @@ export type TokenReader = (token: DiagramToken) => string;
  * **Not `getComputedStyle(root).getPropertyValue("--sb-ink")`.** That is the
  * obvious way to do this and it does not work: an unregistered custom property
  * computes to its own token stream, so the string that comes back is the literal
- * `light-dark(#0d1526, #e8edf5)` — both halves, unresolved, in a syntax mermaid's
+ * `light-dark(#0e1a1c, #e6eeec)` — both halves, unresolved, in a syntax mermaid's
  * colour library cannot parse. Handing that over produced diagrams whose every
  * fill was mermaid's fallback, which looks like the override never applied rather
  * than like a parsing failure.
@@ -56,7 +56,7 @@ export type TokenReader = (token: DiagramToken) => string;
  * The way that does work is to make the browser *use* the value: assign
  * `var(--token)` to a real property on a throwaway element and read the property
  * back. A used value has had `light-dark()` resolved against the inherited
- * `color-scheme`, so `color` answers `rgb(13, 21, 38)` — and it follows
+ * `color-scheme`, so `color` answers `rgb(14, 26, 28)` — and it follows
  * `data-theme` and `data-scheme` for free, which is the whole point.
  *
  * One element, one property per token, because each assignment has to be read

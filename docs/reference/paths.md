@@ -210,7 +210,7 @@ the state somewhere nobody looks.
 | `/opt/deps` | Dependencies installed into the image, copied out on first boot | from the image |
 | `/go/pkg/mod`, `/go/cache` | Go's module and build caches | machine-wide volumes |
 | `/root/.claude` | Claude Code's state | the machine-wide `sandboxr-claude` volume |
-| `/root/.claude/.credentials.json` | The **host's** Claude Code login, when the host has one | that one file, read-write |
+| `/root/.claude/.credentials.json` | The host's own `~/.claude/.credentials.json`, when it has one. On Linux that file is its Claude Code login; on macOS it [usually is not](../guides/agent-sessions.md#on-macos-that-file-is-usually-not-your-login) | that one file, read-write |
 
 ```bash
 sandboxr shell tkt-4821      # and look for yourself

@@ -199,7 +199,10 @@ applies to sessions and never to a side question.
 `CLAUDE_CONFIG_DIR` or `$HOME/.claude`, and forwarded to the dashboard, which cannot see your home
 directory to work it out for itself. When that file exists it is bind-mounted read-write into every
 sandbox at `/root/.claude/.credentials.json`, so one login is *shared* rather than copied. Set it
-yourself only for a credential kept somewhere unusual. A path that names nothing is worse than no
+yourself only for a credential kept somewhere unusual. **On macOS that file is usually not a login**
+— it holds MCP OAuth tokens, while the account credential is in the login keychain — and mounting
+one costs you the session's credential entirely:
+[why, and what to do](../guides/agent-sessions.md#on-macos-that-file-is-usually-not-your-login). A path that names nothing is worse than no
 path at all, because Docker answers a missing bind source by creating a directory. So sandboxr
 checks that the file exists and is non-empty before forwarding it. A credential deleted afterwards
 needs another `init` to be noticed.
@@ -208,6 +211,80 @@ needs another `init` to be noticed.
 `SANDBOXR_CLAUDE_TOKEN`, `SANDBOXR_CLAUDE_MODEL`, `SANDBOXR_CLAUDE_MCP` and
 `SANDBOXR_CLAUDE_PERMISSION_MODE`. A named list rather than a wildcard, because the dashboard is the
 one container on the machine holding a credential.
+
+</details>
+
+### For the orchestrator
+
+Set these on the [orchestrator](../guides/orchestrator.md) daemon's own process. It also reads
+`SANDBOXR_HOME` — the same run index the dashboard writes — and reuses `SANDBOXR_CLAUDE_TOKEN` and
+`SANDBOXR_CLAUDE_MODEL` above to fork a session for a summary.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SANDBOXR_ORCHESTRATOR_PORT` | `4600` | The loopback port Claude Code's hooks post to |
+| `SANDBOXR_ORCHESTRATOR_SUMMARIES` | on | `0` stops it forking sessions for summaries |
+| `SANDBOXR_VOICE_SOCKET` | — | The voice sidecar's socket. Unset runs without voice |
+| `SANDBOXR_TELEGRAM_SOCKET` | — | The telegram sidecar's socket. Unset runs without calls |
+| `SANDBOXR_TELEGRAM_CHAT_ID` | — | The group voice chat the userbot joins |
+| `SANDBOXR_TELEGRAM_USER_ID` | — | Who it brings into that chat |
+
+To run the orchestrator **inside the dashboard** instead, set these on the dashboard's own
+process (see [In the dashboard](../guides/orchestrator.md#in-the-dashboard)):
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SANDBOXR_ORCHESTRATOR` | off | Any non-empty value but `0` turns on the dashboard's Orchestrator panel |
+| `SANDBOXR_VOICE_SOCKET` | unset | The voice sidecar's socket. Without it the panel has no voice toggle and says so — everything else works |
+| `SANDBOXR_ORCHESTRATOR_STALL_MS` | model default | How long a quiet session waits before it is a question — lower it to try the panel out |
+| `SANDBOXR_VOICE_SOCKET` | — | The voice sidecar's socket, to speak escalations and carry the browser's audio |
+
+The voice sidecar reads `SANDBOXR_VOICE_STREAMED` (or `--streamed`): set it so the sidecar's device
+is the socket rather than a local microphone, which is what the browser and the container both need.
+
+The **hook command** each session runs reads one variable of its own,
+`SANDBOXR_ORCHESTRATOR_URL`. Unset, it posts to `http://127.0.0.1:4600/hooks`, which is right for
+`claude` on the host. A session running inside a sandbox container needs it set to the daemon's
+address on the docker-bridge gateway — see the reachability note in
+[the orchestrator guide](../guides/orchestrator.md#2-point-the-hooks-at-the-daemon).
+
+<details class="agent">
+<summary><b>Details for an agent</b> — the two Python sidecars' own variables</summary>
+
+Each sidecar takes the same values as a flag or an environment variable, because the daemon's
+wiring starts it, not a person. Every one has a `--flag` twin; the flag wins where both are given.
+
+**The voice sidecar** (`sidecars/voice`). A Piper voice model is the one hard requirement:
+
+| Variable | Default | What it is |
+|---|---|---|
+| `SANDBOXR_VOICE_SOCKET` | `/tmp/sandboxr-voice.sock` | The socket the daemon connects to |
+| `SANDBOXR_PIPER_MODEL` | — | Path to a Piper `.onnx` voice. Required |
+| `SANDBOXR_PIPER_CONFIG` | beside the model | The voice's JSON config, if it is not alongside |
+| `SANDBOXR_WHISPER_SIZE` | `base.en` | The Whisper model size |
+| `SANDBOXR_WHISPER_DEVICE` | `cpu` | Where Whisper runs |
+| `SANDBOXR_WHISPER_COMPUTE` | `int8` | Its compute type |
+| `SANDBOXR_VAD_THRESHOLD` | `0.5` | Silero's speech probability above which a frame counts as speech |
+| `SANDBOXR_SILERO_MODEL` | faster-whisper's own copy | Path to `silero_vad_v6.onnx`. Only for an image that ships the model without faster-whisper; without it the sidecar falls back to the energy VAD |
+| `SANDBOXR_ENDPOINT_SILENCE_MS` | `1200` | The silence that ends a turn |
+| `SANDBOXR_NO_NEW_WORDS_MS` | `2000` | The second way a turn ends: the recognised words stop changing. For a car, a train, or any room the microphone never hears silence in. `0` disables it |
+| `SANDBOXR_VOICE_RATE` | `1.4` | The starting speaking pace, as a multiple of the voice's own. Clamped to 0.5–3, and overridden by the dashboard's setting once a browser connects |
+
+**The telegram sidecar** (`sidecars/telegram`) takes the same Piper, Whisper and end-of-turn
+variables, with the same defaults: a call is the same conversation as the desk, so the pace, the
+recogniser and the moment your turn ends are decided the same way (contracts §10.3.1). It also has
+its own. The three credentials are **read from the environment only, never a flag**, because a
+flag lands in shell history and process listings:
+
+| Variable | Default | What it is |
+|---|---|---|
+| `SANDBOXR_TELEGRAM_SOCKET` | `/tmp/sandboxr-telegram.sock` | The socket the daemon connects to |
+| `SANDBOXR_TELEGRAM_API_ID`, `SANDBOXR_TELEGRAM_API_HASH` | — | From `my.telegram.org`. Required, environment only |
+| `SANDBOXR_TELEGRAM_SESSION` | `sandboxr` | The Telethon session name |
+| `SANDBOXR_TELEGRAM_CHAT_ID`, `SANDBOXR_TELEGRAM_USER_ID` | — | The group voice chat, and who to bring in |
+
+The daemon itself also reads `SANDBOXR_CLAUDE_HAS_LOGIN` (`1` when the machine shares a Claude
+login, so a summary fork withholds the setup token just as the dashboard does).
 
 </details>
 

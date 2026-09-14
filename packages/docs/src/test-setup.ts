@@ -120,6 +120,55 @@ if (!("IntersectionObserver" in globalThis)) {
 window.scrollTo = (() => undefined) as typeof window.scrollTo;
 Element.prototype.scrollIntoView = () => undefined;
 
+/**
+ * A `localStorage` the tests can actually use.
+ *
+ * Node 22 and later define a `localStorage` global of their own — inert unless the
+ * process was started with `--localstorage-file` — and vitest's jsdom environment
+ * leaves a global that already exists alone rather than overwriting it. So on a
+ * recent Node the site sees a `localStorage` that is neither jsdom's nor usable,
+ * and every test that touches this reader's preferences dies in the teardown
+ * below. The same gap `packages/web/src/test-setup.ts` fills, for the same reason.
+ *
+ * Guarded, so it is inert on a Node that supplies a working one. The methods sit
+ * on a **prototype** and the `Storage` global is replaced with it, because a test
+ * that makes a write fail does so by spying on `Storage.prototype.setItem`, and an
+ * object carrying its own methods would slip past the spy and assert nothing.
+ */
+if (!globalThis.localStorage) {
+  class MemoryStorage {
+    private readonly held = new Map<string, string>();
+
+    get length(): number {
+      return this.held.size;
+    }
+
+    key(index: number): string | null {
+      return [...this.held.keys()][index] ?? null;
+    }
+
+    getItem(name: string): string | null {
+      return this.held.get(String(name)) ?? null;
+    }
+
+    setItem(name: string, value: string): void {
+      this.held.set(String(name), String(value));
+    }
+
+    removeItem(name: string): void {
+      this.held.delete(String(name));
+    }
+
+    clear(): void {
+      this.held.clear();
+    }
+  }
+
+  const shim = { configurable: true, writable: true } as const;
+  Object.defineProperty(globalThis, "Storage", { ...shim, value: MemoryStorage });
+  Object.defineProperty(globalThis, "localStorage", { ...shim, value: new MemoryStorage() });
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();

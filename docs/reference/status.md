@@ -52,6 +52,7 @@ one thing wrong in the details.
 | **A sandbox expiring on its own over a full lifetime** | See below |
 | **`sandboxr prune --yes`** | See below |
 | **`gh` against a private repository** | Pull requests list against a public repo. Cloning and fetching a private one from inside the dashboard container, using the mounted `gh` credentials, has not been done |
+| **The orchestrator, voice and Telegram** | See below |
 
 ### The dashboard's browser app
 
@@ -66,7 +67,7 @@ taken a project through a day's work.**
 **Nothing here has been run on a phone.** The dashboard declares itself installable, lays itself out
 for a narrow screen, and carries the touch behaviour a native app has — a tab bar that floats over
 the pane and recedes as you scroll, swipe-to-go-back, dialogs that are sheets inset from the display
-and drag away by the header, translucent chrome, the notch and the home indicator accounted for.
+and drag away by the header, the notch and the home indicator accounted for.
 
 **Checked:** the manifest, the service worker and the four icons are served with the right types and
 cache headers, and everything not on that list of six is refused. The gesture thresholds, the
@@ -74,46 +75,33 @@ keyboard-inset arithmetic, the tab bar's current-section logic, the rule that de
 and the sheet's drag all have unit tests.
 
 **Checked, and worth naming separately because it is the part that fails invisibly: the contrast
-arithmetic.** The glass tint is 88% because of a sum, not because of how it looked.
-`packages/web/src/app.css.test.ts` composites that tint over the two extremes a reader can scroll
-under a bar — a terminal's black and a white card — in both themes, and checks every ink allowed on
-it. That test caught the first tint at 4.07:1. It also pins, *as a failing assertion*, that the brand
-hue cannot clear AA on raw glass: that is what makes the selected tab's tinted pill load-bearing
-rather than decorative, and if it ever starts passing the pill can go.
+arithmetic.** Every ink in `packages/web/src/tokens.css` is a hex chosen against a ratio rather than
+by eye, and `packages/web/src/app.css.test.ts` does the sums: the three inks against every neutral
+surface in both themes, each status colour against its own tint and against the surface, and each
+scheme's brand as link text and as the fill under a primary button's label. It pins one *failure* as
+a failure — `ink-subtle` does not clear AA on a tinted surface — because that is the rule the token
+is used under, and a rule nobody can fail is a rule that gets forgotten.
 
-**Checked: the build emits what the stylesheet declares.** The bundle really does contain the glass
-declarations, the sheet radius, and the coarse-pointer and safe-area rules. That is worth checking
-because a Tailwind utility that never reaches the build has no symptom on a desktop — and one version
-of this glass did exactly that, wrapped in an `@supports` that Tailwind rejected, so the blur never
-shipped at all.
+**Checked: the build emits what the stylesheet declares.** The bundle really does contain the sheet
+radius and the coarse-pointer and safe-area rules. That is worth checking because a Tailwind utility
+that never reaches the build has no symptom on a desktop.
+
+**Checked: the material carries no glass.** There is no `--sb-glass` token, no `glass` utility and no
+`[data-transparency]` block, and a test asserts their absence rather than their behaviour. The bars
+and sheets are solid surfaces with a hairline; `--shadow-card` and `--shadow-panel` are `none`.
 
 **Not checked: how any of it looks or feels on a device.** Nobody has added it to a Home Screen and
-launched it; nobody has confirmed the status bar reads correctly in both themes; nobody has seen the
-blur, the specular edge or the rim on a real display, over a scrolling log, at a real refresh rate.
-The swipe thresholds, the scroll hysteresis that decides when the bar draws back, and the sheet's
-settle animation are judgements about a thumb that have been reasoned about and not felt. The icons
-have been looked at as images but never as an icon on a wallpaper.
-
-> [!NOTE] It is not Liquid Glass, and on the web it cannot be
-> Apple's material blurs the light behind it **and refracts it** — bends and concentrates it rather
-> than scattering it. Refraction needs `backdrop-filter: url(#…)` to run a displacement map against
-> the backdrop, and WebKit has not implemented that: bug 245510, open since 2022. What the dashboard
-> reproduces is the rest — the blur, the saturation, the specular top edge, the hairline rim and the
-> shadow that separates a bar from what is under it. Where a commit message in this repository says
-> "glass" or "the material", that is what it means. Nothing here is a claim to have Liquid Glass.
-
-**Reduce transparency is a control in Settings → Appearance rather than something the app detects**,
-and that is not a shortcut. `prefers-reduced-transparency` is unimplemented in WebKit — bug 175497,
-filed 2017, still open — so Safari cannot tell a web page that the system preference is on.
-`prefers-contrast: more` is honoured automatically as a second signal for the same intent. Both paths
-swap the same tokens and both are exercised only in a stylesheet; neither has been watched taking
-effect on a phone with the system preference actually switched on.
+launched it; nobody has confirmed the status bar reads correctly in both themes; nobody has seen a
+hairline at a real pixel density, over a scrolling log, at a real refresh rate. The swipe thresholds,
+the scroll hysteresis that decides when the bar draws back, and the sheet's settle animation are
+judgements about a thumb that have been reasoned about and not felt. The icons have been looked at as
+images but never as an icon on a wallpaper.
 
 **What a real run would settle:** whether the back gesture ever fights the log tail or the terminal
 in practice, whether the tab bar's four sections are the right four, whether a bar that recedes on
-scroll is a relief or a thing you keep chasing, whether an approximation of the material reads as
-deliberate or as a poor imitation of the one next to it on the same Home Screen, and whether a sheet
-dragged from its header is discoverable without the handle being explained.
+scroll is a relief or a thing you keep chasing, whether a one-pixel line holds a card together at
+arm's length on a phone, and whether a sheet dragged from its header is discoverable without the
+handle being explained.
 
 ### Agent sessions
 
@@ -170,6 +158,63 @@ and its figures match `docker system df`.
 **Nothing has been removed by it.** The removal path is unit-tested against a fake daemon. What a
 real run would settle is that `docker image rm` accepts the references the plan builds, and that the
 space the report promised is the space that comes back.
+
+## The orchestrator, voice and Telegram
+
+The newest layer, and the one whose split between "run" and "not run" is sharpest, because
+half of it is host software and half of it is a microphone.
+
+**What is built and tested in software, end to end.** The whole decision path is exercised by
+the test suites, with the microphone and the phone replaced by test doubles that speak the real
+wire protocols:
+
+- The orchestrator noticing a change — a session finishing, blocking, stalling, erroring, a
+  subagent failing — from the run index, the event stream and Claude Code's hooks, and deciding
+  whether it is worth telling you and whether to tell or to ask.
+- The voice layer speaking an update, asking a question, and — the subtle part — tracking to the
+  character how much of an announcement you heard before you cut in, and rewriting the session
+  history to match what you actually know.
+- The Telegram layer placing a call, waiting for you to join, asking over the call, and hanging
+  up; a call nobody answers treated as an unanswered question.
+- The end-to-end test drives the real notifier stack through a real orchestrator: a finished
+  session is announced at the desk, and an urgent notification places a Telegram call, asks over
+  it, captures a barge-in, and rewrites the on-call history.
+
+The Python sidecars' logic — the message protocols, the on-device end-of-speech endpointer, the
+engine state machine, the call frame bridge — is covered by `pytest` with no audio and no
+network.
+
+The orchestrator also runs **inside the dashboard**, behind `SANDBOXR_ORCHESTRATOR`, as a
+conversation you talk to — and one that raises what it noticed in that same conversation, rather
+than in a list beside it. The server side of it — the notifier, the
+fork-backed summariser, the Telegram config store, the sockets — is unit-tested, as is the panel
+itself (the conversation, the microphone, the home page's block, the Telegram form), and the
+routing of an escalation through the agent. The whole dashboard suite stays
+green with the feature off, which is the safety story: unset, none of it exists.
+
+The **conversation** is a real Claude Code session, running in its own `sandboxr-orchestrator`
+container and reached with `docker exec` the way a sandbox session is. Its argument vector, its
+model and mode changes, and its socket's gate are unit-tested against a fake Docker; the browser
+renders it with the same component a sandbox session uses, whose own suite is unchanged. What
+those tests do not cover is a real model on the other end — that needs the container built and a
+Claude login on the machine.
+
+**What has not been run, and needs your Linux VM to be.** The audio itself: Whisper, Piper and
+the microphone have not been exercised by these tests, because they need a real device and real
+models. Silero is the exception — its chunking and its recurrent state are checked against
+faster-whisper's own batch pass wherever the model is installed, and skipped where it is not. The **browser audio** — capturing the microphone, streaming it to the
+sidecar, playing the reply — is written and its toggle is tested, but the sound itself needs a
+real browser and a running sidecar. A **live Telegram call** has not been placed — it needs real
+credentials and a real account, and pytgcalls' audio API must be confirmed against the installed
+version. Treat the `spokenChars` heard-boundary as an estimate until a real voice has been talked
+over.
+
+One thing that follows from where the voice work lives, because it is easy to read as a stronger
+claim than it is. The pace, the resampling, the recogniser's filters and the moment a turn ends
+are all in the engines every audio path shares (contracts §10.3.1), so a Telegram call gets them
+by construction. That is not the same as having heard them on one, and nobody has.
+
+[The orchestrator guide](../guides/orchestrator.md) has the steps to run all of this on a VM.
 
 ## The managed layer
 

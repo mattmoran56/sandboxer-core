@@ -5,9 +5,12 @@
 //  - what must be left alone: https://, /absolute, #anchor-only, mailto:, a .png,
 //    and a ../ chain that climbs out of docs/
 //  - which links are reported as leaving the site
+//  - resolveDocAsset: an image under docs/assets/ rewritten to a site path, and
+//    everything it leaves alone — a URL, a data: URI, an absolute path, and any
+//    image that is not under docs/assets/
 
 import { describe, expect, it } from "vitest";
-import { resolveDocHref } from "./links.js";
+import { resolveDocAsset, resolveDocHref } from "./links.js";
 
 describe("resolveDocHref", () => {
   it("rewrites a sibling link", () => {
@@ -95,5 +98,38 @@ describe("resolveDocHref", () => {
 
   it("handles .mdx as well as .md", () => {
     expect(resolveDocHref("../reference/cli.mdx", "guides/lifecycle.md").href).toBe("/reference/cli/");
+  });
+});
+
+describe("resolveDocAsset", () => {
+  it("rewrites an image beside the page, in docs/assets/", () => {
+    expect(resolveDocAsset("assets/brand/mark.svg", "brand.md")).toBe("/assets/brand/mark.svg");
+  });
+
+  it("rewrites one reached with ../ from a page in a directory", () => {
+    expect(resolveDocAsset("../assets/brand/lockup.svg", "guides/dashboard.md")).toBe(
+      "/assets/brand/lockup.svg",
+    );
+  });
+
+  it("leaves an absolute path and a URL alone", () => {
+    expect(resolveDocAsset("/assets/brand/mark.svg", "brand.md")).toBe("/assets/brand/mark.svg");
+    expect(resolveDocAsset("https://example.com/a.png", "brand.md")).toBe("https://example.com/a.png");
+    expect(resolveDocAsset("data:image/svg+xml,%3Csvg/%3E", "brand.md")).toBe("data:image/svg+xml,%3Csvg/%3E");
+  });
+
+  it("leaves an image that is not under docs/assets/ exactly as it was written", () => {
+    // Nothing else under docs/ is copied into the build, so a tidy-looking rewrite
+    // would be a URL with no file behind it. Broken on both, or broken on neither.
+    expect(resolveDocAsset("screenshot.png", "guides/dashboard.md")).toBe("screenshot.png");
+    expect(resolveDocAsset("../../packages/web/logo.svg", "guides/dashboard.md")).toBe(
+      "../../packages/web/logo.svg",
+    );
+  });
+
+  it("folds a backslash written on Windows into a path separator", () => {
+    expect(resolveDocAsset("../assets/brand/mark.svg", "guides\\dashboard.md")).toBe(
+      "/assets/brand/mark.svg",
+    );
   });
 });

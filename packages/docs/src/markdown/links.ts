@@ -17,9 +17,13 @@
 // reported as such, so the renderer can add `target="_blank" rel="noreferrer"`.
 // That is the reason an off-site link has to be *distinguishable* rather than
 // merely correct.
+//
+// An **image** has the same problem and gets the same treatment, at the foot of
+// this file: it is written as a relative path to a file under `docs/assets/`, and
+// served from the site's root. See `ASSETS_DIR` in `../lib/route.ts`.
 
 import { posix } from "node:path";
-import { OFF_SITE, pathOfSlug, slugOfFile } from "../lib/route.js";
+import { OFF_SITE, isAssetPath, pathOfSlug, slugOfFile } from "../lib/route.js";
 
 export interface ResolvedHref {
   href: string;
@@ -82,6 +86,34 @@ export const resolveDocHref = (href: string, file: string): ResolvedHref => {
   if (offSite) return { href: hash ? `${offSite}#${hash}` : offSite, external: true };
 
   return { href: pathOfSlug(slugOfFile(path)) + (hash ? `#${hash}` : ""), external: false };
+};
+
+/**
+ * One image's `src`, as this site should serve it.
+ *
+ * The same problem as a link and the same answer, with one difference: there is no
+ * slug to derive, because the file really is a file. A page writes
+ * `assets/brand/mark.svg` relative to itself — the only form GitHub resolves — and
+ * this returns `/assets/brand/mark.svg`, which is where `plugins/assets.ts` copies
+ * the directory to.
+ *
+ * **Anything that does not land under `docs/assets/` is returned untouched**, and
+ * that is deliberate rather than lenient. Nothing else under `docs/` is copied into
+ * the build, so rewriting such a path would produce a tidy-looking URL with no file
+ * behind it. Left alone, it is broken in the same visible way on both GitHub and the
+ * site, which is the only version of this mistake somebody notices.
+ */
+export const resolveDocAsset = (src: string, file: string): string => {
+  // An absolute path is already a site path, and a `data:` URI — or any other
+  // scheme — is not a path at all.
+  if (src.startsWith("/") || HAS_SCHEME.test(src)) return src;
+
+  const path = posix.normalize(posix.join(posix.dirname(file.split("\\").join("/")), src));
+  // A `../` chain that climbs out of `docs/` is not a file this site has, for the
+  // same reason it is not a page: `normalize` keeps the climb, so it is visible.
+  if (!isAssetPath(path)) return src;
+
+  return `/${path}`;
 };
 
 /** Splits `path#anchor`, keeping any further `#` inside the anchor. */

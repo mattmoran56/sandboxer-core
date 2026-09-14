@@ -35,6 +35,7 @@ import { DEFAULT_DOMAIN, NETWORK } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { TOOL_VERSION } from "../tool-version.js";
 import { DASHBOARD_CONTAINER, DASHBOARD_PORT, startDashboard, stopDashboard } from "./dashboard.js";
+import { ORCHESTRATOR_CONTAINER, ORCHESTRATOR_IMAGE_NAME, startOrchestrator, stopOrchestrator } from "./orchestrator.js";
 import {
   ROUTER_CONTAINER,
   TLS_DIR,
@@ -220,6 +221,59 @@ export async function ensureBaseImage(options: {
  * dashboard does nothing else. Keeping the Docker client out of the base is
  * what stops a sandboxed project — or an agent inside one — driving Docker.
  */
+/**
+ * Whether this machine wants the orchestrator at all.
+ *
+ * The same variable the dashboard reads to decide whether to run the engine, so
+ * there is one switch rather than two that can disagree — a machine with the
+ * panel on and no agent container would offer an instruction box that could
+ * never be answered.
+ */
+export const orchestratorWanted = (env: NodeJS.ProcessEnv = process.env): boolean =>
+  (env.SANDBOXR_ORCHESTRATOR ?? "").trim() !== "" && env.SANDBOXR_ORCHESTRATOR !== "0";
+
+/**
+ * Builds the orchestrator image, which is the dashboard's with Claude Code on it.
+ *
+ * `base` is passed as a build argument rather than hard-coded in the Dockerfile
+ * so the two images cannot drift: whatever tag the dashboard was just built or
+ * found at is the tag this is built from, in the same run.
+ */
+export async function ensureOrchestratorImage(options: {
+  docker: Docker;
+  base: string;
+  env?: NodeJS.ProcessEnv | undefined;
+  rebuild?: boolean | undefined;
+  log?: ((line: string) => void) | undefined;
+}): Promise<string> {
+  const env = options.env ?? process.env;
+  const log = options.log ?? (() => undefined);
+  const tag = `${ORCHESTRATOR_IMAGE_NAME}:${TOOL_VERSION}`;
+
+  if (!options.rebuild && (await options.docker.imageExists(tag))) return tag;
+
+  const context = containerDir(env);
+  log(`Building ${tag}`);
+  await options.docker.ok(
+    [
+      "build",
+      "-f",
+      `${context}/orchestrator/Dockerfile`,
+      "--build-arg",
+      `BASE=${options.base}`,
+      "-t",
+      tag,
+      "-t",
+      `${ORCHESTRATOR_IMAGE_NAME}:latest`,
+      ...archBuildArgs(),
+      context,
+    ],
+    { timeoutMs: 15 * 60_000 },
+  );
+  log(`Built ${tag}`);
+  return tag;
+}
+
 export async function ensureDashboardImage(options: {
   docker: Docker;
   env?: NodeJS.ProcessEnv | undefined;
@@ -283,6 +337,13 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
 
   const baseImage = await ensureBaseImage({ docker, env, rebuild: options.rebuild, log });
   const dashboardImage = await ensureDashboardImage({ docker, env, rebuild: options.rebuild, log });
+  // The orchestrator's image is the dashboard's plus Claude Code, so it is built
+  // from it and therefore after it. Only when the feature is switched on: it is a
+  // few hundred megabytes, and a machine that has not asked for an agent should
+  // not be made to download one.
+  const orchestratorImage = orchestratorWanted(env)
+    ? await ensureOrchestratorImage({ docker, env, rebuild: options.rebuild, base: dashboardImage, log })
+    : undefined;
 
   // --- the certificate ---------------------------------------------------------
   //
@@ -326,6 +387,13 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
     );
   }
   await startDashboard({ docker, domain, tls: cert !== undefined, password, env, log, image: dashboardImage });
+  // The machine's agent, beside the dashboard rather than inside it — see
+  // access/orchestrator.ts for why the credential cannot live in the web server.
+  if (orchestratorImage) {
+    await startOrchestrator({ docker, env, image: orchestratorImage, log });
+  } else {
+    await stopOrchestrator(docker).catch(() => undefined);
+  }
 
   const scheme = cert ? "https" : "http";
   return {
@@ -389,6 +457,7 @@ export async function teardownAccess(options: TeardownOptions = {}): Promise<{ r
   const log = options.log ?? (() => undefined);
   const removed: string[] = [];
 
+  await stopOrchestrator(docker).catch(() => undefined);
   if (await stopDashboard(docker)) {
     removed.push(DASHBOARD_CONTAINER);
     log(`Removed ${DASHBOARD_CONTAINER}`);

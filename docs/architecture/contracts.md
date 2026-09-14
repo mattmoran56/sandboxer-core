@@ -255,7 +255,8 @@ machine out of every server it had been given.
 
 One path inside that volume comes from the host rather than from the volume: when
 `~/.claude/.credentials.json` exists on the host it is bind-mounted read-write over the volume's
-copy, so a login is shared with every sandbox rather than duplicated into each. See §7.2.
+copy, so a login is shared with every sandbox rather than duplicated into each. On macOS that file
+is usually not a login at all, which has a consequence worth knowing. See §7.2.
 
 Images are named under one namespace, and the split between them decides what may be reclaimed:
 
@@ -457,6 +458,7 @@ Three consequences are part of the contract:
   build/<project>/<slug>.env  the generated per-sandbox environment
   bin/                   host-built helper binaries
   config.yaml            the machine's own settings — see §4.3
+  soul.md                the orchestrator agent's character, as prose — see §10.7
   state/keep/<project>/<slug>  keeps one sandbox alive past its idle limit — see §4.2
   state/name/<project>/<slug>  what to call one worktree on screen — see §4.2.1
   state/slug/<project>/<worktree dir>  the slug a worktree was given on a collision — see §4.2.3
@@ -1462,7 +1464,7 @@ is additionally checked against the session's grant.
 | Route | Answers |
 |---|---|
 | `GET /api/bootstrap` | The domain, the session, the closed action table (§8), and the default lifetime the new-sandbox form offers. What the app needs before it can draw anything |
-| `GET /api/workspace` | Every project, every worktree and every sandbox on the machine, plus a summary. The one call the sidebar and the home view are drawn from. Each worktree carries the state of its pull request, from a cached per-repository index rather than a `gh` call per row (§4.1.2) |
+| `GET /api/workspace` | Every project, every worktree and every sandbox on the machine, plus a summary. The one call the sidebar and the home view are drawn from. Each worktree carries the state of its pull request, from a cached per-repository index rather than a `gh` call per row (§4.1.2), and the agent session live on it, from the server's own registry (§7.2) |
 | `GET /api/projects/:project` | One project's worktrees, branches and open pull requests. The list is read live, so it is the authoritative one; the state on each worktree beside it comes from the index and may be up to five minutes behind |
 | `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its project's config declares |
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
@@ -1589,6 +1591,40 @@ two, `store.ts` changes and nothing else does.
 
 `sessionId` is the load-bearing field. It is the only thing that makes `claude --resume` possible
 after a container restart, and it exists nowhere else.
+
+**A worktree carries the session live on it, so a list of worktrees can be sorted by who is
+waiting on a person.** `agent` on `WorktreeDto` is `{ state, asks }` or `null`:
+
+| Field | Meaning |
+|---|---|
+| `state` | The run's state — `running`, `idle`, `needs-input`, `done`, `failed` |
+| `asks` | How many permission questions the session is stopped on (§7.2.2). A count, not the questions |
+
+Three properties fix what it may and may not say:
+
+- **It is the live registry, never the run index.** A row's question is "is something happening
+  on this branch now", and a run that ended on Tuesday is not an answer to it. The registry is
+  in the server's memory, so a dashboard restart empties it and `null` is then the truth: the
+  process really is gone (§7.2's note on what does not survive a restart).
+- **It is keyed on the worktree's own `<project>/<slug>`** — the pair every agent route takes,
+  which is the workspace directory and not the `project:` out of a sandboxr.yaml. Keying it on
+  the sandbox would answer `null` for every project that renamed itself.
+- **`/btw` forks are not counted.** A side question is a second `claude` in the same container
+  with no tools at all (§7.2.1), so it is neither working on the worktree nor able to be waiting
+  on a person about it. The registry leaves them out by testing whether an entry *is* a fork,
+  not by its key: `activity()` re-keys every live session from its own project and slug, which a
+  fork shares with its parent.
+
+**`SandboxDto` carries the same field, keyed on the sandbox's own `<project>/<slug>`.** It is
+there for the one row that has no worktree behind it: a sandbox git no longer lists a worktree
+for still gets a row, synthesised from the sandbox so the container stays reachable, and without
+this it was the one row on which a live session went unreported. The sandbox's key is the
+`project:` out of its sandboxr.yaml rather than the workspace directory, so where a project's two
+names differ this answers `null` — which is already "no session", so a missed join costs a word
+on a row and can never mislabel one.
+
+Facts, like every other field: the browser turns `running` into "agent working" and a turn
+stopped on a question into "waiting on you", and it is the browser that groups a list by them.
 
 ### 7.2.1 Side questions: `/btw`
 
@@ -1806,8 +1842,27 @@ Three consequences are part of the contract:
   credential at all.
 - **On Linux, a host login is therefore shared with every sandbox on the machine**, with all of the
   reach described above. That is the supported arrangement, and it is a decision, not an oversight.
-- **On macOS there is no such file** — the credential lives in the login keychain — so nothing is
-  mounted unless a person exports one to that path by hand. See the guide.
+- **On macOS the file is not the login, and may still exist.** The account credential is in the
+  login keychain (service `Claude Code-credentials`, account the username). The file at
+  `~/.claude/.credentials.json` is nonetheless commonly present there, because it is also where
+  Claude Code keeps the OAuth tokens for MCP servers signed into on the host. Existence and size
+  cannot tell those apart, and the contract is that sandboxr never reads the file to find out.
+
+**The macOS false positive is part of the contract, because it is the cost of not reading the
+file.** An MCP-only `~/.claude/.credentials.json` is mounted, `hasLogin`'s `test -s` answers yes,
+`agentEnv` therefore withholds `CLAUDE_CODE_OAUTH_TOKEN`, and the session runs with no credential
+at all. Claude Code reports `Not logged in · Please run /login`, which names neither the mount nor
+the withheld token, and adding a setup-token cannot fix it because the false positive is what
+suppresses the token. Observed on a real container with such a file mounted. The two resolutions
+are both a person's: put a real login in the file — exported from the keychain and **merged**, an
+overwrite destroying the MCP tokens — or take the file out of the mount's way and let the token be
+used. The guide carries both.
+
+An exported keychain credential is a **copy of a rotating credential**: rotation writes to the
+keychain and not to the file, so it goes stale and the symptom is `Not logged in` again.
+`claude setup-token` is the credential built for this; the export is a development-time
+compromise, and the two blob formats being identical is an observation rather than anything
+either side documents.
 
 **The dashboard is given the path at `init`, not left to resolve it.** It runs in a container whose
 `$HOME` is not the person's, so resolving from inside it would find nothing while the CLI found the
@@ -2097,3 +2152,298 @@ exit code.
   regression test. Test files sit beside their source as `<name>.test.ts`.
 - **Formatting:** two-space indent, double quotes, semicolons, trailing commas, 100-char
   lines.
+
+## 10. The orchestrator, voice, and Telegram
+
+The orchestrator is a second reader of sessions, opposite to the dashboard: the dashboard
+shows you one session, the orchestrator watches all of them and tells you only when one
+needs you. It is its own process, and it never shows a conversation — it produces
+**escalations**, and voice and Telegram turn those into sound.
+
+**Packages, and the dependency direction is a DAG.** `@sandboxr/orchestrator` is the base:
+the model, the policy, the escalation types, the `Notifier`/`Forker`/`Summariser`/`Responder`
+interfaces, the hook ingest server, and the store feeder — core-only, pure where it can be.
+`@sandboxr/voice` and `@sandboxr/telegram` each depend on it and implement `Notifier`.
+`@sandboxr/orchestrator-daemon` sits on top of all three and is the only one that wires
+sockets and reads the environment. Nothing depends back up the chain; voice must never import
+telegram, and the base must never import either.
+
+**Only `container/` is bash, and everything host-side is TypeScript — except the two audio
+sidecars, which are Python by necessity.** On-device speech recognition, neural
+text-to-speech and Telegram group-call media are Python ecosystems; the sidecars live under
+`sidecars/` (not `packages/`), each a `_sidecar` package with a testable stdlib core and heavy
+engines behind an optional extra. Their control planes are TypeScript. This is the one
+sanctioned exception to the language rule, and it is confined to `sidecars/`.
+
+### 10.1 What the orchestrator folds, and what it raises
+
+Three feeds, each seeing what the others cannot: the **index** (`runs.json`, §7.2.3) for state
+and titles; the **event** stream for the fine grain; and **hooks** (§10.4) for the push — a
+subagent's failure stated rather than inferred, and latency the transcript cannot match. The
+model is a pure reducer: `now` is an argument, so every signal — a stall, a blocked session, a
+failed subagent — is testable without a container or a timer. A fork of a session (a `/btw`) is
+never watched; it is only ever the mechanism by which the parent is summarised.
+
+Signals are a closed set: `needs-input`, `error`, `failed`, `finished`, `subagent-failed`,
+`stalled`, each with a fixed severity (`info` | `attention` | `urgent`). The **policy** is a
+pure function from one signal to an **escalation** or to silence, split on one line: a
+**question** is raised only where a person can still change the outcome (needs-input, error,
+stalled); everything else is an **update**. A severity floor is the one knob.
+
+The orchestrator never blocks ingestion on a person: delivery is dispatched, coalesced by
+`(signal, session)`, and held to one open question per session at a time.
+
+### 10.2 Summaries reuse `/btw`
+
+A session summary is a side question. The orchestrator depends only on a one-method `Forker`;
+the daemon's `DockerForker` builds the exact fork command core already defines (`agentArgv`
+with `--resume … --fork-session --tools "" --strict-mcp-config`, §7.2.1), opens it with
+`sideQuestionPreamble`, runs it over `docker exec` with stdin closed so the one-shot fork ends
+after one answer, and reads the answer through core's own `normalise`. No second way to talk to
+a session, and no reimplementation of the fork.
+
+### 10.3 The voice protocol, and the heard/unheard boundary
+
+Voice is split brain (TypeScript) and body (Python sidecar) across one newline-delimited-JSON
+socket. The body owns the microphone, the speech-to-text, the voice, and — the part that must
+be on-device and low-latency — the decision of when a person has started and stopped speaking.
+The `protocol` module is the single source of the wire shape; the Python side mirrors it.
+
+The whole protocol is shaped around **barge-in**. Two facts must survive a person talking over
+an announcement: how much of it they heard, and what they said. The first is knowable only in
+the body, where the audio clock is, so `speaking-interrupted` carries `spokenChars` — the
+boundary between heard and unheard, an estimate mapped from the audio clock and retreated to a
+whole word so a person is credited with slightly less, never more. An interruption is **two
+messages** (the cut, then the transcribed words that caused it) that the brain reassembles into
+one outcome.
+
+The brain keeps two records from that boundary. The **`AnnouncementLedger`** tracks, per
+announcement, how much was heard. The **`SessionHistory`** is the account of what the person
+actually knows, and an interruption **rewrites** it: the cut announcement is trimmed to the
+heard prefix, the unheard tail kept as a retraction, and the reply recorded — so the history
+matches what is in the person's head, not what was sent to the speaker. This is the one place
+"what was said" and "what was heard" are deliberately different, and every downstream decision
+uses the second.
+
+### 10.3.1 One voice, three bodies
+
+There is **one voice**, and it has three bodies. Each body is a `Backend` the same `Engine`
+drives, and each differs only in where the audio comes from and goes to:
+
+| Body | Where the audio is | File |
+|---|---|---|
+| `StreamedAudioBackend` | the browser is the microphone and the speaker | `sidecars/voice/voice_sidecar/stream.py` |
+| `AudioBackend` | a real microphone and speaker, at the desk | `sidecars/voice/voice_sidecar/audio.py` |
+| `CallAudioBackend` | a Telegram group voice call | `sidecars/telegram/telegram_sidecar/call_audio.py` |
+
+They share the **brain** (`packages/orchestrator`, `packages/voice`) and the **engines**
+(`engines/piper_tts.py`, `engines/whisper_stt.py`, `endpointer.py`, `engine.py`). The
+boundary between the two is a rule, not a habit:
+
+- **What is said, how fast it is said, what was heard, when a turn ends, and what counts as
+  speech at all — shared.** It belongs in an engine or in the brain, and there is exactly one
+  copy of it.
+- **How bytes reach a speaker and leave a microphone — the backend's own.** Opening a
+  `sounddevice` stream, draining `audio-out` frames to a socket, pushing PCM at pytgcalls,
+  and deriving "playback finished" from whichever signal that device actually has.
+
+**A fix made in one backend is a bug in the other two until it moves.** That is the whole of
+it, and every example below was found the hard way rather than reasoned about in advance:
+
+- **The speaking pace lives on `PiperTts`**, not on a backend. A pace held per backend is a
+  pace that works in the dashboard and silently does not on a phone call.
+- **Piper's output is resampled from its native rate (22050 Hz for most voices) to the 16 kHz
+  everything else assumes**, in `PiperTts` rather than at each device. Handing 22050 Hz to a
+  16 kHz player does not fail; it plays 1.38× too slow and too low, which reads as a deeper,
+  slower voice rather than as a bug, and it defeats the pace control on top.
+- **Whisper's confidence thresholds and its hallucination denylist are in `WhisperStt`.** A
+  breath transcribed as "Thank you." is a message the orchestrator acts on, and it is exactly
+  as wrong on a call as in a browser.
+- **What counts as speech is `SileroVad`'s — and so is the buffering that makes it possible.**
+  Silero decides on a fixed 512-sample window and carries LSTM state between windows; none of
+  the three bodies produces 512-sample frames, and the browser's are not even a constant
+  (2048 frames of 48 kHz resampled is about 683). So the re-chunking and the state live in the
+  engine, behind one `is_speech(frame_pcm)` that takes whatever a body has. A body that chunked
+  for itself would be three buffers, three LSTM states and three chances to zero one — and both
+  mistakes return plausible probabilities rather than an error, so nothing would ever say so.
+  The model is faster-whisper's own `silero_vad_v6.onnx`; the `silero-vad` package is not
+  installed and is not needed (§10.6).
+- **The end-of-turn silence window is `EndpointerConfig`'s**, and nothing else may hold a
+  number for it. Raised from 700 ms to 1200 ms because 700 ended a turn on an ordinary pause
+  for thought; the raise reached the voice sidecar and left the Telegram sidecar's own copy at
+  700, so calls went on cutting people off after the desk had stopped. Both entry points now
+  read the default from `EndpointerConfig`, and a test asserts it.
+- **A turn ends four ways, and all four are the engine's.** A run of silence is one
+  (`EndpointerConfig`); the recognised words ceasing to change is the other, and it exists
+  because in a car or on a train there is no silence to wait for — the VAD calls the noise
+  speech and the turn never ends. The second reads the partial transcripts, which are already
+  filtered hard enough that noise transcribes to nothing, and it is driven by the frame clock
+  rather than by partial completions: partials are throttled and skipped while one is running,
+  so a timer measured from them stalls exactly when the CPU is busiest, which is while somebody
+  is talking. It also requires `SETTLED_PARTIALS` passes to read the same, because a pass can
+  now be slower than the window it is judged against and one identical pass is evidence of
+  nothing. `finish` is a third, on demand — it *keeps* what was said, where `stop-listening`
+  discards it, and both say so in their docstrings because the names do not. The fourth is the
+  turn having gone on too long (`MAX_TURN_MS`, 30 s — Whisper's own window): the first two can
+  be defeated at once, by a room the VAD calls speech holding one open while somebody dictating
+  without a pause holds the other open, and the buffer then grows for the rest of the session
+  while every partial re-transcribes all of it. **At the cap nothing said is discarded.** A turn
+  with words ends exactly as `finish` ends one, so a long dictation arrives as several messages
+  rather than as the first thirty seconds and silence; a turn with nothing recognised drops its
+  audio and keeps listening, because ending it would put an empty message in front of the brain
+  and close the ear on somebody who has not started answering yet.
+
+- **A partial transcription never runs on the engine thread, and never more than one at a
+  time** (`partials.py`). A partial is a whole Whisper pass — there is no streaming partial from
+  Whisper — and it costs about **0.2 s of CPU per second of audio**, measured on the container.
+  Against a partial every 700 ms, a buffer past about **3.5 s** therefore costs more than the gap
+  between them, so running it on the engine thread put every later frame behind it: turns stopped
+  ending, the buffer grew, the next pass cost more, and live dictation degraded through a session
+  and then stopped. One worker runs the pass and **posts the result back to the engine's own
+  thread**, because the state machine has exactly one writer by design; a partial asked for while
+  one is running is **dropped, not queued**, since a queued one describes audio that has already
+  been superseded. Two more are never asked for at all, and both are about the *final* transcript
+  rather than the partial: one on a silent frame, and one that the measured cost of the last pass
+  says would still be running when the turn is capped. The final runs on the engine thread and
+  waits behind whatever is in the transcriber, so either would double the time the answer takes to
+  arrive in order to refresh a display with words that are about to be sent as a message anyway. A result that lands after its turn ended is dropped too, or it would show the
+  last utterance's words under the next one. `WhisperStt` serialises passes for the same reason —
+  the final transcript runs on the engine thread and would otherwise be inside the model at the
+  same time as a partial.
+
+- **A frame is timed from when it arrived, not from when it was handled.** The endpointer measures
+  runs of speech and silence against the stamp the backend gives each frame, so a body that stamps
+  frames where they are *processed* tells it that a queue's worth of audio arrived at once: a real
+  1.2-second pause measures as nothing and the turn does not end, while the first frame after a
+  slow pass appears to jump seconds into the future. `AudioBackend` and `CallAudioBackend` stamp on
+  a device or adapter thread and are honest by construction; `StreamedAudioBackend` is handled on
+  the engine thread, so the server stamps each `audio-in` as it comes off the socket and hands the
+  stamp down. A backlog may then delay a decision, but it cannot corrupt one.
+- **What was *heard* is never what was *sent*, wherever there is a consumer in between.** Both
+  the browser and a Telegram call buffer ahead of the speakers, so the position in the outgoing
+  buffer runs ahead of the ear — and that number is not only a progress indicator, it is the
+  heard/unheard boundary the session history is rewritten against at a barge-in. Each backend
+  therefore corrects it and errs low: the browser reports its own playback clock, the call
+  bounds it by the wall clock (a call plays at exactly 1×, so nobody can have heard more than
+  the seconds elapsed), and `AudioBackend` alone needs no correction because PortAudio pulls
+  each block just before it is due. That last one is recorded in its docstring so it is not
+  re-audited into a bug.
+- **Stopping playback has to abort the device, not drain it.** Emptying a buffer stops the
+  *next* sample being found; it does not recall what the consumer already holds. In the browser
+  that was up to a second of scheduled speech carrying on over somebody who had already
+  interrupted; at the desk it is PortAudio's output latency, and `stop()` there makes it worse
+  because `stop()` drains — `abort()` is the one that discards. On a call the residue inside
+  the encoder and the far end's jitter buffer cannot be recalled at all, which is a fixed
+  latency rather than a growing queue, and the code says so rather than pretending otherwise.
+
+The rule's weak point is the small amount of frame bookkeeping the three backends genuinely
+repeat — the pre-roll ring that keeps a barge-in's first word, and the per-frame VAD call that
+files a frame and judges it in the same breath. It sits against the frame source, which is why
+it is there three times; it is also the most likely place for the three to drift next, so a
+change to any of it is a change to all three.
+
+### 10.4 Hooks
+
+Claude Code's hooks are pointed at `sandboxr-orchestrator-hook`, a bin whose one guarantee is
+that it is harmless: it forwards the payload and **exits 0 with empty stdout no matter what**,
+because a `PreToolUse` hook that is slow or errors can block a tool. The ingest server binds
+loopback, needs no auth (a local process handing a local process a local payload), and answers
+200 to everything but an unknown route — a hook must never be able to wedge a session with the
+orchestrator's opinion of its payload. `SubagentStop`, `Notification`, `Stop`, `PreToolUse` and
+`PostToolUse` are modelled; everything else parses to null.
+
+### 10.5 The Telegram control protocol, and the call
+
+Telegram is the notifier for when the person is away from the desk: a question rings them, an
+update leaves a text. A real one-to-one Telegram call is not programmable, so the userbot
+(Telethon) joins a **group voice chat** and brings the person in; pytgcalls carries the audio.
+The control protocol (`call`, `hangup`, `text`; `calling`, `joined`, `left`, `ended`, `error`)
+is signalling only — it is kept apart from the voice protocol, which carries the conversation
+once the person is on the call. `TelegramCall.call()` resolves on `joined` and rejects on
+ring-out or `ended`; nobody answering is a normal outcome, not an error. The conversation over
+the call is an ordinary `VoiceNotifier` reused whole — the same barge-in and history rewrite,
+with the call as the audio.
+
+### 10.6 The daemon, and what never leaves the machine
+
+**Everything the orchestrator adds is a host process, not a sandbox.** The daemon, the voice
+sidecar and the telegram sidecar run on the machine, beside Docker — they must, because voice
+owns the microphone, the telegram userbot owns the account login, and the daemon needs the Docker
+socket to fork a session. The sandboxes are the subjects, not part of it. Four links join them:
+the **run index** (a host file the daemon polls), **hooks** (an HTTP POST from a session to the
+daemon), **summaries** (`docker exec` from the daemon into a sandbox, §10.2), and **voice/calls**
+(local sockets to the sidecars). The **base package owns no side effects at all** — it opens no
+socket, spawns nothing, reads no environment — so the whole decision path is testable without any
+of the above; the daemon is the one place those edges live, which is also why it is a separate
+package from the base it cannot be depended on by.
+
+**One reachability boundary is left manual, not defaulted.** The index feed reaches the daemon
+whatever started a session, because it is a file. A hook runs where `claude` runs: for a session
+`claude` runs on the host it reaches the loopback ingest port, and for one the dashboard runs
+*inside a sandbox container* it does not, because the port binds loopback on the host. Wiring the
+in-container case — `SANDBOXR_ORCHESTRATOR_URL` in the sandbox pointing at the daemon on the
+docker-bridge gateway — is deliberately a manual step, because loopback-only is the safe default.
+
+`sandboxr-orchestrator` reads `SANDBOXR_HOME`, polls the index, serves the hook port
+(`SANDBOXR_ORCHESTRATOR_PORT`, default 4600, loopback), and routes escalations: voice
+(`SANDBOXR_VOICE_SOCKET`) takes everything, Telegram (`SANDBOXR_TELEGRAM_SOCKET`,
+`…_CHAT_ID`, `…_USER_ID`) takes the urgent, and a log notifier is the floor under both so a
+machine with neither still runs and stays observable. It degrades to logging when a sidecar is
+absent, so it is safe to start first.
+
+The whole point of the Python sidecars is that **speech never leaves the machine**: recognition
+(Whisper), synthesis (Piper), voice-activity detection (Silero) and the end-of-speech decision
+all run locally. The Telegram audio is the one exception, and it is the person's own call on
+their own account. Telegram credentials are read from the environment only, never a flag.
+
+### 10.7 In the dashboard, and audio over the browser
+
+The orchestrator owns no side effects, so it runs in two places from one engine. As a
+standalone **daemon** (§10.6), and — behind `SANDBOXR_ORCHESTRATOR` — **inside the dashboard
+server**, where the two edges it needs are already present: the live session registry, so a
+summary is a real `/btw` fork taken through `AgentSessions.fork` rather than a `docker exec`,
+and a websocket to the browser, so an escalation is a card and an answer is a click. When the
+variable is unset, `startOrchestrator` returns null and every route and gateway treats null as
+"the feature does not exist" — an un-opted-in dashboard is unchanged, which is the safety story.
+
+Two sockets and three routes, all gated on a password that covers **every** project (`*`), because
+the orchestrator watches across projects and an escalation about one names a sandbox another
+login may not see:
+
+- **`/orchestrator`** — the panel. `ready` (recent cards + open question ids) on attach, then
+  `escalation` and `answered` frames out; `answer` and `digest` in. A question is answered once,
+  by whoever answers first; the `answered` frame clears every other tab's card.
+- **`/orchestrator/audio`** — the audio relay, only when a voice is configured. Binary PCM both
+  ways with the browser; `audio-in`/`audio-out` on the sidecar transport.
+- **`GET/PUT /api/orchestrator/telegram`** — the call targets and the enable switch. **Never the
+  api id, hash or session**: those are secrets, stay in the sidecar's environment, and have no
+  web field. **`GET /api/orchestrator`** answers `{enabled}` so the browser can decide whether to
+  draw the panel; it is the one route a disabled dashboard still answers.
+- **`GET/PUT /api/orchestrator/soul`** — `{text}`, the orchestrator agent's character, stored as
+  prose in `$SANDBOXR_HOME/soul.md` and capped at 8000 characters. **Only the orchestrator reads
+  it**; a sandbox session's prompt is core's and is untouched by it. It is appended **after** the
+  operational system prompt under a heading limiting it to manner, so it can never widen what the
+  agent may do — the allowlist and `--permission-prompt-tool` remain the only things that decide
+  that. Absent or empty means no section at all and a byte-identical prompt. It is read when a
+  conversation opens, never at construction: `--append-system-prompt` is fixed for the life of the
+  `claude` process, so an edit lands on the **next** conversation and every surface must say so.
+
+**Audio on the web streams to the sidecar; it does not use the browser's own speech.** Browser
+speech recognition ships audio to a vendor cloud, which would break "speech never leaves the
+machine". So the browser is only a microphone and a speaker: it streams PCM to the voice sidecar
+(running in **streamed mode** — the socket is its device), which recognises and synthesises
+locally and streams the spoken audio back. The `audio-in`/`audio-out` frames carry it, base64 so
+the protocol stays one JSON object per line, and the sidecar paces `audio-out` one tick at a time
+so the heard boundary stays honest at a barge-in.
+
+**Voice is never a second asker.** There is one conversation, and speech is a way into it, not a
+second channel beside it. What the sidecar hears becomes `agent.send(text)` — an ordinary message
+— and the agent's finished prose is spoken back; escalations reach the agent (`AgentNotifier`),
+which raises them in that same conversation. Talking is typing. The transcript used to be
+submitted as the answer to whatever question the panel had open, which was a second answer channel
+and could settle the wrong question when two were open at once.
+
+**Streamed audio is also what makes the sidecars containerisable.** With the browser doing the
+raw audio I/O, a sidecar needs no audio device, so it ships as an image that runs the same on any
+machine and reaches the dashboard over a Unix socket on a shared volume. The desk build (a real
+device, via sounddevice) and the streamed build (no device) are the same body with different ends.
