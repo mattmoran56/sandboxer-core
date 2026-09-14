@@ -5,10 +5,14 @@
 // - pullWorktree, detached: the branch recovered from the commit, and the same fast-forward
 // - pullWorktree: the fetch goes to the project's mirror and never to the worktree
 // - pullWorktree refusals: a missing directory, no branch, no branch on origin, divergence
+// - pullWorktree, rewritten upstream: moved onto by checkout when no local commit is absent from it,
+//   detached moving HEAD alone, and never by reset --hard
+// - pullWorktree divergence: counted and named by patch, so only the commits origin has no
+//   equivalent of are reported — and a git cherry that cannot answer falls back to the sha count
 // - pullWorktree refusals: tracked files the incoming commits also touch, untracked files clobbered
 // - pullWorktree: every reason is reported at once, and nothing is merged when any is present
 // - pullWorktree: a merge that fails anyway is a refusal carrying git's own words
-// - pullReport: the wording of all three outcomes, and the headline a refusal leads with
+// - pullReport: the wording of all four outcomes, and the headline a refusal leads with
 // - freshenBranch: it fetches the mirror before it resolves anything, and never the worktree
 // - freshenBranch: a given base wins, and needs nothing reconciled
 // - freshenBranch: a local branch behind origin is fast-forwarded, with the old sha as the guard
@@ -246,6 +250,95 @@ describe("pullWorktree", () => {
     expect(calls.some((call) => call.args[0] === "merge")).toBe(false);
   });
 
+  // A rebase and force-push upstream. Every commit here is on origin under a new
+  // sha, so a sha comparison calls it a divergence and a patch comparison shows
+  // there is nothing to lose. This is the case that made the button useless on a
+  // managed worktree, where a rewritten branch is ordinary rather than rare.
+  it("moves onto a rewritten upstream when no local commit is absent from it", async () => {
+    const worktree = realDir();
+    const { run, calls } = fakeGit(
+      behind({
+        "merge-base --is-ancestor": { code: 1 },
+        "cherry -v": { code: 0, stdout: `- ${HEAD} one\n- ${TARGET} two\n` },
+        checkout: { code: 0 },
+      }),
+    );
+
+    const result = await pullWorktree({ project: project(realDir()), worktree, run });
+
+    expect(result).toMatchObject({ outcome: "replaced", branch: "feat/thing", refusals: [] });
+    // Attached, so the branch moves with HEAD — and by `checkout`, which refuses
+    // to overwrite an uncommitted change. Never `reset --hard`, which would not.
+    expect(calls.some((call) => call.args.join(" ").startsWith("checkout -B feat/thing"))).toBe(true);
+    expect(calls.some((call) => call.args[0] === "merge")).toBe(false);
+    expect(calls.some((call) => call.args.includes("--hard"))).toBe(false);
+  });
+
+  it("moves a detached worktree's HEAD alone onto a rewritten upstream", async () => {
+    const worktree = realDir();
+    const { run, calls } = fakeGit(
+      behind({
+        "symbolic-ref": { code: 1 },
+        "rev-parse --abbrev-ref HEAD": { code: 0, stdout: "HEAD\n" },
+        "branch --points-at": { code: 0, stdout: "(HEAD detached at 1111111)\nfeat/thing\n" },
+        "merge-base --is-ancestor": { code: 1 },
+        "cherry -v": { code: 0, stdout: `- ${HEAD} one\n` },
+        checkout: { code: 0 },
+      }),
+    );
+
+    const result = await pullWorktree({ project: project(realDir()), worktree, run });
+
+    expect(result).toMatchObject({ outcome: "replaced", detached: true });
+    expect(calls.some((call) => call.args.join(" ").startsWith("checkout --detach"))).toBe(true);
+  });
+
+  // The number and the names are the only things somebody can act on, so a
+  // divergence reports the commits that would really be lost — not the whole
+  // pre-rebase history, which is what counting shas gives.
+  it("counts and names only the commits origin has no equivalent of", async () => {
+    const worktree = realDir();
+    const { run, calls } = fakeGit(
+      behind({
+        "merge-base --is-ancestor": { code: 1 },
+        "cherry -v": {
+          code: 0,
+          stdout: `- ${HEAD} already there\n+ aaa1111aaa1111 mine one\n- ${TARGET} also there\n+ bbb2222bbb2222 mine two\n`,
+        },
+        "rev-list --count 2222": { code: 0, stdout: "107\n" },
+      }),
+    );
+
+    const result = await pullWorktree({ project: project(realDir()), worktree, run });
+
+    expect(result.outcome).toBe("refused");
+    const diverged = result.refusals.find((refusal) => refusal.kind === "diverged");
+    expect(diverged?.summary).toBe("2 local commits not on origin/feat/thing");
+    expect(diverged?.files).toEqual(["aaa1111 mine one", "bbb2222 mine two"]);
+    expect(diverged?.message).not.toContain("already there");
+    expect(calls.some((call) => call.args[0] === "checkout")).toBe(false);
+  });
+
+  // An unreadable classification has to refuse, never assume. Falling through to
+  // the sha comparison is what keeps a broken `cherry` from moving a worktree.
+  it("falls back to the sha comparison when git cherry cannot answer", async () => {
+    const worktree = realDir();
+    const { run, calls } = fakeGit(
+      behind({
+        "merge-base --is-ancestor": { code: 1 },
+        "cherry -v": { code: 128, stderr: "fatal: bad revision\n" },
+        "log --format=%h %s": { code: 0, stdout: "aaa1111 one\n" },
+        "rev-list --count 2222": { code: 0, stdout: "9\n" },
+      }),
+    );
+
+    const result = await pullWorktree({ project: project(realDir()), worktree, run });
+
+    expect(result.outcome).toBe("refused");
+    expect(result.refusals.find((refusal) => refusal.kind === "diverged")?.message).toContain("9 commits");
+    expect(calls.some((call) => call.args[0] === "checkout")).toBe(false);
+  });
+
   it("refuses when an uncommitted change is to a file the incoming commits also touch", async () => {
     const worktree = realDir();
     const { run, calls } = fakeGit(
@@ -352,6 +445,16 @@ describe("pullReport", () => {
       "Fast-forwarded feat/thing from 1111111 to 2222222, 3 new commits from origin/feat/thing.",
     );
     expect(lines[1]).toContain("Restart the sandbox's services");
+  });
+
+  // "Moved" rather than "fast-forwarded" is the one difference somebody would
+  // want explained, so the reason it was safe is said in the same breath.
+  it("says a rewritten upstream was moved onto, and why nothing was lost", () => {
+    const lines = pullReport(result({ outcome: "replaced", to: "2222222", commits: 213 }));
+    expect(lines[0]).toBe("Moved feat/thing from 1111111 to 2222222, 213 commits from origin/feat/thing.");
+    expect(lines[1]).toContain("rebased or force-pushed");
+    expect(lines[1]).toContain("nothing was lost");
+    expect(lines[2]).toContain("Restart the sandbox's services");
   });
 
   it("explains that a detached worktree's branch ref stayed where it was", () => {

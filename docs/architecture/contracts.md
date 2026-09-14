@@ -621,8 +621,24 @@ never discards, because the whole value of the operation is that its failure is 
   remote does not have, uncommitted changes to files the incoming commits also change, and
   untracked files the incoming commits would overwrite. The dirty check is `dirtyFiles` with
   `DEFAULT_DIRTY_IGNORE`, so a file a sandbox's own build wrote does not block a pull.
+- **A divergence is measured by patch, not by sha.** `git cherry -v` against
+  `refs/remotes/origin/<branch>` decides it: a commit marked `+` has no equivalent upstream and
+  is the only kind that could be lost, and one marked `-` is already there under another sha.
+  The refusal counts and names the `+` commits alone. Counting `origin/<branch>..HEAD` instead
+  reports the whole pre-rebase history — a branch rebuilt once said `107 local commits` where
+  ten were absent, and named five that were already on the remote.
+- **A rewritten upstream is moved onto rather than refused.** When no commit is absent from
+  origin there is nothing to lose, so the worktree goes to origin's tip even though that is not
+  a fast-forward: `git checkout --detach` on a detached worktree, `git checkout -B <branch>` on
+  an attached one. The outcome is `replaced`, distinct from `fast-forwarded`. This is the one
+  case that moves without a fast-forward, and it is the ordinary shape of a managed worktree
+  whose branch somebody rebased — refusing it left no way forward short of a terminal.
+- **Never `reset --hard`, in any case.** `checkout` carries an uncommitted change that does not
+  collide and refuses outright when one would be overwritten; a reset would not. If `git cherry`
+  cannot answer, the sha comparison stands and the pull refuses: an unreadable classification
+  refuses, it never assumes.
 - A refusal names the branch and the actual files, and **nothing on disk is touched**. `git
-  merge --ff-only` is the only command that writes.
+  merge --ff-only` and `git checkout` are the only commands that write.
 
 **`freshenBranch` does the same job for a worktree that does not exist yet**, and
 `addWorktree` calls it before it resolves any ref. Every creation path in §4.1 starts from a

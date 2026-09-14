@@ -433,15 +433,21 @@ has one, and `--json` always carries `displayName`, which is `null` when there i
 rm` removes a worktree's name along with it.
 
 `worktree pull` fast-forwards a checkout onto its branch's head on the remote and does nothing
-else — no merge, no rebase, no reset. It fetches the **project's mirror**, so it is the same
-conversation with the remote that `project fetch` has, and it works on a detached worktree, which
-is the ordinary state of one whose branch is checked out somewhere else. It exits `0` for
-`already up to date` and for a fast-forward, and `1` for a refusal, having changed nothing. A
-refusal lists every reason at once and names the files: uncommitted changes to files the incoming
-commits also change, untracked files those commits would overwrite, and commits here that the
-remote does not have. `--json` carries `outcome`, `branch`, `detached`, `from`, `to`, `commits`
-and `refusals`. A file a sandbox's own build wrote — `.env.local` beside a package — does not
-block a pull. See [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+else — no merge, no rebase, no `reset --hard`. It fetches the **project's mirror**, so it is the
+same conversation with the remote that `project fetch` has, and it works on a detached worktree,
+which is the ordinary state of one whose branch is checked out somewhere else. It exits `0` for
+`already up to date`, for a fast-forward and for a move onto a rebuilt branch, and `1` for a
+refusal, having changed nothing. A refusal lists every reason at once and names the files:
+uncommitted changes to files the incoming commits also change, untracked files those commits
+would overwrite, and commits here that the remote has no equivalent of.
+
+**A rebased or force-pushed branch is not a divergence.** Divergence is judged by patch, with
+`git cherry`, so commits the remote already carries under a different hash are not counted as
+work at risk; where none is genuinely absent, the worktree is moved onto the rebuilt branch by
+`git checkout` and the outcome is `replaced` rather than `fast-forwarded`. `--json` carries
+`outcome`, `branch`, `detached`, `from`, `to`, `commits` and `refusals`. A file a sandbox's own
+build wrote — `.env.local` beside a package — does not block a pull. See [Projects, worktrees and
+lifetimes](../guides/managed-sandboxes.md).
 
 `worktree add` fetches before it resolves anything, so a new worktree lands on the remote's
 current tip rather than on whatever the last fetch left behind. Where the local branch is behind

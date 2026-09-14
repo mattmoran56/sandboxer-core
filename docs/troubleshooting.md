@@ -931,7 +931,7 @@ at once, so there is no fixing one and running it again to be told the next.
 |---|---|
 | `N files have uncommitted changes that the incoming commits also change: …` | Commit, stash or discard those files. Only files the incoming commits also touch are in the way |
 | `N untracked files would be overwritten by the incoming commits: …` | Move or delete them |
-| `<branch> has N commits that origin/<branch> does not` | There is no fast-forward to make. Push them, or drop them |
+| `<branch> has N commits that origin/<branch> does not` | Those N commits exist on no remote branch, in any form. Push them, or drop them. A branch somebody rebased does **not** produce this — sandboxr compares patches, so commits the remote already has under a different hash are not counted, and the worktree is moved onto the rebuilt branch instead |
 | `origin has no branch called <branch>` | It was deleted or renamed on the remote |
 | `This worktree is on <sha> and no branch points at it` | Check it out on a branch first |
 
