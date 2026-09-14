@@ -2342,6 +2342,50 @@ files a frame and judges it in the same breath. It sits against the frame source
 it is there three times; it is also the most likely place for the three to drift next, so a
 change to any of it is a change to all three.
 
+### 10.3.2 One voice, one conversation at a time
+
+There is one voice body on a machine — one microphone, one recogniser, one synthesiser, one
+`Engine` with one state machine — and the person in front of it has one mouth. **So "voice on
+every agent" means the voice can be *pointed at* any conversation, not that every conversation
+has one.** Two panes with a microphone each, feeding one recogniser, would be two agents
+answering out loud over each other.
+
+The voice is therefore the **machine's**, built from `SANDBOXR_VOICE_SOCKET` alone
+(`packages/server/src/voice.ts`, `ServerConfig.voiceSocket`). It used to be built inside
+`startOrchestrator`, so a machine with a sidecar had to turn the orchestrator on to get a
+microphone — even when what it wanted was to talk to a worktree's own session.
+
+| | |
+|---|---|
+| **Target** | A conversation, as three functions: `hear(text)`, `listening(on)`, `watch(say)`. The orchestrator's agent and a sandbox session are different objects with different lifetimes, and the voice is better for knowing about neither |
+| **Claim** | `MachineVoice.claim(target)`. At most one is held. A second socket on the *same* conversation shares it; a claim on a *different* one takes it |
+| **Address** | `/orchestrator/audio` for the machine's own session, `/p/:project/s/:slug/audio` for a worktree's — beside `/p/:project/s/:slug/agent`, because they are two halves of one conversation |
+| **Capability** | `GET /api/voice` answers `{ enabled, voices, voice }`. A route of its own, not a field on `/api/orchestrator`: every pane asks it, and a worktree page reading a different feature's status to decide whether it may draw a microphone is the right answer arrived at by luck |
+
+Four consequences, each of which is a bug if it is missed:
+
+- **Taking the voice stops the previous conversation mid-sentence and closes its relays.** The
+  sound has to stop, not just the bookkeeping: a sentence already playing is about a
+  conversation the person has turned away from. The losing tab is told `{"type":"taken","by":…}`
+  before its socket closes, because the close on its own arrives as a connection that failed for
+  no reason.
+- **A conversation the voice is not pointed at is never read aloud, and never spoken into.**
+  The `watch` is the claim; speech heard while nothing is claimed is dropped rather than
+  delivered to whichever conversation was last, which would put a sentence into a session the
+  person had stopped talking to and could not see.
+- **The `[spoken]` marker is one constant, `SPOKEN_MARKER` in core.** It prefixes a message
+  while somebody is listening, and `SPOKEN_PROMPT` — appended with `--append-system-prompt` to
+  every session on a machine that has a voice — is what gives it meaning. Both are core's
+  because the orchestrator and a sandbox session have to agree on them exactly. A machine with
+  no sidecar appends nothing, so its sessions get a byte-identical command line to the one they
+  got before any of this existed.
+- **Which voice speaks is a setting, not a deployment.** `PiperVoices` loads every `.onnx`
+  beside the mounted default, lazily, and switches on `configure`; the list travels in `ready`
+  and a change in a `voice` event. It is on the shared synthesiser for the reason §10.3.1 gives
+  about the pace: a voice held per backend is a voice that changes in the dashboard and silently
+  does not on a call. The dashboard remembers `ready` and replays it to each tab, because it is
+  sent once when the *dashboard* connects — long before any browser exists.
+
 ### 10.4 Hooks
 
 Claude Code's hooks are pointed at `sandboxr-orchestrator-hook`, a bin whose one guarantee is
@@ -2413,8 +2457,11 @@ login may not see:
 - **`/orchestrator`** — the panel. `ready` (recent cards + open question ids) on attach, then
   `escalation` and `answered` frames out; `answer` and `digest` in. A question is answered once,
   by whoever answers first; the `answered` frame clears every other tab's card.
-- **`/orchestrator/audio`** — the audio relay, only when a voice is configured. Binary PCM both
-  ways with the browser; `audio-in`/`audio-out` on the sidecar transport.
+- **`/orchestrator/audio`** and **`/p/:project/s/:slug/audio`** — the audio relay, only when a
+  voice is configured. Two addresses, one relay: it is one body being pointed at one of them
+  (§10.3.2). Binary PCM both ways with the browser; `audio-in`/`audio-out` on the sidecar
+  transport. **`GET /api/voice`** answers `{enabled, voices, voice}` — whether the machine has a
+  voice at all, and which voices it can speak in.
 - **`GET/PUT /api/orchestrator/telegram`** — the call targets and the enable switch. **Never the
   api id, hash or session**: those are secrets, stay in the sidecar's environment, and have no
   web field. **`GET /api/orchestrator`** answers `{enabled}` so the browser can decide whether to
