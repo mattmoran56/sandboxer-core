@@ -1517,6 +1517,14 @@ it to. Everything that reaches *into* a repository of a session — its files, i
 it — is still checked against that repository's project, which is why those routes spell the
 repository as `:project` and go through this same sweep.
 
+**Five of them are the other exception to "every route requires a session"**, and it is a narrowing
+rather than a loosening. `GET /api/sessions/:session`, `…/repos`, `POST …/runtimes`,
+`POST …/r/:runtime/stop` and `DELETE …/r/:runtime` additionally accept a **workstation token**: the
+credential an agent inside that session's own container holds instead of a Docker socket
+(§12.6.1.1). The token names one session and the router refuses it on any other path, so the list
+above is the entire surface an agent can reach — and it is pinned by a test, because a route added
+to it is a capability handed to the least supervised process on the machine.
+
 | Route | Answers |
 |---|---|
 | `GET /api/bootstrap` | The domain, the session, the closed action table (§8), and the default lifetime the new-sandbox form offers. What the app needs before it can draw anything |
@@ -1538,6 +1546,8 @@ repository as `:project` and go through this same sweep.
 | `POST /api/sessions/:session/start`, `…/stop` | Its workstation. Stopping removes nothing (§12.8) |
 | `GET /api/sessions/:session/repos` | What is in its work volume. A read that failed says so rather than answering "none" (§12.5) |
 | `GET /api/sessions/:session/r/:runtime` | The session's view of one runtime, which is the sandbox answer above reached by the other road (§12.4) |
+| `POST /api/sessions/:session/runtimes` | Runs one of that session's checkouts, and answers the URLs. Only a checkout already on the session's own work volume (§12.6.1.1) |
+| `POST /api/sessions/:session/r/:runtime/stop`, `DELETE …/r/:runtime` | Stops one, and removes one. The delete takes no `force` (§8.1) |
 | `GET /api/sessions/:session/repos/:project/:dir/files`, `…/diff`, `…/diff/file` | The same two read-only views as the three `s` routes above, against the workstation rooted at `/work/<repo>/<dir>` (§7.4, §12.5) |
 
 `GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
@@ -2753,10 +2763,17 @@ rather than a sandbox. It is tested over real HTTP against a fake core and a fak
 
 **A runtime can be brought up from a work volume and has been** (§12.4): `up({ runtime })` starts a
 sandbox whose `/workspace` is a checkout on `sandboxr-work-<session>`, and the demo project was
-cloned into one, started, and served over HTTP. What is missing is not the mechanism but the
-*decision*: nothing asks for a runtime. There is no route that creates one and no tool an agent can
-call to ask for one, which is the last piece of §12.4 and the reason a session cannot yet show you
-its work running.
+cloned into one, started, and served over HTTP.
+
+**Asking for one is built too, both halves** (§12.4, §12.6.1.1). `POST /api/sessions/:session/runtimes`
+starts a runtime and answers its URLs, `…/r/:runtime/stop` and `DELETE …/r/:runtime` take one away,
+and a session may only run a checkout that is already on its own work volume — enforced against the
+volume's own listing rather than against the request. Beside it, `packages/server/src/session-mcp.ts`
+is the `sandboxr` MCP server the agent's `claude` process runs, whose every tool is one of those
+calls with a per-run token. Both are tested — the routes over real HTTP against a fake core, the
+tool over a real stdio pipe against a real HTTP server — and **neither has been driven by an agent
+in a workstation**, because nothing starts one yet. That last piece is the socket into a
+workstation, and it is the one thing between here and a session that shows you its work running.
 
 **The rest of §12 has not been built**: there is no CLI command, no session scope in §8's action
 table, and no socket reaches a workstation. **The browser app draws none of it**, so there is still
@@ -2899,6 +2916,11 @@ workstation is the least supervised process sandboxr runs. It never needs the so
 proposing to mount `/var/run/docker.sock` into a workstation, to proxy it, or to hand it a socket
 with "only some" verbs, is proposing to delete this paragraph, and has to do that here first.
 
+**The asking half is built** (§12.4): an MCP server the agent's own `claude` process runs, whose
+every tool is one HTTP call to the dashboard with a token scoped to that session. It is what makes
+the no-socket rule liveable rather than merely strict — an agent that can neither run its own code
+nor ask anybody to is an agent somebody will eventually mount a socket for.
+
 **It has no bind mount from the host workspace.** The clones live in the work volume (§12.5), so
 there is no host path to mount and nothing inside the container can reach the host's checkouts,
 `SANDBOXR_HOME`, or another session's code. The bidirectional editing of §4.1 — a file changed on
@@ -2950,6 +2972,23 @@ Three things a session adds:
 
 - **A runtime is created only by the control plane.** Core, driven by the CLI or the dashboard.
   Never from inside any container, which is the other half of §12.3's no-socket rule.
+
+  **How the agent asks.** `POST /api/sessions/:session/runtimes`, over HTTP on the shared Docker
+  network, with the per-run token of §12.6.1.1 — and an MCP server, `sandboxr`, that turns that
+  into tools the agent's own `claude` process can call (`start_runtime`, `list_runtimes`,
+  `list_repositories`, `stop_runtime`, `delete_runtime`). It is
+  `packages/server/dist/session-mcp.js`, spoken over stdio, shaped exactly like the orchestrator's
+  (§10): hand-rolled JSON-RPC, every tool one HTTP call, no state and no decisions — so what
+  starting a runtime *means*, and what it refuses, lives in the route and cannot drift.
+  Three variables, set by whatever execs the agent: `SANDBOXR_SESSION_API`,
+  `SANDBOXR_SESSION_TOKEN`, `SANDBOXR_SESSION`.
+
+  **The file is put into the workstation, never mounted.** A workstation's mount table is closed
+  (§12.3) and the installation is not in it: mounting the host's checkout of sandboxr into the
+  container an agent lives in would hand it the thing every other rule here exists to keep away.
+  One file is copied in at exec time instead, refreshed on every run so it cannot go stale.
+  **Nothing does this yet** — no `claude` process runs in a workstation — so the tool has never
+  been exercised by a real agent.
 - **A runtime belongs to exactly one repository and branch of its session**, and that is what gives
   it a `/workspace`. A runtime is a running copy of a project, a project is described by a
   `sandboxr.yaml` in a checkout, so there is no such thing as a runtime with no code. A session
@@ -3108,6 +3147,44 @@ Three readings were closed rather than left open, each because the rule above do
   name (§12.2), so a lookup against what is running is the only answer that cannot be wrong about a
   container.
 
+#### 12.6.1.1 The workstation token, and what an agent may ask for
+
+A session's **agent** has to be able to ask the control plane for a runtime (§12.4), because a
+workstation has no Docker socket and never may (§12.3). It is a different caller from the person at
+the dashboard and is authorised differently, and this is the whole of the difference.
+
+- **Its credential is a per-run token the dashboard minted for one session**, handed to the
+  `claude` process in its exec environment and released when that process ends. It is never written
+  to disk. **It is not the person's password**, which authorises every Docker-socket-backed action
+  on the machine — the same reasoning, and the same shape, as the orchestrator's token (§10).
+- **The token names one session, and the router refuses it on a path naming any other.** That is
+  where "a session may only address its own runtimes" is enforced: in the route table, not in a
+  handler. A token presented against another session's path is a **404**, for §12.6.1's reason — a
+  refusal that said "not yours" would confirm that a session of that id exists on the machine.
+- **A session may only start a runtime for a repository and branch already on its own work
+  volume.** This is the closed rule, and it is enforced *server-side against the volume's own
+  listing* (§12.5) rather than by trusting the request. So an agent can run code it already has and
+  nothing else — and the only way code reaches a work volume is a clone the control plane made.
+  The match is on the **directory** `sanitizeSlug(branch)` produces, because that is what `up`
+  mounts at `/workspace`; a checkout whose recorded branch could not be read still matches, since an
+  unreadable field is not an absent directory. A listing that could not be read at all **refuses**
+  and starts nothing: "no repositories" is never an answer (§12.5), and reading one as such would
+  tell an agent its own code does not exist.
+- **An agent is not filtered by any project grant within its own session**, and that is not a
+  widening. Every runtime it can see is one it asked the control plane to start out of its own
+  volume, and the token reaches no other session's routes at all. Filtering would report its own
+  work as withheld.
+- **The routes an agent may reach are a closed list**, pinned by a test, because a route added to
+  it is a capability handed to the least supervised process sandboxr runs. They are the two reads it
+  needs to know what it may run — one session, and that session's repositories — and the three
+  writes: start, stop, delete. Everything else on the machine, including `/api/p/:project/…` and
+  every orchestrator route, refuses the token.
+- **A person reaches the same routes with a control session**, filtered by the ordinary project
+  grant. Starting a runtime is checked against **the repository's** project and not against every
+  project, which is §12.6.1's first rule — it reaches into a repository, and a runtime carries
+  neither the machine's GitHub token nor another project's credentials. A repository the password
+  does not cover answers 404, in the same words a checkout that is not there gets.
+
 #### 12.6.2 What the JSON API answers today
 
 Built, and listed in §7.1's table with every other route. `…/actions/:action`, `…/terminal` and
@@ -3124,6 +3201,9 @@ a workstation yet.
 | `POST /api/sessions/:session/stop` | Stops it, removing nothing (§12.8). Already stopped is a `200` that says it changed nothing, not a failure |
 | `GET /api/sessions/:session/repos` | What is in the work volume, read by a container that mounts it. **A read that failed says so** — `readable: false` with the reason — and never answers with an empty list (§12.5) |
 | `GET /api/sessions/:session/r/:runtime` | The session's view of one runtime, which is the body `GET /api/p/:project/s/:slug` answers. A runtime is a sandbox, and it has one description (§12.4) |
+| `POST /api/sessions/:session/runtimes` | Starts one, from a runtime `name`, a `repo`, a `branch` and an optional lifetime. Refused unless that checkout is on this session's work volume (§12.6.1.1). A taken runtime name is a `409` carrying core's own sentence. It can take as long as building the project's image. Answers the runtime **core really started** and its URLs — the route derives no slug, because the ceiling that shapes one is declared by a `sandboxr.yaml` the host has no copy of (§12.2) |
+| `POST /api/sessions/:session/r/:runtime/stop` | Stops it, removing nothing. Already stopped is a `200` that says it changed nothing |
+| `DELETE /api/sessions/:session/r/:runtime` | Removes its container and its volumes. **No `force`, and one that is offered is refused** (§8.1), exactly as on the session delete |
 | `GET /api/sessions/:session/repos/:project/:dir/files`, `…/diff`, `…/diff/file` | §7.4's two read-only views, against the **workstation** container rooted at `/work/<repo>/<dir>`. The reader is the same one the sandbox routes use and knows which of the two it is talking to only by the container and root it is handed |
 
 **The sentence a delete confirms with travels on the session** (§7.1: the server owns the wording of
@@ -3131,6 +3211,11 @@ a destructive confirmation), because what is lost is a fact about that session �
 three runtimes loses three databases. It is counted from **every** runtime, including the ones a
 narrow password cannot see, since a confirmation that understated what it destroys would be worse
 than none.
+
+**A runtime carries a second such sentence of its own**, and the two are not interchangeable:
+deleting a session takes the work volume with it and nothing in there has a copy anywhere, while
+deleting one runtime takes a container and a database and leaves every clone alone. One sentence
+for both would mean the browser wrote the other, which is the thing §8.1 rules out.
 
 ### 12.7 Lifetime
 

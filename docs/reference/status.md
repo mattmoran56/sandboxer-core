@@ -64,6 +64,59 @@ above says exactly how far that went.
 **The browser app does not draw any of it.** Every page of the dashboard is still the worktree
 model, deliberately: a half-replaced sidebar is worse than an unfinished one.
 
+### How an agent asks for a runtime
+
+A session's agent lives in a container with no Docker socket, and is never getting one. So there is
+now a way for it to *ask*: three routes that start, stop and remove a runtime, and a small MCP
+server — `sandboxr` — whose tools are those routes and nothing else.
+
+The rule the whole thing rests on is that **a session may only run a repository and branch already
+on its own work volume**. The dashboard checks that against the volume's own listing, never against
+what the request claimed, so an agent can run the code it has and nothing else. Its credential is a
+token the dashboard mints for one session and one agent run — not the person's password, and not
+usable against any other session, which comes back as "no such session" rather than as a refusal
+that would confirm the other one exists.
+
+<details>
+<summary><b>Fact sheet</b> — the runtime routes and the <code>sandboxr</code> MCP server</summary>
+
+**Not exercised by a real agent, because there is no agent.** Nothing starts a `claude` process in
+a workstation yet, so nothing mints a token, nothing copies the MCP server into the container and
+no tool call has ever been made by a model. What *has* been run is both halves in isolation: the
+routes over real HTTP against a fake core and a fake daemon, and the MCP server as a child process
+over a real stdio pipe against a real HTTP server, asserting the JSON-RPC exchange and the bearer
+on every call.
+
+**The routes** are `POST /api/sessions/:session/runtimes`, `POST /api/sessions/:session/r/:runtime/stop`
+and `DELETE /api/sessions/:session/r/:runtime`, plus `GET /api/sessions/:session` and
+`…/repos`, which an agent needs to know what it may run. All five accept either the workstation
+token or an ordinary dashboard login; everything else on the server refuses the token. The list is
+pinned by a test, because a route added to it is a capability handed to the least supervised process
+on the machine.
+
+**The tools** are `list_repositories`, `list_runtimes`, `start_runtime`, `stop_runtime` and
+`delete_runtime`, in `packages/server/src/session-mcp.js` once built. It reads
+`SANDBOXR_SESSION_API`, `SANDBOXR_SESSION_TOKEN` and `SANDBOXR_SESSION` from its environment, and
+says which of them is missing rather than calling a URL with a hole in it.
+
+**Refusals, and what each one means.** A checkout that is not on the volume is a `404` naming what
+was asked for. A volume that could not be *read* is a `503` carrying the reason and starts nothing —
+"no repositories" is never an answer, because an agent told its own code does not exist will try to
+clone it again. A runtime name already in use is a `409` in core's words: a name is unique within a
+session, so the second is refused rather than replacing the first. A delete takes no `force`.
+
+**The slug is never derived by the route.** It is a function of the session, the runtime name and
+that project's DNS ceiling, and the ceiling is declared by a `sandboxr.yaml` inside the work volume
+the host has no copy of. The answer carries the runtime core really started.
+
+**What a real run would settle:** whether a model can drive these tools usefully — whether
+`start_runtime` refusals read as actionable, and whether an agent reaches for `stop_runtime` rather
+than leaving containers running. And the delivery question: the MCP server has to reach the
+workstation as a file copied in at exec time, because a workstation's mount table is closed and the
+installation is not in it. Nothing does that copy yet.
+
+</details>
+
 ## What is written and tested, and has never been run against a real project
 
 Nothing in this list is expected to be *structurally* wrong. All of it is expected to have at least
