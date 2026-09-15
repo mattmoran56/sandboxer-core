@@ -85,6 +85,7 @@ export {
   sanitizeSlug,
   slugCeiling,
   urlFor,
+  WORK_VOLUME_PREFIX,
   volumeName,
   workVolumeName,
   workstationName,
@@ -133,7 +134,6 @@ export {
   SESSION_LABELS,
   UNNAMED_SESSION_BASE,
   WORKSTATION_FILTER,
-  WORK_DIR,
   SessionError,
   createSession,
   deleteSession,
@@ -180,10 +180,9 @@ export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.
 export {
   CLONE_SCRIPT,
   LIST_SCRIPT,
+  WORK_DIR,
   SESSION_LABEL,
   UNKNOWN_BRANCH,
-  WORK_DIR,
-  WORK_VOLUME_PREFIX,
   WorkVolumeError,
   branchDir,
   cloneArgs,
@@ -197,7 +196,6 @@ export {
   removeWorkVolume,
   workMountArgs,
   workPath,
-  workVolumeName,
   workspaceMountArgs,
 } from "./session/work.js";
 export type { CloneRequest, WorkEntry, WorkRunner } from "./session/work.js";

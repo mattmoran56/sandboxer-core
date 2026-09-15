@@ -319,8 +319,14 @@ export function workstationName(session: string): string {
  * (§12.8), which is exactly the case `gc`'s "no container references it" rule
  * was written to catch.
  */
+export const WORK_VOLUME_PREFIX = "sandboxr-work-";
+
 export function workVolumeName(session: string): string {
-  return `sandboxr-work-${session}`;
+  // Guarded rather than trusting the caller, because an empty session id would
+  // produce the bare prefix — a name `isWorkVolume` recognises, belonging to no
+  // session, which `gc` would then refuse to reclaim for ever.
+  if (session.trim() === "") throw new Error("a session id is required to name a work volume");
+  return `${WORK_VOLUME_PREFIX}${session}`;
 }
 
 /** The per-sandbox volume purposes, from contracts §3.3. */
