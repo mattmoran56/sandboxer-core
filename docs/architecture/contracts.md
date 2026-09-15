@@ -1493,6 +1493,9 @@ is additionally checked against the session's grant.
 | `GET /api/p/:project/agent/grants` | The standing permissions this project has been granted — the rule as Claude Code will match it, and where it was granted from (§7.2.2) |
 | `DELETE /api/p/:project/agent/grants/:id` | Withdraws one. The only `DELETE` in the API; `SameSite=Lax` on the session cookie is what protects it, as it protects every `POST` beside it. Takes effect on the next session (§7.2.2) |
 | `GET /api/p/:project/s/:slug/agent/commands` | The slash commands a session on that sandbox can be offered, each marked sendable or not, each refused one carrying the sentence it is refused with, and the one sandboxr answers itself marked `handledBy` (§7.2) |
+| `GET /api/p/:project/s/:slug/files` | One level of the tree inside the sandbox, or one file's text, at `?path=` — a path relative to the container's `/workspace`. Read-only. The answer's `kind` says which of a directory, a file, a symlink or something else was found, because the caller cannot know before it asks (§7.4) |
+| `GET /api/p/:project/s/:slug/diff` | Everything on the branch that is not on its upstream yet — committed, staged, unstaged and untracked — as a list of files with their counts. Never the patches (§7.4) |
+| `GET /api/p/:project/s/:slug/diff/file` | One changed file's patch, at `?path=`. Its own request, made when a row is opened (§7.4) |
 | `PUT /api/p/:project/w/:slug/name` | Sets what one **worktree** is called, from a body of `{ "name": string }`; an empty name clears it. Answers `{ project, slug, displayName }`. On the `w` form and never the `s` form: the name belongs to the worktree, which persists (§4.2.1). A name that is not one is a `400` that does not repeat what was sent |
 
 `GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
@@ -2101,6 +2104,55 @@ session rather than the first. So:
 - **`sandboxr config` and the dashboard answer it on demand** — the resolved mode, and the
   `projects:` key that decided it. `ProjectDto.github` carries it to the browser as a fact; the
   page writes the sentence.
+
+### 7.4 Reading the code in a container
+
+Two read-only views hang off the sandbox routes: a file explorer, and the branch's own diff.
+Both are strictly read-only, and that is a property of the endpoints rather than of the
+buttons in front of them: the only commands they run are `find`, `head`, `git diff`,
+`git ls-files`, `git rev-parse` and `git merge-base`. Nothing writes. In particular an
+untracked file's patch is taken with `git diff --no-index` and never with
+`git add --intent-to-add`, which would produce a nicer patch by changing the repository.
+
+**Everything is read from inside the container, over `docker exec`, and never from a host
+path.** A sandbox's worktree happens to be a bind mount the host can also see; a workstation's
+clone lives on a volume that is not a path on this machine at all. The reader
+(`packages/server/src/code.ts`) takes a container name and a root *inside* it — `/workspace`
+for a sandbox, §7.2 — so neither view knows which of the two it is talking to. Reaching for the
+host path would work today and stop working the first time the code is on a volume.
+
+**Every command is an argument array, and the only value ever interpolated into one is a
+commit sha checked against `/^[0-9a-f]{40}$/`.** A filename is one element of an argv, so a
+path holding a space, a quote, a newline or a `$(…)` is a path and never code. Paths from a
+request go through `safePath` in core first, which refuses a `.` or `..` segment outright
+rather than resolving one: whether `a/../../etc` lands inside the root depends on whether
+`a` is a symlink, so the only rule that is true by reading it is the one that refuses. A
+symlink is reported as a symlink and is never followed.
+
+**That path rule is containment, not the security boundary.** Both routes sit behind the same
+session and the same per-project grant as the terminal WebSocket, and that terminal is a root
+shell in the container being read. What the rule protects is the explorer staying an explorer
+of the workspace.
+
+**The diff's base is the merge base with the branch's upstream.** Diffing against the upstream
+*tip* would fold in whatever somebody else pushed and show their additions as this branch's
+deletions — a view that gets less accurate the longer the branch lives. From that base a single
+`git diff <commit>` covers commits, staged changes and unstaged changes, because it compares
+the commit to the working tree; untracked files are a second read, and carry no line counts,
+because a file git has never seen has no "before" and counting them in bulk costs one process
+per file. A branch with no upstream falls back to `HEAD`, and the answer says which base it
+used.
+
+Three things are capped, and every cap is reported rather than applied silently: a directory
+listing at 2,000 entries, a file read at 256 KB, a changed-file list at 2,000 files and one
+patch at 256 KB. A binary file is identified from `--numstat`'s `-`/`-` counts, or from a
+NUL in a file's opening bytes, and is answered as "binary" with no content at all rather than
+as mojibake.
+
+Four states are ordinary and answer a sentence rather than a `500`: a stopped sandbox
+(`409`), a container that has gone (`404`), a path that is not there (`404`), and a
+workspace that is not a git repository (`409`). A `path` that does not normalise is a
+`400` that does **not** repeat what was sent.
 
 ## 8. Actions
 
