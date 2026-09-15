@@ -97,10 +97,14 @@ does not run a project: the copies of a project that actually serve traffic are
 docker build -f workstation/Dockerfile -t sandboxr/workstation:<version> .
 ```
 
+`ensureWorkstationImage` in `packages/core/src/access/index.ts` runs that build, the
+first time a session is created rather than during `init` — see contracts §3.3 for
+why this one image is lazy where the base and the dashboard are not.
+
 > [!NOTE]
-> Nothing builds or runs this image yet. The host side of a session — building it,
-> starting the container, creating the volume, cloning into it — is a later step,
-> and until it lands the image is only buildable by hand.
+> `createSession` in `packages/core/src/session/` builds this image, creates the
+> work volume and starts the container. **Nothing clones into the volume yet**, and
+> no agent runs in here: `/work` comes up empty, and filling it is a later step.
 
 What is in it is Node 22, `git`, `gh` and `claude`, and what is *not* in it matters
 as much:

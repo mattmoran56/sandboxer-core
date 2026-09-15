@@ -1,5 +1,6 @@
 // Tests for the lifecycle against a fake docker daemon:
 // - list: builds sandboxes from labels, filters by project, sorts, and ignores a container that is not ours
+// - list: filters by session, and a workstation carrying that session label is never read as a sandbox
 // - list: a stopped container is never asked for its markers
 // - down: removes the container and every volume it owned; --keep leaves the volumes
 // - down: removes the plan, environment, heartbeat and logs the sandbox was named after
@@ -219,6 +220,24 @@ describe("list", () => {
     const sandboxes = await list({ docker, project: "acme" });
     expect(sandboxes.map((sandbox) => sandbox.slug)).toEqual(["a"]);
     expect(argsOf("ps")[0]?.[0]).toEqual(["label=sandboxr.slug", "label=sandboxr.project=acme"]);
+  });
+
+  // A session's runtimes, joined on the `sandboxr.session` label rather than on
+  // a list the session keeps (contracts §12.4). `SANDBOX_FILTER` stays in front,
+  // so a workstation — which carries the session label and no slug — cannot
+  // arrive here and be read as a sandbox of a project it belongs to none of.
+  it("filters by session, and never lets a workstation through", async () => {
+    const { docker, argsOf } = fakeDocker({
+      rows: [
+        row({ ...labelsOf("eng-3941-web"), "sandboxr.session": "eng-3941" }, "sandboxr-acme-eng-3941-web"),
+        row({ ...labelsOf("other-web"), "sandboxr.session": "other" }, "sandboxr-acme-other-web"),
+        row({ "sandboxr.kind": "workstation", "sandboxr.session": "eng-3941" }, "sandboxr-ws-eng-3941"),
+      ],
+      exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
+    });
+    const sandboxes = await list({ docker, session: "eng-3941" });
+    expect(sandboxes.map((sandbox) => sandbox.slug)).toEqual(["eng-3941-web"]);
+    expect(argsOf("ps")[0]?.[0]).toEqual(["label=sandboxr.slug", "label=sandboxr.session=eng-3941"]);
   });
 
   it("sorts by project and slug, so the list is stable between runs", async () => {

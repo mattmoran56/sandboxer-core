@@ -71,6 +71,19 @@ export const BASE_IMAGE = "sandboxr/base";
 /** The dashboard image: Node plus a Docker client. Built by `init`, like the base. */
 export const DASHBOARD_IMAGE_NAME = "sandboxr/dashboard";
 
+/**
+ * The workstation image: a session's agent and the tools it works with
+ * (contracts §12.3).
+ *
+ * The exact complement of the base image, which is why it is a third image
+ * rather than a variant of either of the other two. Base exists to *run a
+ * project* — Caddy, MinIO, s6, and a deliberate absence of any Node runtime; a
+ * workstation is a Node runtime and no services whatsoever, so the two share no
+ * layer worth sharing. And the dashboard's image ships a Docker client on
+ * purpose, which is precisely the image this one must never come to resemble.
+ */
+export const WORKSTATION_IMAGE_NAME = "sandboxr/workstation";
+
 export interface InitOptions {
   env?: NodeJS.ProcessEnv | undefined;
   docker?: Docker | undefined;
@@ -167,13 +180,20 @@ export async function baseImageTag(env: NodeJS.ProcessEnv = process.env): Promis
 /**
  * Every file the base image build reads.
  *
- * The whole of `container/` except the two directories that are not inputs to
- * it: `project/` is the per-project layer's template, which has a digest of its
- * own, and `examples/` is test fixtures. Including either would rebuild the base
- * image for a change that cannot affect it.
+ * The whole of `container/` except the directories that are not inputs to it:
+ * `project/` is the per-project layer's template, which has a digest of its own;
+ * `examples/` is test fixtures; and `workstation/` builds a separate image
+ * (§12.3) that shares not one layer with this one. Including any of them would
+ * rebuild the base image for a change that cannot affect it — several minutes
+ * and several gigabytes, on the next `init`, for nothing.
+ *
+ * `workstation/` is the one that had to be noticed rather than decided. It
+ * arrived under `container/` after this function was written, so it silently
+ * joined the base image's digest and would have forced exactly that rebuild the
+ * first time anybody edited the agent's Dockerfile.
  */
 async function inputsOf(context: string): Promise<string[]> {
-  const skip = new Set(["project", "examples"]);
+  const skip = new Set(["project", "examples", "workstation"]);
   const found: string[] = [];
 
   const walk = async (dir: string, top: boolean): Promise<void> => {
@@ -286,6 +306,59 @@ export async function ensureOrchestratorImage(options: {
       context,
     ],
     { timeoutMs: 15 * 60_000 },
+  );
+  log(`Built ${tag}`);
+  return tag;
+}
+
+/**
+ * Builds the workstation image if it is not already here.
+ *
+ * Tagged by tool version rather than content-addressed like the base, which is
+ * the dashboard's arrangement and the right one here for the same reason: the
+ * image is one of the machine's own, so `PROTECTED_IMAGES` keeps every tag of it
+ * and "an older tag means a newer one replaced it" does not hold.
+ *
+ * **Not built by `init`.** Every other image on that list is a prerequisite of
+ * the next thing somebody does — the first `up` fails without a base — and a
+ * workstation is not: a machine that never creates a session never needs one,
+ * and this image carries a full `claude` install. So it is built the first time
+ * a session is created, which is `ensureProjectImage`'s bargain rather than
+ * `ensureBaseImage`'s, and the one line of log below is the whole of the warning
+ * a person gets. Revisit when a session is the ordinary way to start work.
+ */
+export async function ensureWorkstationImage(options: {
+  docker: Docker;
+  env?: NodeJS.ProcessEnv | undefined;
+  rebuild?: boolean | undefined;
+  log?: ((line: string) => void) | undefined;
+}): Promise<string> {
+  const env = options.env ?? process.env;
+  const log = options.log ?? (() => undefined);
+  const tag = `${WORKSTATION_IMAGE_NAME}:${TOOL_VERSION}`;
+
+  if (!options.rebuild && (await options.docker.imageExists(tag))) return tag;
+
+  const context = containerDir(env);
+  log(`Building ${tag} (a few minutes the first time)`);
+  await options.docker.ok(
+    [
+      "build",
+      "-f",
+      `${context}/workstation/Dockerfile`,
+      "-t",
+      tag,
+      "-t",
+      `${WORKSTATION_IMAGE_NAME}:latest`,
+      // Not optional, for the reason every build here passes it: `TARGETARCH` is
+      // a BuildKit built-in the legacy builder never sets, and this Dockerfile
+      // puts the resolved architecture straight into a download URL — so an
+      // unresolved one is a 404 that reads as a broken mirror rather than as
+      // anything mentioning architecture.
+      ...archBuildArgs(),
+      context,
+    ],
+    { timeoutMs: 20 * 60_000 },
   );
   log(`Built ${tag}`);
   return tag;

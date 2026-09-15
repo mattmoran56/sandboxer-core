@@ -122,6 +122,16 @@ export interface DownReport {
 export interface ListOptions extends CommonOptions {
   /** Only sandboxes of one project. */
   project?: string | undefined;
+  /**
+   * Only the runtimes of one session (contracts §12.4).
+   *
+   * A runtime *is* a sandbox to everything downstream, so a session's runtimes
+   * are listed here rather than by a second lister that would have to rebuild
+   * the same states from the same labels. The join is the `sandboxr.session`
+   * label and never a list the session keeps: §3.4's rule, which is what stops
+   * a session becoming the manifest this codebase has no room for.
+   */
+  session?: string | undefined;
 }
 
 export interface StatusOptions extends CommonOptions {

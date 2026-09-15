@@ -27,8 +27,27 @@ The Workers demo in `examples/demo-worker` has been taken all the way through.
 - The dashboard serves, redirects to HTTPS and refuses an unauthenticated request. A browser has
   loaded the login page. **That was the server-rendered dashboard this one replaced** — see below.
 
-That is the only path proven end to end. [Run the demo project](../getting-started/demo-project.md)
-walks it, which makes it the honest "does my machine work" check.
+That is the only path proven end to end for a *project*.
+[Run the demo project](../getting-started/demo-project.md) walks it, which makes it the honest
+"does my machine work" check.
+
+### A session's own lifecycle, in core
+
+One more thing has been run against a real daemon, and it is worth stating separately because
+nothing a person can type reaches it yet.
+
+`packages/core/src/session/` was driven directly: the workstation image built, a session created,
+its work volume and container inspected, a repository initialised and committed inside `/work`, the
+workstation stopped and started again with the commit still there, a second session of the same
+name given an id of its own, a taken id refused by name, and both sessions deleted — leaving no
+container, no volume and no file behind. Inside the container, `git`, `gh` and `claude` answered,
+the commit identity crossed as `GIT_AUTHOR_*` and `GIT_COMMITTER_*`, and **there was no Docker
+client and no daemon socket**, which is the security claim §12.3 makes and the one worth checking
+by hand rather than believing.
+
+**What that does not settle** is everything a session is *for*: no runtime was created, nothing
+cloned a real repository into the volume, no agent ran, and no idle clock was involved. See the
+last section.
 
 ## What is written and tested, and has never been run against a real project
 
@@ -398,14 +417,14 @@ exactly how it went wrong here. Closing the gap surfaced six real type errors, i
 
 ## What does not exist at all
 
-**The session model.** §12 of [the contract](../architecture/contracts.md) defines a **session** —
-an agent with a container, holding zero or more repositories and zero or more running copies of a
-project — as the unit the product is organised around, replacing the worktree. None of it is
-built. No container answers to `sandboxr-ws-<session>`, no volume to `sandboxr-work-<session>`,
-and nothing in `packages/core` knows the words *session*, *workstation* or *work volume*. The
-contract was written first on purpose, so that the packages have one definition to build against;
-until they do, every page on this site describes the worktree model, and the worktree model is the
-one that runs.
+**Most of the session model.** §12 of [the contract](../architecture/contracts.md) defines a
+**session** — an agent with a container, holding zero or more repositories and zero or more
+running copies of a project — as the unit the product is organised around, replacing the worktree.
+The first piece of it now exists in `packages/core` and is described above; none of the rest does.
+**No runtime is created inside a session, nothing writes a clone into a work volume, no idle clock
+reads a workstation's activity, and there is no CLI command and no dashboard route for any of it.**
+So there is no way for a person to reach a session yet: every page on this site describes the
+worktree model, and the worktree model is the one that runs.
 
 **`db diff` and `db reset`.** The driver interface has `snapshot` but nothing that compares two, and
 no verb that returns a database to a clean restore. Comparing before and after is two snapshots and
