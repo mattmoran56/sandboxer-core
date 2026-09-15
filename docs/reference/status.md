@@ -49,6 +49,21 @@ by hand rather than believing.
 cloned a real repository into the volume, no agent ran, and no idle clock was involved. See the
 last section.
 
+### A session on the dashboard's API
+
+The dashboard now answers for a session over HTTP: `/api/sessions` lists them, makes one, fetches
+one, deletes one, starts and stops a workstation, lists the repositories on a work volume, and
+serves the file explorer and the branch diff against a workstation rather than a sandbox.
+
+**It has been exercised over real HTTP against a fake core and a fake Docker daemon, and against
+nothing else.** No session has been made through it on a live machine, so what is proven is the
+route table, the access rules and the shapes — not that the call reaches a daemon and gets a
+container back. The core underneath it is the part that has been run for real, and the section
+above says exactly how far that went.
+
+**The browser app does not draw any of it.** Every page of the dashboard is still the worktree
+model, deliberately: a half-replaced sidebar is worse than an unfinished one.
+
 ## What is written and tested, and has never been run against a real project
 
 Nothing in this list is expected to be *structurally* wrong. All of it is expected to have at least
@@ -490,6 +505,16 @@ health, because it reads the project's config from the sandbox's recorded worksp
 is a path inside a volume; a caller that already has the config can pass it. There is no CLI command
 for any of this. And nothing above `packages/core` calls it.
 
+
+
+The dashboard's **API** for a session exists too, and is described above: it is tested over real
+HTTP against a fake core and a fake daemon, and has not been driven against a real one.
+
+What is still missing is the *decision* to run something. Nothing asks for a runtime — there is no
+route that creates one and no tool an agent can call to ask for one — and there is no CLI command,
+no session in the closed action table, and no socket into a workstation. The browser app draws none
+of it, so there is no way for a person to reach a session without typing `curl`: every page on this
+site describes the worktree model, and the worktree model is the one that runs.
 
 **`db diff` and `db reset`.** The driver interface has `snapshot` but nothing that compares two, and
 no verb that returns a database to a clean restore. Comparing before and after is two snapshots and

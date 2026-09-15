@@ -1511,6 +1511,12 @@ with a fault. The two answer different questions and neither is derived from the
 **The JSON API.** Every route below requires a session, and every one that names a `:project`
 is additionally checked against the session's grant.
 
+**The `/api/sessions/…` routes are the one family that names no project, and that is the contract
+rather than an omission** (§12.6.1): a session belongs to no project, so there is nothing to scope
+it to. Everything that reaches *into* a repository of a session — its files, its diff, a runtime of
+it — is still checked against that repository's project, which is why those routes spell the
+repository as `:project` and go through this same sweep.
+
 | Route | Answers |
 |---|---|
 | `GET /api/bootstrap` | The domain, the session, the closed action table (§8), and the default lifetime the new-sandbox form offers. What the app needs before it can draw anything |
@@ -1527,6 +1533,12 @@ is additionally checked against the session's grant.
 | `GET /api/p/:project/s/:slug/diff` | Everything on the branch that is not on its upstream yet — committed, staged, unstaged and untracked — as a list of files with their counts. Never the patches (§7.4) |
 | `GET /api/p/:project/s/:slug/diff/file` | One changed file's patch, at `?path=`. Its own request, made when a row is opened (§7.4) |
 | `PUT /api/p/:project/w/:slug/name` | Sets what one **worktree** is called, from a body of `{ "name": string }`; an empty name clears it. Answers `{ project, slug, displayName }`. On the `w` form and never the `s` form: the name belongs to the worktree, which persists (§4.2.1). A name that is not one is a `400` that does not repeat what was sent |
+| `GET`, `POST /api/sessions` | Every session on the machine, and making one (§12.6.2) |
+| `GET`, `DELETE /api/sessions/:session` | One session, and deleting it. The delete takes no `force` (§8.1) |
+| `POST /api/sessions/:session/start`, `…/stop` | Its workstation. Stopping removes nothing (§12.8) |
+| `GET /api/sessions/:session/repos` | What is in its work volume. A read that failed says so rather than answering "none" (§12.5) |
+| `GET /api/sessions/:session/r/:runtime` | The session's view of one runtime, which is the sandbox answer above reached by the other road (§12.4) |
+| `GET /api/sessions/:session/repos/:project/:dir/files`, `…/diff`, `…/diff/file` | The same two read-only views as the three `s` routes above, against the workstation rooted at `/work/<repo>/<dir>` (§7.4, §12.5) |
 
 `GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
 part of the contract because each was learnt from the version this replaced: nothing is fetched
@@ -2733,10 +2745,23 @@ signal is read and never supplied; and `sandboxr expire` still covers only sandb
 CLI has no session surface at all. **None of it has been run against a real daemon** — the tests
 are unit tests against a fake one.
 
-**The rest of §12 has not been built**: no runtime is created inside a session (§12.4), and there
-is no CLI command and no dashboard route for any of it (§12.6's `/sessions/:session`). Nothing
-above `packages/core` calls any of it except the reaper, so there is still no way for a person to
-reach a session. Until that lands, the worktree model is the one anybody actually uses.
+**The dashboard's HTTP surface for a session is built** (§12.6.2): `/api/sessions/…` lists
+sessions, makes one, fetches one, deletes one, starts and stops a workstation, lists the
+repositories on a work volume, and serves §7.4's two read-only code views against a workstation
+rather than a sandbox. It is tested over real HTTP against a fake core and a fake daemon; it has
+**not** been driven against a real one.
+
+**A runtime can be brought up from a work volume and has been** (§12.4): `up({ runtime })` starts a
+sandbox whose `/workspace` is a checkout on `sandboxr-work-<session>`, and the demo project was
+cloned into one, started, and served over HTTP. What is missing is not the mechanism but the
+*decision*: nothing asks for a runtime. There is no route that creates one and no tool an agent can
+call to ask for one, which is the last piece of §12.4 and the reason a session cannot yet show you
+its work running.
+
+**The rest of §12 has not been built**: there is no CLI command, no session scope in §8's action
+table, and no socket reaches a workstation. **The browser app draws none of it**, so there is still
+no way for a person to reach a session without a `curl`. Until that lands, the worktree model is the
+one anybody actually uses.
 [`docs/reference/status.md`](../reference/status.md) carries the same division where a reader of
 the site will find it, and it is the only other place that has to.
 
@@ -2744,6 +2769,7 @@ Two pieces of it are real, and they are named here rather than left for a reader
 
 **§12.5's work volume and §12.8's rule that nothing reclaims one**, in
 `packages/core/src/session/work.ts` and in `sandbox/gc.ts`. The layout, the collision refusal, the
+<<<<<<< HEAD
 clone and the `/workspace` subpath mount have been run against a real daemon. The reclamation rule
 landed with the volume on purpose — a work volume that existed before `gc` knew to leave it alone
 would be somebody's uncommitted work waiting for the next housekeeping run.
@@ -2758,6 +2784,12 @@ to yet.
 
 Nothing else has been built: no package creates a session or a workstation, no container answers to
 `sandboxr-ws-`, and nothing reads `state/session/`.
+=======
+clone and the `/workspace` subpath mount have been run against a real daemon.
+The reclamation rule landed with the volume on purpose — a work volume that
+existed before `gc` knew to leave it alone would be somebody's uncommitted work waiting for the
+next housekeeping run.
+>>>>>>> feat/session-api
 
 ### 12.1 Four nouns
 
@@ -3065,6 +3097,65 @@ runtime. They are top-level rather than under `/p/:project`, because a session b
 project. §3.4's second activity signal — a dashboard route naming the thing — reads
 `…/sessions/<session>/…` out of the same access log, alongside the `…/p/<project>/[sw]/<slug>/…`
 it already matches.
+
+#### 12.6.1 How a session route is authorised
+
+§7's grants are **per project**, and a session may hold several projects or none. The rule, and it
+is the one thing that has to be got right before any of these routes exist:
+
+- **A session route is authenticated the way every dashboard route is, and is not project-scoped**,
+  because a session does not belong to a project. `/api/sessions/:session` carries no `:project`,
+  so the router's grant sweep has nothing to check on it, and that is the answer rather than a gap.
+- **Anything that reaches *into* a repository is checked against that repository's project grant,
+  exactly as it is today.** The project comes from the repository the operation names, never from
+  the session it was reached through. A session's checkout is `/work/<repo>/<branch>` and `<repo>`
+  is the workspace directory name (§12.5), which is precisely the key a grant is held against — so
+  the code routes spell it as `:project` and inherit the sweep and the grant check unchanged.
+- **No session route widens a grant.** A session's runtimes and its repositories are narrowed to
+  what the reader could reach anyway, and **what is withheld is counted rather than dropped**: a
+  narrow password is told "two runtimes you may not see", never "no runtimes". That is §12.5's rule
+  — an absence is never rendered as an assertion — applied to authorisation rather than to a
+  failed read.
+
+Three readings were closed rather than left open, each because the rule above does not settle it:
+
+- **Creating, deleting, starting and stopping a session need a password that covers every
+  project.** A workstation carries the machine's GitHub token and the shared Claude credential
+  store (§12.3), neither of which belongs to a project; and deleting a session deletes its
+  runtimes, which are sandboxes of projects the caller may hold no grant over (§12.8). That is the
+  same bar the global `clone` action takes, for the same reason. **Reading** a session — the list,
+  one session, its repositories — needs only a session, and is filtered.
+- **A runtime the reader's password does not cover answers 404, not 403**, on
+  `…/r/:runtime`. It is already absent from that session's runtime list, so a 403 would confirm
+  that a sandbox exists inside a project the reader may not see.
+- **`:runtime` carries the runtime's slug**, and it is resolved by looking it up among the
+  session's own runtimes rather than by deriving it from a runtime name. Nothing records a runtime
+  name (§12.2), so a lookup against what is running is the only answer that cannot be wrong about a
+  container.
+
+#### 12.6.2 What the JSON API answers today
+
+Built, and listed in §7.1's table with every other route. `…/actions/:action`, `…/terminal` and
+`…/agent` are **not** built: there is no session scope in §8's closed table, and no socket reaches
+a workstation yet.
+
+| Route | Answers |
+|---|---|
+| `GET /api/sessions` | Every session on the machine, each with its runtimes narrowed to the grant and the count of what was withheld |
+| `POST /api/sessions` | Makes one, from an optional id, name and lifetime (§12.2). A taken **id** is a `409` carrying core's own sentence, which names the workstation or the work volume holding it. It can take as long as building the workstation image, because that is what it does when the image is not there |
+| `GET /api/sessions/:session` | One session in full, including the sentence a delete confirms with |
+| `DELETE /api/sessions/:session` | Deletes it (§12.8), and answers what went and what would not. **It takes no `force` and refuses one that is offered**: §8.1 says a browser may not force a destructive action, and ignoring the parameter would leave a browser believing it had one |
+| `POST /api/sessions/:session/start` | Starts a stopped workstation. A `404` when the container has gone, which pressing Start again would never fix |
+| `POST /api/sessions/:session/stop` | Stops it, removing nothing (§12.8). Already stopped is a `200` that says it changed nothing, not a failure |
+| `GET /api/sessions/:session/repos` | What is in the work volume, read by a container that mounts it. **A read that failed says so** — `readable: false` with the reason — and never answers with an empty list (§12.5) |
+| `GET /api/sessions/:session/r/:runtime` | The session's view of one runtime, which is the body `GET /api/p/:project/s/:slug` answers. A runtime is a sandbox, and it has one description (§12.4) |
+| `GET /api/sessions/:session/repos/:project/:dir/files`, `…/diff`, `…/diff/file` | §7.4's two read-only views, against the **workstation** container rooted at `/work/<repo>/<dir>`. The reader is the same one the sandbox routes use and knows which of the two it is talking to only by the container and root it is handed |
+
+**The sentence a delete confirms with travels on the session** (§7.1: the server owns the wording of
+a destructive confirmation), because what is lost is a fact about that session — a session with
+three runtimes loses three databases. It is counted from **every** runtime, including the ones a
+narrow password cannot see, since a confirmation that understated what it destroys would be worse
+than none.
 
 ### 12.7 Lifetime
 
