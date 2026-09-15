@@ -2642,14 +2642,22 @@ sidecar images have ordinary Dockerfiles, so compose builds those.
 
 ## 12. The session model
 
-**Nothing in this section is implemented.** It is written first, which is what this file is for:
-§§1–11 describe a machine that runs today, and this section describes the one being built on top
-of it. No package creates a session, a workstation or a work volume, and no container answers to
-`sandboxr-ws-` or `sandboxr-work-`. Everything §§1–11 says about a **sandbox** is still true and
-still running. §12.10 maps each superseded rule onto what replaces it, because the reasoning in
-those sections is what this one is built out of; none of it is deleted.
+**Almost nothing in this section is implemented.** It is written first, which is what this file is
+for: §§1–11 describe a machine that runs today, and this section describes the one being built on
+top of it. Everything §§1–11 says about a **sandbox** is still true and still running. §12.10 maps
+each superseded rule onto what replaces it, because the reasoning in those sections is what this
+one is built out of; none of it is deleted.
 [`docs/reference/status.md`](../reference/status.md) carries the same statement where a reader of
 the site will find it, and it is the only other place that has to.
+
+One piece of it is real, and it is named here rather than left for a reader to discover:
+**§12.5's work volume and §12.8's rule that nothing reclaims one** are implemented, in
+`packages/core/src/session/work.ts` and in `sandbox/gc.ts`. The layout, the collision refusal, the
+clone and the `/workspace` subpath mount have been run against a real daemon. Nothing else has: no
+package creates a session or a workstation, no container answers to `sandboxr-ws-`, and nothing
+reads `state/session/`. The reclamation rule landed with the volume on purpose — a work volume that
+existed before `gc` knew to leave it alone would be somebody's uncommitted work waiting for the
+next housekeeping run.
 
 ### 12.1 Four nouns
 
@@ -2844,6 +2852,17 @@ session. One volume per session, shared by its containers, never shared between 
 - **Nothing prunes inside the volume.** Whatever an agent writes under `/work` — a scratch
   directory, a build output, a file outside any repository — is kept until the session is deleted.
   The volume is the session's disk, not a managed checkout.
+
+**`/workspace` is a `volume-subpath` mount, and that was checked rather than assumed.** §12.4
+leaves the mechanism to the container layer; this is what the layer chose and why. On Docker 28.0.1
+(API 1.48) `--mount type=volume,…,volume-subpath=<repo>/<branch>` mounts the checkout at
+`/workspace` while the same volume is mounted whole at `/work` in the same container, and a write
+through either is visible through the other. The reason to prefer it over a bind inside the
+container is the failure case: a subpath that does not exist is refused by the daemon at create
+time, naming the path, where a symlink or a `cd` in the entrypoint leaves `/workspace` merely
+empty — which every script downstream reads as a project with no files in it. It needs a daemon
+with the option (Docker 25+); below that `docker run` fails naming `volume-subpath`, which is a
+refusal at start rather than a sandbox that comes up wrong.
 
 **Whether a session holds any code cannot be answered from the host while nothing is running, and
 the answer is then `unknown`, never `none`.** Reading it means running something that mounts the

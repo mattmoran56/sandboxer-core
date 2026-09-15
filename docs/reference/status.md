@@ -400,12 +400,20 @@ exactly how it went wrong here. Closing the gap surfaced six real type errors, i
 
 **The session model.** §12 of [the contract](../architecture/contracts.md) defines a **session** —
 an agent with a container, holding zero or more repositories and zero or more running copies of a
-project — as the unit the product is organised around, replacing the worktree. None of it is
-built. No container answers to `sandboxr-ws-<session>`, no volume to `sandboxr-work-<session>`,
-and nothing in `packages/core` knows the words *session*, *workstation* or *work volume*. The
-contract was written first on purpose, so that the packages have one definition to build against;
-until they do, every page on this site describes the worktree model, and the worktree model is the
-one that runs.
+project — as the unit the product is organised around, replacing the worktree. Almost none of it is
+built. No container answers to `sandboxr-ws-<session>`, nothing creates a session, and nothing reads
+`state/session/`. The contract was written first on purpose, so that the packages have one
+definition to build against; until they do, every page on this site describes the worktree model,
+and the worktree model is the one that runs.
+
+One piece exists: the **work volume**. `packages/core/src/session/work.ts` knows the
+`/work/<repo>/<branch>` layout, refuses a second branch that would share a directory with the
+first, clones into `sandboxr-work-<session>` from a short-lived container, and is the only code that
+may remove one. With it, `gc` and `prune` now leave a work volume alone under every rule they have
+— which had to land at the same time, because a work volume that existed before the collector knew
+about it would be somebody's uncommitted work waiting for the next housekeeping run. The clone, the
+collision refusal and the `/workspace` subpath mount were run against a real daemon. Nothing calls
+any of it yet: there is no session for it to belong to.
 
 **`db diff` and `db reset`.** The driver interface has `snapshot` but nothing that compares two, and
 no verb that returns a database to a clean restore. Comparing before and after is two snapshots and

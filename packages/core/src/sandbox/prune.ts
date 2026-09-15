@@ -86,11 +86,19 @@ export interface PruneResult extends PrunePlan {
 /**
  * What can go, and why.
  *
- * Deliberately conservative in three places, each of which has a cost attached
- * to being wrong: the shared volumes are never touched (`gc` protects them and
- * `sandboxr-claude` holds a credential), the newest image of every project stays
- * so the next `up` is a start rather than a build, and an image whose creation
- * time docker did not report is left alone rather than guessed at.
+ * Deliberately conservative in four places, each of which has a cost attached to
+ * being wrong: a session's work volume is never touched, whatever its session is
+ * doing (contracts §12.8 — `orphanVolumes` is where that is enforced, and losing
+ * one is losing somebody's uncommitted work); the shared volumes are never
+ * touched either (`sandboxr-claude` holds a credential); the newest image of
+ * every project stays so the next `up` is a start rather than a build; and an
+ * image whose creation time docker did not report is left alone rather than
+ * guessed at.
+ *
+ * The first of those is inherited rather than repeated. Volumes come from one
+ * `orphanVolumes` for the same reason superseded images come from one
+ * `supersededImages`: two commands that could disagree about what is rubbish
+ * would disagree exactly once, in the direction that deletes something.
  */
 export function planPrune(input: PruneInput): PrunePlan {
   const orphans = new Set(

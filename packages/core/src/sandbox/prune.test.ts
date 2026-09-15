@@ -1,6 +1,7 @@
 // Tests for the reclamation plan:
 // - planPrune: an orphaned per-sandbox volume is offered, a live sandbox's volume is not
 // - planPrune: the shared volumes are never offered, the Claude credential volume least of all
+// - planPrune: a session's work volume is never offered, whatever its size (contracts §12.8)
 // - planPrune: an older project image is superseded by the newest one of the same project
 // - planPrune: the newest image of every project survives, so the next `up` is a start
 // - planPrune: an image a container still holds is left alone, even when it is old
@@ -87,6 +88,21 @@ describe("planPrune volumes", () => {
       mountedVolumes: new Set(),
     });
     expect(plan.volumes).toEqual([]);
+  });
+
+  // Restated here for the same reason, and with a stronger one behind it: the
+  // credential volume is recoverable by signing in again, and a work volume is
+  // not recoverable at all (contracts §12.8). Prune is the command that puts a
+  // number beside each item, so a work volume appearing with several gigabytes
+  // against it is precisely how somebody would be talked into applying it.
+  it("never offers a session's work volume, however large it is", () => {
+    const plan = planPrune({
+      ...empty,
+      volumes: [volume("sandboxr-work-eng-3941", 9_000_000_000), volume("sandboxr-data-acme-tkt-9", 1_000)],
+      mountedVolumes: new Set(),
+    });
+    expect(plan.volumes).toEqual([{ name: "sandboxr-data-acme-tkt-9", size: 1_000 }]);
+    expect(plan.freed).toBe(1_000);
   });
 });
 

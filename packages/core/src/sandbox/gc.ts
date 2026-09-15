@@ -10,6 +10,7 @@
 import type { ImageRow } from "../docker.js";
 import { IMAGE_NAMESPACE, PROTECTED_IMAGES, SHARED_VOLUMES, volumeName, type VolumePurpose } from "../naming.js";
 import { depsVolumeName } from "../naming.js";
+import { isWorkVolume } from "../session/work.js";
 import type { GcPlan, PrunableImage, Sandbox } from "./types.js";
 
 const PURPOSES: VolumePurpose[] = ["data", "blob", "bin", "www"];
@@ -87,14 +88,27 @@ export function orphanVolumes(input: {
   }
   for (const volume of input.mountedVolumes ?? []) owned.add(volume);
 
-  return input.volumes
-    .filter((volume) => volume.startsWith("sandboxr-"))
-    .filter((volume) => !owned.has(volume))
-    // A dependency volume is keyed on a lockfile rather than on a sandbox, so it
-    // is shared and only an unmounted one is an orphan. Without a mount list
-    // there is no way to know, so it is left alone.
-    .filter((volume) => !(volume.startsWith(depsVolumeName("")) && input.mountedVolumes === undefined))
-    .sort();
+  return (
+    input.volumes
+      .filter((volume) => volume.startsWith("sandboxr-"))
+      // **A work volume is never an orphan** (contracts §12.8), and this is the
+      // fourth reclamation rule beside §3.3's three. Everything else in this
+      // function reads "no container references it" as "nothing wants it", and
+      // for a work volume that reading is exactly backwards: a session whose
+      // workstation is stopped has no container at all, which is the ordinary
+      // state of a session somebody comes back to next week, and what would go
+      // is every clone and every uncommitted change in it. It is also invisible
+      // to the mount list two lines down, which is built by inspecting the
+      // *sandboxes* — a workstation carries no `sandboxr.slug`, so `list` never
+      // sees it and nothing it holds ever reaches `mountedVolumes`.
+      .filter((volume) => !isWorkVolume(volume))
+      .filter((volume) => !owned.has(volume))
+      // A dependency volume is keyed on a lockfile rather than on a sandbox, so
+      // it is shared and only an unmounted one is an orphan. Without a mount list
+      // there is no way to know, so it is left alone.
+      .filter((volume) => !(volume.startsWith(depsVolumeName("")) && input.mountedVolumes === undefined))
+      .sort()
+  );
 }
 
 /**

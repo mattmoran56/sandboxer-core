@@ -2,6 +2,7 @@
 // - list: builds sandboxes from labels, filters by project, sorts, and ignores a container that is not ours
 // - list: a stopped container is never asked for its markers
 // - down: removes the container and every volume it owned; --keep leaves the volumes
+// - down: never names a session's work volume — deleting a runtime is not deleting a session
 // - down: removes the plan, environment, heartbeat and logs the sandbox was named after
 // - down: a slug with no container is reported rather than treated as an error
 // - up: writes the environment file, carries the labels, and starts the container
@@ -290,6 +291,20 @@ describe("down", () => {
     expect(existsSync(join(home, "build", "acme", "tkt-1.env"))).toBe(false);
     expect(existsSync(join(home, "state", "attach", "acme", "tkt-1"))).toBe(false);
     expect(existsSync(join(home, "logs", "acme", "tkt-1"))).toBe(false);
+  });
+
+  // Contracts §12.8: deleting a runtime removes that runtime's own data, and the
+  // work volume is the session's rather than the runtime's — every other runtime
+  // of the session is running from the code in it. It cannot be named here by
+  // construction, because `down` asks for four purposes and a work volume is not
+  // one of them, and this pins that so a fifth purpose cannot quietly be added.
+  it("never names a work volume, even one belonging to the runtime's own session", async () => {
+    const { docker, argsOf } = fakeDocker({
+      exists: true,
+      volumes: ["sandboxr-work-eng-3941", "sandboxr-data-acme-eng-3941-web"],
+    });
+    await down("acme", "eng-3941-web", { docker, env: { SANDBOXR_HOME: await tempHome() } });
+    expect(argsOf("volumeRm").map((args) => args[0])).not.toContain("sandboxr-work-eng-3941");
   });
 
   // `--keep` means the container went and its data stayed, and the generated
