@@ -2765,31 +2765,6 @@ one anybody actually uses.
 [`docs/reference/status.md`](../reference/status.md) carries the same division where a reader of
 the site will find it, and it is the only other place that has to.
 
-Two pieces of it are real, and they are named here rather than left for a reader to discover.
-
-**§12.5's work volume and §12.8's rule that nothing reclaims one**, in
-`packages/core/src/session/work.ts` and in `sandbox/gc.ts`. The layout, the collision refusal, the
-<<<<<<< HEAD
-clone and the `/workspace` subpath mount have been run against a real daemon. The reclamation rule
-landed with the volume on purpose — a work volume that existed before `gc` knew to leave it alone
-would be somebody's uncommitted work waiting for the next housekeeping run.
-
-**§12.2's runtime slug and §12.4's runtime**, in `packages/core/src/session/runtime.ts` and in
-`sandbox/index.ts`. `up` takes a runtime request — a session, a runtime name, a repository and a
-branch — and starts a sandbox whose `/workspace` is `/work/<repo>/<branch>` on that session's work
-volume. A demo project has been brought up this way against a real daemon and served a page, beside
-the same project brought up the old way from a host checkout. It is reachable from core only: no
-CLI command and no dashboard route creates one, because nothing creates a session for it to belong
-to yet.
-
-Nothing else has been built: no package creates a session or a workstation, no container answers to
-`sandboxr-ws-`, and nothing reads `state/session/`.
-=======
-clone and the `/workspace` subpath mount have been run against a real daemon.
-The reclamation rule landed with the volume on purpose — a work volume that
-existed before `gc` knew to leave it alone would be somebody's uncommitted work waiting for the
-next housekeeping run.
->>>>>>> feat/session-api
 
 ### 12.1 Four nouns
 
