@@ -308,9 +308,10 @@ See [Secrets](../configuration/secrets.md).
 
 **Session** — the unit of work sandboxr is being reorganised around: an agent with a container,
 holding zero or more repositories and zero or more [runtimes](#r). "Write me a document" is a
-session with no code in it at all. **Not built yet** — §12 of
-[the contract](../architecture/contracts.md) defines it, and [What is built](status.md) says where
-it stands. Today the unit is a [worktree](#w).
+session with no code in it at all. §12 of [the contract](../architecture/contracts.md) defines it.
+**Creating, listing and deleting one exists in `packages/core`; nothing a person can type reaches
+it yet**, and [What is built](status.md) says exactly where the line falls. Today the unit is a
+[worktree](#w).
 
 **Storage** — the S3-compatible object store inside each sandbox, so uploads never reach a real
 bucket. Declared as `storage: { driver: minio, buckets: [...] }`, and `none` by default. See
@@ -398,7 +399,8 @@ of seconds, or `never`. Default 12 hours. See
 
 **Work volume** — the Docker volume holding one [session](#s)'s clones, laid out
 `/work/<repo>/<branch>/`. Stopping a session never touches it, and only deleting the session
-removes it. **Not built yet** — §12 of [the contract](../architecture/contracts.md) defines it.
+removes it. §12 of [the contract](../architecture/contracts.md) defines it. **It is created and
+removed with the session; nothing writes a clone into one yet** — see [What is built](status.md).
 
 **Workspace** — the repositories sandboxr keeps for itself, one directory per project, so a sandbox
 can be a branch you pick rather than a worktree you made by hand. See
@@ -406,7 +408,9 @@ can be a branch you pick rather than a worktree you made by hand. See
 
 **Workstation** — the container a [session](#s)'s agent runs in, one per session. It has no Docker
 socket and no bind mount from your computer, so the agent can reach its own session's code and
-nothing else. **Not built yet** — §12 of [the contract](../architecture/contracts.md) defines it.
+nothing else. §12 of [the contract](../architecture/contracts.md) defines it. **It can be created,
+started and stopped from `packages/core`; no agent runs in one yet** — see
+[What is built](status.md).
 
 **Worktree** — a second checkout of the same repository, made with `git worktree add`, so several
 branches are open at once sharing one `.git`. sandboxr works from worktrees rather than clones, so a

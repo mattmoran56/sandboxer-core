@@ -8,6 +8,7 @@
 // - hostFor / urlFor: the flattened one-label hostname, the 63-character limit, `--` in a component, empty components
 // - parseHost: the round trip, the bare domain, a deeper host, a suffix match, and a component holding `--`
 // - containerName / volumeName / depsVolumeName: the shapes fixed by contracts §3.3
+// - workstationName / workVolumeName / SESSION_ID_MAX: the session shapes fixed by contracts §12.2
 // - SHARED_VOLUMES: the Claude credential volume is listed there, which is what keeps gc off it
 // - parseContainerName: round-trip with and without a known project, and the shapes it refuses to guess at
 // - lockName: identifier folding, determinism, and the 64-character GET_LOCK ceiling
@@ -19,6 +20,7 @@ import {
   DEFAULT_DOMAIN,
   NamingError,
   DNS_LABEL_MAX,
+  SESSION_ID_MAX,
   SHARED_VOLUMES,
   SLUG_MAX,
   SLUG_MIN,
@@ -33,6 +35,8 @@ import {
   slugCeiling,
   urlFor,
   volumeName,
+  workVolumeName,
+  workstationName,
 } from "./naming.js";
 
 describe("sanitizeSlug", () => {
@@ -323,6 +327,18 @@ describe("docker names", () => {
 
   it("keys the shared dependency volume on a hash", () => {
     expect(depsVolumeName("abc123")).toBe("sandboxr-deps-abc123");
+  });
+
+  it("names a session's workstation and work volume", () => {
+    expect(workstationName("eng-3941")).toBe("sandboxr-ws-eng-3941");
+    expect(workVolumeName("eng-3941")).toBe("sandboxr-work-eng-3941");
+  });
+
+  // Not a project's `slugCeiling`: a session may hold repositories of projects
+  // that do not exist yet when it is created, and a session id spends no part of
+  // the DNS-label budget because it is never in a hostname (contracts §12.2).
+  it("bounds a session id by the lock budget and nothing else", () => {
+    expect(SESSION_ID_MAX).toBe(SLUG_MAX);
   });
 
   // Membership of this list is the only thing standing between gc and every MCP

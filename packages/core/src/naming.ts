@@ -289,6 +289,40 @@ export function containerName(project: string, slug: string): string {
   return `sandboxr-${project}-${slug}`;
 }
 
+/**
+ * The ceiling on a session id (contracts §12.2).
+ *
+ * `SLUG_MAX` and not a project's `slugCeiling`, and the difference is the whole
+ * point: a session may hold repositories of projects that do not exist yet when
+ * it is created, so there is no project whose ceiling could be computed at that
+ * moment. It does not need one — a session id names a container and a volume,
+ * neither of which is a DNS label, so only the lock-name budget binds. This is
+ * §3.1's reasoning for a worktree's *directory* name, applied to the one
+ * identifier a session has.
+ *
+ * A runtime's slug is the thing that does spend the hostname budget, and it is
+ * put through `slugCeiling` like every other slug — see §12.2.
+ */
+export const SESSION_ID_MAX = SLUG_MAX;
+
+/** The workstation container for one session, from contracts §12.2. */
+export function workstationName(session: string): string {
+  return `sandboxr-ws-${session}`;
+}
+
+/**
+ * The work volume for one session, from contracts §12.2.
+ *
+ * One per session, mounted at `/work` in the workstation and in every runtime of
+ * that session. It is never shared between sessions and never reclaimed — a work
+ * volume with no running container is the ordinary state of a stopped session
+ * (§12.8), which is exactly the case `gc`'s "no container references it" rule
+ * was written to catch.
+ */
+export function workVolumeName(session: string): string {
+  return `sandboxr-work-${session}`;
+}
+
 /** The per-sandbox volume purposes, from contracts §3.3. */
 export type VolumePurpose = "data" | "blob" | "bin" | "www";
 
@@ -331,10 +365,16 @@ export function imageRepository(project: string): string {
  * in minutes, and losing the base costs it on the next `up` rather than now,
  * which is the worst moment to discover it.
  *
- * `access/index.ts` spells these out as `BASE_IMAGE` and `DASHBOARD_IMAGE_NAME`;
- * a test pins the two lists together so a rename cannot quietly unprotect one.
+ * `access/index.ts` spells these out as `BASE_IMAGE`, `DASHBOARD_IMAGE_NAME` and
+ * `WORKSTATION_IMAGE_NAME`; a test pins the two lists together so a rename
+ * cannot quietly unprotect one.
+ *
+ * The workstation image (§12.3) joins them on the same terms. It is tagged by
+ * tool version, so an older tag of it is an older *sandboxr* rather than a
+ * superseded build — and losing it costs the rebuild at the moment somebody
+ * asks for a session, which is the one moment the delay is least welcome.
  */
-export const PROTECTED_IMAGES = ["sandboxr/base", "sandboxr/dashboard"] as const;
+export const PROTECTED_IMAGES = ["sandboxr/base", "sandboxr/dashboard", "sandboxr/workstation"] as const;
 
 /**
  * Claude Code's state directory, shared by every sandbox on the machine.

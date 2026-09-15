@@ -5,6 +5,7 @@
 // - directoriesOf: the set a command creates up front
 // - workspace: its own variable, defaulting under the home
 // - projectDir / worktreesDir / keepFile / attachFile / slugFile / configFile shapes
+// - a session's three files share one directory, which is what stops a session id colliding with a project's
 // - isInside: a path in a directory, the directory itself, a sibling with a shared prefix
 // - samePath: identical strings, and two spellings of one place
 
@@ -135,6 +136,29 @@ describe("slugFile", () => {
     expect(p2.slugFile("acme", "feat-tkt-1-thing")).toBe(
       join("/tmp/sbx", "state", "slug", "acme", "feat-tkt-1-thing"),
     );
+  });
+});
+
+describe("a session's state", () => {
+  // One directory per session rather than three parallel trees (contracts
+  // §12.6). `state/keep/<project>/<slug>` puts a *project* directory at its
+  // first level, so a session id written there could collide with a project of
+  // the same name — and the two would then be one file, exempting a sandbox from
+  // its lifetime because somebody pinned a session.
+  it("is three files in one directory per session", () => {
+    const p2 = paths({ SANDBOXR_HOME: "/tmp/sbx" });
+    const dir = join("/tmp/sbx", "state", "session", "eng-3941");
+    expect(p2.sessionDir("eng-3941")).toBe(dir);
+    expect(p2.sessionKeepFile("eng-3941")).toBe(join(dir, "keep"));
+    expect(p2.sessionNameFile("eng-3941")).toBe(join(dir, "name"));
+    expect(p2.sessionAttachFile("eng-3941")).toBe(join(dir, "attach"));
+  });
+
+  // The collision the nesting exists to prevent, spelled out: a project called
+  // `eng-3941` and a session called `eng-3941` must not share a path.
+  it("cannot collide with a project directory under state/keep", () => {
+    const p2 = paths({ SANDBOXR_HOME: "/tmp/sbx" });
+    expect(p2.sessionKeepFile("eng-3941")).not.toBe(p2.keepFile("eng-3941", "keep"));
   });
 });
 

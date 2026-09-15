@@ -280,6 +280,14 @@ Images are named under one namespace, and the split between them decides what ma
   image and a rebuild is triggered by exactly the things the build reads.
 - The machine's own: `sandboxr/base` and `sandboxr/dashboard`, tagged by tool version and by
   `latest`. Built by `init`.
+- `sandboxr/workstation` (§12.3), tagged the same way and on the same never-reclaimed list, but
+  **built the first time a session is created rather than by `init`**. Every other image here is a
+  prerequisite of the next thing somebody does — the first `up` fails without a base — and this one
+  is not: a machine that never creates a session never needs it, and it carries a full `claude`
+  install. Revisit when a session is the ordinary way to start work.
+  `container/workstation/` is excluded from the base image's digest for the same reason the other
+  two excluded directories are: it shares not one layer with the base, so including it would
+  rebuild the base for a change that cannot affect it.
 
 **Reclamation is a contract, not a heuristic.** `gc` removes sandboxes, the volumes they owned, and
 the project images a newer build replaced. `prune` removes the same volumes and images with sizes
@@ -2642,12 +2650,28 @@ sidecar images have ordinary Dockerfiles, so compose builds those.
 
 ## 12. The session model
 
-**Almost nothing in this section is implemented.** It is written first, which is what this file is
-for: §§1–11 describe a machine that runs today, and this section describes the one being built on
-top of it. Everything §§1–11 says about a **sandbox** is still true and still running. §12.10 maps
-each superseded rule onto what replaces it, because the reasoning in those sections is what this
-one is built out of; none of it is deleted.
-[`docs/reference/status.md`](../reference/status.md) carries the same statement where a reader of
+**This section was written before any of it existed, which is what this file is for**: §§1–11
+describe a machine that runs today, and this section describes the one being built on top of it.
+Everything §§1–11 says about a **sandbox** is still true and still running. §12.10 maps each
+superseded rule onto what replaces it, because the reasoning in those sections is what this one is
+built out of; none of it is deleted.
+
+**What is built, precisely.** `packages/core/src/session/` creates, lists, fetches and deletes a
+session, and creates, starts and stops a workstation — so a container does now answer to
+`sandboxr-ws-`, a volume to `sandboxr-work-`, and `state/session/<session>/` holds §12.6's three
+files. Beside it, `session/work.ts` knows the `/work/<repo>/<branch>` layout, refuses a second
+branch that would share a directory with the first, clones into a work volume from a short-lived
+container, and is the only code that may remove one — and `gc` and `prune` leave a work volume
+alone under every rule they have, which had to land in the same change, because a work volume the
+collector did not know about is somebody's uncommitted work waiting for the next housekeeping run.
+All of that has been run against a real daemon.
+
+**The rest of §12 has not been built**: no runtime is created inside a session (§12.4), no idle
+clock reads a workstation's activity (§12.7), and there is no CLI command and no dashboard route
+for any of it (§12.6's `/sessions/:session`). Nothing above `packages/core` calls any of it, so
+there is no way for a person to reach a session. Until that lands, the worktree model is the one
+anybody actually uses.
+[`docs/reference/status.md`](../reference/status.md) carries the same division where a reader of
 the site will find it, and it is the only other place that has to.
 
 One piece of it is real, and it is named here rather than left for a reader to discover:
@@ -2707,6 +2731,29 @@ path and route below is built from.
 sandboxr-ws-<session>       the workstation container
 sandboxr-work-<session>     the work volume
 ```
+
+#### Where the id comes from
+
+`sessionId` in `packages/core/src/session/id.ts`, and it is a pure function like `deriveSlug`: the
+caller works out what is taken and passes it in. Three inputs, in this order.
+
+- **An id somebody typed** is sanitised and nothing more. Taken is a **refusal**, naming the
+  holder — which is the workstation or, for a stopped session, the work volume. A leftover work
+  volume holds an id as firmly as a container does: Docker reuses a volume of that name rather
+  than refusing, so creating a session over one would silently hand it somebody else's clones.
+- **A name** derives the id, `sanitizeSlug(name)` bounded to 31. On collision it is **given** a
+  four-character token — `uniqueSlug`, the same device §3.1 uses for two branches on one ticket,
+  reused rather than rewritten. A name is a sentence and may repeat; an id is an address and may
+  not, and refusing the second session called "the checkout rewrite" would make naming one a trap.
+- **Neither** gives `session`, plus a token once that is taken. A session has no branch, no
+  directory and no ticket to read — those are exactly §3.1's inputs — so the base says what the
+  thing is and the token distinguishes it. **Not a generated adjective-and-noun pair**: a word
+  list is a maintenance surface and eventually produces a pairing nobody wants on a screen, and
+  what it buys is memorability that naming the session buys properly.
+
+A name that sanitises to nothing — "🎉" — falls through to the unnamed base and **keeps its name**.
+The name is presentation and may be any 60 code points somebody typed (§4.2.1); refusing to create
+a session over an id nobody asked to see would be a surprising place to discover that.
 
 #### A runtime's slug, and how it slots into §3.2
 
@@ -2794,7 +2841,18 @@ read like every other container — `docker ps`, never a manifest:
 
 `sandboxr.project` and `sandboxr.slug` are **absent** on a workstation rather than empty, because a
 workstation belongs to no project and an empty string is a value something will one day compare
-against.
+against. `sandboxr.slug`'s absence is what keeps a workstation out of every sandbox listing without
+a second exclusion anywhere: `sandboxFromLabels` already reads a missing slug as "not one of ours".
+
+**Exactly two of §3.4's labels mean anything without a project, and a workstation carries those and
+no others**: `sandboxr.created`, because the keep marker is stamped with it (§4.2), and
+`sandboxr.ttl`, because the idle clock reads it (§12.7). `branch`, `commit`, `dirty` and `worktree`
+describe a checkout a workstation does not have; `driver` and `env` describe a project it does not
+run; `access` describes hostnames it does not serve on (§12.2). Four labels in total, and a fifth
+would need an argument here first.
+
+The work volume carries `sandboxr.session` alone. `sandboxr.kind` has no reading on a volume — the
+table above puts it on containers — and the name already says what the volume is for.
 
 ### 12.4 The runtime
 
@@ -2957,6 +3015,23 @@ running from.
 §3.3.1 gives: a volume cannot be removed while a container holds it, and the names of what has to
 go are resolved from the session, so destroying the session's record first leaves orphans nothing
 can find. Runtimes, then the workstation, then the volume, then the host files.
+
+**`deleteSession` refuses nothing, and that is deliberate.** `deleteWorktree` refuses over
+uncommitted changes (§3.3.1) because it can read them: the worktree is a directory on the host.
+A work volume cannot be read while nothing is running, and the answer is then `unknown` and never
+`none` (§12.5) — so a refusal built on it would fire or not fire depending on whether a container
+happened to be up, which is a coin toss wearing a safety feature's clothes. The confirmation
+belongs where the person is, which for a browser is §8.1's rule that it may not force a
+destructive action at all. What core does instead is **report**: what went, and separately what
+would not go, because a work volume docker will not release is the one failure here that leaves
+real data on the disk and must not read as a clean delete.
+
+**A session's host directory is created lazily**, the way `state/keep/` is: a session that is
+never named, never kept and never attached to has nothing to record, and an empty directory per
+session would be a set of paths that exist and mean nothing — the first thing a reader would take
+for a manifest. A delete removes the directory whether or not anything else of the session is
+left, because these three files are the part that can outlive every container without anything
+noticing.
 
 **Deactivating or idling a session keeps everything.** No timer anywhere deletes a work volume,
 and none may be added.

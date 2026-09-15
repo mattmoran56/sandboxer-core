@@ -70,6 +70,7 @@ export {
   NETWORK,
   NamingError,
   PROTECTED_IMAGES,
+  SESSION_ID_MAX,
   SHARED_VOLUMES,
   SLUG_MAX,
   SLUG_MIN,
@@ -85,6 +86,8 @@ export {
   slugCeiling,
   urlFor,
   volumeName,
+  workVolumeName,
+  workstationName,
 } from "./naming.js";
 export type { DeriveSlugInput, HostParts, VolumePurpose } from "./naming.js";
 
@@ -124,6 +127,53 @@ export type {
   SandboxStatus,
   UpOptions,
 } from "./sandbox/types.js";
+
+export {
+  DEFAULT_WORKSTATION_IMAGE,
+  SESSION_LABELS,
+  UNNAMED_SESSION_BASE,
+  WORKSTATION_FILTER,
+  WORK_DIR,
+  SessionError,
+  createSession,
+  deleteSession,
+  getSession,
+  isSessionKeptAlive,
+  kindOf,
+  listSessions,
+  markSessionAttached,
+  readSessionKeep,
+  readSessionName,
+  removeSessionKeep,
+  removeSessionName,
+  removeSessionState,
+  sessionAttachFileFor,
+  sessionDirFor,
+  sessionFilter,
+  sessionFromLabels,
+  sessionId,
+  sessionIdBase,
+  startWorkstation,
+  stopWorkstation,
+  workVolumeArgs,
+  workVolumeLabels,
+  workstationArgs,
+  workstationLabels,
+  workstationState,
+  writeSessionKeep,
+  writeSessionName,
+} from "./session/index.js";
+export type {
+  ContainerKind,
+  CreateSessionOptions,
+  DeleteSessionReport,
+  Session,
+  SessionIdInput,
+  SessionOptions,
+  SessionState,
+  WorkstationLabelInput,
+  WorkstationRunInput,
+} from "./session/index.js";
 
 export { deadlineOf, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
 export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.js";
@@ -263,7 +313,10 @@ export { LABELS, labelsFor, sandboxFromLabels, deriveState } from "./sandbox/lab
 export {
   BASE_IMAGE,
   DASHBOARD_CONTAINER,
+  DASHBOARD_IMAGE_NAME,
   DASHBOARD_PORT,
+  WORKSTATION_IMAGE_NAME,
+  ensureWorkstationImage,
   ROUTER_CONTAINER,
   ROUTER_IMAGE,
   accessStatus,
