@@ -132,6 +132,37 @@ mem_limit() {
   cat /sys/fs/cgroup/memory.max 2>/dev/null || printf 'max\n'
 }
 
+# run_quiet <command> [args...] -- silent when it works, loud when it does not.
+#
+# The output is buffered rather than thrown away, and printed only on a non-zero
+# exit. Returns the command's own status, so a caller keeps whatever it already
+# does about failure.
+#
+# **`>/dev/null 2>&1` is what this replaces, and the difference is not cosmetic.**
+# Several commands in here are noisy on the path where nothing is wrong -- mysqld
+# narrates its own initialisation over stderr -- so the redirect was added to keep
+# a clean boot readable, which is a real thing to want. What it also did was
+# discard the one message that explains a failure. When a host's disk filled, the
+# error mysqld wrote went to /dev/null and all that survived was a oneshot exiting
+# non-zero, so a full disk surfaced as "the database will not initialise" and cost
+# three days of looking in the wrong place. A diagnosis that names its own cause
+# has to outlive the noise suppression, not be bundled in with it.
+run_quiet() {
+  local out status=0
+  # Both streams into one capture, in order: which of the two a tool writes its
+  # error to is not something a caller can rely on, and interleaving is how the
+  # failing line keeps the context above it.
+  out=$("$@" 2>&1) || status=$?
+  if [[ "$status" -ne 0 ]]; then
+    warn "$1 failed (exit $status)"
+    # An `if` rather than `[[ ... ]] && printf`: the caller runs under
+    # `set -e`, where an and-list ending false is itself a failure, and an
+    # empty capture would abort before the status below could be returned.
+    if [[ -n "$out" ]]; then printf '%s\n' "$out" >&2; fi
+  fi
+  return "$status"
+}
+
 # to_bytes 6g -> 6442450944. Accepts a bare byte count too.
 to_bytes() {
   local v="${1,,}" n

@@ -7,10 +7,20 @@
 // - orphanVolumes: reaping every sandbox on the machine still leaves the Claude credential volume
 // - orphanVolumes: a dependency volume is left alone unless a mount list proves it unused
 // - orphanVolumes: nothing outside the sandboxr prefix is ever considered
+// - supersededImages: an older image of a project is offered, and named by what replaced it
+// - supersededImages: the newest image of every project survives, so the next `up` is a start
+// - supersededImages: an image any container references is left alone, running or stopped
+// - supersededImages: sandboxr/base and sandboxr/dashboard are never superseded
+// - supersededImages: an image outside the sandboxr namespace is not ours to remove
+// - supersededImages: a dangling image is left to `docker image prune`
+// - supersededImages: an image docker gave no creation time for is left alone
+// - planGc: no image listing means no image is reaped, which is not "there are none"
 
 import { describe, expect, it } from "vitest";
 
-import { planGc } from "./gc.js";
+import { BASE_IMAGE, DASHBOARD_IMAGE_NAME } from "../access/index.js";
+import type { ImageRow } from "../docker.js";
+import { planGc, supersededImages } from "./gc.js";
 import type { Sandbox } from "./types.js";
 
 function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
@@ -147,5 +157,101 @@ describe("orphan volumes", () => {
       mountedVolumes: new Set(),
     });
     expect(withMounts.volumes).toEqual(["sandboxr-deps-abc123"]);
+  });
+});
+
+function image(overrides: Partial<ImageRow> & { repository: string; tag: string }): ImageRow {
+  return {
+    id: overrides.tag,
+    created: new Date("2026-08-01T00:00:00.000Z"),
+    size: 6_000_000_000,
+    uniqueSize: 5_340_000_000,
+    containers: 0,
+    ...overrides,
+  };
+}
+
+const older = image({ repository: "sandboxr/acme", tag: "40ed880f9db8" });
+const newer = image({
+  repository: "sandboxr/acme",
+  tag: "48273eacdece",
+  created: new Date("2026-08-27T00:00:00.000Z"),
+});
+
+// Five of these at six gigabytes each is what filled a Docker VM, and the
+// symptom was a database that would not initialise. The rule is deliberately the
+// same one `prune` uses — it is literally this function — so the two commands
+// cannot come to different conclusions about an image worth that much.
+describe("superseded images", () => {
+  it("offers the older image of a project, and names what replaced it", () => {
+    const offered = supersededImages([older, newer]);
+    expect(offered).toHaveLength(1);
+    expect(offered[0]?.reference).toBe("sandboxr/acme:40ed880f9db8");
+    expect(offered[0]?.reason).toContain("48273eacdece");
+    // The unique size, not the reported one: the two images share the whole base
+    // layer, so the total would promise back disk that removal cannot deliver.
+    expect(offered[0]?.size).toBe(5_340_000_000);
+  });
+
+  // The image is what makes the next `up` a start rather than a toolchain build,
+  // so a project whose sandboxes are all down still keeps one.
+  it("keeps the newest image of a project even when nothing is using it", () => {
+    expect(supersededImages([newer])).toEqual([]);
+  });
+
+  // The whole cost of being wrong here lands on somebody else: a stopped sandbox
+  // still holds its image and is meant to start again.
+  it("leaves an old image any container still references", () => {
+    expect(supersededImages([{ ...older, containers: 1 }, newer])).toEqual([]);
+  });
+
+  it("never supersedes the machine's own images", () => {
+    const offered = supersededImages([
+      image({ repository: BASE_IMAGE, tag: "latest" }),
+      image({ repository: BASE_IMAGE, tag: "0.1.0", created: new Date("2026-08-27T00:00:00.000Z") }),
+      image({ repository: DASHBOARD_IMAGE_NAME, tag: "latest" }),
+      image({ repository: DASHBOARD_IMAGE_NAME, tag: "0.1.0", created: new Date("2026-08-27T00:00:00.000Z") }),
+    ]);
+    expect(offered).toEqual([]);
+  });
+
+  it("leaves images that are not ours alone", () => {
+    const offered = supersededImages([
+      image({ repository: "mysql", tag: "8.4" }),
+      image({ repository: "mysql", tag: "latest", created: new Date("2026-08-27T00:00:00.000Z") }),
+    ]);
+    expect(offered).toEqual([]);
+  });
+
+  // A dangling layer may belong to a build running right now, and no name
+  // sandboxr gave it addresses it. `docker image prune` owns that set.
+  it("leaves a dangling image to docker's own prune", () => {
+    expect(supersededImages([image({ repository: "sandboxr/acme", tag: "<none>" }), newer])).toEqual([]);
+    expect(supersededImages([image({ repository: "<none>", tag: "<none>" }), newer])).toEqual([]);
+  });
+
+  // Undefined is docker declining to answer, and "I do not know when this was
+  // built" must never sort an image to the front of the queue for deletion.
+  it("leaves an image with no creation time alone", () => {
+    expect(supersededImages([{ ...older, created: undefined }, newer])).toEqual([]);
+  });
+});
+
+describe("planGc images", () => {
+  const input = { sandboxes: [], volumes: [], worktreeExists: alive };
+
+  it("reaps a superseded image when it is given the listing", () => {
+    expect(planGc({ ...input, images: [older, newer] }).images.map((entry) => entry.reference)).toEqual([
+      "sandboxr/acme:40ed880f9db8",
+    ]);
+  });
+
+  // The same doctrine as a dependency volume with no mount list: the evidence
+  // that an image is superseded is a listing holding the one that replaced it,
+  // so with no listing there is nothing to conclude. `gc` reaches here whenever
+  // `docker system df` would not answer, and reaping on a guess would take an
+  // image somebody's next `up` was going to start from.
+  it("offers nothing at all when no image listing was supplied", () => {
+    expect(planGc(input).images).toEqual([]);
   });
 });

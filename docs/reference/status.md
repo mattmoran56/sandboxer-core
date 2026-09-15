@@ -50,7 +50,7 @@ one thing wrong in the details.
 | **Agent sessions** | See below |
 | **Side questions (`/btw`)** | See below |
 | **A sandbox expiring on its own over a full lifetime** | See below |
-| **`sandboxr prune --yes`** | See below |
+| **Removing an image** — `sandboxr prune --yes`, and the same images under `sandboxr gc` | See below |
 | **`gh` against a private repository** | Pull requests list against a public repo. Cloning and fetching a private one from inside the dashboard container, using the mounted `gh` credentials, has not been done |
 | **The orchestrator, voice and Telegram** | See below |
 
@@ -150,14 +150,19 @@ something sandboxr has watched happen.
 
 </details>
 
-### `sandboxr prune --yes`
+### Removing an image: `sandboxr prune --yes` and `sandboxr gc`
 
-The report has been run against a live daemon with two projects and 440 build cache records on it,
-and its figures match `docker system df`.
+`prune`'s report has been run against a live daemon with two projects and 440 build cache records on
+it, and its figures match `docker system df`.
 
-**Nothing has been removed by it.** The removal path is unit-tested against a fake daemon. What a
-real run would settle is that `docker image rm` accepts the references the plan builds, and that the
-space the report promised is the space that comes back.
+**No image has been removed by either command.** `gc` now takes the same superseded project images
+`prune` offers, and the decision — which image is replaced, which is protected, which is still held
+by a container — is unit-tested against a fake daemon in both. What a real run would settle is that
+`docker image rm` accepts the references the plan builds, and that the space the report promised is
+the space that comes back.
+
+The removals are deliberately separable: `gc` asks `docker system df` in a `try`, so a daemon that
+will not answer costs the image reaping and not the sandbox reaping, which has been run for real.
 
 ## The orchestrator, voice and Telegram
 

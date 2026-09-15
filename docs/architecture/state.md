@@ -6,8 +6,10 @@ description: Why there is no list of sandboxes anywhere, and how runtime state i
 There is no manifest file and no database of sandboxes. Nothing on the machine keeps a list.
 
 `sandboxr ls` asks Docker which containers exist, and reads every column off a label on the
-container. `sandboxr gc` does the same. Both are pure functions of `docker ps`, so neither can drift
-out of sync with what is running.
+container. `sandboxr gc` decides which sandboxes to reap the same way. Both are pure functions of
+`docker ps`, so neither can drift out of sync with what is running. (`gc` also asks `docker system
+df` which images are lying around, but that is disk, not sandbox state — nothing about a sandbox is
+read from it.)
 
 This page explains why that is the design, what it costs, and the few places where something is
 allowed to live on the host after all.
@@ -379,15 +381,18 @@ nothing else it could be.
 
 Reclamation is a contract, not a heuristic.
 
-`gc` reads the sandbox list and the volume list. It reaps a sandbox whose `sandboxr.worktree` no
-longer exists on disk, and removes any `sandboxr-` volume no surviving sandbox has mounted.
+`gc` reads the sandbox list, the volume list and `docker system df`. It reaps a sandbox whose
+`sandboxr.worktree` no longer exists on disk, removes any `sandboxr-` volume no surviving sandbox
+has mounted, and removes any project image a newer build of the same project replaced. Because the
+image tag is a content hash, every base image rebuild and every tool version bump strands a
+project's previous image — at roughly six gigabytes each, that is where a machine's disk actually
+goes, and it is why the reaping happens in the command that gets run routinely rather than only in
+the one you have to remember.
 
-`prune` reads `docker system df` instead, and reclaims what *building* left behind: orphaned
-volumes, project images older than that project's newest one, and — only when asked — Docker's build
-cache. Because the image tag is a content hash, every base image rebuild and every tool version bump
-orphans a project's previous image, which is where a machine's disk actually goes.
+`prune` reads `docker system df` too and reports the same volumes and images with sizes against
+them, plus — only when asked — Docker's build cache, which sandboxr is not the only writer of.
 
-Three rules bind both:
+Four rules bind both:
 
 - **The shared volumes are never removed, by either.** Taking `sandboxr-claude` would sign the
   machine out of every MCP server it has been given.
@@ -395,10 +400,15 @@ Three rules bind both:
   version rather than by content, so "older tag" does not mean "replaced".
 - **Of each project's images, the newest survives.** A content-addressed tag means the next `up`
   finds it and starts rather than rebuilding, which is the reason the image is kept at all.
+- **An image any container references is never removed**, running or stopped, and neither is one
+  docker declined to give a creation time or a container count for. Dangling and untagged images are
+  out of scope: they belong to `docker image prune`, and nothing here can tell one apart from a
+  layer a build running right now is producing.
 
 `prune` reports by default and acts only when told to, which is the reverse of `gc` and `expire`.
-The asymmetry follows from the cost of being wrong: a sandbox removed in error costs a restart, an
-image removed in error costs a toolchain rebuild on somebody else's next `up`.
+The two agree exactly about which images may go, and a superseded tag is one no future `up` can
+name, so nothing is weighed against removing it. What `--yes` guards is the build cache and reading
+a whole-machine reclaim before running it.
 
 </details>
 

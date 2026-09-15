@@ -168,13 +168,38 @@ export interface PruneOptions extends CommonOptions {
   /**
    * Carry the plan out rather than only reporting it.
    *
-   * The inverse of `gc`'s `--dry-run`, and deliberately so: what this removes is
-   * an image that costs a toolchain rebuild to get back, so the safe answer has
-   * to be the one you get by not passing anything.
+   * The inverse of `gc`'s `--dry-run`, and still deliberately so, though not for
+   * the reason it was. It used to be that only this command removed images; `gc`
+   * takes the same superseded ones now, and none of those costs a rebuild — the
+   * tag is a hash of a build no future `up` can ask for. What is left to guard is
+   * what this reaches and `gc` does not: Docker's build cache, which every other
+   * project on the daemon wrote into as well.
    */
   apply?: boolean | undefined;
   /** Include Docker's build cache, which sandboxr is not the only writer of. */
   buildCache?: boolean | undefined;
+}
+
+/**
+ * One image a reclaiming command may remove, and why.
+ *
+ * Shared between `gc` and `prune` because both decide it with the same function
+ * — `supersededImages` in ./gc.ts. Two implementations of "which image is
+ * replaced" would be two answers to a question worth gigabytes.
+ */
+export interface PrunableImage {
+  /** `repository:tag`, which is what `docker image rm` is given. */
+  reference: string;
+  id: string;
+  /**
+   * Bytes only this image holds.
+   *
+   * The *unique* size, never the total: a project image and the one it replaced
+   * share the whole base layer, so quoting their totals would promise back the
+   * base image twice over.
+   */
+  size: number;
+  reason: string;
 }
 
 export interface GcPlan {
@@ -182,6 +207,13 @@ export interface GcPlan {
   reap: Array<{ sandbox: Sandbox; reason: string }>;
   /** Volumes no live sandbox owns. */
   volumes: string[];
+  /**
+   * Project images a newer build has replaced.
+   *
+   * Empty when the caller supplied no image listing, which is not the same as
+   * "there are none" — see `GcInput.images`.
+   */
+  images: PrunableImage[];
   keep: Sandbox[];
 }
 

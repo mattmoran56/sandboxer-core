@@ -369,6 +369,17 @@ It then removes any `sandboxr-` volume that no surviving sandbox owns and nothin
 mounted. The shared volumes are never offered — `sandboxr-claude` holds credentials an agent
 session was given, and `sandboxr-gocache` and `sandboxr-gomod` are an expensive rebuild.
 
+Last, it removes **project images a newer build has replaced**. Each project's image is tagged
+with a hash of what went into building it, so rebuilding the base image or upgrading sandboxr
+strands the old one: nothing will ever ask for that tag again. They are about six gigabytes
+each. The newest image of every project stays, because that is the one your next `sandboxr up`
+starts from.
+
+> [!NOTE] `gc` removing images has not been watched on a real machine
+> The decision is unit-tested against a fake Docker daemon, including every case where an image
+> is kept. What has not been run is `docker image rm` against a live daemon from this command
+> path. See [What is built](../reference/status.md).
+
 <details class="why">
 <summary><b>Why it works this way</b> — the filesystem is asked, not git</summary>
 
@@ -380,6 +391,16 @@ Orphaned volumes are found by asking which volumes the *survivors* would have, a
 what is left over. They are never found by parsing volume names. Both a project name and a
 slug may contain dashes, so `sandboxr-data-acme-web-tkt-4821` cannot be split back into its
 parts unambiguously — and a wrong split here deletes somebody's database.
+
+Images follow the same doctrine, which is to keep on any doubt. An image survives if it is the
+newest of its project, if it is `sandboxr/base` or `sandboxr/dashboard`, if it is outside the
+`sandboxr/` namespace, if any container references it — running *or* stopped — or if Docker
+declined to say when it was built or how many containers hold it. Dangling and untagged images
+are not touched at all: they belong to `docker image prune`, and nothing here can tell one
+apart from a layer a build running right now is producing.
+
+If `docker system df` will not answer, `gc` offers no image rather than guessing, and still
+reaps containers and volumes. "No listing" is not "there is nothing there".
 
 Core can also reap a sandbox whose branch has been merged. No CLI flag exposes that yet, so
 from the command line `gc` reaps on the missing worktree alone.
@@ -394,12 +415,14 @@ sandboxr prune --yes                # remove what it listed
 sandboxr prune --build-cache --yes  # and Docker's build cache with it
 ```
 
-`gc` reclaims what a *sandbox* held. `prune` reclaims what *building* them left behind:
+`prune` is the whole-machine report. It covers the same ground as `gc` and puts a number
+against each item:
 
 - **Orphaned per-sandbox volumes** — the same ones `gc` finds.
-- **Superseded project images** — for each project, everything older than its newest image.
+- **Superseded project images** — the same ones `gc` finds, with the disk each would return.
 - **Docker's build cache**, only with `--build-cache`, because sandboxr is not its only
-  writer. Every project on the same Docker daemon built into it.
+  writer. Every project on the same Docker daemon built into it. This is the part `gc` does
+  not do.
 
 Each project's newest image always survives. Its tag is a content hash, so the next `up`
 finds it and starts in seconds instead of rebuilding a toolchain — which is the only reason
@@ -438,6 +461,16 @@ It follows from the cost of being wrong.
 So the command whose mistakes are cheap does the thing and lets you ask it not to. The
 command whose mistakes are expensive tells you first.
 
+**Then why does `gc` remove images without asking?** Because a *superseded* image is the one
+case where that second cost is zero. Its tag is a hash of a build that no longer exists, so no
+`up` will ever look for it again — keeping it buys nothing and costs six gigabytes. The image
+whose loss would hurt is the newest one, and neither command will take that. What `--yes`
+still guards on `prune` is the build cache, which other projects on the same daemon wrote too,
+and the habit of reading a whole-machine reclaim before pointing it at your machine.
+
+Leaving superseded images to `prune` alone is what let a machine reach a full disk with five
+of them on it. A command you have to remember to run reclaims nothing on the days you forget.
+
 <details class="facts">
 <summary><b>Fact sheet</b> — what each verb removes, in one table</summary>
 
@@ -448,7 +481,7 @@ command whose mistakes are expensive tells you first.
 | `expire` | stopped, kept | kept | kept | yes — `--dry-run` to preview |
 | `down` | removed | **removed** | kept | yes |
 | `down --keep` | removed | kept | kept | yes |
-| `gc` | removed, if its worktree is gone | **removed** | kept | yes — `--dry-run` to preview |
+| `gc` | removed, if its worktree is gone | **removed** | **superseded ones** | yes — `--dry-run` to preview |
 | `prune` | never touched | orphans only | **superseded ones** | **no** — `--yes` to act |
 | `prune --build-cache` | never touched | orphans only | superseded ones, plus Docker's build cache | **no** — `--yes` to act |
 

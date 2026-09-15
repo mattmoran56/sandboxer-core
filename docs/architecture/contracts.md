@@ -266,8 +266,9 @@ Images are named under one namespace, and the split between them decides what ma
 - The machine's own: `sandboxr/base` and `sandboxr/dashboard`, tagged by tool version and by
   `latest`. Built by `init`.
 
-**Reclamation is a contract, not a heuristic.** `gc` removes sandboxes and the volumes they owned.
-`prune` removes what building left behind, and is bound by three rules:
+**Reclamation is a contract, not a heuristic.** `gc` removes sandboxes, the volumes they owned, and
+the project images a newer build replaced. `prune` removes the same volumes and images with sizes
+against them, and Docker's build cache when it is asked. Both are bound by four rules:
 
 - The shared volumes above are never removed, by either. Taking `sandboxr-claude` would sign the
   machine out of every MCP server it has been given.
@@ -275,10 +276,22 @@ Images are named under one namespace, and the split between them decides what ma
   version rather than by content, so "older tag" does not mean "replaced".
 - Of each project's images, the newest survives. A content-addressed tag means the next `up` finds
   it and starts rather than rebuilding, and that is the reason the image is kept at all.
+- An image any container references — running or stopped — is never removed, and neither is one
+  docker would not give a creation time or a container count for. Every absent answer is read as
+  "something holds it". Dangling and untagged images are out of scope entirely: they are `docker
+  image prune`'s, not addressable by a name sandboxr gave them, and indistinguishable here from the
+  layers a build running right now is producing.
 
-`prune` reports by default and acts only when told to, which is the reverse of `gc` and `expire`.
-The asymmetry follows from the cost of being wrong: a sandbox removed in error costs a restart, an
-image removed in error costs a toolchain rebuild on somebody else's next `up`.
+**Superseded images belong to the routine command.** They were `prune`'s alone, and the accounting
+does not work: a project image is roughly six gigabytes, a base rebuild or a tool version bump
+strands the previous one, and a command that has to be asked twice reclaims nothing on a machine
+nobody asks. A superseded tag is unreachable by construction — it is a content hash of a build no
+future `up` will request — so removing one weighs no rebuild against it, which is what separates it
+from every other image on the machine.
+
+`prune` still reports by default and acts only when told to, which is the reverse of `gc` and
+`expire`. What that asymmetry now guards is the build cache and the habit of reading a whole-machine
+reclaim before running it, rather than the project images the two commands agree about.
 
 **What "gone" means for one sandbox is this list, and nothing outside it.** `down` removes, in
 order: the container (forced, running or not); the four volumes above; `build/<project>/<slug>.env`
@@ -332,7 +345,9 @@ is the stale entry in git's admin files, and clearing it is the point.
 ### 3.4 Container labels
 
 State lives **only** in Docker labels. There is no manifest file, no database of sandboxes.
-`list` and `gc` are pure functions of `docker ps`, so nothing can drift out of sync.
+`list`, and every sandbox decision `gc` makes, are pure functions of `docker ps`, so nothing can
+drift out of sync. `gc` reads `docker system df` as well, but only to decide about images — nothing
+about a sandbox is read from it.
 
 | Label | Meaning |
 |---|---|

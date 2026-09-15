@@ -2,10 +2,17 @@
  * Deciding what disk can be handed back.
  *
  * Where `gc` reaps *sandboxes* — a container whose worktree has gone, and the
- * volumes that go with it — this reaps what building them left behind: the
- * project images a newer build has replaced, and, when asked, Docker's build
- * cache. Those are the two things that actually fill a machine, and neither is
- * freed by stopping a container.
+ * volumes that go with it — this is the whole-machine report: orphaned volumes,
+ * the project images a newer build has replaced, and, when asked, Docker's build
+ * cache. It is the only one of the two that puts a number against each of them.
+ *
+ * Superseded images are **not** this command's alone any more. `gc` reaps them
+ * too, and both go through one `supersededImages`, which moved to ./gc.ts to sit
+ * beside the volume doctrine it copies. Leaving them to a command that has to be
+ * asked twice is how roughly six gigabytes a project a rebuild accumulated until
+ * a machine ran out of disk. What is left here that `gc` does not do is the
+ * report — sizes, a total, and the build cache, which sandboxr is not the only
+ * writer of.
  *
  * A pure function of what `docker system df` reports, for the same reason the
  * collector is: the plan has to be printable and checkable before anything is
@@ -13,29 +20,15 @@
  */
 
 import type { BuildCacheRow, ImageRow, VolumeRow } from "../docker.js";
-import { IMAGE_NAMESPACE, PROTECTED_IMAGES } from "../naming.js";
-import { orphanVolumes } from "./gc.js";
-import type { Sandbox } from "./types.js";
+import { orphanVolumes, supersededImages } from "./gc.js";
+import type { PrunableImage, Sandbox } from "./types.js";
+
+export type { PrunableImage } from "./types.js";
 
 export interface PrunableVolume {
   name: string;
   /** Bytes docker says the volume holds. */
   size: number;
-}
-
-export interface PrunableImage {
-  /** `repository:tag`, which is what `docker image rm` is given. */
-  reference: string;
-  id: string;
-  /**
-   * Bytes only this image holds.
-   *
-   * The *unique* size, never the total: a project image and the one it replaced
-   * share the whole base layer, so quoting their totals would promise back the
-   * base image twice over.
-   */
-  size: number;
-  reason: string;
 }
 
 export interface PruneInput {
@@ -126,53 +119,6 @@ export function planPrune(input: PruneInput): PrunePlan {
     images.reduce((total, image) => total + image.size, 0);
 
   return { volumes, images, buildCache, freed };
-}
-
-/**
- * Project images a newer build of the same project has replaced.
- *
- * The rule is "newest per repository survives", not "anything no container uses
- * is fair game", because a project whose sandboxes are all `down` still wants
- * its image: the tag is content-addressed, so the next `up` finds it and starts
- * in seconds rather than rebuilding a toolchain. What that leaves for the
- * collector is exactly the accumulation the content hash causes — a base image
- * rebuild or a tool version bump changes the hash, and the image the old hash
- * named is then unreachable by any future `up`.
- */
-function supersededImages(images: ImageRow[]): PrunableImage[] {
-  const byRepository = new Map<string, ImageRow[]>();
-  for (const image of images) {
-    if (!image.repository.startsWith(IMAGE_NAMESPACE)) continue;
-    if ((PROTECTED_IMAGES as readonly string[]).includes(image.repository)) continue;
-    // An untagged image is not a superseded project layer — it is a dangling
-    // build, which is `docker image prune`'s job and not addressable by a name
-    // sandboxr gave it.
-    if (image.tag === "" || image.tag === "<none>") continue;
-    if (image.created === undefined) continue;
-    const group = byRepository.get(image.repository) ?? [];
-    group.push(image);
-    byRepository.set(image.repository, group);
-  }
-
-  const prunable: PrunableImage[] = [];
-  for (const [repository, group] of byRepository) {
-    const sorted = [...group].sort((a, b) => (b.created?.getTime() ?? 0) - (a.created?.getTime() ?? 0));
-    const [newest, ...rest] = sorted;
-    if (!newest) continue;
-    for (const image of rest) {
-      // A container still holding an old image is a stopped sandbox that can be
-      // started again, and `docker image rm` would refuse anyway. Reporting it
-      // as prunable would make the plan's total a number that never arrives.
-      if (image.containers > 0) continue;
-      prunable.push({
-        reference: `${repository}:${image.tag}`,
-        id: image.id,
-        size: image.uniqueSize,
-        reason: `${repository}:${newest.tag} replaced it`,
-      });
-    }
-  }
-  return prunable.sort((a, b) => b.size - a.size);
 }
 
 const UNITS = ["B", "kB", "MB", "GB", "TB"] as const;

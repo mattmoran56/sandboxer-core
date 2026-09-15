@@ -98,8 +98,15 @@ through. The service name is the s6 service id, from `svc_id` in
 
 The oneshots that run during boot — `mysql-init`, `deps-init`, `db-init` — do **not** go
 through `logged.sh`. Their output goes to the container stream only, so `sandboxr logs` is
-the only place to read a failed restore or a failed dependency seed. `db-init` delegates the
-migration step to `migrate-run.sh`, and that one does write `migrate.log`.
+the only place to read a failed restore, a failed dependency seed or a data directory that
+would not initialise. `db-init` delegates the migration step to `migrate-run.sh`, and that one
+does write `migrate.log`.
+
+A oneshot that runs a noisy tool keeps the tool's output and prints it **only when the tool
+fails** (`run_quiet`, in `container/scripts/lib.sh`). The plain `>/dev/null 2>&1` it replaced
+kept a clean boot readable and threw away the one message that explained a failure: with the
+host's disk full, mysqld's "no space left on device" went nowhere and all that reached the
+container stream was a oneshot exiting non-zero.
 
 **Trimmed, not rotated.** Before a service starts, a log over **20 MB** is cut back to its
 last **5 MB**. These are development logs, and a sandbox left up for days must not be able

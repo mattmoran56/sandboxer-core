@@ -27,7 +27,7 @@ import { decideGithub, loadMachineConfig, resolveTtl } from "../config/machine.j
 import { resolveDeps } from "../config/deps.js";
 import { planFor, writePlan } from "../config/plan.js";
 import type { ResolvedConfig } from "../config/types.js";
-import { docker as defaultDocker, type Docker } from "../docker.js";
+import { docker as defaultDocker, type Docker, type ImageRow } from "../docker.js";
 import { driverContext, getDriver } from "../drivers/index.js";
 import { chooseSeed } from "../drivers/seed.js";
 import { describeSeedChoice, mysqlSettings } from "../drivers/mysql.js";
@@ -819,7 +819,17 @@ export async function activityFor(
   return sandboxActivity(sandboxes, options);
 }
 
-/** Reaps sandboxes whose work is finished, and the volumes nothing owns. */
+/**
+ * Reaps sandboxes whose work is finished, the volumes nothing owns, and the
+ * project images a newer build has replaced.
+ *
+ * The images are the reason this is not only a container command. A project's
+ * image tag is a content hash, so a base rebuild or a tool version bump strands
+ * the previous one at roughly six gigabytes — unreachable by any future `up`,
+ * and until now reclaimed by nothing that ran routinely. Five of them filled a
+ * Docker VM, and what that looked like from inside a sandbox was a database that
+ * would not initialise.
+ */
 export async function gc(options: GcOptions = {}): Promise<GcPlan> {
   const docker = options.docker ?? defaultDocker;
   const log = options.log ?? noop;
@@ -831,6 +841,7 @@ export async function gc(options: GcOptions = {}): Promise<GcPlan> {
     worktreeExists: (path) => existsSync(path),
     mergedBranches: options.mergedBranches ? new Set(options.mergedBranches) : undefined,
     mountedVolumes: await mountedVolumes(docker, sandboxes),
+    images: await storedImages(docker),
   });
 
   if (options.dryRun) return plan;
@@ -843,18 +854,49 @@ export async function gc(options: GcOptions = {}): Promise<GcPlan> {
   for (const volume of plan.volumes) {
     if (await docker.volumeRm(volume)) freed += 1;
   }
+  let images = 0;
+  for (const image of plan.images) {
+    // `imageRm` answering false is an outcome, not an error: docker refuses an
+    // image a container took hold of between the listing and now, and that
+    // refusal is the last guard behind the plan's own. Counting only what really
+    // went keeps the line printed here true.
+    if (await docker.imageRm(image.reference)) images += 1;
+  }
   if (freed > 0) log(`Removed ${freed} orphaned volume(s)`);
-  if (plan.reap.length === 0 && freed === 0) log("Nothing to reap");
+  if (images > 0) log(`Removed ${images} superseded image(s)`);
+  if (plan.reap.length === 0 && freed === 0 && images === 0) log("Nothing to reap");
   return plan;
 }
 
 /**
- * Reclaims the disk that building sandboxes left behind.
+ * What the daemon is storing, or nothing when it would not say.
+ *
+ * `docker system df` is one walk of the storage driver and can fail on its own —
+ * a daemon still starting, a storage driver mid-operation — where `docker ps`
+ * succeeds. A throw here would turn "the image report is unavailable" into "gc
+ * did not run", losing the container and volume reaping that has nothing to do
+ * with images. Undefined instead means `planGc` offers no image at all, which is
+ * the same answer it gives for a dependency volume with no mount list.
+ */
+async function storedImages(docker: Docker): Promise<ImageRow[] | undefined> {
+  try {
+    return (await docker.diskUsage()).images;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Reclaims the disk that building sandboxes left behind, with a number against
+ * each item.
  *
  * Reports by default and removes only with `apply`, which is the opposite way
- * round from `gc` and `expire`. Those two act on things whose loss costs a
- * restart; this one removes images, and an image nobody meant to lose is a
- * toolchain rebuild the next `up` pays for.
+ * round from `gc` and `expire`. The superseded images are no longer what that
+ * guards — `gc` takes exactly the same ones, and losing one costs nothing,
+ * because its tag names a build that no future `up` can ask for. What is left is
+ * Docker's build cache, which sandboxr shares with every other project on the
+ * daemon, and the report itself: a whole-machine reclaim is worth reading before
+ * it runs.
  */
 export async function prune(options: PruneOptions = {}): Promise<PruneResult> {
   const docker = options.docker ?? defaultDocker;

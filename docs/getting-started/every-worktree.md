@@ -191,13 +191,16 @@ sandbox. It never removes one, so it reclaims memory and CPU and does nothing ab
 > [Just the CLI, on my laptop](../setups/cli-only.md).
 
 **`gc` reaps sandboxes whose worktree is gone.** Delete a worktree and its sandbox is left behind;
-`gc` removes those, and then any `sandboxr-` volume nothing owns and nothing has mounted. Shared
-volumes and dependency volumes are left alone.
+`gc` removes those, and then any `sandboxr-` volume nothing owns and nothing has mounted, and then
+any project image a newer build has replaced — about six gigabytes each, and nothing will ask for
+their tags again. Shared volumes, dependency volumes and every project's newest image are left
+alone.
 
-**`prune` reclaims disk.** It reports by default and removes only with `--yes` — the opposite way
-round from `gc --dry-run`, deliberately, because the cost of taking an image somebody still wanted
-is a twenty-minute rebuild. It targets project images a newer build has replaced, and orphaned
-volumes. `--build-cache` adds Docker's build cache, which is not only ours.
+**`prune` is the disk report.** It covers the same volumes and images with a size against each, and
+adds Docker's build cache with `--build-cache`, which is not only ours. It reports by default and
+removes only with `--yes` — the opposite way round from `gc --dry-run`, because a whole-machine
+reclaim is worth reading first and because the build cache is shared with every other project on
+the daemon.
 
 > [!NOTE] `prune` has removed nothing for real yet
 > Its report has been run against a live daemon and its figures match `docker system df`. The

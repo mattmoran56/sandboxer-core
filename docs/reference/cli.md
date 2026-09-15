@@ -310,18 +310,25 @@ survived.
 ### `sandboxr gc [--dry-run]`
 
 Reaps sandboxes whose recorded worktree no longer exists, then removes `sandboxr-` volumes nothing
-owns and nothing has mounted. The shared volumes and `sandboxr-deps-*` are left alone.
+owns and nothing has mounted, then the project images a newer build of the same project replaced.
+The shared volumes, `sandboxr-deps-*`, `sandboxr/base`, `sandboxr/dashboard` and every project's
+newest image are left alone, as is any image a container references, running or stopped.
 
 Such a sandbox is unreachable anyway: you cannot rebuild anything in it, because the source it would
-build from is gone.
+build from is gone. A superseded image is unreachable in the same sense — its tag is a hash of a
+build that no longer exists, so no `up` can ask for it.
+
+`--dry-run` prints all three lists and removes nothing.
 
 ### `sandboxr prune [--yes] [--build-cache]`
 
-Reclaims the disk that building sandboxes left behind. **It reports by default and removes only with
-`--yes`** — the opposite way round from `gc --dry-run`.
+The whole-machine disk report: the same orphaned volumes and superseded images `gc` takes, with the
+bytes each would return, plus Docker's build cache with `--build-cache`. **It reports by default and
+removes only with `--yes`** — the opposite way round from `gc --dry-run`.
 
-The asymmetry is deliberate. A sandbox removed in error costs a restart; an image removed in error
-costs somebody a toolchain rebuild on their next `up`.
+The asymmetry is deliberate, and it is about the build cache and the reading, not about the images:
+sandboxr is not the build cache's only writer, and a whole-machine reclaim is worth looking at
+before it runs. `gc` and `prune` agree exactly about which images may go.
 
 | Flag | What it does |
 |---|---|
@@ -576,7 +583,7 @@ usage tree on stderr.
 | `stop`, `start` | one sandbox | No — the container only |
 | `keep`, `unkeep` | one sandbox | No — one file under `~/.sandboxr/state/keep/` |
 | `expire` | machine | Stops **every** sandbox past its idle limit. Removes nothing |
-| `gc` | machine | Reaps **every** sandbox whose worktree is gone |
+| `gc` | machine | Reaps **every** sandbox whose worktree is gone, and every superseded project image |
 | `prune` | machine | Nothing without `--yes`; then images and volumes, never a shared volume |
 | `shell` | one sandbox | Whatever you run |
 | `reload` | one sandbox | Rebuilds; touches data only with `--migrate` |
