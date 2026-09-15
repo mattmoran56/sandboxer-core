@@ -98,12 +98,19 @@ export interface DashboardInput {
 }
 
 /**
- * The agent-session and orchestrator variables the dashboard inherits, if the
- * host set them.
+ * The settings the dashboard inherits from whatever started it, if the host set
+ * them.
  *
  * A named list rather than "anything starting with SANDBOXR_": a wildcard would
  * forward a variable a future version means something else by, and the dashboard
  * is the one container on the machine holding a credential.
+ *
+ * **The rule for being on this list is "core reads it, and a person sets it".**
+ * The dashboard calls core in process — it never shells out to the CLI — so
+ * anything core reads from the environment is read from *this container's*
+ * environment. A documented setting missing from here is not a setting with a
+ * different default in the dashboard; it is a setting that does nothing there,
+ * silently, while `sandboxr` on the command line honours it.
  *
  * **The orchestrator entries are why this list is not only about credentials.**
  * The orchestrator runs inside the dashboard when `SANDBOXR_ORCHESTRATOR` is set
@@ -113,8 +120,21 @@ export interface DashboardInput {
  * a voice or a call is reached through a socket the host created; put one under
  * `SANDBOXR_HOME`, which is mounted at the same path inside and out, and the
  * container finds it exactly where the host left it.
+ *
+ * **The database entries are the same mistake, found later and the hard way.**
+ * Every variable in "For a MySQL project" in docs/reference/environment.md was
+ * absent from this list, so a dashboard could not be told anything at all about
+ * a database. The one that bites first is `SANDBOXR_SOURCE_DB_PASSWORD`: seeding
+ * a sandbox by forking a local container reads that container with
+ * `SANDBOXR_SOURCE_DB_USER` and this, and the defaults are `root` and *empty* —
+ * which is nobody's local MySQL. So `up` from the browser died on
+ * `could not fingerprint … — are the source credentials right?` on every machine
+ * whose database has a password, with the advice in that very message
+ * ("Set SANDBOXR_SOURCE_DB_USER and SANDBOXR_SOURCE_DB_PASSWORD") having no
+ * effect when followed. The same `up` from the terminal worked, which is the
+ * shape of the whole bug: the two faces of one tool disagreeing about a setting.
  */
-const AGENT_VARIABLES = [
+const FORWARDED_VARIABLES = [
   "SANDBOXR_CLAUDE_TOKEN",
   "SANDBOXR_CLAUDE_MODEL",
   "SANDBOXR_CLAUDE_MCP",
@@ -124,11 +144,24 @@ const AGENT_VARIABLES = [
   "SANDBOXR_ORCHESTRATOR_SUMMARIES",
   "SANDBOXR_VOICE_SOCKET",
   "SANDBOXR_TELEGRAM_SOCKET",
+  // Reading the database being copied *from*: a container on the host, which
+  // the dashboard reaches over the mounted Docker socket.
+  "SANDBOXR_SOURCE_DB_USER",
+  "SANDBOXR_SOURCE_DB_PASSWORD",
+  // The database made *inside* a sandbox, and what the app connects to it as.
+  "SANDBOXR_DB_USER",
+  "SANDBOXR_DB_PASSWORD",
+  "SANDBOXR_DB_ROOT_PASSWORD",
+  "SANDBOXR_DB_NAME",
+  "SANDBOXR_DB_FILE",
+  // Which MySQL a dump is restored into, and how long a cached dump stands.
+  "SANDBOXR_MYSQL_IMAGE",
+  "SANDBOXR_CACHE_TTL_HOURS",
 ] as const;
 
-const agentEnvironment = (env: NodeJS.ProcessEnv): Record<string, string> => {
+const forwardedEnvironment = (env: NodeJS.ProcessEnv): Record<string, string> => {
   const held: Record<string, string> = {};
-  for (const name of AGENT_VARIABLES) {
+  for (const name of FORWARDED_VARIABLES) {
     const value = env[name];
     if (value !== undefined && value.trim() !== "") held[name] = value;
   }
@@ -254,7 +287,7 @@ export function dashboardArgs(input: DashboardInput): string[] {
     // Absent ones are omitted rather than passed empty, so the server's own
     // defaults apply and "no credential on this machine" stays a distinguishable
     // state from "a credential that is the empty string".
-    ...agentEnvironment(env),
+    ...forwardedEnvironment(env),
   };
   for (const [key, value] of Object.entries(environment)) args.push("-e", `${key}=${value}`);
 

@@ -8,7 +8,7 @@
 
 import { createWriteStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, join } from "node:path";
 
 import { projectPath } from "../config/load.js";
@@ -235,12 +235,52 @@ export function parseColumnOutput(stdout: string): string[] {
     .filter((line) => line !== "" && line !== "NULL");
 }
 
+/** What a shell reports for a command that is not there. Used for the same case. */
+const NOT_FOUND = 127;
+
+/**
+ * How one child of `streamToFile` ended: normally, or without ever starting.
+ *
+ * **`close` and `error` are alternatives, not a sequence, and that is the whole
+ * point of this helper.** A `spawn` whose binary does not exist emits `error`
+ * and may never emit `close`, so waiting only for `close` waits for ever — and
+ * an `error` with no listener on a ChildProcess is an *unhandled error event*,
+ * which in Node is not an exception a caller can catch. It takes the process
+ * down.
+ *
+ * That is not a theoretical tidy-up. `zstd` was missing from the dashboard
+ * image while this file spawned it to compress a database dump, so the first
+ * `up` that got as far as dumping killed the whole dashboard: every sandbox
+ * action with it, and the orchestrator's conversation, which is held in memory
+ * and does not survive the process. Docker restarted the container and the only
+ * trace was `spawn zstd ENOENT` in a log nobody was reading. A missing optional
+ * tool must cost one failed action.
+ */
+const ended = (child: ChildProcess, what: string): Promise<{ code: number; message?: string }> =>
+  new Promise((done) => {
+    child.once("error", (err: NodeJS.ErrnoException) => {
+      done({
+        code: NOT_FOUND,
+        // Named, because "spawn zstd ENOENT" says nothing about what it was for
+        // and the reader is looking at a failed database seed.
+        message:
+          err.code === "ENOENT"
+            ? `${what} is not installed in this container, so the dump could not be written`
+            : `${what} could not be started: ${err.message}`,
+      });
+    });
+    child.once("close", (code) => done({ code: code ?? 1 }));
+  });
+
 /**
  * Streams one process into a file, optionally through a second.
  *
  * A dump is far too large to hold in memory, so this is the one place that
  * spawns rather than collecting output. Both sides are argument arrays: there is
  * no shell, so the pipe cannot be interpreted by one.
+ *
+ * Every failure is a returned code and a line of `stderr`, never a throw and
+ * never a crash — see `ended` for the one that was a crash.
  */
 export async function streamToFile(
   first: { bin: string; args: string[] },
@@ -249,8 +289,14 @@ export async function streamToFile(
 ): Promise<{ code: number; stderr: string }> {
   await mkdir(dirname(outPath), { recursive: true });
   const out = createWriteStream(outPath);
-  const source = spawn(first.bin, first.args, { stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
+  // A write that fails — a full disk, a directory that went — reaches here the
+  // same way a child's does: as an `error` event with nothing listening.
+  out.on("error", (err: Error) => {
+    stderr += `writing ${outPath}: ${err.message}\n`;
+  });
+
+  const source = spawn(first.bin, first.args, { stdio: ["ignore", "pipe", "pipe"] });
   source.stderr.on("data", (chunk: Buffer) => {
     stderr += chunk.toString();
   });
@@ -260,19 +306,28 @@ export async function streamToFile(
     sink.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    source.stdout.pipe(sink.stdin);
+    // A pipe into a child that never started rejects with EPIPE on the stream
+    // rather than on the process, so both ends are handled: without this the
+    // failure moves from one unhandled event to another.
+    source.stdout.pipe(sink.stdin).on("error", () => undefined);
     sink.stdout.pipe(out);
   } else {
     source.stdout.pipe(out);
   }
 
-  const codes = await Promise.all([
-    new Promise<number>((done) => source.on("close", (code) => done(code ?? 1))),
-    sink ? new Promise<number>((done) => sink.on("close", (code) => done(code ?? 1))) : Promise.resolve(0),
-    new Promise<void>((done) => out.on("close", () => done())),
+  const [from, thru] = await Promise.all([
+    ended(source, first.bin),
+    sink && through ? ended(sink, through.bin) : Promise.resolve({ code: 0 } as { code: number; message?: string }),
   ]);
+  // Killed rather than left: one half failing to start leaves the other waiting
+  // on a pipe that will never carry anything, and a sandbox that hangs is worse
+  // than one that fails.
+  if (from.code !== 0) sink?.kill();
+  if (thru.code !== 0) source.kill();
+  out.end();
 
-  return { code: codes[0] !== 0 ? codes[0] : codes[1], stderr };
+  for (const { message } of [from, thru]) if (message) stderr += `${message}\n`;
+  return { code: from.code !== 0 ? from.code : thru.code, stderr };
 }
 
 const ZSTD = { bin: "zstd", args: ["-3", "-T0", "-q", "-c"] };
