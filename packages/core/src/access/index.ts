@@ -34,7 +34,10 @@ import { containerDir } from "../install.js";
 import { DEFAULT_DOMAIN, NETWORK } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { TOOL_VERSION } from "../tool-version.js";
-import { DASHBOARD_CONTAINER, DASHBOARD_PORT, startDashboard, stopDashboard } from "./dashboard.js";
+import { hostClaudeCredentials } from "../agent/credentials.js";
+import { hostGitIdentity } from "../git.js";
+import { DASHBOARD_CONTAINER, DASHBOARD_PORT, hostGhToken, startDashboard, stopDashboard } from "./dashboard.js";
+import { writeHostEnv } from "./host-env.js";
 import { ORCHESTRATOR_CONTAINER, ORCHESTRATOR_IMAGE_NAME, startOrchestrator, stopOrchestrator } from "./orchestrator.js";
 import {
   ROUTER_CONTAINER,
@@ -59,6 +62,7 @@ import {
 
 export * from "./router.js";
 export * from "./dashboard.js";
+export * from "./host-env.js";
 export * from "./tls.js";
 
 /** The generic base image every sandbox runs from. */
@@ -78,6 +82,19 @@ export interface InitOptions {
   /** Bind address for the router's published ports. */
   bind?: string | undefined;
   ports?: Partial<RouterPorts> | undefined;
+  /**
+   * Whether to start the router, the dashboard and the orchestrator. Default on.
+   *
+   * Off is "prepare this machine but run nothing", which is what the compose
+   * deployment wants: everything here except those three — the directories, the
+   * images, the certificate, the router's own configuration files and
+   * `host.env` — is a *prerequisite* of `docker compose up`, and no compose file
+   * can build an image or ask mkcert for a certificate. Left on, `init` would
+   * start containers under the names compose then wants, and the up fails with
+   * "container name is already in use" rather than with anything that names the
+   * cause.
+   */
+  start?: boolean | undefined;
 }
 
 export interface AccessReport {
@@ -376,7 +393,27 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   // scheme nothing is listening on.
   else await rm(join(files.dynamic, `cert-${domain}.yml`), { force: true });
   await sweepSandboxCertificates(files.dynamic, domain, env, log);
-  await startRouter({ env, docker, cert, files, bind: options.bind, ports, log });
+
+  // --- what only the host can look up ------------------------------------------
+  //
+  // Resolved here rather than inside `startDashboard`, which is where it used to
+  // happen alone, because it is now read twice: once by the `docker run` below,
+  // and once out of `host.env` by `docker compose up`. This is the last moment
+  // anything can reach the login keychain, the host's gitconfig or the host's
+  // filesystem — see access/host-env.ts — so a lookup left until the container is
+  // up is a lookup that answers nothing.
+  const ghToken = await hostGhToken(env);
+  const gitIdentity = await hostGitIdentity(env);
+  const claudeCredentials = hostClaudeCredentials(env);
+  await writeHostEnv({
+    env,
+    facts: {
+      ghToken,
+      gitIdentity,
+      claudeCredentials,
+      claudeToken: env.SANDBOXR_CLAUDE_TOKEN ?? env.CLAUDE_CODE_OAUTH_TOKEN,
+    },
+  });
 
   // --- the dashboard -----------------------------------------------------------
   const password = env.SANDBOXR_PASSWORD;
@@ -386,13 +423,33 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
         "  Set one and run `sandboxr init` again.",
     );
   }
-  await startDashboard({ docker, domain, tls: cert !== undefined, password, env, log, image: dashboardImage });
-  // The machine's agent, beside the dashboard rather than inside it — see
-  // access/orchestrator.ts for why the credential cannot live in the web server.
-  if (orchestratorImage) {
-    await startOrchestrator({ docker, env, image: orchestratorImage, log });
+
+  if (options.start === false) {
+    notes.push(
+      `Nothing was started. ${p.hostEnvFile} and the router's configuration are ready for\n` +
+        "  `docker compose up -d` — see docs/guides/compose.md.",
+    );
   } else {
-    await stopOrchestrator(docker).catch(() => undefined);
+    await startRouter({ env, docker, cert, files, bind: options.bind, ports, log });
+    await startDashboard({
+      docker,
+      domain,
+      tls: cert !== undefined,
+      password,
+      env,
+      log,
+      image: dashboardImage,
+      ...(ghToken ? { ghToken } : {}),
+      gitIdentity,
+      ...(claudeCredentials ? { claudeCredentials } : {}),
+    });
+    // The machine's agent, beside the dashboard rather than inside it — see
+    // access/orchestrator.ts for why the credential cannot live in the web server.
+    if (orchestratorImage) {
+      await startOrchestrator({ docker, env, image: orchestratorImage, log });
+    } else {
+      await stopOrchestrator(docker).catch(() => undefined);
+    }
   }
 
   const scheme = cert ? "https" : "http";

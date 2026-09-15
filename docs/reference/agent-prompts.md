@@ -584,6 +584,26 @@ I would run on my Linux VM for the voice and call parts instead.
 
 ## Looking after the machine
 
+### The whole machine in one file
+
+Brings the router, dashboard, orchestrator and voice sidecar up together with compose.
+
+**Needs first:** Docker running, and the packages built.  
+**From:** [The whole machine in one file](../guides/compose.md)
+
+```prompt
+Bring sandboxr's whole constellation up on this machine with docker compose.
+
+Read docs/guides/compose.md first, then work through it. Copy .env.example to .env and fill in
+the paths, the domain and a dashboard password. Run `sandboxr init --no-start`, then
+`docker compose up -d`, then show me `docker compose ps` and the dashboard URL.
+
+Stop and tell me if Docker is not running, if this machine already has sandboxr containers
+running from a plain `sandboxr init` (they have to be torn down first, and that is my call),
+or if anything asks you for a Telegram credential — those come from my environment and are
+never written to a file.
+```
+
 ### On a server, for a team
 
 Sizes a server for a team. It does not deploy one — that does not exist yet.

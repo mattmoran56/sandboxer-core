@@ -77,6 +77,10 @@ export const NAV: readonly NavGroup[] = [
       { slug: "guides/agents-in-a-sandbox", label: "Your own agent in a sandbox" },
       { slug: "guides/agent-sessions", label: "Agent sessions in the dashboard" },
       { slug: "guides/orchestrator", label: "The orchestrator, voice and Telegram" },
+      // After the orchestrator page rather than before it: the compose file runs
+      // the voice and Telegram sidecars, and a reader who has not met those yet
+      // would be choosing profiles for services they cannot name.
+      { slug: "guides/compose", label: "The whole machine in one file" },
       { slug: "guides/docker-capacity", label: "Giving Docker the whole machine" },
     ],
   },

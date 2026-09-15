@@ -68,7 +68,7 @@ it and exit `0`. An unrecognised command prints an error, then the usage, and ex
 
 Sets this machine up. It creates `~/.sandboxr` and the shared Docker network, writes the machine's
 settings file if there is none, builds the base and dashboard images, issues a certificate if one can
-be trusted, then starts the router and the dashboard.
+be trusted, writes `~/.sandboxr/host.env`, then starts the router and the dashboard.
 
 It is idempotent. Running it again is also how you change the domain, rotate the password, or pick up
 TLS after installing mkcert's root.
@@ -81,9 +81,17 @@ TLS after installing mkcert's root.
 | `--bind ADDR` | Publish the router here instead of `127.0.0.1` |
 | `--http-port N` | Publish HTTP here instead of 80 |
 | `--https-port N` | Publish HTTPS here instead of 443 |
+| `--no-start` | Prepare the machine but start nothing |
 
 It reads `SANDBOXR_PASSWORD` and passes it to the dashboard. Without one the dashboard starts and
 admits nobody, and `init` says so.
+
+`--no-start` does everything except run the router, the dashboard and the orchestrator, which is what
+[the compose deployment](../guides/compose.md) wants: everything else `init` does — the directories,
+the images, the certificate, the router's configuration and `host.env` — is a prerequisite of
+`docker compose up`, and no compose file can build an image or ask mkcert for a certificate. Left to
+start them, `init` would take the container names compose is about to use, and the up would fail with
+`container name is already in use`.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — what <code>init</code> reports, and the notes it can return</summary>
