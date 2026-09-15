@@ -109,6 +109,13 @@ export {
   list,
   prune,
   reload,
+  // Exported for the same reason `SessionError` and `RuntimeError` are: it is
+  // the class of failure a *caller* can act on — a name already in use, a
+  // checkout that does not describe itself, a DNS budget that will not fit a
+  // slug — as against a fault in sandboxr. The dashboard turns one into an
+  // answer and anything else into a 500, and it cannot tell them apart without
+  // the class.
+  SandboxError,
   startSandbox,
   status,
   stopSandbox,
