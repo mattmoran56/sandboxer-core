@@ -398,6 +398,15 @@ exactly how it went wrong here. Closing the gap surfaced six real type errors, i
 
 ## What does not exist at all
 
+**The session model.** §12 of [the contract](../architecture/contracts.md) defines a **session** —
+an agent with a container, holding zero or more repositories and zero or more running copies of a
+project — as the unit the product is organised around, replacing the worktree. None of it is
+built. No container answers to `sandboxr-ws-<session>`, no volume to `sandboxr-work-<session>`,
+and nothing in `packages/core` knows the words *session*, *workstation* or *work volume*. The
+contract was written first on purpose, so that the packages have one definition to build against;
+until they do, every page on this site describes the worktree model, and the worktree model is the
+one that runs.
+
 **`db diff` and `db reset`.** The driver interface has `snapshot` but nothing that compares two, and
 no verb that returns a database to a clean restore. Comparing before and after is two snapshots and
 `diff`; starting clean is `down` then `up`. The container's own `db.sh` exposes a `diff` verb the CLI
