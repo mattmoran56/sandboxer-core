@@ -86,6 +86,17 @@ export interface RunInput {
    */
   gitMounts?: string[] | undefined;
   /**
+   * Where `/workspace` comes from, when it does not come from a host worktree.
+   *
+   * A session's runtime gets its checkout from the work volume — `/work` whole
+   * and `/work/<repo>/<branch>` by subpath at `/workspace` — so there is no host
+   * path to bind and none of `gitMounts` applies. `runtimeWorkspaceArgs` in
+   * ../session/runtime.ts builds these, and the note at the top of that file is
+   * where the reasoning lives. Present means `worktree` and `gitMounts` are not
+   * read at all; absent is the worktree sandbox, unchanged.
+   */
+  workspaceMounts?: string[] | undefined;
+  /**
    * Who a commit made inside the sandbox is by. A sandbox has no `~/.gitconfig`
    * and git refuses to commit without this — see `hostGitIdentity`.
    */
@@ -129,6 +140,28 @@ export function lockHash(contents: string): string {
   return createHash("sha256").update(contents).digest("hex").slice(0, 16);
 }
 
+/**
+ * The worktree's second mount, at its own path, alongside the repository it was
+ * cut from — which is what makes git work inside a worktree sandbox at all.
+ *
+ * Read-write, and that is the deliberate part: `git commit` writes objects and
+ * refs into the *repository*, so a read-only mount would leave status and log
+ * working and fail only at the commit, with a permission error from inside git —
+ * a newer and more confusing break than the one this fixes. The cost is that
+ * every sandbox of a project shares one object store and one set of refs with
+ * the host: a sandbox can move a branch another worktree has checked out, and a
+ * `git gc` inside one repacks what all of them read. See `gitMounts` in
+ * ../git.ts for the rest, and ../session/runtime.ts for why a runtime built from
+ * a work volume needs none of it.
+ *
+ * `path !== WORKSPACE` because a host checkout that happens to live at
+ * `/workspace` would otherwise be mounted twice at one destination, and Docker
+ * refuses the whole `run` over it rather than ignoring the second.
+ */
+function gitMountArgs(paths: readonly string[]): string[] {
+  return paths.filter((path) => path !== WORKSPACE).flatMap((path) => ["-v", `${path}:${path}`]);
+}
+
 export function runArgs(input: RunInput): string[] {
   const { config, slug } = input;
   const name = containerName(config.project, slug);
@@ -145,25 +178,21 @@ export function runArgs(input: RunInput): string[] {
 
   args.push("--memory", input.memory ?? memoryFor(config));
 
-  // The worktree is bind-mounted, so saving a file on the host puts it in the
-  // container immediately — and an agent editing inside the container writes to
-  // the worktree, so its changes show up in `git status`.
-  args.push("-v", `${input.worktree}:${WORKSPACE}`);
-  // …and again at its own path, alongside the repository it was cut from, so
-  // that git works at all. Read-write, and that is the deliberate part: `git
-  // commit` writes objects and refs into the *repository*, so a read-only mount
-  // would leave status and log working and fail only at the commit, with a
-  // permission error from inside git — a newer and more confusing break than the
-  // one this fixes. The cost is that every sandbox of a project shares one
-  // object store and one set of refs with the host: a sandbox can move a branch
-  // another worktree has checked out, and a `git gc` inside one repacks what all
-  // of them read. See `gitMounts` in ../git.ts for the rest.
+  // Two ways for `/workspace` to exist, and exactly one of them applies.
   //
-  // `path !== WORKSPACE` because a host checkout that happens to live at
-  // `/workspace` would otherwise be mounted twice at one destination, and Docker
-  // refuses the whole `run` over it rather than ignoring the second.
-  for (const path of input.gitMounts ?? []) {
-    if (path !== WORKSPACE) args.push("-v", `${path}:${path}`);
+  // **A session's runtime** takes it from the work volume, and then neither the
+  // bind below nor a single one of `gitMounts` is wanted: a clone on a volume is
+  // self-contained, so its `.git` is a real directory inside the tree and names
+  // no host path at all. See ../session/runtime.ts.
+  if (input.workspaceMounts && input.workspaceMounts.length > 0) {
+    args.push(...input.workspaceMounts);
+  } else {
+    // **A worktree sandbox** bind-mounts the worktree, so saving a file on the
+    // host puts it in the container immediately — and an agent editing inside
+    // the container writes to the worktree, so its changes show up in `git
+    // status`.
+    args.push("-v", `${input.worktree}:${WORKSPACE}`);
+    args.push(...gitMountArgs(input.gitMounts ?? []));
   }
   // Read-only: the plan is the host's statement of what this project is, and a
   // container that could rewrite it could change what it claims to be running.

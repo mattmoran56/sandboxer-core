@@ -120,6 +120,7 @@ export type {
   PruneOptions,
   ReloadOptions,
   Sandbox,
+  SandboxKind,
   SandboxState,
   SandboxStatus,
   UpOptions,
@@ -151,6 +152,8 @@ export {
   workspaceMountArgs,
 } from "./session/work.js";
 export type { CloneRequest, WorkEntry, WorkRunner } from "./session/work.js";
+export { RuntimeError, runtimeSlug, runtimeWorkspaceArgs, stageRuntime } from "./session/runtime.js";
+export type { RuntimeRequest, StagedRuntime } from "./session/runtime.js";
 
 export { formatBytes, planPrune } from "./sandbox/prune.js";
 export type { PrunableImage, PrunableVolume, PruneInput, PrunePlan, PruneResult } from "./sandbox/prune.js";

@@ -22,7 +22,7 @@ import {
 } from "../access/index.js";
 import { allowsRealCredentials } from "../config/access.js";
 import { loadConfig, slugCeilingFor } from "../config/load.js";
-import { workspaceWorktree } from "../config/locate.js";
+import { CONFIG_FILENAME, CONFIG_FILENAMES, workspaceWorktree } from "../config/locate.js";
 import { decideGithub, loadMachineConfig, resolveTtl } from "../config/machine.js";
 import { resolveDeps } from "../config/deps.js";
 import { planFor, writePlan } from "../config/plan.js";
@@ -34,6 +34,7 @@ import { describeSeedChoice, mysqlSettings } from "../drivers/mysql.js";
 import type { SeedArtifact } from "../drivers/types.js";
 import { hostClaudeCredentials } from "../agent/credentials.js";
 import { gitFacts, gitMounts, hostGitIdentity } from "../git.js";
+import { runtimeSlug, runtimeWorkspaceArgs, stageRuntime, type StagedRuntime } from "../session/runtime.js";
 import { findProject, projectDirectories } from "../workspace.js";
 import { addWorktree } from "../worktree.js";
 import { slugFor } from "../worktree-slug.js";
@@ -49,7 +50,7 @@ import { planGc } from "./gc.js";
 import { planPrune, type PruneResult } from "./prune.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
 import { BUILT_MANIFEST, MIGRATE_STATE, WITH_ENV, WWW_DIR, seedMount } from "./layout.js";
-import { backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
+import { DEFAULT_IMAGE, backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
 import type {
   DownOptions,
   DownReport,
@@ -76,14 +77,97 @@ export class SandboxError extends Error {
 const noop = (): void => {};
 
 /**
- * Starts a sandbox for one worktree.
+ * `UpOptions` plus the checkout `up` staged out of a session's work volume.
+ *
+ * Internal, because it is not something a caller may supply: the staging has to
+ * be disposed of, and `up` is the only thing that knows when that is.
+ */
+interface StartOptions extends UpOptions {
+  staged?: StagedRuntime | undefined;
+}
+
+/**
+ * The project's config, refused in the runtime's own terms when it is missing.
+ *
+ * Two things this does that a bare `loadConfig` cannot. It names the path
+ * **inside the work volume**, because the staging directory is somewhere in
+ * `/tmp` that the person reading the message has never seen and cannot look in.
+ * And it stops the walk-up at the staging directory: `loadConfig` searches every
+ * parent to the filesystem root, which for a temporary directory means it could
+ * find somebody else's `sandboxr.yaml` and run this checkout as that project.
+ *
+ * §5.6's project-level fallback is deliberately not offered here. It exists
+ * because an uncommitted config in one worktree does not exist in any other, and
+ * a session clones the repository — so a project that does not describe itself
+ * is refused rather than run against a file its authors cannot see.
+ */
+async function loadRuntimeConfig(
+  from: string,
+  staged: StagedRuntime | undefined,
+  env: NodeJS.ProcessEnv,
+): Promise<ResolvedConfig> {
+  if (staged && !CONFIG_FILENAMES.some((name) => existsSync(join(staged.root, name)))) {
+    throw new SandboxError(
+      `${staged.workspace} has no ${CONFIG_FILENAME}, so there is no project to run there.\n` +
+        "  A runtime is a running copy of a project, and a project describes itself in a " +
+        `${CONFIG_FILENAME} at its repo root.`,
+    );
+  }
+  return loadConfig(from, { env });
+}
+
+/**
+ * Starts a sandbox: for one worktree, or for one checkout in a session's work
+ * volume.
+ *
+ * **One function and not two**, because a runtime *is* a sandbox (contracts
+ * §12.4): the same slug, the same container name, the same four volumes, the
+ * same hostnames, the same plan, the same driver, the same clock, the same
+ * actions. Two entry points would be two opinions about all of that, and the
+ * second one to change would be the one nobody remembered. What a session
+ * changes is three things, and each of them is a branch below marked `runtime`:
+ * where the slug comes from, where `/workspace` comes from, and that the host
+ * has no checkout of its own to read the project out of.
+ *
+ * The staging is done here rather than inside the body so that it is disposed of
+ * on every path out, including a failure: it is a copy of the project's
+ * manifests, and a stale one would be a second opinion about what the project is.
+ */
+export async function up(options: UpOptions = {}): Promise<UpResult> {
+  if (!options.runtime) return start(options);
+
+  const docker = options.docker ?? defaultDocker;
+  const env = options.env ?? process.env;
+  const log = options.log ?? noop;
+  if (!(await docker.available())) {
+    throw new SandboxError("Docker is not running. Start it and try again.");
+  }
+  // The machine's base image, which is also what wrote the session's clones
+  // (`cloneIntoWork` in ../session/work.ts). All this container needs of it is
+  // git and tar, which every base has, so a machine whose base is a version
+  // behind stages perfectly well — and `up` is the wrong place to discover that
+  // and spend ten minutes rebuilding it. `ensureBaseImage` is the fallback for
+  // the machine that has never built one at all.
+  const staged = await stageRuntime(options.runtime, {
+    docker,
+    image: (await docker.imageExists(DEFAULT_IMAGE)) ? DEFAULT_IMAGE : await ensureBaseImage({ docker, env, log }),
+  });
+  try {
+    return await start({ ...options, staged });
+  } finally {
+    await staged.dispose();
+  }
+}
+
+/**
+ * The whole of `up`, with the staged checkout resolved when there is one.
  *
  * The order matters: the seed artifact is produced on the host *before* the
  * container starts, because a sandbox restores from the host cache rather than
  * carrying data in its image — which is what stops the image needing a rebuild
  * every time the source database changes.
  */
-export async function up(options: UpOptions = {}): Promise<UpResult> {
+async function start(options: StartOptions): Promise<UpResult> {
   const env = options.env ?? process.env;
   const log = options.log ?? noop;
   const docker = options.docker ?? defaultDocker;
@@ -96,12 +180,23 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // start a sandbox for whatever `process.cwd()` happened to be. Resolving here
   // rather than in the caller keeps one answer to "which worktree is this",
   // shared by the CLI and the dashboard.
-  const worktree = options.worktree ?? (await resolveWorktree(options, log));
+  //
+  // **A runtime resolves none of that.** Its project is the staged copy of the
+  // checkout's manifests (§12.5), no worktree is cut for a session, and the host
+  // has no checkout of the session's code at all.
+  const staged = options.staged;
+  const worktree = staged?.root ?? options.worktree ?? (await resolveWorktree(options, log));
 
   // `env` matters here: it is what says where the workspace is, and so whether
   // this worktree may fall back to its project's own `sandboxr.yaml`.
-  const config = options.config ?? (await loadConfig(worktree ?? process.cwd(), { env }));
-  const facts = await gitFacts(worktree ?? config.root);
+  //
+  // §5.6's project-level fallback is deliberately *not* extended to a runtime.
+  // It exists because an uncommitted `sandboxr.yaml` in one worktree does not
+  // exist in any other, and a session clones the repository — so a project that
+  // does not describe itself is refused here, naming the path inside the volume,
+  // rather than being run against a file its authors cannot see.
+  const config = options.config ?? (await loadRuntimeConfig(worktree ?? process.cwd(), staged, env));
+  const facts = staged?.facts ?? (await gitFacts(worktree ?? config.root));
   // What `/workspace` is: the tree the config governs, not the directory the
   // config file sits in. Usually the same thing — a project describes itself at
   // its own repo root — but a project kept in a subdirectory of a larger
@@ -110,25 +205,38 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // plan. A project-level config in the workspace is the other way round: the
   // file is above the worktree, and `root` is still the worktree.
   const projectRoot = config.root;
+  // What the sandbox records as its workspace, and what the `/workspace` mount
+  // resolves to. For a runtime both are the path *inside the work volume*: the
+  // host has no directory to name, and naming the staging copy would put a
+  // temporary path on a label that outlives it.
+  const workspace = staged?.workspace ?? projectRoot;
+  // A runtime's slug is a pure function of the session and the runtime name
+  // (§12.2) and nothing about it is recorded — §4.2.3's slug store is worktree
+  // machinery a session never touches. Computed here rather than passed in, so
+  // the CLI and the dashboard cannot disagree about it.
+  //
   // `slugFor` and not `deriveSlug`: a worktree whose derived slug collided with
   // a sibling's was given one of its own when it was cut, and that is written
   // down rather than derivable. Deriving here while the dashboard read the
   // record would put the container `up` starts under a different name from the
   // one every page shows.
-  const slug = await slugFor({
-    explicit: options.slug,
-    worktree: facts.worktree,
-    branch: facts.branch,
-    // The ceiling is this project's, not the tool's: the slug shares one DNS
-    // label with the longest hostname label and the project name (contracts
-    // §3.1). `resolveConfig` has already refused a config whose budget is
-    // unusable, so this can only be a workable number by the time it is read.
-    // It reaches the collision token too — `addWorktree` sizes `<base>-<token>`
-    // against the same number, so a given slug cannot be the one thing that
-    // overflows the label.
-    max: slugCeilingFor(config),
-    env,
-  });
+  const slug = options.runtime
+    ? runtimeSlug({ session: options.runtime.session, name: options.runtime.name, max: slugCeilingFor(config) })
+    : await slugFor({
+        explicit: options.slug,
+        worktree: facts.worktree,
+        branch: facts.branch,
+        // The ceiling is this project's, not the tool's: the slug shares one DNS
+        // label with the longest hostname label and the project name (contracts
+        // §3.1). `resolveConfig` has already refused a config whose budget is
+        // unusable, so this can only be a workable number by the time it is
+        // read — and the same ceiling binds a runtime's slug (§12.2).
+        // It reaches the collision token too — `addWorktree` sizes
+        // `<base>-<token>` against the same number, so a given slug cannot be
+        // the one thing that overflows the label.
+        max: slugCeilingFor(config),
+        env,
+      });
   const domain = domainOf(env);
   const scheme = routerScheme(env);
   const ports = routerPorts(env);
@@ -274,7 +382,8 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     branch: facts.branch,
     commit: facts.commit,
     dirty: facts.dirty,
-    worktree: projectRoot,
+    worktree: workspace,
+    session: options.runtime?.session,
     ttl: ttl === "never" ? "never" : String(ttl),
     // Both halves of the environment, so that either one changing marks this
     // sandbox as started before it: the credentials it carries, and the project's
@@ -302,14 +411,20 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // What git inside the container needs from the host, and who it commits as.
   // Both are read here rather than in runArgs, which is a pure function over an
   // input record precisely so every mount can be asserted without a daemon.
-  const gitPaths = await gitMounts(projectRoot);
+  //
+  // **A runtime needs neither of the two mounts and asks for none.** They exist
+  // because a linked worktree's `.git` is a file naming an absolute host path;
+  // a clone on a work volume is self-contained, so its `.git` is a real
+  // directory inside `/workspace` and git works with no help at all. The whole
+  // argument is at the top of ../session/runtime.ts.
+  const gitPaths = staged ? [] : await gitMounts(projectRoot);
   const gitIdentity = await hostGitIdentity(env);
   // The host's Claude Code login, shared with the sandbox rather than copied
   // into it — an OAuth refresh token rotates and is single-use, so two copies
   // kill each other. Undefined on any machine without that file, which includes
   // every macOS one; see ../agent/credentials.ts.
   const claudeCredentials = hostClaudeCredentials(env);
-  if (gitPaths.length === 0) {
+  if (gitPaths.length === 0 && !staged) {
     // Said once, at the only moment somebody can act on it. A sandbox on a
     // directory that is not the top of a checkout is perfectly runnable — it
     // just has no working git, and discovering that from `fatal: not a git
@@ -359,12 +474,15 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     log(`${config.project}'s apps are public and it carries this machine's GitHub token.`);
   }
 
-  log(`Starting ${slug} from ${facts.branch}@${facts.commit}${facts.dirty ? " (dirty)" : ""}`);
+  const from = options.runtime
+    ? `${options.runtime.repo}/${facts.branch}@${facts.commit} in session ${options.runtime.session}`
+    : `${facts.branch}@${facts.commit}`;
+  log(`Starting ${slug} from ${from}${facts.dirty ? " (dirty)" : ""}`);
   await docker.ok(
     runArgs({
       config,
       slug,
-      worktree: projectRoot,
+      worktree: workspace,
       labels,
       envFile,
       // `fileExists`, not `hasSecrets`: an empty file is harmless to mount, and
@@ -380,6 +498,10 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
       image,
       with: options.with,
       gitMounts: gitPaths,
+      // Present only for a runtime, and when it is present it replaces the
+      // worktree bind and `gitMounts` outright (§12.5).
+      workspaceMounts:
+        staged && options.runtime ? runtimeWorkspaceArgs(options.runtime.session, staged.entry) : undefined,
       gitIdentity,
       ghToken,
       claudeCredentials,
@@ -570,7 +692,12 @@ export async function status(project: string, slug: string, options: StatusOptio
     services,
     migrations: markers.migrateFailed ? "failed" : markers.migrateOk ? "ok" : "pending",
     built: sandbox.state === "stopped" ? [] : await builtApps(docker, container),
-    worktreeMissing: sandbox.worktree !== "" && !existsSync(sandbox.worktree),
+    // Only ever asked of a worktree sandbox. A runtime's workspace is a path
+    // inside a work volume, and §12.5's rule is that nothing on the host may
+    // answer what is in one: `existsSync` of `/work/<repo>/<branch>` is false on
+    // every machine, and reporting that as GONE would tell somebody their code
+    // had disappeared when it is exactly where they left it.
+    worktreeMissing: sandbox.session === "" && sandbox.worktree !== "" && !existsSync(sandbox.worktree),
   };
 }
 

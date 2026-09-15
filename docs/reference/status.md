@@ -400,20 +400,37 @@ exactly how it went wrong here. Closing the gap surfaced six real type errors, i
 
 **The session model.** §12 of [the contract](../architecture/contracts.md) defines a **session** —
 an agent with a container, holding zero or more repositories and zero or more running copies of a
-project — as the unit the product is organised around, replacing the worktree. Almost none of it is
+project — as the unit the product is organised around, replacing the worktree. Most of it is not
 built. No container answers to `sandboxr-ws-<session>`, nothing creates a session, and nothing reads
 `state/session/`. The contract was written first on purpose, so that the packages have one
 definition to build against; until they do, every page on this site describes the worktree model,
 and the worktree model is the one that runs.
 
-One piece exists: the **work volume**. `packages/core/src/session/work.ts` knows the
-`/work/<repo>/<branch>` layout, refuses a second branch that would share a directory with the
-first, clones into `sandboxr-work-<session>` from a short-lived container, and is the only code that
-may remove one. With it, `gc` and `prune` now leave a work volume alone under every rule they have
-— which had to land at the same time, because a work volume that existed before the collector knew
-about it would be somebody's uncommitted work waiting for the next housekeeping run. The clone, the
-collision refusal and the `/workspace` subpath mount were run against a real daemon. Nothing calls
-any of it yet: there is no session for it to belong to.
+Two pieces exist, and both are reachable from core only — no CLI command and no dashboard route
+creates either, because nothing creates a session for them to belong to.
+
+The **work volume**. `packages/core/src/session/work.ts` knows the `/work/<repo>/<branch>` layout,
+refuses a second branch that would share a directory with the first, clones into
+`sandboxr-work-<session>` from a short-lived container, and is the only code that may remove one.
+With it, `gc` and `prune` now leave a work volume alone under every rule they have — which had to
+land at the same time, because a work volume that existed before the collector knew about it would
+be somebody's uncommitted work waiting for the next housekeeping run. The clone, the collision
+refusal and the `/workspace` subpath mount were run against a real daemon.
+
+The **runtime**. `packages/core/src/session/runtime.ts` derives a runtime's slug from its session
+and its name, and `up` will now start a sandbox whose `/workspace` is a checkout on a session's work
+volume rather than a bind mount from the host. This has been run: the Workers demo was cloned into a
+work volume, brought up as a runtime, and served its health endpoint over HTTP — and the same
+project was brought up the old way from a host checkout beside it, so the two paths were compared
+rather than assumed. Inside the runtime, `/workspace` was the checkout, `.git` was a real directory,
+`git log` and `git status` worked with **no** second mount, `origin` pointed at the forge, and a file
+written through `/work` appeared through `/workspace`.
+
+Two things about it are not finished. `status` cannot fill in a runtime's URLs or service health,
+because it reads the project's config from the sandbox's recorded workspace and a runtime's is a
+path inside a volume; a caller that already has the config can pass it. And nothing yet decides
+*when* a runtime should exist — creating, listing and deleting the runtimes of a session is the
+session lifecycle, which does not exist.
 
 **`db diff` and `db reset`.** The driver interface has `snapshot` but nothing that compares two, and
 no verb that returns a database to a clean restore. Comparing before and after is two snapshots and

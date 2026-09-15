@@ -10,8 +10,17 @@
 import type { ResolvedConfig } from "../config/types.js";
 import type { Docker } from "../docker.js";
 import type { SeedSource } from "../drivers/types.js";
+import type { RuntimeRequest } from "../session/runtime.js";
 
 export type SandboxState = "stopped" | "starting" | "running" | "degraded";
+
+/**
+ * Which of a session's containers something is (contracts §12.3).
+ *
+ * Here rather than beside the runtime code because it is what a *label* says,
+ * and `Sandbox` is the shape the labels come back as.
+ */
+export type SandboxKind = "workstation" | "runtime";
 
 export interface Sandbox {
   project: string;
@@ -40,6 +49,21 @@ export interface Sandbox {
    * started before this label existed has none.
    */
   env: string;
+  /**
+   * Which of a session's containers this is (contracts §12.3).
+   *
+   * A container with no `sandboxr.kind` label is a pre-session sandbox and reads
+   * as `runtime`, so this is never empty and a caller never has to handle a
+   * third value.
+   */
+  kind: SandboxKind;
+  /**
+   * The session this sandbox belongs to, or `""` for one that belongs to none.
+   *
+   * Empty is the ordinary answer for every worktree-backed sandbox, which is
+   * every sandbox running today.
+   */
+  session: string;
   state: SandboxState;
   container: string;
 }
@@ -70,6 +94,17 @@ export interface CommonOptions {
 }
 
 export interface UpOptions extends CommonOptions {
+  /**
+   * Start a **session's runtime** instead: a sandbox whose `/workspace` is a
+   * checkout in the session's work volume (contracts §12.4).
+   *
+   * Every other option still means what it says — a runtime is a sandbox — with
+   * two exceptions it makes no sense to combine with. `worktree`, `project` and
+   * `branch` are about finding a checkout on the host, and a session has none;
+   * `slug` is ignored, because a runtime's slug is a pure function of the
+   * session and the runtime name (§12.2) and nothing may give it another.
+   */
+  runtime?: RuntimeRequest | undefined;
   /** The worktree to run. Defaults to the directory the config was found in. */
   worktree?: string | undefined;
   /**

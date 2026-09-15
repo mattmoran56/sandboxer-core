@@ -30,6 +30,8 @@ function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
     created: "2026-08-25T09:00:00.000Z",
     ttl: "8h",
     env: "",
+    kind: "runtime",
+    session: "",
     state: "running",
     container: "sandboxr-acme-tkt-1",
     ...overrides,

@@ -7,6 +7,7 @@
 // - runArgs: the machine-wide Claude volume is mounted and CLAUDE_CONFIG_DIR points inside it
 // - runArgs: the host's login is one file mounted read-write over the volume, never the directory, and absent without one
 // - runArgs: the git mounts land at the identical path inside and out, read-write, and none is /workspace
+// - runArgs: a session's runtime takes /workspace from the work volume, and then asks for no git mounts at all
 // - runArgs: the commit identity is passed as author *and* committer, and omitted when there is none
 // - runArgs: GH_TOKEN only when one was resolved, so opting out leaves no credential in the container
 // - runArgs: no argument is ever a shell string, and a value with a space survives as one argument
@@ -111,6 +112,32 @@ describe("runArgs", () => {
     it("skips a path that is already the workspace destination", () => {
       const collision = runArgs({ ...base, worktree: "/workspace", gitMounts: ["/workspace", "/repos/acme.git"] });
       expect(collision.filter((arg) => arg === "/workspace:/workspace")).toHaveLength(1);
+    });
+  });
+
+  describe("a session's runtime", () => {
+    // `/workspace` from the work volume instead of the host (contracts §12.5).
+    // The mounts themselves are `runtimeWorkspaceArgs`' and are asserted in
+    // ../session/runtime.test.ts; what matters here is what they replace.
+    const mounts = [
+      "-v",
+      "sandboxr-work-eng-3941:/work",
+      "--mount",
+      "type=volume,source=sandboxr-work-eng-3941,target=/workspace,volume-subpath=acme/feat-thing",
+    ];
+    const runtime = runArgs({ ...base, workspaceMounts: mounts, gitMounts: ["/repos/tkt-1", "/repos/acme.git"] });
+
+    it("takes /workspace from the volume rather than binding a host path", () => {
+      expect(runtime).toContain("type=volume,source=sandboxr-work-eng-3941,target=/workspace,volume-subpath=acme/feat-thing");
+      expect(runtime).toContain("sandboxr-work-eng-3941:/work");
+      expect(runtime).not.toContain("/repos/tkt-1:/workspace");
+    });
+
+    // The simplification, asserted: a clone on a work volume is self-contained,
+    // so none of `gitMounts` applies to it — even when a caller passes some.
+    it("mounts nothing at an identical host path for git's benefit", () => {
+      expect(runtime).not.toContain("/repos/acme.git:/repos/acme.git");
+      expect(runtime).not.toContain("/repos/tkt-1:/repos/tkt-1");
     });
   });
 

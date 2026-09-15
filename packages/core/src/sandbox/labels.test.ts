@@ -2,9 +2,11 @@
 // - LABELS: every key from contracts §3.4 is present and namespaced
 // - labelsFor: booleans as strings, an unresolvable branch or commit recorded as ?, an ISO timestamp
 // - labelsFor: a ttl passed through as given, and defaulted to `never` when there is none
+// - labelsFor: every sandbox is a runtime, and a session label only when it is in one
 // - labelArgs: rendered as --label pairs, one argument each
 // - sandboxFromLabels: a full round-trip, missing fields defaulted, a container that is not ours refused
 // - sandboxFromLabels: a container predating the ttl label reads as `never`, never as already expired
+// - sandboxFromLabels: a container with no kind reads as a runtime, and no session as ""
 // - deriveState: stopped, starting, running, degraded, and that a failed migration outranks a successful marker
 
 import { describe, expect, it } from "vitest";
@@ -34,7 +36,9 @@ describe("LABELS", () => {
       "dirty",
       "driver",
       "env",
+      "kind",
       "project",
+      "session",
       "slug",
       "ttl",
       "worktree",
@@ -53,6 +57,17 @@ describe("labelsFor", () => {
     expect(labels[LABELS.dirty]).toBe("false");
     expect(labels[LABELS.created]).toBe("2026-08-25T09:00:00.000Z");
     expect(labels[LABELS.access]).toBe("public");
+  });
+
+  // Every sandbox this labels is a runtime — a worktree-backed one is what
+  // §12.10 maps onto the noun — and the session label is *absent* rather than
+  // empty for one that belongs to no session, because an empty string is a
+  // value something will one day compare against.
+  it("stamps the kind, and a session only when there is one", () => {
+    expect(labelsFor(input)[LABELS.kind]).toBe("runtime");
+    expect(LABELS.session in labelsFor(input)).toBe(false);
+    expect(LABELS.session in labelsFor({ ...input, session: "" })).toBe(false);
+    expect(labelsFor({ ...input, session: "eng-3941" })[LABELS.session]).toBe("eng-3941");
   });
 
   // Absent means never: a sandbox nobody gave a lifetime to is not one the
@@ -123,9 +138,28 @@ describe("sandboxFromLabels", () => {
       created: "2026-08-25T09:00:00.000Z",
       ttl: "never",
       env: "",
+      kind: "runtime",
+      session: "",
       state: "running",
       container: "sandboxr-acme-tkt-1",
     });
+  });
+
+  // A container with no `sandboxr.kind` is a pre-session sandbox, which §12.3
+  // says reads as a runtime — and an unknown word must fall back rather than be
+  // passed through as something nothing downstream handles.
+  it("reads a container with no kind as a runtime, and no session as none", () => {
+    const bare = sandboxFromLabels({ [LABELS.slug]: "tkt-1", [LABELS.project]: "acme" }, "c", "running");
+    expect(bare?.kind).toBe("runtime");
+    expect(bare?.session).toBe("");
+    expect(sandboxFromLabels({ [LABELS.slug]: "s", [LABELS.kind]: "future" }, "c", "running")?.kind).toBe("runtime");
+    const ws = sandboxFromLabels(
+      { [LABELS.slug]: "s", [LABELS.kind]: "workstation", [LABELS.session]: "eng-3941" },
+      "c",
+      "running",
+    );
+    expect(ws?.kind).toBe("workstation");
+    expect(ws?.session).toBe("eng-3941");
   });
 
   // An unlabelled sandbox must never look already expired: the expiry planner
