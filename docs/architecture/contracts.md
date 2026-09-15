@@ -2722,11 +2722,21 @@ alone under every rule they have, which had to land in the same change, because 
 collector did not know about is somebody's uncommitted work waiting for the next housekeeping run.
 All of that has been run against a real daemon.
 
-**The rest of §12 has not been built**: no runtime is created inside a session (§12.4), no idle
-clock reads a workstation's activity (§12.7), and there is no CLI command and no dashboard route
-for any of it (§12.6's `/sessions/:session`). Nothing above `packages/core` calls any of it, so
-there is no way for a person to reach a session. Until that lands, the worktree model is the one
-anybody actually uses.
+**The idle clock reads a workstation (§12.7), and it is the clock in `sandbox/expiry.ts`.**
+`planSessionExpiry` is `planExpiry` over a session and both reach one `decide`; `sessionActivity`
+in `sandbox/activity.ts` reads the three signals a workstation has; `session/expire.ts` stops what
+has run out, through `stopWorkstation` and no other verb, so a session that goes quiet keeps its
+work volume and its host files. The dashboard's reaper drives it on the same pass it drives
+sandboxes. **Two things about it are true and worth saying here rather than being discovered:**
+nothing writes `AgentRun.session` yet, because no run happens in a workstation yet, so the agent
+signal is read and never supplied; and `sandboxr expire` still covers only sandboxes, because the
+CLI has no session surface at all. **None of it has been run against a real daemon** — the tests
+are unit tests against a fake one.
+
+**The rest of §12 has not been built**: no runtime is created inside a session (§12.4), and there
+is no CLI command and no dashboard route for any of it (§12.6's `/sessions/:session`). Nothing
+above `packages/core` calls any of it except the reaper, so there is still no way for a person to
+reach a session. Until that lands, the worktree model is the one anybody actually uses.
 [`docs/reference/status.md`](../reference/status.md) carries the same division where a reader of
 the site will find it, and it is the only other place that has to.
 
@@ -3070,7 +3080,7 @@ A workstation's `lastActive` reads §3.4's signals, with one absent and three pr
 |---|---|
 | A request to its own hostnames | **none.** A workstation has no hostname (§12.2) |
 | A dashboard route naming it | `…/sessions/<session>/…` in the router's access log |
-| An agent run | `agent/runs.json`, joined on the **session** rather than on `project/slug`, and the transcript's mtime for when it last emitted |
+| An agent run | `agent/runs.json`, joined on the **session** rather than on `project/slug` — `AgentRun.session`, which a run in a workstation fills in and a run in a sandbox leaves absent — and the transcript's mtime for when it last emitted |
 | A socket held open on it | the mtime of `state/session/<session>/attach` |
 
 **The keep marker is the "keep it up forever" toggle**, and it is the only exemption. A live agent

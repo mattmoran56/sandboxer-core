@@ -370,6 +370,34 @@ process, which is the only always-on component holding the Docker socket. On a l
 is usually stopped, sandboxes live until something stops them. `SANDBOXR_REAP_MINUTES=0` is the
 honest way to say so.
 
+#### The same clock, for a session's workstation
+
+A session's workstation runs on this clock as well, on the same twelve-hour default, and it is the
+same code: one planner decides about both, and stopping a workstation is the only thing that
+happens — no volume and no file is removed, ever, at any age.
+
+<details class="facts">
+<summary><b>Fact sheet</b> — a workstation's idle clock, unit-tested only</summary>
+
+**Not run at all.** No workstation has been stopped by this on any machine, with a real clock or a
+moved one. Everything below is unit tests against a fake docker daemon.
+
+**Three of the four signals, because a workstation has no hostname.** A dashboard route naming the
+session, an agent run in it, and a terminal or agent socket held open on it. The missing fourth is
+a request to its own hostnames, and a workstation has none. Its absence is *not* read as a zero: a
+session no signal reaches runs its clock from the moment its container started, which is the same
+fallback a sandbox gets when its log lines have scrolled out of the window.
+
+**Nothing writes the agent signal yet.** The join is on a run's `session` field, and no agent runs
+in a workstation yet, so that field is read and never supplied. The other two signals are fed by
+routes and a heartbeat that do not exist either, because there is no dashboard route for a session.
+In practice a workstation's clock therefore runs from its start time today.
+
+**Only the dashboard reaps sessions.** `sandboxr expire` still covers sandboxes alone, because the
+CLI has no session surface at all.
+
+</details>
+
 ### git and `gh` in a sandbox
 
 Both were run against a real sandbox rather than reasoned about, because the bug being fixed was
@@ -447,11 +475,21 @@ beside it, so the two paths were compared rather than assumed. Inside the runtim
 directory, `git log` and `git status` worked with **no** second mount, and `origin` pointed at the
 forge.
 
-Three things are not finished. `status` cannot fill in a runtime's URLs or service health, because
-it reads the project's config from the sandbox's recorded workspace and a runtime's is a path inside
-a volume; a caller that already has the config can pass it. No idle clock reads a workstation's
-activity, so nothing stops one when it goes quiet. And nothing above `packages/core` calls any of
-it.
+The **idle clock**, over a workstation as well as a sandbox. A session's activity is read from
+dashboard routes naming it, an agent run joined on its session id, and a held socket's heartbeat. A
+workstation has no hostname, so the router's access log says nothing about one — that signal is an
+absence rather than a zero, and the clock falls back to the start time, which is the floor a sandbox
+whose log lines have scrolled out of the window already relies on. Stopping on the clock removes
+nothing and leaves the session's runtimes running.
+
+Four things are not finished. The idle clock is **unit-tested only and has never stopped a
+workstation on any machine** — and two of its three signals have no producer yet, because nothing
+writes a run's session id and there is no `/sessions/:session` route to log, so in practice a
+workstation's clock runs from its start time. `status` cannot fill in a runtime's URLs or service
+health, because it reads the project's config from the sandbox's recorded workspace and a runtime's
+is a path inside a volume; a caller that already has the config can pass it. There is no CLI command
+for any of this. And nothing above `packages/core` calls it.
+
 
 **`db diff` and `db reset`.** The driver interface has `snapshot` but nothing that compares two, and
 no verb that returns a database to a clean restore. Comparing before and after is two snapshots and
