@@ -102,6 +102,8 @@ SETUP
      --bind ADDR               Publish the router here instead of 127.0.0.1
      --http-port N             Publish http here instead of 80
      --https-port N            ...and https here instead of 443
+     --no-start                Prepare the machine but start nothing — for
+                               \`docker compose up\` (docs/guides/compose.md)
   teardown [--network]         Stop the router and the dashboard
 
 SANDBOX
@@ -128,8 +130,9 @@ SANDBOX
                 --migrate      Re-run this sandbox's migrations
   expire [--dry-run]           Stop every sandbox past its idle limit
      --project NAME            ...of one project only
-  gc [--dry-run]               Reap sandboxes whose worktree is gone
-  prune [--yes]                Reclaim disk: orphaned volumes, replaced images
+  gc [--dry-run]               Reap sandboxes whose worktree is gone, the volumes
+                               nothing owns, and images a newer build replaced
+  prune [--yes]                The same volumes and images, with sizes and a total
      --build-cache             ...and Docker's build cache, which is not only ours
 
 PROJECTS
@@ -603,6 +606,10 @@ async function cmdGc(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Pro
   else if (flagBoolean(args, "dry-run")) {
     for (const { sandbox, reason } of plan.reap) out.line(`  would reap ${sandbox.slug} — ${reason}`);
     for (const volume of plan.volumes) out.line(`  would remove volume ${volume}`);
+    // The size is `prune`'s job to total up; here the reason is what matters,
+    // because it names the image that replaced this one and so says plainly that
+    // nothing will ask for this tag again.
+    for (const image of plan.images) out.line(`  would remove image ${image.reference} — ${image.reason}`);
   }
   return 0;
 }
@@ -611,9 +618,13 @@ async function cmdGc(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Pro
  * `prune` reports by default and removes with `--yes`, which is the other way
  * round from `gc --dry-run`.
  *
- * The asymmetry is the point rather than an inconsistency: `gc` removes things
- * whose loss costs a restart, and this removes images, where the cost of taking
- * one that was still wanted is a toolchain rebuild on somebody's next `up`.
+ * The asymmetry survives `gc` learning to reap superseded images, and it is worth
+ * saying why rather than leaving the old sentence to read as still-complete. Both
+ * commands take exactly the same images — the ones a newer build replaced, which
+ * no future `up` can name — and the loss of one of those costs nothing. What
+ * `--yes` still guards is everything this command reaches that `gc` does not:
+ * the build cache, which other projects on the same daemon wrote too, and the
+ * habit of pointing a whole-machine reclaim at a machine before reading it.
  */
 async function cmdPrune(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Promise<number> {
   const apply = flagBoolean(args, "yes") || flagBoolean(args, "y");
@@ -1678,12 +1689,16 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
   const tls = args.flags.tls === undefined ? undefined : flagBoolean(args, "tls");
   const http = flagNumber(args, "http-port");
   const https = flagNumber(args, "https-port");
+  // `--no-start` parses as `start: false`, which is the only value that means
+  // anything here: absent is the default, and `--start` says what already happens.
+  const start = args.flags.start === undefined ? undefined : flagBoolean(args, "start");
   const report = await initAccess({
     env,
     tls,
     rebuild: flagBoolean(args, "rebuild"),
     bind: flagString(args, "bind"),
     ports: { ...(http ? { http } : {}), ...(https ? { https } : {}) },
+    ...(start === undefined ? {} : { start }),
     log: (line) => out.step(line),
   });
 
@@ -1703,7 +1718,11 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
     out.warn(note);
   }
   out.line();
-  out.dim("  Next: cd into a project with a sandboxr.yaml and run `sandboxr up`.");
+  out.dim(
+    start === false
+      ? "  Next: `docker compose up -d` from this checkout."
+      : "  Next: cd into a project with a sandboxr.yaml and run `sandboxr up`.",
+  );
   return 0;
 }
 

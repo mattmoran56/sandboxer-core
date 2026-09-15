@@ -134,7 +134,7 @@ export interface DashboardInput {
  * effect when followed. The same `up` from the terminal worked, which is the
  * shape of the whole bug: the two faces of one tool disagreeing about a setting.
  */
-const FORWARDED_VARIABLES = [
+export const FORWARDED_VARIABLES = [
   "SANDBOXR_CLAUDE_TOKEN",
   "SANDBOXR_CLAUDE_MODEL",
   "SANDBOXR_CLAUDE_MCP",
@@ -169,6 +169,45 @@ const forwardedEnvironment = (env: NodeJS.ProcessEnv): Record<string, string> =>
 };
 
 /**
+ * The Traefik labels that put the dashboard on the machine: two routers onto one
+ * service.
+ *
+ * The first is the control plane: the bare domain, and only the bare domain. The
+ * terminal, every action and every page live behind it, which is why the session
+ * cookie can be host-only.
+ *
+ * The second is the private-app login handshake, and it is the one deliberate
+ * exception to "the dashboard never answers on a sandbox hostname". It answers one
+ * reserved path there — see `handshakeRule` — because the cookie that opens a
+ * private app has to be set *on* that app's hostname, and only something answering
+ * there can set it. It carries no forward-auth middleware, or the request that
+ * exists to obtain a credential would need that credential first.
+ *
+ * **Its own function rather than an expression inside `dashboardArgs`**, because
+ * the top-level `docker-compose.yml` starts this same container and therefore has
+ * to spell the same labels in YAML. `access/compose.test.ts` compares that file
+ * against *this*, so a rule edited here fails there rather than drifting.
+ */
+export function dashboardLabels(input: { domain: string; tls: boolean }): Record<string, string> {
+  return {
+    ...routeLabels({
+      name: DASHBOARD_CONTAINER,
+      rule: `Host(\`${input.domain}\`)`,
+      port: DASHBOARD_PORT,
+      tls: input.tls,
+    }),
+    ...routeLabels({
+      name: HANDSHAKE_ROUTER,
+      rule: handshakeRule(input.domain),
+      port: DASHBOARD_PORT,
+      tls: input.tls,
+      service: DASHBOARD_CONTAINER,
+      priority: HANDSHAKE_PRIORITY,
+    }),
+  };
+}
+
+/**
  * The `docker run` argument list for the dashboard. Pure, so a test can read
  * every mount and every variable without a daemon.
  */
@@ -191,34 +230,7 @@ export function dashboardArgs(input: DashboardInput): string[] {
     "sandboxr.role=dashboard",
   ];
 
-  // Two routers onto one service.
-  //
-  // The first is the control plane: the bare domain, and only the bare domain.
-  // The terminal, every action and every page live behind it, which is why the
-  // session cookie can be host-only.
-  //
-  // The second is the private-app login handshake, and it is the one deliberate
-  // exception to "the dashboard never answers on a sandbox hostname". It answers
-  // one reserved path there — see `handshakeRule` — because the cookie that opens
-  // a private app has to be set *on* that app's hostname, and only something
-  // answering there can set it. It carries no forward-auth middleware, or the
-  // request that exists to obtain a credential would need that credential first.
-  for (const [key, value] of Object.entries({
-    ...routeLabels({
-      name: DASHBOARD_CONTAINER,
-      rule: `Host(\`${input.domain}\`)`,
-      port: DASHBOARD_PORT,
-      tls: input.tls,
-    }),
-    ...routeLabels({
-      name: HANDSHAKE_ROUTER,
-      rule: handshakeRule(input.domain),
-      port: DASHBOARD_PORT,
-      tls: input.tls,
-      service: DASHBOARD_CONTAINER,
-      priority: HANDSHAKE_PRIORITY,
-    }),
-  })) {
+  for (const [key, value] of Object.entries(dashboardLabels(input))) {
     args.push("--label", `${key}=${value}`);
   }
 

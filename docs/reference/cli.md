@@ -68,7 +68,7 @@ it and exit `0`. An unrecognised command prints an error, then the usage, and ex
 
 Sets this machine up. It creates `~/.sandboxr` and the shared Docker network, writes the machine's
 settings file if there is none, builds the base and dashboard images, issues a certificate if one can
-be trusted, then starts the router and the dashboard.
+be trusted, writes `~/.sandboxr/host.env`, then starts the router and the dashboard.
 
 It is idempotent. Running it again is also how you change the domain, rotate the password, or pick up
 TLS after installing mkcert's root.
@@ -81,9 +81,17 @@ TLS after installing mkcert's root.
 | `--bind ADDR` | Publish the router here instead of `127.0.0.1` |
 | `--http-port N` | Publish HTTP here instead of 80 |
 | `--https-port N` | Publish HTTPS here instead of 443 |
+| `--no-start` | Prepare the machine but start nothing |
 
 It reads `SANDBOXR_PASSWORD` and passes it to the dashboard. Without one the dashboard starts and
 admits nobody, and `init` says so.
+
+`--no-start` does everything except run the router, the dashboard and the orchestrator, which is what
+[the compose deployment](../guides/compose.md) wants: everything else `init` does — the directories,
+the images, the certificate, the router's configuration and `host.env` — is a prerequisite of
+`docker compose up`, and no compose file can build an image or ask mkcert for a certificate. Left to
+start them, `init` would take the container names compose is about to use, and the up would fail with
+`container name is already in use`.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — what <code>init</code> reports, and the notes it can return</summary>
@@ -310,18 +318,25 @@ survived.
 ### `sandboxr gc [--dry-run]`
 
 Reaps sandboxes whose recorded worktree no longer exists, then removes `sandboxr-` volumes nothing
-owns and nothing has mounted. The shared volumes and `sandboxr-deps-*` are left alone.
+owns and nothing has mounted, then the project images a newer build of the same project replaced.
+The shared volumes, `sandboxr-deps-*`, `sandboxr/base`, `sandboxr/dashboard` and every project's
+newest image are left alone, as is any image a container references, running or stopped.
 
 Such a sandbox is unreachable anyway: you cannot rebuild anything in it, because the source it would
-build from is gone.
+build from is gone. A superseded image is unreachable in the same sense — its tag is a hash of a
+build that no longer exists, so no `up` can ask for it.
+
+`--dry-run` prints all three lists and removes nothing.
 
 ### `sandboxr prune [--yes] [--build-cache]`
 
-Reclaims the disk that building sandboxes left behind. **It reports by default and removes only with
-`--yes`** — the opposite way round from `gc --dry-run`.
+The whole-machine disk report: the same orphaned volumes and superseded images `gc` takes, with the
+bytes each would return, plus Docker's build cache with `--build-cache`. **It reports by default and
+removes only with `--yes`** — the opposite way round from `gc --dry-run`.
 
-The asymmetry is deliberate. A sandbox removed in error costs a restart; an image removed in error
-costs somebody a toolchain rebuild on their next `up`.
+The asymmetry is deliberate, and it is about the build cache and the reading, not about the images:
+sandboxr is not the build cache's only writer, and a whole-machine reclaim is worth looking at
+before it runs. `gc` and `prune` agree exactly about which images may go.
 
 | Flag | What it does |
 |---|---|
@@ -576,7 +591,7 @@ usage tree on stderr.
 | `stop`, `start` | one sandbox | No — the container only |
 | `keep`, `unkeep` | one sandbox | No — one file under `~/.sandboxr/state/keep/` |
 | `expire` | machine | Stops **every** sandbox past its idle limit. Removes nothing |
-| `gc` | machine | Reaps **every** sandbox whose worktree is gone |
+| `gc` | machine | Reaps **every** sandbox whose worktree is gone, and every superseded project image |
 | `prune` | machine | Nothing without `--yes`; then images and volumes, never a shared volume |
 | `shell` | one sandbox | Whatever you run |
 | `reload` | one sandbox | Rebuilds; touches data only with `--migrate` |

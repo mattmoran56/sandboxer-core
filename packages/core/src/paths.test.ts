@@ -63,7 +63,14 @@ describe("paths", () => {
   });
 
   it("lists every directory a command has to create", () => {
-    expect(directoriesOf(p)).toHaveLength(8);
+    expect(directoriesOf(p)).toHaveLength(9);
+  });
+
+  it("includes the socket directory, which a sidecar's bind would otherwise invent", () => {
+    // Created here rather than left to Docker: a bind whose source is missing is
+    // made as a root-owned directory, so the first sidecar to start would decide
+    // the ownership of a path the host's own processes also write into.
+    expect(directoriesOf(p)).toContain(p.run);
   });
 
   it("includes the workspace, which a clone writes into before anything else", () => {

@@ -52,8 +52,8 @@ sandboxr prune          # what could be handed back, and how much. Removes nothi
 
 | What grows | Reclaimed by |
 |---|---|
-| **Project images a newer build replaced** | `sandboxr prune --yes` |
-| Volumes no sandbox owns any more | `sandboxr prune --yes`, or `sandboxr gc` |
+| **Project images a newer build replaced** (~6 GB each) | `sandboxr gc`, or `sandboxr prune --yes` |
+| Volumes no sandbox owns any more | `sandboxr gc`, or `sandboxr prune --yes` |
 | A sandbox's volumes (a few hundred MB each) | `sandboxr down <slug>` |
 | **Docker's build cache — the thing that actually fills the disk** | `sandboxr prune --build-cache --yes`, or `docker builder prune -a` |
 | The base image (~670 MB, once per machine) | `docker image rm sandboxr/base:latest`, then `sandboxr init` to get it back |
@@ -63,6 +63,14 @@ sandboxr prune          # what could be handed back, and how much. Removes nothi
 
 The phrasing reads as a *corrupt* database rather than a full one. People spend an afternoon on
 recovery procedures for a disk problem.
+
+**On a sandbox's *first* boot it used to be worse than that, and the fix is recent.** MySQL's data
+directory is created once, by the `mysql-init` oneshot, and that script sent mysqld's output to
+`/dev/null` so a normal boot stayed readable. A full disk therefore produced no message at all —
+only a oneshot exiting non-zero, which reads as a broken image rather than a full disk. It now keeps
+mysqld's output and prints it on failure, so `sandboxr logs <slug>` carries the InnoDB error above.
+A sandbox that fails to initialise on an older image will not show it; check `docker system df`
+before believing anything else.
 
 `sandboxr prune` reports before it removes, and never offers the shared volumes.
 `sandboxr-claude` holds an agent session's credentials, and the Go caches are expensive to rebuild.

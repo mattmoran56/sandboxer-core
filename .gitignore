@@ -9,6 +9,10 @@ dist/
 secrets/*.env
 !secrets/.gitkeep
 
+# The compose deployment's settings: this machine's paths, its dashboard password
+# and its database credentials. `.env.example` is the committed half of the pair.
+/.env
+
 # Wrangler's dev-server scratch, in any example that really runs.
 .wrangler/
 

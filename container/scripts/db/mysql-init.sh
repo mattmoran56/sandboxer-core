@@ -25,6 +25,15 @@ chown -R mysql:mysql "$DATADIR" /run/mysqld
 # the container's loopback and its contents are disposable, so a password would
 # protect nothing; the app user gets one anyway, because application config
 # expects one.
-mysqld --initialize-insecure --user=mysql --datadir="$DATADIR" >/dev/null 2>&1
+#
+# `run_quiet` rather than `>/dev/null 2>&1`, and the difference is worth three
+# days: mysqld narrates a successful initialisation over stderr, so the redirect
+# was right to keep a clean boot readable -- but it also took the message that
+# explains a failure. When the host's Docker disk filled, mysqld's "no space left
+# on device" went to /dev/null and the only surviving evidence was this oneshot
+# exiting non-zero, which reads as a broken database image. The cause did not
+# resemble the symptom, and the diagnosis is now kept and printed on failure
+# alone.
+run_quiet mysqld --initialize-insecure --user=mysql --datadir="$DATADIR"
 
 log "done"
