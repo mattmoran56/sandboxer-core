@@ -370,6 +370,34 @@ process, which is the only always-on component holding the Docker socket. On a l
 is usually stopped, sandboxes live until something stops them. `SANDBOXR_REAP_MINUTES=0` is the
 honest way to say so.
 
+#### The same clock, for a session's workstation
+
+A session's workstation runs on this clock as well, on the same twelve-hour default, and it is the
+same code: one planner decides about both, and stopping a workstation is the only thing that
+happens — no volume and no file is removed, ever, at any age.
+
+<details class="facts">
+<summary><b>Fact sheet</b> — a workstation's idle clock, unit-tested only</summary>
+
+**Not run at all.** No workstation has been stopped by this on any machine, with a real clock or a
+moved one. Everything below is unit tests against a fake docker daemon.
+
+**Three of the four signals, because a workstation has no hostname.** A dashboard route naming the
+session, an agent run in it, and a terminal or agent socket held open on it. The missing fourth is
+a request to its own hostnames, and a workstation has none. Its absence is *not* read as a zero: a
+session no signal reaches runs its clock from the moment its container started, which is the same
+fallback a sandbox gets when its log lines have scrolled out of the window.
+
+**Nothing writes the agent signal yet.** The join is on a run's `session` field, and no agent runs
+in a workstation yet, so that field is read and never supplied. The other two signals are fed by
+routes and a heartbeat that do not exist either, because there is no dashboard route for a session.
+In practice a workstation's clock therefore runs from its start time today.
+
+**Only the dashboard reaps sessions.** `sandboxr expire` still covers sandboxes alone, because the
+CLI has no session surface at all.
+
+</details>
+
 ### git and `gh` in a sandbox
 
 Both were run against a real sandbox rather than reasoned about, because the bug being fixed was
@@ -424,10 +452,12 @@ product is organised around, replacing the worktree. Its foundations exist in `p
 are described above: making and deleting a session, starting and stopping its workstation, the
 work volume with its layout and its clone, and the rule that keeps a collector away from one.
 
-None of the rest does. **No runtime is created inside a session, no idle clock reads a
-workstation's activity, and there is no CLI command and no dashboard route for any of it.** So
-there is no way for a person to reach a session yet: every page on this site describes the worktree
-model, and the worktree model is the one that runs.
+The idle clock now reads a workstation too, and that is described under
+[the idle clock](#the-idle-clock) above, unit-tested and never run against a real daemon.
+
+None of the rest does. **No runtime is created inside a session, and there is no CLI command and no
+dashboard route for any of it.** So there is no way for a person to reach a session yet: every page
+on this site describes the worktree model, and the worktree model is the one that runs.
 
 **`db diff` and `db reset`.** The driver interface has `snapshot` but nothing that compares two, and
 no verb that returns a database to a clean restore. Comparing before and after is two snapshots and

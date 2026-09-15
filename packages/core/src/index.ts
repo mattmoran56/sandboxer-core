@@ -175,8 +175,17 @@ export type {
   WorkstationRunInput,
 } from "./session/index.js";
 
-export { deadlineOf, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
-export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.js";
+export { deadlineOf, formatTtl, parseTtl, planExpiry, planSessionExpiry, sessionDeadlineOf } from "./sandbox/expiry.js";
+export type {
+  ExpiryCandidate,
+  ExpiryInput,
+  ExpiryPlan,
+  SessionExpiryCandidate,
+  SessionExpiryInput,
+  SessionExpiryPlan,
+} from "./sandbox/expiry.js";
+export { expireSessions } from "./session/expire.js";
+export type { ExpireSessionsOptions } from "./session/expire.js";
 export {
   CLONE_SCRIPT,
   LIST_SCRIPT,
@@ -211,10 +220,13 @@ export {
   ATTACH_LIVE_GRACE_MS,
   DEFAULT_ACTIVITY_WINDOW,
   agentActivity,
+  agentSessionActivity,
   attachedActivity,
   lastActivity,
   parseAccessLog,
   sandboxActivity,
+  sessionActivity,
+  sessionAttachedActivity,
 } from "./sandbox/activity.js";
 export type {
   ActivityOptions,
@@ -222,6 +234,7 @@ export type {
   AttachedActivityOptions,
   RouterActivity,
   SandboxActivityOptions,
+  SessionActivityOptions,
 } from "./sandbox/activity.js";
 
 export {
