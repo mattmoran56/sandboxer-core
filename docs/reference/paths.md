@@ -44,6 +44,8 @@ Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
 | `bin/` | Helper binaries built on the host | yes |
+| `run/` | The Unix sockets the voice and Telegram sidecars listen on | yes |
+| `host.env` | What only this machine can look up, for the compose deployment. Mode 0600 — see below | yes |
 | `agent/runs.json` | Which agent session belongs to which sandbox | yes |
 | `agent/grants.json` | Standing agent permissions, per project | yes |
 | `agent/log/<id>.jsonl` | One agent session's transcript, append-only | yes |
@@ -88,6 +90,15 @@ would have matched.
 `sandboxr secrets import` merges a project's own `.env` files into whatever is already there. It is
 mounted read-only into every sandbox of the project, so an edit reaches a running one on a restart.
 See [Secrets](../configuration/secrets.md).
+
+### `host.env`, which you do not edit
+
+`host.env` is the opposite of those two: generated every time `sandboxr init` runs, so an edit to it
+is lost. It holds the handful of values only a program running on this machine can find — the GitHub
+token out of the login keychain, your commit identity out of your gitconfig, and the path of your
+Claude login — and [the compose deployment](../guides/compose.md) reads it. It is mode `0600` because
+it holds a token. The settings *you* choose live in `.env` beside the compose file, which is
+hand-written and never generated.
 
 ### The keep-alive marker
 

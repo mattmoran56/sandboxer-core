@@ -77,8 +77,30 @@ export interface Paths {
   configFile: string;
   /** Generated per-sandbox environment files. */
   build: string;
+  /**
+   * The Unix sockets the host's own long-lived processes listen on: the voice
+   * sidecar's, and the telegram sidecar's.
+   *
+   * Under `SANDBOXR_HOME` rather than on a named Docker volume, and that is the
+   * whole reason it is here: the dashboard already bind-mounts the home at the
+   * *identical path inside and out*, so one `SANDBOXR_VOICE_SOCKET` value is
+   * correct on the host, in the dashboard and in the sidecar at once. A named
+   * volume would need every one of them to mount it and would make the path mean
+   * something different on each side.
+   */
+  run: string;
   /** Host-built helper binaries. */
   bin: string;
+  /**
+   * The values only the *host* can resolve, written by `init` for a compose file
+   * to read: the GitHub token out of the keychain, the commit identity out of the
+   * host's gitconfig, the Claude login's path.
+   *
+   * Beside `config.yaml` rather than under `state/` even though it is generated,
+   * because it holds a credential and is therefore mode 0600 like `secrets/`.
+   * See access/host-env.ts for why it exists at all.
+   */
+  hostEnvFile: string;
   /**
    * The projects this machine can start a sandbox for, one directory each.
    *
@@ -160,6 +182,8 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     configFile: join(home, "config.yaml"),
     build: join(home, "build"),
     bin: join(home, "bin"),
+    run: join(home, "run"),
+    hostEnvFile: join(home, "host.env"),
     workspace,
 
     logsFor: (project, slug) => join(home, "logs", project, slug),
@@ -177,5 +201,5 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
 
 /** The directories a command creates before it writes anything. */
 export function directoriesOf(p: Paths): string[] {
-  return [p.cache, p.logs, p.tls, p.state, p.secrets, p.build, p.bin, p.workspace];
+  return [p.cache, p.logs, p.tls, p.state, p.secrets, p.build, p.bin, p.run, p.workspace];
 }

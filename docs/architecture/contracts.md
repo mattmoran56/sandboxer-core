@@ -30,7 +30,10 @@ packages/server    @sandboxr/server   The dashboard's server: auth, JSON API, te
 packages/web       @sandboxr/web      The dashboard's browser app: React, Tailwind, built by Vite
 packages/docs      @sandboxr/docs     The documentation site (MDX)
 container/         (no package)       What runs INSIDE a sandbox: Dockerfiles, s6, scripts
+sidecars/          (no package)       The audio body: Python, by necessity — see §10
 examples/          (no package)       Example sandboxr.yaml files
+docker-compose.yml (no package)       The whole constellation, in one file — see §11
+.env.example       (no package)       The settings that file reads, keys only
 ```
 
 Ownership rule: **only `container/` contains bash.** Everything host-side is TypeScript.
@@ -457,7 +460,9 @@ Three consequences are part of the contract:
   secrets/<project>.env  third-party credentials, mode 0600 — edited, not generated (§5.2)
   build/<project>/<slug>.env  the generated per-sandbox environment
   bin/                   host-built helper binaries
+  run/                   the sidecars' unix sockets — see §10.3.1 and §11
   config.yaml            the machine's own settings — see §4.3
+  host.env               what only the host can look up, for compose — mode 0600, see §11
   soul.md                the orchestrator agent's character, as prose — see §10.7
   state/keep/<project>/<slug>  keeps one sandbox alive past its idle limit — see §4.2
   state/name/<project>/<slug>  what to call one worktree on screen — see §4.2.1
@@ -2518,3 +2523,78 @@ and could settle the wrong question when two were open at once.
 raw audio I/O, a sidecar needs no audio device, so it ships as an image that runs the same on any
 machine and reaches the dashboard over a Unix socket on a shared volume. The desk build (a real
 device, via sounddevice) and the streamed build (no device) are the same body with different ends.
+
+## 11. The master compose file
+
+`docker-compose.yml` at the top of the repository runs the machine's **constellation**: the
+router (§7), the dashboard, the orchestrator container (§10.7), and the two audio sidecars
+(§10.3.1). It is the second way to start those three core-defined containers — `sandboxr init`
+is the first — and the only way to start the sidecars alongside them.
+
+**Compose owns the shape; core owns the values.** Every value in that file is either a constant
+`packages/core` also names, or a `${…}` out of `.env`. Nothing in it is derived: not a hostname,
+not a rule, not an image digest. This is the rule that keeps the file from becoming a second
+implementation of `access/dashboard.ts`, which is what "logic belongs in core" forbids.
+
+**Where compose must spell a value core computes, a test pins the two together.**
+`packages/core/src/access/compose.test.ts` parses the file, emulates compose's own interpolation,
+and compares the result against `routerArgs`, `dashboardArgs`, `dashboardLabels` and
+`orchestratorArgs`. A mount, a label, a published port or a forwarded variable that exists on one
+side and not the other fails the suite. It is the same device `HANDSHAKE_PATH` uses across core
+and the server, and `PROTECTED_IMAGES` across `naming.ts` and `access/index.ts`: two constants
+that have to agree, held together by an assertion rather than by discipline.
+
+**Two files hold values, split on whether a person chooses it.**
+
+| File | Written by | Holds |
+|---|---|---|
+| `.env` | a person, from `.env.example` | paths, domain, password, ports, database credentials, `COMPOSE_PROFILES` |
+| `$SANDBOXR_HOME/host.env` | `sandboxr init` | `GH_TOKEN`, `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `SANDBOXR_CLAUDE_CREDENTIALS`, `CLAUDE_CODE_OAUTH_TOKEN` |
+
+`.env` is hand-edited and never generated, and that is the point of it: **a container's
+environment is fixed when the container is made**, so a credential added to a running dashboard
+reaches nothing — which is how every database variable in §5.2 could be set on a machine and
+still be absent from the dashboard. One line in `.env` and one `docker compose up -d` is the
+whole fix, and it must stay a file a person can edit for that to be true.
+
+`host.env` is generated because nothing but a host process can produce it: `gh`'s token lives in
+the login keychain, the commit identity in a gitconfig the dashboard has not got, and the Claude
+login is a path on a filesystem it cannot see. It is loaded as an `env_file`, so it is container
+environment only and never interpolated. **Mode 0600**, like `secrets/<project>.env`, because it
+holds a token. `CLAUDE_CODE_OAUTH_TOKEN` in it is `SANDBOXR_CLAUDE_TOKEN` under the name Claude
+Code reads — the rename `orchestratorArgs` already performs, done once rather than in YAML. Both
+services load the file, so the dashboard sees that token under a second name; it is the same
+secret §7.2 already gives it, and the login kept out of the web server is the *credentials file*,
+which remains a path here and a mount there.
+
+**`sandboxr init --no-start` is the prerequisite, and it is not optional.** The directories, the
+three images, the certificate, the router's own configuration under `state/` and `host.env` are
+all things no compose file can produce. `--no-start` exists because the alternative is `init`
+starting containers under the names compose then wants, which fails as "container name is already
+in use" and names nothing about the cause. The two ways to run the constellation are exclusive:
+`sandboxr teardown` is the handoff from one to the other.
+
+**The network is external.** `sandboxr init` creates `sandboxr` (§3.3) and every sandbox joins it;
+a compose-created `sandboxr_default` would put the router on a network no sandbox is on, and every
+app would answer 404 at the router rather than fail in a way that names this.
+
+**Sandboxes are not in it, and the file says so.** A sandbox is created per worktree at run time
+by core driving the Docker socket, and its name is derived from a branch that did not exist when
+the file was written. `docker compose down` therefore stops the plumbing and leaves every sandbox
+running; `sandboxr down` stops one and `sandboxr gc` reclaims what they left. The file states this
+at the top because the opposite is the reasonable assumption.
+
+**No Telegram credential appears in it, in `.env.example`, or in any documentation.** The api id,
+hash and session string are read from the environment of the shell that runs `docker compose`, as
+§10.6 requires, and the compose test asserts that every Telegram entry in the file is a bare name
+with no value.
+
+**The sidecars reach the dashboard over `$SANDBOXR_HOME/run`, not a named volume.** The dashboard
+already binds `SANDBOXR_HOME` at the identical path inside and out (§4), so one
+`SANDBOXR_VOICE_SOCKET` value is correct on the host, in the dashboard and in the sidecar at once.
+A named volume would have to be mounted by all three and would still mean a different path in each.
+
+What the file deliberately does not cover: sandboxes, the standalone orchestrator daemon (§10.6,
+a host process with no image), and building the three `sandboxr/` images — the base is
+content-addressed on everything under `container/` and that digest is core's to compute. The two
+sidecar images have ordinary Dockerfiles, so compose builds those.

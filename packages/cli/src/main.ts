@@ -102,6 +102,8 @@ SETUP
      --bind ADDR               Publish the router here instead of 127.0.0.1
      --http-port N             Publish http here instead of 80
      --https-port N            ...and https here instead of 443
+     --no-start                Prepare the machine but start nothing — for
+                               \`docker compose up\` (docs/guides/compose.md)
   teardown [--network]         Stop the router and the dashboard
 
 SANDBOX
@@ -1678,12 +1680,16 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
   const tls = args.flags.tls === undefined ? undefined : flagBoolean(args, "tls");
   const http = flagNumber(args, "http-port");
   const https = flagNumber(args, "https-port");
+  // `--no-start` parses as `start: false`, which is the only value that means
+  // anything here: absent is the default, and `--start` says what already happens.
+  const start = args.flags.start === undefined ? undefined : flagBoolean(args, "start");
   const report = await initAccess({
     env,
     tls,
     rebuild: flagBoolean(args, "rebuild"),
     bind: flagString(args, "bind"),
     ports: { ...(http ? { http } : {}), ...(https ? { https } : {}) },
+    ...(start === undefined ? {} : { start }),
     log: (line) => out.step(line),
   });
 
@@ -1703,7 +1709,11 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
     out.warn(note);
   }
   out.line();
-  out.dim("  Next: cd into a project with a sandboxr.yaml and run `sandboxr up`.");
+  out.dim(
+    start === false
+      ? "  Next: `docker compose up -d` from this checkout."
+      : "  Next: cd into a project with a sandboxr.yaml and run `sandboxr up`.",
+  );
   return 0;
 }
 

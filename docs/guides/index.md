@@ -33,6 +33,7 @@ here to look at yet, and we should do docs/getting-started/first-sandbox.md inst
 | [Your own agent in a sandbox](agents-in-a-sandbox.md) | Giving a coding agent somewhere to see the result of its own work |
 | [Agent sessions in the dashboard](agent-sessions.md) | A Claude Code session running inside the sandbox itself, one per worktree |
 | [The orchestrator, voice and Telegram](orchestrator.md) | One agent that watches every session at once and tells you out loud when one needs you |
+| [The whole machine in one file](compose.md) | One compose file for the router, the dashboard, the agent and the voice, so bringing it all up is one command |
 | [Giving Docker the whole machine](docker-capacity.md) | Where Docker's disk and memory come from, and how to get space back |
 
 If something is broken rather than unfamiliar, go to

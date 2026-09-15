@@ -481,6 +481,13 @@ sandboxr init
 
 `SANDBOXR_DOMAIN` needs nothing locally: `sbx.localhost` already resolves.
 
+If you run the machine from the repository's `docker-compose.yml`, these go in `.env` beside it
+rather than in your shell — that is the whole point of the file, because a container's environment
+is fixed when the container is made and an export made afterwards reaches nothing. A few extra keys
+live only there: `SANDBOXR_DOMAIN_RE`, `SANDBOXR_ENTRYPOINT`, `SANDBOXR_TLS` and `COMPOSE_PROFILES`.
+`.env.example` documents each one, and [The whole machine in one file](../guides/compose.md)
+explains the split.
+
 On a server, put them in the service unit's environment rather than a shell profile. A service
 started at boot has no login shell, and `SANDBOXR_HOME` falling back to a service account's home
 directory puts the state somewhere nobody looks. See
