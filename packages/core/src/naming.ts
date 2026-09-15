@@ -379,8 +379,22 @@ export function imageRepository(project: string): string {
  * tool version, so an older tag of it is an older *sandboxr* rather than a
  * superseded build — and losing it costs the rebuild at the moment somebody
  * asks for a session, which is the one moment the delay is least welcome.
+ *
+ * **The orchestrator was missing from this list and that was a real hole**, not a
+ * tidiness point. `supersededImages` groups by repository and keeps only the
+ * newest, so the orchestrator's `:<tool version>` and `:latest` were two tags of
+ * one repository with one of them older — leaving it eligible for reaping by a
+ * routine `gc`. Both tags point at the same image id today, so the cost was a
+ * dangling tag rather than a lost image; that is luck about how it happens to be
+ * tagged, and not a reason to leave it out of a list whose whole job is to say
+ * which images are the machine's own.
  */
-export const PROTECTED_IMAGES = ["sandboxr/base", "sandboxr/dashboard", "sandboxr/workstation"] as const;
+export const PROTECTED_IMAGES = [
+  "sandboxr/base",
+  "sandboxr/dashboard",
+  "sandboxr/workstation",
+  "sandboxr/orchestrator",
+] as const;
 
 /**
  * Claude Code's state directory, shared by every sandbox on the machine.

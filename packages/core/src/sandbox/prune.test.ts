@@ -16,6 +16,7 @@
 import { describe, expect, it } from "vitest";
 
 import { BASE_IMAGE, DASHBOARD_IMAGE_NAME, WORKSTATION_IMAGE_NAME } from "../access/index.js";
+import { ORCHESTRATOR_IMAGE_NAME } from "../access/orchestrator.js";
 import type { BuildCacheRow, ImageRow, VolumeRow } from "../docker.js";
 import { PROTECTED_IMAGES } from "../naming.js";
 import { formatBytes, planPrune } from "./prune.js";
@@ -158,7 +159,12 @@ describe("planPrune images", () => {
   // A rename of either constant would otherwise unprotect it silently, and the
   // symptom would be a base image removed from under the next `up`.
   it("protects exactly the repositories access names", () => {
-    expect([...PROTECTED_IMAGES]).toEqual([BASE_IMAGE, DASHBOARD_IMAGE_NAME, WORKSTATION_IMAGE_NAME]);
+    expect([...PROTECTED_IMAGES]).toEqual([
+      BASE_IMAGE,
+      DASHBOARD_IMAGE_NAME,
+      WORKSTATION_IMAGE_NAME,
+      ORCHESTRATOR_IMAGE_NAME,
+    ]);
   });
 
   it("leaves images that are not ours alone", () => {
