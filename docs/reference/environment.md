@@ -245,9 +245,9 @@ process (see [In the dashboard](../guides/orchestrator.md#in-the-dashboard)):
 | Variable | Default | What it does |
 |---|---|---|
 | `SANDBOXR_ORCHESTRATOR` | off | Any non-empty value but `0` turns on the dashboard's Orchestrator panel |
-| `SANDBOXR_VOICE_SOCKET` | unset | The voice sidecar's socket. Without it the panel has no voice toggle and says so — everything else works |
+| `SANDBOXR_VOICE_SOCKET` | unset | The voice sidecar's socket. Without it no conversation shows a microphone and `GET /api/voice` says why — everything else works. It needs no orchestrator: a machine can have a voice and talk to its worktrees without one |
 | `SANDBOXR_ORCHESTRATOR_STALL_MS` | model default | How long a quiet session waits before it is a question — lower it to try the panel out |
-| `SANDBOXR_VOICE_SOCKET` | — | The voice sidecar's socket, to speak escalations and carry the browser's audio |
+| `SANDBOXR_VOICE_SOCKET` | — | The voice sidecar's socket, to speak a conversation and carry the browser's audio |
 
 The voice sidecar reads `SANDBOXR_VOICE_STREAMED` (or `--streamed`): set it so the sidecar's device
 is the socket rather than a local microphone, which is what the browser and the container both need.

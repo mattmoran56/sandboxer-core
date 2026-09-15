@@ -381,6 +381,7 @@ export {
   userMessageFrame,
 } from "./agent/launch.js";
 export type { AgentLaunch, PermissionMode } from "./agent/launch.js";
+export { SPOKEN_MARKER, SPOKEN_PROMPT } from "./agent/spoken.js";
 export { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAgentModel } from "./agent/models.js";
 export type { AgentModel, AgentModelId } from "./agent/models.js";
 export {
