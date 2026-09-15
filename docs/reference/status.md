@@ -420,14 +420,38 @@ exactly how it went wrong here. Closing the gap surfaced six real type errors, i
 **The half of the session model a person could reach.** §12 of
 [the contract](../architecture/contracts.md) defines a **session** — an agent with a container,
 holding zero or more repositories and zero or more running copies of a project — as the unit the
-product is organised around, replacing the worktree. Its foundations exist in `packages/core` and
-are described above: making and deleting a session, starting and stopping its workstation, the
-work volume with its layout and its clone, and the rule that keeps a collector away from one.
+product is organised around, replacing the worktree. A good deal of it now exists in
+`packages/core`, and none of it is reachable: no CLI command and no dashboard route creates a
+session, so every page on this site still describes the worktree model, and the worktree model is
+the one anybody actually uses.
 
-None of the rest does. **No runtime is created inside a session, no idle clock reads a
-workstation's activity, and there is no CLI command and no dashboard route for any of it.** So
-there is no way for a person to reach a session yet: every page on this site describes the worktree
-model, and the worktree model is the one that runs.
+What has been run against a real daemon, rather than merely written:
+
+The **session and its workstation**. `packages/core/src/session/` makes a session, lists them,
+fetches one and deletes it, and starts and stops the workstation the agent runs in. A session was
+created, exec'd into, stopped, started again and deleted, and the stop removed nothing — §12.8's
+first rule, and the one the whole design rests on.
+
+The **work volume**. `session/work.ts` knows the `/work/<repo>/<branch>` layout, refuses a second
+branch that would share a directory with the first, clones into `sandboxr-work-<session>` from a
+short-lived container, and is the only code that may remove one. With it, `gc` and `prune` leave a
+work volume alone under every rule they have — which had to land in the same change, because a work
+volume the collector did not know about is somebody's uncommitted work waiting for the next
+housekeeping run.
+
+The **runtime**. `session/runtime.ts` derives a runtime's slug from its session and its name, and
+`up` will start a sandbox whose `/workspace` is a checkout on a work volume rather than a bind mount
+from the host. The Workers demo was cloned into a work volume, brought up as a runtime, and served
+its health endpoint over HTTP — and the same project was brought up the old way from a host checkout
+beside it, so the two paths were compared rather than assumed. Inside the runtime, `.git` was a real
+directory, `git log` and `git status` worked with **no** second mount, and `origin` pointed at the
+forge.
+
+Three things are not finished. `status` cannot fill in a runtime's URLs or service health, because
+it reads the project's config from the sandbox's recorded workspace and a runtime's is a path inside
+a volume; a caller that already has the config can pass it. No idle clock reads a workstation's
+activity, so nothing stops one when it goes quiet. And nothing above `packages/core` calls any of
+it.
 
 **`db diff` and `db reset`.** The driver interface has `snapshot` but nothing that compares two, and
 no verb that returns a database to a clean restore. Comparing before and after is two snapshots and

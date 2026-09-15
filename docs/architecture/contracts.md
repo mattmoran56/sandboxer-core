@@ -2084,6 +2084,10 @@ workspace mount follows: the worktree **and** the repository it points at are bi
 `packages/core/src/git.ts` decides which paths those are; a plain checkout needs neither, and a
 project that is a subdirectory of a larger repository gets neither and is told so once.
 
+**This whole section is about a worktree.** A session's runtime runs a self-contained clone on a work
+volume and asks for none of these mounts — see §12.4, which is where the reasoning for that lives.
+The two consequences below are consequences of the mounts, so they go with them.
+
 Three consequences are part of the contract:
 
 - **The repository mount is read-write**, because `git commit` writes objects and refs into it.
@@ -2726,14 +2730,24 @@ anybody actually uses.
 [`docs/reference/status.md`](../reference/status.md) carries the same division where a reader of
 the site will find it, and it is the only other place that has to.
 
-One piece of it is real, and it is named here rather than left for a reader to discover:
-**§12.5's work volume and §12.8's rule that nothing reclaims one** are implemented, in
+Two pieces of it are real, and they are named here rather than left for a reader to discover.
+
+**§12.5's work volume and §12.8's rule that nothing reclaims one**, in
 `packages/core/src/session/work.ts` and in `sandbox/gc.ts`. The layout, the collision refusal, the
-clone and the `/workspace` subpath mount have been run against a real daemon. Nothing else has: no
-package creates a session or a workstation, no container answers to `sandboxr-ws-`, and nothing
-reads `state/session/`. The reclamation rule landed with the volume on purpose — a work volume that
-existed before `gc` knew to leave it alone would be somebody's uncommitted work waiting for the
-next housekeeping run.
+clone and the `/workspace` subpath mount have been run against a real daemon. The reclamation rule
+landed with the volume on purpose — a work volume that existed before `gc` knew to leave it alone
+would be somebody's uncommitted work waiting for the next housekeeping run.
+
+**§12.2's runtime slug and §12.4's runtime**, in `packages/core/src/session/runtime.ts` and in
+`sandbox/index.ts`. `up` takes a runtime request — a session, a runtime name, a repository and a
+branch — and starts a sandbox whose `/workspace` is `/work/<repo>/<branch>` on that session's work
+volume. A demo project has been brought up this way against a real daemon and served a page, beside
+the same project brought up the old way from a host checkout. It is reachable from core only: no
+CLI command and no dashboard route creates one, because nothing creates a session for it to belong
+to yet.
+
+Nothing else has been built: no package creates a session or a workstation, no container answers to
+`sandboxr-ws-`, and nothing reads `state/session/`.
 
 ### 12.1 Four nouns
 
@@ -2927,6 +2941,30 @@ Three things a session adds:
   `plan.json`, to §5 and to every container script; it is now a location inside the work volume
   rather than a bind mount from the host. How the container arranges that — a subpath mount, a bind
   inside the container — is the container layer's; `/workspace` being the project root is not.
+
+**A runtime needs none of §7.3's git mounts, and that is the one thing §§3–8 gets *smaller* here.**
+`gitMounts` exists because a linked worktree's `.git` is a file naming its repository by absolute
+host path, so the worktree and the repository have to be mounted at identical paths inside and out —
+which drags two more rules behind it: the repository mount is read-write and therefore shared with
+the host, and the base image pins `gc.worktreePruneExpire` to `never` because every sibling worktree
+looks prunable from inside. §12.5's clone is self-contained, so its `.git` is a real directory inside
+the checkout, there is no `worktrees/` administration anywhere, and there is no host path for git to
+resolve. A runtime therefore mounts the work volume and nothing else for git's sake, and a `git gc`
+inside one repacks only that session's objects. §7.3's other two rules are untouched: the commit
+identity still crosses as `GIT_AUTHOR_*`/`GIT_COMMITTER_*`, and the GitHub token is still off unless
+the operator opted the project in. **`gitMounts` is not removed** — it is the contract for every
+worktree-backed sandbox (§12.10), and both paths exist side by side.
+
+**The host reads a runtime's project by staging its manifests, never by keeping a checkout.** The
+host still has to resolve four things before a runtime can start, and each of them is a file: the
+project's `sandboxr.yaml`, the lockfile and `package.json`s that *are* the project image's build
+context, the Go module manifests, and which lockfile keys the shared dependency volume. They are
+copied out of the volume by a short-lived container that mounts it **read-only**, into a temporary
+directory that is deleted when `up` returns and is mounted into nothing. The source stays in the
+volume. §5.6's project-level config is deliberately **not** offered to a runtime: it exists because
+an uncommitted `sandboxr.yaml` in one worktree does not exist in any other, and a session clones the
+repository — so a checkout that does not describe itself is refused, naming its path inside the
+volume.
 
 ### 12.5 The work volume
 
@@ -3154,5 +3192,6 @@ today; each right-hand entry is what the session model replaces it with.
 | §4.1's `wt/<branch>` | The work volume, `/work/<repo>/<branch>` (§12.5) |
 | §4.1.1's `Worktree` type | Not what a session lists. A session holds repositories and branches inside its volume, and may hold none (§12.1, §12.5) |
 | §4.2, §4.2.1, §4.2.2 | The same three files with the same arguments, under `state/session/<session>/` (§12.6) |
-| §5, §6, §7.1, §7.3, §8 | Unchanged. They are about a runtime, and a runtime is a sandbox |
+| §5, §6, §7.1, §8 | Unchanged. They are about a runtime, and a runtime is a sandbox |
+| §7.3's git mounts | Not used by a runtime: a clone on a work volume is self-contained and needs no identical-path mount (§12.4). §7.3's other two rules — the commit identity, the GitHub token — are unchanged, and the mounts remain the contract for a worktree |
 | §7.2's "agent session" on a worktree | A Run in a workstation, keyed on the session (§12.1, §12.7). The Run / Thread / Event model is untouched |
