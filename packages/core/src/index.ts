@@ -127,6 +127,31 @@ export type {
 
 export { deadlineOf, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
 export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.js";
+export {
+  CLONE_SCRIPT,
+  LIST_SCRIPT,
+  SESSION_LABEL,
+  UNKNOWN_BRANCH,
+  WORK_DIR,
+  WORK_VOLUME_PREFIX,
+  WorkVolumeError,
+  branchDir,
+  cloneArgs,
+  cloneIntoWork,
+  ensureWorkVolume,
+  isWorkVolume,
+  listArgs,
+  listWork,
+  parseWorkListing,
+  placeBranch,
+  removeWorkVolume,
+  workMountArgs,
+  workPath,
+  workVolumeName,
+  workspaceMountArgs,
+} from "./session/work.js";
+export type { CloneRequest, WorkEntry, WorkRunner } from "./session/work.js";
+
 export { formatBytes, planPrune } from "./sandbox/prune.js";
 export type { PrunableImage, PrunableVolume, PruneInput, PrunePlan, PruneResult } from "./sandbox/prune.js";
 export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js";

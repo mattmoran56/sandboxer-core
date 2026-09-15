@@ -7,6 +7,9 @@
 // - orphanVolumes: reaping every sandbox on the machine still leaves the Claude credential volume
 // - orphanVolumes: a dependency volume is left alone unless a mount list proves it unused
 // - orphanVolumes: nothing outside the sandboxr prefix is ever considered
+// - orphanVolumes: a work volume is never an orphan — not with no container, not
+//   with every sandbox on the machine reaped, not with an empty mount list, and
+//   not when its own session's runtime is being reaped beside it (contracts §12.8)
 // - supersededImages: an older image of a project is offered, and named by what replaced it
 // - supersededImages: the newest image of every project survives, so the next `up` is a start
 // - supersededImages: an image any container references is left alone, running or stopped
@@ -157,6 +160,58 @@ describe("orphan volumes", () => {
       mountedVolumes: new Set(),
     });
     expect(withMounts.volumes).toEqual(["sandboxr-deps-abc123"]);
+  });
+});
+
+// Contracts §12.8's fourth reclamation rule, and the one with the worst failure
+// behind it: a work volume holds a session's clones and every uncommitted change
+// in them, and there is no second copy anywhere. Every case below is a shape in
+// which the rest of this file's reasoning says "reap it".
+describe("a work volume is never reclaimed", () => {
+  const work = "sandboxr-work-eng-3941";
+
+  it("is not an orphan when no container references it", () => {
+    // The ordinary state of a stopped session, and the exact case the orphan
+    // rule was written to catch for every other kind of volume.
+    const plan = planGc({ sandboxes: [], volumes: [work], worktreeExists: alive, mountedVolumes: new Set() });
+    expect(plan.volumes).toEqual([]);
+  });
+
+  it("is not an orphan with no mount list at all", () => {
+    expect(planGc({ sandboxes: [], volumes: [work], worktreeExists: alive }).volumes).toEqual([]);
+  });
+
+  it("survives every sandbox on the machine being reaped", () => {
+    const plan = planGc({
+      sandboxes: [sandbox({ slug: "tkt-1" }), sandbox({ slug: "tkt-2" })],
+      volumes: [work, "sandboxr-data-acme-tkt-1", "sandboxr-data-acme-tkt-2"],
+      worktreeExists: gone,
+      mountedVolumes: new Set(),
+    });
+    expect(plan.keep).toEqual([]);
+    expect(plan.volumes).toEqual(["sandboxr-data-acme-tkt-1", "sandboxr-data-acme-tkt-2"]);
+  });
+
+  it("survives its own session's runtime being reaped beside it", () => {
+    // Deleting a runtime takes that runtime's data and never the work volume:
+    // the code in it is what every other runtime of the session is running from.
+    const plan = planGc({
+      sandboxes: [sandbox({ slug: "eng-3941-web" })],
+      volumes: [work, "sandboxr-data-acme-eng-3941-web"],
+      worktreeExists: gone,
+      mountedVolumes: new Set(),
+    });
+    expect(plan.volumes).toEqual(["sandboxr-data-acme-eng-3941-web"]);
+  });
+
+  it("keeps every session's volume, not just one", () => {
+    const plan = planGc({
+      sandboxes: [],
+      volumes: [work, "sandboxr-work-doc-only", "sandboxr-work-a"],
+      worktreeExists: alive,
+      mountedVolumes: new Set(),
+    });
+    expect(plan.volumes).toEqual([]);
   });
 });
 
