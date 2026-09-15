@@ -128,8 +128,9 @@ SANDBOX
                 --migrate      Re-run this sandbox's migrations
   expire [--dry-run]           Stop every sandbox past its idle limit
      --project NAME            ...of one project only
-  gc [--dry-run]               Reap sandboxes whose worktree is gone
-  prune [--yes]                Reclaim disk: orphaned volumes, replaced images
+  gc [--dry-run]               Reap sandboxes whose worktree is gone, the volumes
+                               nothing owns, and images a newer build replaced
+  prune [--yes]                The same volumes and images, with sizes and a total
      --build-cache             ...and Docker's build cache, which is not only ours
 
 PROJECTS
@@ -603,6 +604,10 @@ async function cmdGc(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Pro
   else if (flagBoolean(args, "dry-run")) {
     for (const { sandbox, reason } of plan.reap) out.line(`  would reap ${sandbox.slug} — ${reason}`);
     for (const volume of plan.volumes) out.line(`  would remove volume ${volume}`);
+    // The size is `prune`'s job to total up; here the reason is what matters,
+    // because it names the image that replaced this one and so says plainly that
+    // nothing will ask for this tag again.
+    for (const image of plan.images) out.line(`  would remove image ${image.reference} — ${image.reason}`);
   }
   return 0;
 }
@@ -611,9 +616,13 @@ async function cmdGc(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Pro
  * `prune` reports by default and removes with `--yes`, which is the other way
  * round from `gc --dry-run`.
  *
- * The asymmetry is the point rather than an inconsistency: `gc` removes things
- * whose loss costs a restart, and this removes images, where the cost of taking
- * one that was still wanted is a toolchain rebuild on somebody's next `up`.
+ * The asymmetry survives `gc` learning to reap superseded images, and it is worth
+ * saying why rather than leaving the old sentence to read as still-complete. Both
+ * commands take exactly the same images — the ones a newer build replaced, which
+ * no future `up` can name — and the loss of one of those costs nothing. What
+ * `--yes` still guards is everything this command reaches that `gc` does not:
+ * the build cache, which other projects on the same daemon wrote too, and the
+ * habit of pointing a whole-machine reclaim at a machine before reading it.
  */
 async function cmdPrune(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): Promise<number> {
   const apply = flagBoolean(args, "yes") || flagBoolean(args, "y");

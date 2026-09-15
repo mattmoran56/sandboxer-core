@@ -13,6 +13,8 @@
 // - reload: `all` covers the build-everything set, `built` covers what the sandbox has built, a name covers one app
 // - reload: a served front-end is restarted rather than built
 // - gc: reaps a sandbox whose worktree is gone, and does nothing under dryRun
+// - gc: removes a superseded project image and leaves the newest one alone
+// - gc: a daemon that will not report its disk usage still reaps containers and volumes
 // - prune: reports without removing until it is told to apply
 // - prune: removes a superseded project image and leaves the newest one alone
 // - prune: the build cache is out of scope unless it is asked for
@@ -38,6 +40,8 @@ interface FakeOptions {
   exists?: boolean;
   startedAt?: Date | undefined;
   usage?: DiskUsage;
+  /** `docker system df` refusing to answer, which is not the same as an empty machine. */
+  usageFails?: boolean;
 }
 
 /** A docker whose every call is recorded and whose answers are declarative. */
@@ -138,6 +142,7 @@ function fakeDocker(options: FakeOptions = {}) {
     imageExists: async () => true,
     diskUsage: async () => {
       record("diskUsage");
+      if (options.usageFails) throw new Error("docker system df -v exited 1");
       return options.usage ?? { images: [], volumes: [], buildCache: [] };
     },
     imageRm: async (reference) => {
@@ -744,6 +749,57 @@ describe("gc", () => {
     expect(plan.reap).toHaveLength(1);
     expect(argsOf("rm")).toHaveLength(0);
     expect(argsOf("volumeRm")).toHaveLength(0);
+    expect(argsOf("imageRm")).toHaveLength(0);
+  });
+
+  const images = [
+    {
+      repository: "sandboxr/acme",
+      tag: "old",
+      id: "1",
+      created: new Date("2026-08-01T00:00:00.000Z"),
+      size: 6e9,
+      uniqueSize: 5.34e9,
+      containers: 0,
+    },
+    {
+      repository: "sandboxr/acme",
+      tag: "new",
+      id: "2",
+      created: new Date("2026-08-27T00:00:00.000Z"),
+      size: 6e9,
+      uniqueSize: 5.34e9,
+      containers: 1,
+    },
+  ];
+
+  // The accumulation that filled a machine: a content-addressed tag means every
+  // base rebuild strands the previous image, and nothing that ran routinely gave
+  // it back. `gc` is the routine one, so it is where this belongs.
+  it("removes a project image a newer build replaced, and keeps the newest", async () => {
+    const { docker, argsOf } = fakeDocker({ usage: { images, volumes: [], buildCache: [] } });
+    const plan = await gc({ docker });
+    expect(plan.images.map((image) => image.reference)).toEqual(["sandboxr/acme:old"]);
+    expect(argsOf("imageRm")).toEqual([["sandboxr/acme:old"]]);
+  });
+
+  // `docker system df` is a walk of the storage driver and can fail where
+  // `docker ps` succeeds. Turning that into "gc did not run" would lose the
+  // container and volume reaping, which has nothing to do with images.
+  it("still reaps containers and volumes when the disk report is unavailable", async () => {
+    const { docker, argsOf } = fakeDocker({
+      rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
+      exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
+      volumes: ["sandboxr-data-acme-tkt-1"],
+      exists: true,
+      usageFails: true,
+    });
+    const plan = await gc({ docker });
+    expect(plan.reap).toHaveLength(1);
+    expect(argsOf("rm")[0]?.[0]).toBe("sandboxr-acme-tkt-1");
+    // Not "there are no superseded images" — no listing, so nothing is concluded.
+    expect(plan.images).toEqual([]);
+    expect(argsOf("imageRm")).toHaveLength(0);
   });
 });
 

@@ -244,6 +244,11 @@ Reaps a sandbox whose worktree no longer exists on disk, and the volumes that we
 This one **does** delete databases — but the sandboxes it picks are ones whose worktree you
 already deleted yourself.
 
+It also removes the superseded project images from the section above, without being asked
+twice. That is deliberate: those images are six gigabytes apiece, nothing will ever ask for
+their tags again, and leaving them to a command you have to remember is how a machine fills
+up. Every image the report above protects, `gc` protects too.
+
 ### 3. Docker's own commands, when that was not enough
 
 <details class="agent">

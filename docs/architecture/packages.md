@@ -366,7 +366,7 @@ be invisible.
 | `server` → `core` | Direct function calls, in process, through `src/core/adapter.ts` only | **Never shells out to the CLI.** A renamed core export is a compile error in that one file |
 | `web` ↔ `server` | HTTP and JSON, plus two WebSockets | The server sends facts; the browser writes sentences. Actions are a closed table, never a command in the request |
 | `core` → `container` | `plan.json`, mounted read-only, plus the environment | The plan is fully resolved. The container never merges a default or infers a kind |
-| `core` → Docker | Container labels, mounts, image tags, and the shared network | State lives only in labels. `list` and `gc` are pure functions of `docker ps` |
+| `core` → Docker | Container labels, mounts, image tags, and the shared network | State lives only in labels. `list`, and which sandboxes `gc` reaps, are pure functions of `docker ps` |
 | `container` → the host | The status surface over HTTP, and marker files under `/run/sandboxr` | Every writer records a fact. Nothing asserts a state |
 
 <details class="facts">
