@@ -471,3 +471,44 @@ export {
 } from "./agent/commands.js";
 export type { SlashCommand, SlashCommandHandler, SlashCommandSource } from "./agent/commands.js";
 export { NOTHING_ASKED, SIDE_QUESTION, sideQuestion, sideQuestionPreamble } from "./agent/btw.js";
+
+export { CODE_PATH_MAX, baseName, resolveInRoot, safePath } from "./code/paths.js";
+export {
+  FILE_READ_LIMIT,
+  LISTING_LIMIT,
+  listingArgv,
+  looksBinary,
+  parseListing,
+  readFileArgv,
+  readFileResult,
+} from "./code/listing.js";
+export type { CodeEntry, CodeEntryKind, CodeFile, CodeListing } from "./code/listing.js";
+export {
+  DIFF_FILE_LIMIT,
+  HEAD_ARGV,
+  MERGE_BASE_ARGV,
+  PATCH_LIMIT,
+  REPO_ROOT_ARGV,
+  UNTRACKED_ARGV,
+  UPSTREAM_ARGV,
+  isCommit,
+  mergeChanges,
+  nameStatusArgv,
+  nulFields,
+  numstatArgv,
+  parseNameStatus,
+  parseNumstat,
+  parsePatch,
+  patchArgv,
+  untrackedPatchArgv,
+} from "./code/diff.js";
+export type {
+  ChangeStatus,
+  ChangedFile,
+  DiffBase,
+  DiffSummary,
+  Patch,
+  PatchHunk,
+  PatchLine,
+  PatchLineKind,
+} from "./code/diff.js";
