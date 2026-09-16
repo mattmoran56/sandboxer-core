@@ -1542,7 +1542,7 @@ to it is a capability handed to the least supervised process on the machine.
 | `GET /api/p/:project/s/:slug/diff/file` | One changed file's patch, at `?path=`. Its own request, made when a row is opened (§7.4) |
 | `PUT /api/p/:project/w/:slug/name` | Sets what one **worktree** is called, from a body of `{ "name": string }`; an empty name clears it. Answers `{ project, slug, displayName }`. On the `w` form and never the `s` form: the name belongs to the worktree, which persists (§4.2.1). A name that is not one is a `400` that does not repeat what was sent |
 | `GET`, `POST /api/sessions` | Every session on the machine, and making one (§12.6.2) |
-| `GET`, `DELETE /api/sessions/:session` | One session, and deleting it. The delete takes no `force` (§8.1) |
+| `GET`, `PATCH`, `DELETE /api/sessions/:session` | One session, naming it, and deleting it. The `PATCH` body is `{ "name": string }` and nothing else; an empty or whitespace name **clears** it, and the answer is the whole `SessionDto`. `PATCH` and not a `/name` sub-resource, which is where a *worktree's* rename lives: a worktree's name is filed against a directory that outlives every sandbox cut on it, and a session **is** the thing being named. A name reaches no container, no volume and no URL (§12.2). The delete takes no `force` (§8.1) |
 | `POST /api/sessions/:session/start`, `…/stop` | Its workstation. Stopping removes nothing (§12.8) |
 | `GET /api/sessions/:session/repos` | What is in its work volume. A read that failed says so rather than answering "none" (§12.5) |
 | `POST /api/sessions/:session/repos` | Clones one repository and branch into it — the only way code reaches a work volume. Checked against **that project's** grant, not the machine's (§12.5, §12.6.1) |
@@ -2793,9 +2793,24 @@ workstation, and it is the one thing between here and a session that shows you i
 
 **The browser app draws a session now.** `/sessions` lists them, `/sessions/<id>` is one — its
 checkouts, its runtimes, and start, stop and delete — and **New session** is the app's primary
-create action, on the home page and on the sessions pane. Adding code to a session is a project
-and a branch; §7.4's two read-only views are the same two components, pointed at a workstation
-rather than at a sandbox. Everything §12 says about an absence is drawn as one: an unreadable
+create action. It is in the header at every width, at the head of the worktree column, on the
+home page, on the sessions pane and beside a project's New worktree; the header's copy is the
+one that makes it ambient, and every other is at the head of a list somebody is already
+reading. It is deliberately **not** in the phone's tab bar, which already carries one
+destination more than a tab bar is for.
+
+**The create asks for nothing and the id is never a field.** One click posts an empty body and
+lands on the session it made; `POST /api/sessions` invents the id, and the id is the *address*
+(§12.2) — the URL, `sandboxr-ws-<id>`, `sandboxr-work-<id>` — which is precisely why a person
+does not type one. The request is held for the whole app rather than by each button, so five
+copies of the control are one create; the wait, which is minutes on a machine with no
+workstation image, is a band under the header and not a modal — there is no form left for a
+modal to hold, and a dialog containing only a progress bar blocks the page for no reason.
+**The name is set after the fact**, on the session's own pane, through `PATCH
+/api/sessions/:session`: a session nobody has named shows its id as its title, because
+`SessionDto.name` is `null` until somebody sets one and is never the id. Adding code to a
+session is a project and a branch; §7.4's two read-only views are the same two components,
+pointed at a workstation rather than at a sandbox. Everything §12 says about an absence is drawn as one: an unreadable
 work volume is `unknown` and never `none` (§12.5), and `runtimesWithheld` and the repositories
 listing's `withheld` are rendered rather than dropped (§12.6.1). **Worktrees are unchanged and
 still primary in the sidebar** — a session cannot yet do everything a worktree can (§12.10), and
