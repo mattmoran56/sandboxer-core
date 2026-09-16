@@ -2801,9 +2801,22 @@ and a session may only run a checkout that is already on its own work volume —
 volume's own listing rather than against the request. Beside it, `packages/server/src/session-mcp.ts`
 is the `sandboxr` MCP server the agent's `claude` process runs, whose every tool is one of those
 calls with a per-run token. Both are tested — the routes over real HTTP against a fake core, the
-tool over a real stdio pipe against a real HTTP server — and **neither has been driven by an agent
-in a workstation**, because nothing starts one yet. That last piece is the socket into a
-workstation, and it is the one thing between here and a session that shows you its work running.
+tool over a real stdio pipe against a real HTTP server.
+
+**An agent now runs in a workstation, and the socket into one is `WS /sessions/:session/agent`**
+(§12.6.0). Against a live daemon, a session was created, the socket opened, and `claude` started
+inside `sandboxr-ws-<session>`: it reported `cwd=/work`, forty tools, and the `sandboxr` MCP server
+**connected** — the first time the file of §12.4 has been copied in and started by a real agent.
+Two things were found by running it rather than by reading it: the `with-env` prefix is fatal in a
+workstation (§12.3), and the `.js`/`.mjs` distinction on the copied file is load-bearing (§12.4).
+
+**No tool call has been made by a model, and no model has answered.** The turn ended on
+`Failed to authenticate: OAuth session expired and could not be refreshed`: the machine it was run
+on shares its Claude login as `~/.claude/.credentials.json` (§3.3), which on macOS is a *copy* of a
+keychain credential, and the copy's refresh was rejected and the file blanked — the failure
+`hasLogin` is written about, reached from a workstation for the first time. That is a property of
+the machine rather than of this section, and it is the only thing between here and a session that
+shows you its work running.
 
 **The browser app is organised around a session now, sidebar included.** The column at every
 width above `md` is the list of sessions (`components/shell/SessionBrowser.tsx`), drawn row for
@@ -2849,14 +2862,10 @@ everything but where they are listed** — a session cannot yet do everything a 
 describes what runs. **None of the browser half has been opened in a browser**: it is tested in
 jsdom against the shapes above, and that is all.
 
-**The rest of §12 has not been built**: there is no CLI command, no session scope in §8's action
-table, and **no socket reaches a workstation** — so a session still has no terminal and no
-conversation. That last one is now the one visible gap in the app rather than an absence
-somewhere else: `/sessions/<id>` opens on a conversation pane dialled at
-`WS /sessions/:session/agent`, the address §12.6 names, and the server's agent gateway pins
-`/^\/p\/([^/]+)\/s\/([^/]+)\/agent$/` and refuses everything else with a 404 before auth is
-consulted. So the pane draws its own **disconnected** state with a Reconnect beside it, and
-everything in the column next to it works. Nothing is stubbed to hide that.
+**The rest of §12 has not been built**: there is no CLI command and no session scope in §8's
+action table, so a session still has no actions and no terminal. It does have a conversation
+(§12.6.0): `/sessions/<id>` opens on a pane dialled at `WS /sessions/:session/agent`, and the
+server answers there.
 [`docs/reference/status.md`](../reference/status.md) carries the same division where a reader of
 the site will find it, and it is the only other place that has to.
 
@@ -3005,6 +3014,16 @@ there is no host path to mount and nothing inside the container can reach the ho
 the host appearing instantly inside the container — is what is being given up, and §12.9 says what
 is kept in its place.
 
+**It has no `/opt/sandboxr/scripts`, so `claude` is exec'd directly.** A sandbox's session is
+prefixed with `with-env`, because a sandbox's environment is assembled by its entrypoint — the
+project's `env:` map and its mounted secrets file — and `docker exec` never sees what an entrypoint
+exported. A workstation runs no project and mounts no secrets, so every variable it has arrives as
+`docker run -e`, which *is* the container's configured environment and which an exec does get:
+there is nothing for the wrapper to restore, and the image does not ship it. Keeping the prefix
+made the exec fail before `claude` was reached, and the stream reported that as "Claude Code exited
+without starting a session" — a missing script that reads as a missing agent. `AgentLaunch.withEnv`
+is where the two cases part.
+
 What it mounts:
 
 | Mount | Why |
@@ -3079,9 +3098,25 @@ Three things a session adds:
   **The file is put into the workstation, never mounted.** A workstation's mount table is closed
   (§12.3) and the installation is not in it: mounting the host's checkout of sandboxr into the
   container an agent lives in would hand it the thing every other rule here exists to keep away.
-  One file is copied in at exec time instead, refreshed on every run so it cannot go stale.
-  **Nothing does this yet** — no `claude` process runs in a workstation — so the tool has never
-  been exercised by a real agent.
+  One file is copied in at exec time instead, refreshed on every run so it cannot go stale. It
+  lands at **`/opt/sandboxr/session-mcp.mjs`**, and the extension is load-bearing: the compiled
+  server is an ES module by virtue of a `package.json` beside it in `dist/`, nothing beside it
+  crosses, and a `.js` there would be read by node as CommonJS and die on its first `import` —
+  which Claude Code reports only as a server that failed to start, with the tools simply absent.
+  It crosses as an argument to `sh -c` rather than on the exec's stdin: an argument array is what
+  keeps a file's contents from being able to become shell syntax, and a half-closed hijacked
+  socket fails by hanging rather than by erroring.
+
+  **`mcp__sandboxr` is on a workstation run's allowlist**, which is the one pre-approved MCP
+  server anywhere in sandboxr and is argued for rather than assumed. Core's
+  `DEFAULT_ALLOWED_TOOLS` pre-approves none, because the servers a *sandbox* picks up are the
+  operator's claude.ai connectors reached through a shared login, where per-call consent is the
+  only real consent. This one is the opposite: every tool is a route on this dashboard that is
+  already refused server-side unless it names a checkout on this session's own work volume, so a
+  person answering the question adds nothing the rule has not already decided. Leaving it off is
+  not neutral either — a workstation has no project, so an "always" cannot be recorded against
+  one (§7.2), and every listing of the session's own repositories would stop the turn on a
+  question nothing could remember.
 - **A runtime belongs to exactly one repository and branch of its session**, and that is what gives
   it a `/workspace`. A runtime is a running copy of a project, a project is described by a
   `sandboxr.yaml` in a checkout, so there is no such thing as a runtime with no code. A session
@@ -3208,10 +3243,62 @@ rest. A runtime is a sandbox; its files are a sandbox's files.
 
 **The dashboard's routes for a session are `/sessions/:session` and below it** —
 `…/actions/:action`, `…/terminal`, `…/agent`, and `…/r/:runtime` for the session's view of one
-runtime. They are top-level rather than under `/p/:project`, because a session belongs to no
+runtime. **`WS /sessions/:session/agent` is built** (§12.6.3); `…/actions/:action` and
+`…/terminal` are not. They are top-level rather than under `/p/:project`, because a session belongs to no
 project. §3.4's second activity signal — a dashboard route naming the thing — reads
 `…/sessions/<session>/…` out of the same access log, alongside the `…/p/<project>/[sw]/<slug>/…`
 it already matches.
+
+#### 12.6.0 The agent socket
+
+`WS /sessions/:session/agent`, and it is **the worktree's `/p/:project/s/:slug/agent` in a
+different container**. Same frames in both directions, to the byte, because a session's
+conversation and a worktree's conversation are one thing and the browser draws them with one
+component; the wire format is the contract between the two files, and a second vocabulary for the
+same events is how they stop looking like one product.
+
+Four things differ, and every one of them is decided at the handshake rather than in the middle,
+which is why it is a second gateway rather than a branch in the first:
+
+- **What it is addressed by.** `:session`, not `:project`/`:slug`, so the router's grant sweep has
+  nothing to check on the path (§12.6.1).
+- **The bar.** A control session covering **every** project — the same bar `POST /api/sessions`
+  takes, for the stronger version of its reason: a workstation carries the machine's GitHub token
+  and the shared Claude credential store (§12.3), and what this route starts inside one can reach
+  both, plus every runtime of every project the session holds. A narrow password gets a **403**
+  and not a 404, unlike `…/r/:runtime`: the session list is open to any signed-in reader, so there
+  is nothing left to hide — what it may not do is start an agent.
+- **The credential the agent gets.** A per-run workstation token (§12.6.1.1), minted only when a
+  process is really started and handed back when it ends, plus the `sandboxr` MCP server copied in
+  beside it (§12.4).
+- **Side questions.** There are none. `/btw` forks a conversation about one worktree (§7.2.1) and
+  a session is not one, so a `/btw` here is answered with a sentence rather than silently turned
+  into something else.
+
+**The run starts at `/work`, and not inside a checkout even when the session holds exactly one.**
+A session's repositories come and go while it is alive, so an agent started inside the only one
+would silently be working somewhere else the moment a second was cloned, and the same session would
+answer "where am I" differently on Tuesday. Deriving the single checkout would also mean reading
+the work volume before the exec — a read §12.5 forbids anybody from treating as empty when it
+fails — so a start that fell back to `/work` on an unreadable listing would quietly be a *different*
+session from the one that succeeded. And Claude Code roots `CLAUDE.md` discovery, `.claude/`
+settings and project trust at its working directory, so `/work` is what lets one session see every
+repository it holds, which is the point of a session holding several. What it costs is that a
+one-repository session's agent says the path once.
+
+**The run is keyed on the session, everywhere the registry keys a sandbox's on `<project>/<slug>`.**
+A workstation has neither label, so the pair cannot address one: two sessions would share the key
+`/` and the second socket would join the first session's process, in another container. The index
+row (§7.2) carries `session` and leaves `project` and `slug` **empty**, which is the join the idle
+clock makes — `agentActivity` drops a row with either half of the pair empty and
+`agentSessionActivity` keys on `session`, so filling the pair in with anything at all would put a
+workstation run on the clock of a sandbox that does not exist.
+
+**An "always" on a permission question is answered as an "allow".** A standing grant is held per
+project (§7.2) and a session belongs to none, so there is no key to write one under: recording it
+against the empty project would make a rule granted in one session apply to every session on the
+machine, and refusing the call outright would stop a tool the person just said yes to. The tool
+runs, it will ask again, and the downgrade is logged rather than silent.
 
 #### 12.6.1 How a session route is authorised
 
@@ -3307,8 +3394,8 @@ the dashboard and is authorised differently, and this is the whole of the differ
 #### 12.6.2 What the JSON API answers today
 
 Built, and listed in §7.1's table with every other route. `…/actions/:action`, `…/terminal` and
-`…/agent` are **not** built: there is no session scope in §8's closed table, and no socket reaches
-a workstation yet.
+`…/agent` **is** built and is §12.6.0's; `…/actions/:action` and `…/terminal` are not, because
+there is no session scope in §8's closed table and no terminal socket reaches a workstation.
 
 **The browser dials `…/agent` regardless**, and that is deliberate rather than an oversight. The
 session pane is the conversation pane every other agent surface uses (`AgentSession`, given an
