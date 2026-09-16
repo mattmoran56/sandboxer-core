@@ -105,11 +105,15 @@ written over somebody's work.
 
 ### A session in the dashboard
 
-The browser app draws a session now. **New session** is the first button on the home page;
-`/sessions` lists every session on the machine; `/sessions/<id>` shows one — its checkouts, its
-runtimes, and start, stop and delete. Adding code to a session asks for a project and a branch,
-and the file explorer and the branch diff are the same two components a worktree has, pointed at
-the session's container instead.
+The browser app draws a session now. **New session** is in the top bar of every screen, at the
+head of the worktree column, on the home page, on the sessions pane and beside a project's New
+worktree — and it asks for nothing: one click makes a session and lands you in it. The id is the
+server's to choose, because the id is the address; the **name** is set afterwards, on the
+session's own pane, and a session nobody has named shows its id as its title. `/sessions` lists
+every session on the machine; `/sessions/<id>` shows one — its checkouts, its runtimes, and
+start, stop and delete. Adding code to a session asks for a project and a branch, and the file
+explorer and the branch diff are the same two components a worktree has, pointed at the
+session's container instead.
 
 **Nothing in the browser app has been opened in a browser.** It is tested in jsdom against the
 shapes the server really answers with, which catches a pane wired to the wrong route and says
