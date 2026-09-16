@@ -103,8 +103,29 @@ written over somebody's work.
 
 </details>
 
-**The browser app does not draw any of it.** Every page of the dashboard is still the worktree
-model, deliberately: a half-replaced sidebar is worse than an unfinished one.
+### A session in the dashboard
+
+The browser app draws a session now. **New session** is the first button on the home page;
+`/sessions` lists every session on the machine; `/sessions/<id>` shows one — its checkouts, its
+runtimes, and start, stop and delete. Adding code to a session asks for a project and a branch,
+and the file explorer and the branch diff are the same two components a worktree has, pointed at
+the session's container instead.
+
+**Nothing in the browser app has been opened in a browser.** It is tested in jsdom against the
+shapes the server really answers with, which catches a pane wired to the wrong route and says
+nothing at all about how any of it looks or feels. That is true of the two code views as well,
+which were built the same way.
+
+**Worktrees are untouched and still have the sidebar.** A session has no terminal and no
+conversation yet — no socket reaches a workstation — so the worktree model is still the one that
+can do a day's work, and replacing the sidebar with a list of sessions would have taken that away
+to make room for something that cannot yet replace it.
+
+**One gap you will meet by reloading the page.** `/sessions` and `/sessions/<id>` are not in the
+server's list of app routes, so a reload or a bookmark of either is answered by the app's 404
+document: the page loads and draws correctly, at HTTP 404, and a login that has expired lands on
+the app rather than on the sign-in form. Clicking through to a session from inside the app is
+unaffected.
 
 ### How an agent asks for a runtime
 
