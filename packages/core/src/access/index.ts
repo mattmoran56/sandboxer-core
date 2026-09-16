@@ -427,6 +427,21 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
 
   const baseImage = await ensureBaseImage({ docker, env, rebuild: options.rebuild, log });
   const dashboardImage = await ensureDashboardImage({ docker, env, rebuild: options.rebuild, log });
+  // The workstation's image, and it is built **here** rather than by the first
+  // `createSession` (contracts §3.3). It used to be built there, on the argument
+  // that a machine which never makes a session never needs several hundred
+  // megabytes of `claude` — and that argument carried its own expiry date, which
+  // has passed: a session is now the thing the dashboard is organised around, so
+  // "the first time a session is created" is "the first time somebody presses
+  // New session", and the build landed in a request that answers one JSON body
+  // and has nowhere to stream a build log to. Several silent minutes on a click.
+  //
+  // This does not make the create *correct* — `createSession` still calls
+  // `ensureWorkstationImage` and must keep doing so, because the tag carries the
+  // tool version, so an upgrade invalidates it and a machine can reach a create
+  // without the tag being there. It makes the create *fast*, which is a
+  // different property and the one that was missing.
+  await ensureWorkstationImage({ docker, env, rebuild: options.rebuild, log });
   // The orchestrator's image is the dashboard's plus Claude Code, so it is built
   // from it and therefore after it. Only when the feature is switched on: it is a
   // few hundred megabytes, and a machine that has not asked for an agent should

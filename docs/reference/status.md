@@ -59,6 +59,21 @@ thing missing: a session could be made and could say what was on its volume, and
 put anything there. A real repository — a monorepo of about a gigabyte — was cloned onto a real work
 volume through the route, in twenty-four seconds, and then read back through the same API.
 
+**Making and naming a session has been run for real too.** Against a live daemon, `POST
+/api/sessions` with an **empty body** made four sessions in 0.37s, 0.60s, 0.64s and 1.39s — each one
+coming back `running`, with an id core derived (`session`, then `session-vlfc` and two more carrying
+a collision token). `PATCH /api/sessions/:session` then named one, a `GET` and the list both read the
+name back, an empty name cleared it — removing the file rather than emptying it, so the answer's
+`name` was `null` and the id was untouched — and a password covering one project was refused with
+403 on both the rename and the clear while still being able to *list* the session. All four were
+deleted through the API, leaving no container, no volume and no file behind.
+
+Those timings are a machine whose workstation image was **already built**. A machine with no such
+image still builds one on the first create, and that path was not timed here; what changed is that
+`sandboxr init` now builds the image alongside the base and the dashboard, so an ordinary machine
+does not meet it. That `init` builds it is covered by a unit test rather than by a real run — running
+`sandboxr init` against the live machine was not something to do while somebody was using it.
+
 The rest of the surface is still only exercised against a fake core and a fake Docker daemon, so for
 those routes what is proven is the route table, the access rules and the shapes, rather than that the
 call reaches a daemon and gets a container back.

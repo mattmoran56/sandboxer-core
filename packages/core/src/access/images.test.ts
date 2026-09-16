@@ -1,9 +1,11 @@
-// Tests for the images `init` and a session build, and what each one's digest covers:
+// Tests for the images `init` builds, and what each one's digest covers:
 // - baseImageTag is a function of container/, so editing a base input moves it
 // - baseImageTag ignores container/workstation/, container/project/ and container/examples/
 // - ensureWorkstationImage builds container/workstation/Dockerfile, version-tagged and :latest
 // - ensureWorkstationImage passes TARGETARCH, which the legacy builder never sets
 // - ensureWorkstationImage does nothing when the tag is already here, and rebuilds when told to
+// - init builds the workstation image, beside the base and the dashboard, so the first
+//   `New session` on a machine is not the thing that pays for it (contracts §3.3)
 
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,7 +15,13 @@ import { describe, expect, it } from "vitest";
 
 import type { Docker } from "../docker.js";
 import { TOOL_VERSION } from "../tool-version.js";
-import { WORKSTATION_IMAGE_NAME, baseImageTag, ensureWorkstationImage } from "./index.js";
+import {
+  DASHBOARD_IMAGE_NAME,
+  WORKSTATION_IMAGE_NAME,
+  baseImageTag,
+  ensureWorkstationImage,
+  initAccess,
+} from "./index.js";
 
 /** An installation whose `container/` holds one file in each directory that matters. */
 async function installation(): Promise<NodeJS.ProcessEnv> {
@@ -93,5 +101,63 @@ describe("ensureWorkstationImage", () => {
     const forced = fakeDocker(present);
     await ensureWorkstationImage({ docker: forced.docker, env, rebuild: true });
     expect(forced.builds).toHaveLength(1);
+  });
+});
+
+/**
+ * `init` builds the machine's images, and the workstation is one of them.
+ *
+ * This moved. It used to be built by the first `createSession`, on the argument
+ * that a machine which never makes a session never needs several hundred
+ * megabytes of `claude` — an argument that carried its own expiry date, and a
+ * session is now the thing the dashboard is organised around. The cost landed in
+ * the one place it must not: `POST /api/sessions` answers one JSON body and has
+ * nowhere to stream a build log to, so the first **New session** on a machine was
+ * several silent minutes. A build belongs in the verb that sets a machine up.
+ *
+ * Driven with `tls: false` and `start: false` so it is the images being asserted
+ * and not mkcert or the router — the two halves of `init` that need a real
+ * machine.
+ */
+describe("initAccess", () => {
+  it("builds the workstation image beside the base and the dashboard", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sandboxr-init-"));
+    for (const dir of ["base", "project", "examples", "workstation", "dashboard", "scripts"]) {
+      await mkdir(join(root, "container", dir), { recursive: true });
+      await writeFile(join(root, "container", dir, "Dockerfile"), `# ${dir}\n`, "utf8");
+    }
+    const env: NodeJS.ProcessEnv = {
+      SANDBOXR_INSTALL: root,
+      SANDBOXR_HOME: join(root, "home"),
+      HOME: join(root, "home"),
+      // Set so the host lookups answer from the environment rather than shelling
+      // out to `git` and `gh`: what this asserts must not depend on which account
+      // is logged in on the machine running it.
+      GIT_AUTHOR_NAME: "Ada",
+      GIT_AUTHOR_EMAIL: "ada@example.com",
+      GH_TOKEN: "gho_test",
+    };
+
+    const built: string[] = [];
+    const docker = {
+      available: async () => true,
+      ensureNetwork: async () => undefined,
+      imageExists: async () => false,
+      ok: async (args: string[]) => {
+        if (args[0] === "build") {
+          const tagged = args.indexOf("-t");
+          built.push(args[tagged + 1] as string);
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    } as unknown as Docker;
+
+    await initAccess({ env, docker, tls: false, start: false });
+
+    // The workstation's, and it is the assertion this test exists for.
+    expect(built).toContain(`${WORKSTATION_IMAGE_NAME}:${TOOL_VERSION}`);
+    // Beside the dashboard's, so a reordering that dropped one is visible as the
+    // list it is rather than as a single missing tag.
+    expect(built).toContain(`${DASHBOARD_IMAGE_NAME}:${TOOL_VERSION}`);
   });
 });
