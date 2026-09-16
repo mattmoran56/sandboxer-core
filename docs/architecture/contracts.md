@@ -2510,7 +2510,8 @@ microphone — even when what it wanted was to talk to a worktree's own session.
 |---|---|
 | **Target** | A conversation, as three functions: `hear(text)`, `listening(on)`, `watch(say)`. The orchestrator's agent and a sandbox session are different objects with different lifetimes, and the voice is better for knowing about neither |
 | **Claim** | `MachineVoice.claim(target)`. At most one is held. A second socket on the *same* conversation shares it; a claim on a *different* one takes it |
-| **Address** | `/orchestrator/audio` for the machine's own session, `/p/:project/s/:slug/audio` for a worktree's — beside `/p/:project/s/:slug/agent`, because they are two halves of one conversation |
+| **Address** | `/orchestrator/audio` for the machine's own session, `/p/:project/s/:slug/audio` for a worktree's, `/sessions/:session/audio` for the agent in a session's workstation (§12.6.0) — each beside that conversation's own socket, because they are two halves of one conversation |
+| **Key** | `orchestrator`, `<project>/<slug>`, and `#ws:<session>`. A key is parsed back into a conversation, and a worktree's is split on the first `/` — so a session's must be one that split can never be handed. A project, a slug and a session id are all `[a-z0-9-]`, so the `#` cannot appear in any of them, and the dispatch is a `switch` over a parsed subject rather than a ladder whose last branch is "whatever did not match" |
 | **Capability** | `GET /api/voice` answers `{ enabled, voices, voice }`. A route of its own, not a field on `/api/orchestrator`: every pane asks it, and a worktree page reading a different feature's status to decide whether it may draw a microphone is the right answer arrived at by luck |
 
 Four consequences, each of which is a bug if it is missed:
@@ -2628,11 +2629,14 @@ login may not see:
 - **`/orchestrator`** — the panel. `ready` (recent cards + open question ids) on attach, then
   `escalation` and `answered` frames out; `answer` and `digest` in. A question is answered once,
   by whoever answers first; the `answered` frame clears every other tab's card.
-- **`/orchestrator/audio`** and **`/p/:project/s/:slug/audio`** — the audio relay, only when a
-  voice is configured. Two addresses, one relay: it is one body being pointed at one of them
-  (§10.3.2). Binary PCM both ways with the browser; `audio-in`/`audio-out` on the sidecar
-  transport. **`GET /api/voice`** answers `{enabled, voices, voice}` — whether the machine has a
-  voice at all, and which voices it can speak in.
+- **`/orchestrator/audio`**, **`/p/:project/s/:slug/audio`** and **`/sessions/:session/audio`** —
+  the audio relay, only when a voice is configured. Three addresses, one relay: it is one body
+  being pointed at one of them (§10.3.2). Binary PCM both ways with the browser;
+  `audio-in`/`audio-out` on the sidecar transport. **`GET /api/voice`** answers
+  `{enabled, voices, voice}` — whether the machine has a voice at all, and which voices it can
+  speak in. The workstation address takes the same `*` bar `WS /sessions/:session/agent` takes and
+  for the same reason (§12.6.0); a conversation with nothing running behind it — a worktree with
+  no session, a workstation that is stopped — is a **409**, one refusal for one condition.
 - **`GET/PUT /api/orchestrator/telegram`** — the call targets and the enable switch. **Never the
   api id, hash or session**: those are secrets, stay in the sidecar's environment, and have no
   web field. **`GET /api/orchestrator`** answers `{enabled}` so the browser can decide whether to
@@ -3242,9 +3246,9 @@ A runtime's own state stays exactly where §4.2 puts it, under `state/keep/<proj
 rest. A runtime is a sandbox; its files are a sandbox's files.
 
 **The dashboard's routes for a session are `/sessions/:session` and below it** —
-`…/actions/:action`, `…/terminal`, `…/agent`, and `…/r/:runtime` for the session's view of one
-runtime. **`WS /sessions/:session/agent` is built** (§12.6.3); `…/actions/:action` and
-`…/terminal` are not. They are top-level rather than under `/p/:project`, because a session belongs to no
+`…/actions/:action`, `…/terminal`, `…/agent`, `…/audio`, and `…/r/:runtime` for the session's view
+of one runtime. **`WS /sessions/:session/agent` and `WS /sessions/:session/audio` are built**
+(§12.6.0, §12.6.3); `…/actions/:action` and `…/terminal` are not. They are top-level rather than under `/p/:project`, because a session belongs to no
 project. §3.4's second activity signal — a dashboard route naming the thing — reads
 `…/sessions/<session>/…` out of the same access log, alongside the `…/p/<project>/[sw]/<slug>/…`
 it already matches.
@@ -3293,6 +3297,29 @@ row (§7.2) carries `session` and leaves `project` and `slug` **empty**, which i
 clock makes — `agentActivity` drops a row with either half of the pair empty and
 `agentSessionActivity` keys on `session`, so filling the pair in with anything at all would put a
 workstation run on the clock of a sandbox that does not exist.
+
+**It can be spoken to, at `WS /sessions/:session/audio`.** The address sits beside the agent
+socket for the reason the worktree's does: they are two halves of one conversation. The machine
+has one voice and it is *pointed at* a conversation (§10.3.2), so turning the microphone on in a
+session takes it from whatever held it — including a worktree, which is the person turning to talk
+to something else rather than a fault. Three things about it are decided here rather than guessed:
+
+- **The grant is checked against `*`.** A session belongs to no project (§12.6.1), so there is no
+  project to name, and something had to be chosen. It is the bar the agent socket already sets, for
+  the stronger version of that reason: a workstation carries the machine's GitHub token and the
+  shared Claude credential store, and this relay puts what a person says *into* the agent running
+  in it. A narrower answer would be a microphone that could reach a conversation the same password
+  is refused when it tries to type into.
+- **The claim key is `#ws:<session>`** — see §10.3.2's Key row for why it cannot be read as a
+  worktree's.
+- **A session with no run in it is a 409**, the same answer a worktree with no session gets. A
+  stopped workstation cannot have a run in it, so it reaches the same refusal by the same route
+  rather than through a second one the browser would have to learn.
+
+The **registry's machine-wide watcher carries the session**, not only the project and the slug. A
+workstation run leaves both of those empty, so a watcher handed the pair alone would see every
+session on the machine as `("", "")` — the same collision `activity()` leaves workstation runs out
+to avoid, and here it would read one session's reply aloud into a microphone pointed at another.
 
 **An "always" on a permission question is answered as an "allow".** A standing grant is held per
 project (§7.2) and a session belongs to none, so there is no key to write one under: recording it
