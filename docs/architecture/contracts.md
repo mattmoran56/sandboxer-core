@@ -2775,10 +2775,25 @@ tool over a real stdio pipe against a real HTTP server — and **neither has bee
 in a workstation**, because nothing starts one yet. That last piece is the socket into a
 workstation, and it is the one thing between here and a session that shows you its work running.
 
+**The browser app draws a session now.** `/sessions` lists them, `/sessions/<id>` is one — its
+checkouts, its runtimes, and start, stop and delete — and **New session** is the app's primary
+create action, on the home page and on the sessions pane. Adding code to a session is a project
+and a branch; §7.4's two read-only views are the same two components, pointed at a workstation
+rather than at a sandbox. Everything §12 says about an absence is drawn as one: an unreadable
+work volume is `unknown` and never `none` (§12.5), and `runtimesWithheld` and the repositories
+listing's `withheld` are rendered rather than dropped (§12.6.1). **Worktrees are unchanged and
+still primary in the sidebar** — a session cannot yet do everything a worktree can (§12.10), and
+every sandbox on any real machine today is on a worktree. **None of the browser half has been
+opened in a browser**: it is tested in jsdom against the shapes above, and that is all.
+
+One gap that follows from the above and is the app's rather than this section's: **the server's
+`APP_ROUTES` does not list `/sessions` or `/sessions/:session`**, so a reload or a bookmark of
+either is answered by the 404 shell — the app boots and draws, at status 404 and without the
+sign-in redirect that carries `next=`. Navigating inside the app is unaffected.
+
 **The rest of §12 has not been built**: there is no CLI command, no session scope in §8's action
-table, and no socket reaches a workstation. **The browser app draws none of it**, so there is still
-no way for a person to reach a session without a `curl`. Until that lands, the worktree model is the
-one anybody actually uses.
+table, and no socket reaches a workstation — so a session still has no terminal and no
+conversation, which is what the worktree model still has and this one does not.
 [`docs/reference/status.md`](../reference/status.md) carries the same division where a reader of
 the site will find it, and it is the only other place that has to.
 
