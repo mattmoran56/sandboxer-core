@@ -90,7 +90,28 @@ export function archBuildArgs(arch: string = process.arch): string[] {
 export type Runner = (
   bin: string,
   args: string[],
-  options?: { input?: string | undefined; timeoutMs?: number | undefined },
+  options?: {
+    input?: string | undefined;
+    timeoutMs?: number | undefined;
+    /**
+     * The whole environment for this one process, replacing the parent's.
+     *
+     * Here for one caller, and it is worth naming because an optional
+     * environment is otherwise the kind of seam that grows for no reason.
+     * `session/carry.ts` has to read a worktree's uncommitted work **without
+     * writing a byte anywhere near it**, and the only two levers git offers for
+     * that are `GIT_INDEX_FILE` and `GIT_OBJECT_DIRECTORY`. Neither has a
+     * command-line form — there is no `git -c` for either — so a call that
+     * cannot set an environment cannot ask git to keep its hands off somebody's
+     * checkout.
+     *
+     * Absent inherits the parent's, which is what every other call here wants:
+     * git reads a good deal of its behaviour out of `GIT_*` variables a person
+     * may have set on purpose, and a call that silently emptied the environment
+     * would be a different git from the one they run in a terminal.
+     */
+    env?: NodeJS.ProcessEnv | undefined;
+  },
 ) => Promise<ExecResult>;
 
 const MAX_BUFFER = 256 * 1024 * 1024;
@@ -100,7 +121,12 @@ export const nodeRunner: Runner = (bin, args, options = {}) =>
     const child = execFile(
       bin,
       args,
-      { maxBuffer: MAX_BUFFER, timeout: options.timeoutMs ?? 0, encoding: "utf8" },
+      {
+        maxBuffer: MAX_BUFFER,
+        timeout: options.timeoutMs ?? 0,
+        encoding: "utf8",
+        ...(options.env === undefined ? {} : { env: options.env }),
+      },
       (error, stdout, stderr) => {
         // A non-zero exit is data here, not an exception: several callers ask a
         // question whose answer is "no" — `docker inspect` on a container that

@@ -152,6 +152,8 @@ export {
   markSessionAttached,
   readSessionKeep,
   readSessionName,
+  parseAdopted,
+  readSessionAdopted,
   removeSessionKeep,
   removeSessionName,
   removeSessionState,
@@ -168,10 +170,12 @@ export {
   workstationArgs,
   workstationLabels,
   workstationState,
+  writeSessionAdopted,
   writeSessionKeep,
   writeSessionName,
 } from "./session/index.js";
 export type {
+  AdoptedFrom,
   ContainerKind,
   CreateSessionOptions,
   DeleteSessionReport,
@@ -218,6 +222,12 @@ export {
 export type { CloneRequest, WorkEntry, WorkRunner } from "./session/work.js";
 export { addSessionRepo, SessionRepoError } from "./session/repos.js";
 export type { AddRepoRequest, AddedRepo, SessionRepoRefusal } from "./session/repos.js";
+export { adoptWorktree, AdoptError } from "./session/adopt.js";
+export type { AdoptWorktreeRequest, AdoptedWorktree, AdoptRefusal } from "./session/adopt.js";
+export { readableBranch, sessionNameForWorktree } from "./session/adopt-name.js";
+export type { WorktreeNameInput } from "./session/adopt-name.js";
+export { captureWorktreeChanges, carryIntoWork, CarryError } from "./session/carry.js";
+export type { WorktreeChanges } from "./session/carry.js";
 export { RuntimeError, runtimeSlug, runtimeWorkspaceArgs, stageRuntime } from "./session/runtime.js";
 export type { RuntimeRequest, StagedRuntime } from "./session/runtime.js";
 
