@@ -135,10 +135,10 @@ shapes the server really answers with, which catches a pane wired to the wrong r
 nothing at all about how any of it looks or feels. That is true of the two code views as well,
 which were built the same way.
 
-**Worktrees are untouched and still have the sidebar.** A session has no terminal and no
-conversation yet — no socket reaches a workstation — so the worktree model is still the one that
-can do a day's work, and replacing the sidebar with a list of sessions would have taken that away
-to make room for something that cannot yet replace it.
+**Worktrees are untouched and still have the sidebar.** A session has a conversation now (below)
+but no terminal and no actions, so the worktree model is still the one that can do a day's work,
+and replacing the sidebar with a list of sessions would have taken that away to make room for
+something that cannot yet replace it.
 
 **One gap you will meet by reloading the page.** `/sessions` and `/sessions/<id>` are not in the
 server's list of app routes, so a reload or a bookmark of either is answered by the app's 404
@@ -162,12 +162,11 @@ that would confirm the other one exists.
 <details>
 <summary><b>Fact sheet</b> — the runtime routes and the <code>sandboxr</code> MCP server</summary>
 
-**Not exercised by a real agent, because there is no agent.** Nothing starts a `claude` process in
-a workstation yet, so nothing mints a token, nothing copies the MCP server into the container and
-no tool call has ever been made by a model. What *has* been run is both halves in isolation: the
-routes over real HTTP against a fake core and a fake daemon, and the MCP server as a child process
-over a real stdio pipe against a real HTTP server, asserting the JSON-RPC exchange and the bearer
-on every call.
+**The server has been copied into a workstation and started by a real agent; no model has called a
+tool through it.** See the section below for what a live run showed and where it stopped. What has
+also been run is both halves in isolation: the routes over real HTTP against a fake core and a fake
+daemon, and the MCP server as a child process over a real stdio pipe against a real HTTP server,
+asserting the JSON-RPC exchange and the bearer on every call.
 
 **The routes** are `POST /api/sessions/:session/runtimes`, `POST /api/sessions/:session/r/:runtime/stop`
 and `DELETE /api/sessions/:session/r/:runtime`, plus `GET /api/sessions/:session` and
@@ -191,11 +190,55 @@ session, so the second is refused rather than replacing the first. A delete take
 that project's DNS ceiling, and the ceiling is declared by a `sandboxr.yaml` inside the work volume
 the host has no copy of. The answer carries the runtime core really started.
 
-**What a real run would settle:** whether a model can drive these tools usefully — whether
+**What a real run would still settle:** whether a model can drive these tools usefully — whether
 `start_runtime` refusals read as actionable, and whether an agent reaches for `stop_runtime` rather
-than leaving containers running. And the delivery question: the MCP server has to reach the
-workstation as a file copied in at exec time, because a workstation's mount table is closed and the
-installation is not in it. Nothing does that copy yet.
+than leaving containers running.
+
+</details>
+
+### Talking to the agent in a session
+
+A session opens into a conversation with its own agent, at `WS /sessions/<session>/agent`. It is
+the worktree's agent socket in a different container: the same messages in both directions, so the
+dashboard draws the two conversations with one component. The agent starts at `/work`, the top of
+the session's own disk, rather than inside any one checkout — a session can hold several
+repositories or none, and the answer to "where am I" must not change the next time somebody clones
+something.
+
+It is handed a credential of its own: a token minted for that one agent run, which opens that one
+session's routes and nothing else on the machine, and is handed back the moment the process ends.
+The `sandboxr` tools reach it as a single file copied into the container when the agent starts —
+never mounted, because a workstation may not be given a path back into the installation.
+
+<details>
+<summary><b>Fact sheet</b> — what the live run showed, and where it stopped</summary>
+
+**Run against a live daemon.** A session was created (`POST /api/sessions`), the socket opened, and
+one message sent. `claude` started inside `sandboxr-ws-<session>` and reported `cwd=/work`, forty
+tools, and `mcp: [{ name: "sandboxr", status: "connected" }]` — the MCP server was copied in,
+executed by the agent's own process, and completed its handshake. The turn ran and returned a
+`result`.
+
+**No model answered, and no tool call was made.** The turn ended on `Failed to authenticate: OAuth
+session expired and could not be refreshed`. That is the machine's credential, not the socket: the
+dashboard shares the host's Claude login as `~/.claude/.credentials.json`, and on macOS that file
+is a *copy* of a credential the login keychain holds. The copy's refresh was rejected and Claude
+Code wrote the file back with its tokens blanked — which is exactly what the server's `hasLogin`
+is written about, reached from a workstation for the first time. Every sandbox on such a machine
+shares that one file, so the fix is the machine's: put a login back in it, or run `claude
+setup-token` on the host and set `SANDBOXR_CLAUDE_TOKEN`.
+
+**Two things were found by running it rather than by reading it.** The sandbox's `with-env` prefix
+is fatal in a workstation, whose image ships no `/opt/sandboxr/scripts`: the exec failed before
+`claude` was reached and the stream reported it as "Claude Code exited without starting a session".
+And the copied MCP file has to be `.mjs` — an ES module named `.js`, with no `package.json` beside
+it, is read by node as CommonJS and dies on its first `import`, which Claude Code reports only as a
+server that failed to start.
+
+**What is not there.** No side questions: `/btw` forks a worktree's conversation and a session is
+not on a worktree, so it is refused with a sentence. No session terminal and no session actions —
+neither exists yet. Opening a conversation needs a password that covers every project, because a
+workstation carries the machine's GitHub token and the shared Claude credential store.
 
 </details>
 
