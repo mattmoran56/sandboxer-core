@@ -1549,6 +1549,7 @@ to it is a capability handed to the least supervised process on the machine.
 | `GET /api/p/:project/s/:slug/diff` | Everything on the branch that is not on its upstream yet — committed, staged, unstaged and untracked — as a list of files with their counts. Never the patches (§7.4) |
 | `GET /api/p/:project/s/:slug/diff/file` | One changed file's patch, at `?path=`. Its own request, made when a row is opened (§7.4) |
 | `PUT /api/p/:project/w/:slug/name` | Sets what one **worktree** is called, from a body of `{ "name": string }`; an empty name clears it. Answers `{ project, slug, displayName }`. On the `w` form and never the `s` form: the name belongs to the worktree, which persists (§4.2.1). A name that is not one is a `400` that does not repeat what was sent |
+| `POST /api/p/:project/w/:slug/session` | Makes a session holding this **worktree's** code — its commits, and its uncommitted work carried across on top (§12.10.1). Takes no body: the branch, the commit and the name are read from the worktree. On the `w` form for the rename's reason, so it works with nothing running. **Takes the machine-wide bar of §12.6.1**, because it creates a session, and inherits the project sweep from `:project` besides. Answers `201` with `{ session, repo, carried }` |
 | `GET`, `POST /api/sessions` | Every session on the machine, and making one (§12.6.2) |
 | `GET`, `PATCH`, `DELETE /api/sessions/:session` | One session, naming it, and deleting it. The `PATCH` body is `{ "name": string }` and nothing else; an empty or whitespace name **clears** it, and the answer is the whole `SessionDto`. `PATCH` and not a `/name` sub-resource, which is where a *worktree's* rename lives: a worktree's name is filed against a directory that outlives every sandbox cut on it, and a session **is** the thing being named. A name reaches no container, no volume and no URL (§12.2). The delete takes no `force` (§8.1) |
 | `POST /api/sessions/:session/start`, `…/stop` | Its workstation. Stopping removes nothing (§12.8) |
@@ -3214,13 +3215,15 @@ the most.
 ~/.sandboxr/state/session/<session>/keep     keeps the workstation alive past its idle limit
 ~/.sandboxr/state/session/<session>/name     what to call this session on screen
 ~/.sandboxr/state/session/<session>/attach   a socket is being held open on the workstation
+~/.sandboxr/state/session/<session>/adopted  the worktree this session's code was copied from
 ```
 
-**One directory per session rather than three parallel trees, and `session/` is a namespace rather
+**One directory per session rather than a parallel tree each, and `session/` is a namespace rather
 than decoration.** `state/keep/<project>/<slug>` puts a *project* directory at its first level, so
 a session id written there could collide with a project of the same name — and the two would then
 be one file, exempting a sandbox from its lifetime because somebody pinned a session. The nesting
-also makes §12.8's last step one `rm -r` rather than three deletions that can half-succeed.
+also makes §12.8's last step one `rm -r` rather than a deletion per file that can half-succeed —
+and it is what let `adopted` be added without a fourth tree and a fourth deletion to forget.
 
 Each file keeps the semantics argued for it where it was argued, and each argument carries over
 whole:
@@ -3237,6 +3240,24 @@ whole:
 - **`attach` is an mtime and a heartbeat** (§4.2.2), written by the dashboard while it holds the
   workstation's terminal or agent socket, believed for `ATTACH_LIVE_GRACE_MS`, stamped once more
   on release.
+- **`adopted` holds `<project>/<slug>` and carries no stamp either.** It records the worktree the
+  session's code was copied out of (§12.10.1), written once by the adoption and never again. Both
+  halves are directory names — §4.1's workspace key and the worktree's own directory under `wt/`,
+  which is the pair every worktree route addresses one by — and deliberately **not the branch**,
+  because a branch moves between worktrees and is checked out in several at once. **It is a record
+  of where the code came from, not a link to a live thing**: the worktree may be deleted the next
+  day, nothing looks it up to check, and nothing is keyed on it. A file edited by hand into
+  anything that is not a pair of plain directory names reads as *no record*, which is visible,
+  harmless and undoable. Absent is the ordinary case — every session made by `POST /api/sessions`
+  has no worktree behind it at all.
+
+**What `adopted` is for, and why it is a file rather than a label.** The dashboard has to be able
+to say a worktree already has a session rather than offer to make a second, and the only join
+available for that is this pair read back the other way round (`GET /api/workspace` and
+`GET /api/projects/:project` both do it, and put the session ids on `WorktreeDto.sessions`). A
+label on the workstation would be the obvious alternative and is wrong for §4.2.1's reason: a
+workstation is recreated exactly as a sandbox is, so the record would be thrown away the first time
+somebody rebuilt one.
 
 A runtime's own state stays exactly where §4.2 puts it, under `state/keep/<project>/<slug>` and the
 rest. A runtime is a sandbox; its files are a sandbox's files.
@@ -3327,6 +3348,16 @@ Four readings were closed rather than left open, each because the rule above doe
   runtimes, which are sandboxes of projects the caller may hold no grant over (§12.8). That is the
   same bar the global `clone` action takes, for the same reason. **Reading** a session — the list,
   one session, its repositories — needs only a session, and is filtered.
+- **Adopting a worktree takes that same bar, even though it is addressed as a worktree**
+  (§12.10.1). It is worth saying because the address argues the other way: `POST
+  /api/p/:project/w/:slug/session` names a project, so it goes through the router's grant sweep
+  like every other `/p/:project/…` route, and a reading that stopped there would let a
+  project-scoped password make sessions. It creates a session, so the create's bar governs and
+  being scoped to one worktree does not lower it. The sweep is then redundant in practice — a
+  machine-wide password covers every project — and is kept because it is structural, and because it
+  is the check that would still be right if the bar were ever loosened. This is the list closing at
+  "every session write that is not scoped to a repository" doing its job: the new write inherited
+  an answer instead of guessing one.
 - **Renaming a session takes that same bar, and the reason is not the one above.** A name reaches
   no container, no credential and no project: it is one host file, presentation only (§4.2.1). The
   reason is what a name is *for*. A session belongs to no project, so a narrow password has no
@@ -3420,6 +3451,7 @@ meaning no menu and a composer that works, rather than a request to a route that
 | `POST /api/sessions/:session/stop` | Stops it, removing nothing (§12.8). Already stopped is a `200` that says it changed nothing, not a failure |
 | `GET /api/sessions/:session/repos` | What is in the work volume, read by a container that mounts it. **A read that failed says so** — `readable: false` with the reason — and never answers with an empty list (§12.5) |
 | `POST /api/sessions/:session/repos` | Clones one repository and branch onto the work volume, from a `project`, a `branch` and an optional `start`. `project` is the workspace directory name, which §12.5 spells `<repo>` and §4.1 makes the key a grant is held against — one name for both, because a second would be a second thing to get wrong and the thing it would get wrong is an access check. Answers `201` with `{ repo, dir, branch, head }`, `head` being the full sha it landed on. **Checked against that project's grant and not the machine's**, and a project the password does not cover answers `404` **in the same words** a project that is not in the workspace gets — anything else would let a narrow password enumerate the machine by reading the difference. §12.5's collision is a `409` naming both branches; a project whose remote this machine has lost is a `409`; a branch nothing resolves is a `404`; a volume that could not be read is a `503`, never an empty one. It answers synchronously and can take tens of seconds: a fetch plus a clone that really copies objects (§12.9), with no action-table scope to stream through |
+| `POST /api/p/:project/w/:slug/session` | **Adopts a worktree** (§12.10.1): makes a session holding that worktree's code, its uncommitted work carried across on top, under a name derived from the branch. Takes **no body** — the branch, the commit and the name are read from the worktree, because a caller supplying any of them would be sending what it read on its last poll. Answers `201` with `{ session, repo, carried }`, `carried` being how many files of uncommitted work arrived. **The worktree is never modified, moved or removed**, which is what makes a failure safe to unwind: a clone or a carry that fails takes the session away again and reports the original reason. A project, worktree or directory that is not there is a `404`; a project with no remote, a worktree on no nameable branch and §12.5's collision are `409`; an unreadable volume is a `503`; a carry that failed is a `500` naming any session the rollback could not remove. It takes tens of seconds and answers one body, for `POST …/repos`'s reason |
 | `GET /api/sessions/:session/r/:runtime` | The session's view of one runtime, which is the body `GET /api/p/:project/s/:slug` answers. A runtime is a sandbox, and it has one description (§12.4) |
 | `POST /api/sessions/:session/runtimes` | Starts one, from a runtime `name`, a `repo`, a `branch` and an optional lifetime. Refused unless that checkout is on this session's work volume (§12.6.1.1). A taken runtime name is a `409` carrying core's own sentence. It can take as long as building the project's image. Answers the runtime **core really started** and its URLs — the route derives no slug, because the ceiling that shapes one is declared by a `sandboxr.yaml` the host has no copy of (§12.2) |
 | `POST /api/sessions/:session/r/:runtime/stop` | Stops it, removing nothing. Already stopped is a `200` that says it changed nothing |
@@ -3572,9 +3604,136 @@ today; each right-hand entry is what the session model replaces it with.
 | §4.1's `repo.git` | Kept, as the local source of objects and refs (§12.9) |
 | §4.1's `wt/<branch>` | The work volume, `/work/<repo>/<branch>` (§12.5) |
 | §4.1.1's `Worktree` type | Not what a session lists. A session holds repositories and branches inside its volume, and may hold none (§12.1, §12.5) |
-| §4.2, §4.2.1, §4.2.2 | The same three files with the same arguments, under `state/session/<session>/` (§12.6) |
+| §4.2, §4.2.1, §4.2.2 | The same three files with the same arguments, under `state/session/<session>/`, plus a fourth of §12's own — `adopted` (§12.6) |
 | §5, §6, §7.1, §8 | Unchanged. They are about a runtime, and a runtime is a sandbox |
 | §7.3's git mounts | Not used by a runtime: a clone on a work volume is self-contained and needs no identical-path mount (§12.4). §7.3's other two rules — the commit identity, the GitHub token — are unchanged, and the mounts remain the contract for a worktree |
 | §7.2's "agent session" on a worktree | A Run in a workstation, keyed on the session (§12.1, §12.7). The Run / Thread / Event model is untouched |
 | The dashboard's sidebar of worktrees | The sidebar of sessions. The worktree list is the `/worktrees` pane at every width, and a project's own pane is where one is managed from — both still list exactly what §4.1.1 reports |
 | The dashboard's **New worktree**, and `/new` | Nothing. Code is added to a session instead, with `POST /api/sessions/:session/repos` (§12.5). Starting a sandbox on an existing branch is unchanged and is still a Start on a project's pane; **cutting a new branch from a base has no button any more** |
+
+#### 12.10.1 Adopting a worktree
+
+The map above says what replaces what, and leaves one thing out: the worktrees that are already on
+the machine. Every sandbox on any real machine today runs on one, somebody has been working in them
+for a week, and the session model arrived afterwards. **Adoption is the one operation that crosses
+that gap** — one action, repeatable, that makes a session holding a worktree's code under a name a
+person can read.
+
+`POST /api/p/:project/w/:slug/session` (§7.1, §12.6.2), `adoptWorktree` in
+`packages/core/src/session/adopt.ts`.
+
+**Adoption copies. It does not migrate.** The worktree is never modified, moved or removed — not by
+the operation and not afterwards. A worktree that has been adopted is still a worktree, its sandbox
+still runs, and it can be adopted again. That is not politeness: a person presses this to *try* a
+session, and an operation that consumed the thing it was pointed at would make trying it the
+irreversible act. It is also what makes a failure safe to unwind — see the rollback below.
+
+**The commit is the worktree's own HEAD, and no fetch runs.** `POST …/repos` beside it goes through
+`freshenBranch` (§4.1.3) and lands the session on whatever origin holds; adoption must not. The
+request is "give me a session holding *this*", and moving the checkout to origin's head before
+applying a patch built against an older commit would either fail to apply or apply somewhere nobody
+asked for. The sha always resolves in the project's bare clone, because a worktree shares its object
+database (§12.9) — including for commits that exist nowhere else on earth.
+
+**The uncommitted work comes across, or the adoption fails.** This is the whole difficulty. A
+session's code is a clone (§12.5) and a clone carries committed state only, so a worktree with
+twenty modified files adopted naively becomes a session that looks right, is missing a week, and
+says nothing about it — on a branch whose author has no reason to go looking.
+
+It is carried as **one patch**, `git diff --binary HEAD`, applied by a second short-lived container
+to the clone that was just checked out at that same commit. Four things follow, and each was a
+decision:
+
+- **The patch cannot fail on context, by construction.** The destination is the exact tree the patch
+  was generated against. That is what makes this safe to do unattended.
+- **`--binary`, so a changed image or a lockfile git treats as binary survives.** A git binary patch
+  is base85, which is plain ASCII, so the patch is also safe to carry as a string on the way to the
+  daemon.
+- **A copy of the working tree was rejected**, and not on taste. A copy carries what git deliberately
+  does not — `node_modules`, `dist/`, a `target/`, gigabytes of it built for the host's architecture
+  — and excluding it means reimplementing `.gitignore`. A copy also **cannot express a deletion**: a
+  file removed but not committed is simply absent, and copying an absent file over a clone that still
+  has it loses the deletion silently. And a copy has to mount the worktree into a container, which is
+  a write path onto somebody's checkout for the life of that container. The patch means **the
+  worktree is never mounted anywhere at all**.
+- **Untracked files are in the patch, and reading them writes nothing.** `git diff HEAD` says nothing
+  about a file git has never been told about, and the usual way to make one visible is
+  `git add --intent-to-add`, which writes the index — and the index is part of the worktree. So the
+  index is copied first and git is pointed at the copy: `GIT_INDEX_FILE` takes every write,
+  `GIT_OBJECT_DIRECTORY` takes the one object `--intent-to-add` records, and
+  `GIT_ALTERNATE_OBJECT_DIRECTORIES` keeps the real object database readable. Without the object
+  redirection git writes the empty blob into the *project's shared bare clone* — harmless in itself,
+  and still a write into a repository three other worktrees share, made by an operation that said it
+  would copy. **`GIT_OBJECT_DIRECTORY` must name a directory that already exists**: `is_git_directory`
+  checks it, so pointing at one that does not yet exist makes every command answer
+  `fatal: not a git repository` about a worktree that plainly is one.
+
+**What does not come across is said out loud rather than discovered.** Ignored files — `.env`,
+`node_modules`, build output — are not carried: a runtime installs its own dependencies, §6 is where
+a project's secrets come from, and a session seeded with the host's `.env` would be a credential
+copied by a button nobody expected to copy one. The staged/unstaged split is flattened, because
+`git diff HEAD` is one comparison; everything arrives unstaged. Stashes and other branches are in the
+bare clone and the session can fetch them.
+
+**A failure after the session exists is rolled back.** If the clone or the carry fails, the session
+just made is deleted and the original refusal is reported. That is safe *only* because adoption
+copies: every byte it held is still in the worktree. A half-adopted session left on the machine
+would be worse than the refusal — a workstation whose volume holds a clone with a week missing,
+which is exactly the outcome this exists to prevent. A rollback that itself fails names the session
+it left, because then there really is something for a person to deal with.
+
+**The name is derived and the id is not.** §12.2 is unchanged: the id is `sanitizeSlug` of whatever
+name the session ends up with, bounded at 31, and is the address. The *name* is a label, and
+`sessionNameForWorktree` in `packages/core/src/session/adopt-name.ts` derives it — in core, because
+a name derived in the dashboard and a name derived by a future `sandboxr session adopt` would
+eventually differ, and what they would differ about is what a person picks a session out of a list
+by. The rule, in order:
+
+1. **A name somebody already gave the worktree wins, untouched** (§4.2.1). It is the only sentence
+   on the machine a person actually wrote about this work.
+2. **Otherwise the branch, read as words.** `claude/eng-3850-top-navbar-parity` is three facts stuck
+   together — a namespace, a ticket and a description — and only the third is a name. The leading
+   path segments go, a leading tracker key goes (`eng-3850`, `ENG4042`, either spelling), and what is
+   left is sentence-cased: **"Top navbar parity"**. A branch that is *only* a ticket keeps it — "Eng
+   4042" beats nothing.
+3. **Otherwise the slug**, which is at least the address on screen.
+
+It is bounded at §4.2.1's 60 code points, cut at a word boundary where one is late enough to use,
+because `normaliseDisplayName` **refuses** an over-long name rather than truncating it — so an
+unbounded derivation would be an adoption that failed on a branch somebody happened to name at
+length.
+
+**A worktree that already has a session says so rather than offering a second.** The join is
+`state/session/<session>/adopted` read the other way round (§12.6): `GET /api/workspace` and
+`GET /api/projects/:project` list every session, group the records by `<project>/<slug>`, and put
+the ids on `WorktreeDto.sessions`. Empty means nobody has adopted it. A second adoption is not
+forbidden — adoption copies — but the ordinary reason to press the button twice is not knowing the
+first one worked. A session deleted takes its record with it, because the record is in the session's
+state directory and §12.8's last step removes the lot, so the list can never name a session that is
+not there.
+
+**What has been run, and what has not.** The happy path has been driven end to end against a real
+daemon and a real project — a 1&nbsp;GB monorepo with three worktrees on it:
+
+- **A clean worktree**, adopted in eighteen seconds, `carried: 0`. Its session took its name from
+  the worktree's own display name, which is rule 1 above.
+- **A worktree with twenty uncommitted files** — eighteen modifications, a deletion and a
+  rename-with-modification — adopted in sixteen seconds, `carried: 20`. Its session was named
+  **"Top navbar parity"** from `claude/eng-3850-top-navbar-parity`, which is rule 2.
+- **The uncommitted work was checked rather than assumed.** The session's checkout and the worktree
+  were diffed against their common HEAD with the same normalisation on both sides
+  (`--binary --no-renames --full-index`, over a scratch index so untracked files appear in both):
+  **byte-identical**, one sha256 over 54,170 bytes and 21 paths. The clone was checked for §12.5's
+  two traps as well — `origin` is the forge's URL and there is no `objects/info/alternates` — and
+  its upstream resolved to `origin/claude/eng-3850-top-navbar-parity`, which is true only if the
+  fetch of the mirror's `refs/remotes/origin/*` landed.
+- **The join was checked from the other end**: `GET /api/workspace` named each adopted worktree's
+  session and left the third worktree's `sessions` empty.
+- **Two refusals**, a worktree that is not there and a project that is not there, both `404`.
+- Both sessions were then deleted, and all three worktrees were byte-identical to how they were
+  found — the dirty one still carrying its twenty files, and the named one still named.
+
+**Not run against a daemon**: the narrow-password refusal, the rollback, and the `409`, `503` and
+`500` answers. Those are tested against a fake core and a fake daemon. **The browser half has not
+been opened in a browser** — it is tested in jsdom, which is the same thing §12's preamble says of
+everything else there.

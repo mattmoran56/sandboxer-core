@@ -145,6 +145,25 @@ managed from now.
 from inside the session. The one thing that form could do and nothing else now can is cut a
 *new* branch from a base; starting a branch that already exists is unchanged.
 
+**A worktree can now be made into a session, and the uncommitted work comes with it.** **Make a
+session** is beside the Start on a project's pane and in the Worktree panel of a worktree's own
+pane. It copies: the worktree is not moved, emptied or removed, and whatever is running on it
+carries on. The part that needed building rather than wiring is the uncommitted work — a session
+holds a clone, and a clone carries committed state only — so the worktree's dirty state is read
+as a patch and applied on top of the fresh checkout, untracked files included. Reading it writes
+nothing into the worktree: the index is copied and git pointed at the copy, and the worktree is
+never mounted into a container. A worktree that already has a session says so instead of offering
+to make a second.
+
+This has been run against a real daemon, on a real 1 GB project, both ways: a clean worktree in
+eighteen seconds, and one with twenty uncommitted files — eighteen edits, a deletion and a rename —
+in sixteen. The session's copy of that uncommitted work was compared with the worktree's and is
+byte-identical. Both worktrees were untouched afterwards, and both sessions were deleted.
+
+**The refusals have not been driven against a daemon** — a narrow password, a failed carry, an
+unreadable volume — only against a fake one. And the buttons have not been opened in a browser;
+they are tested in jsdom, like everything else in the app.
+
 > [!WARNING] A session's conversation does not connect
 > The pane dials `/sessions/<id>/agent`, which is the address the contract names, and the
 > server's agent socket still only accepts a sandbox's `/p/<project>/s/<slug>/agent` — it

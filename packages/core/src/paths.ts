@@ -159,13 +159,13 @@ export interface Paths {
   /**
    * One session's state, all of it, in one directory (contracts §12.6).
    *
-   * **A directory per session rather than three parallel trees**, and `session/`
+   * **A directory per session rather than a parallel tree per file**, and `session/`
    * is a namespace rather than decoration. `state/keep/<project>/<slug>` puts a
    * *project* directory at its first level, so a session id written there could
    * collide with a project of the same name — and the two would then be one
    * file, exempting a sandbox from its lifetime because somebody pinned a
    * session. The nesting also makes deleting a session one `rm -r` rather than
-   * three removals that can half-succeed.
+   * a removal per file, each of which can half-succeed.
    */
   sessionDir(session: string): string;
   /**
@@ -187,6 +187,23 @@ export interface Paths {
   sessionNameFile(session: string): string;
   /** The heartbeat saying a live process holds a socket on one workstation (§4.2.2). */
   sessionAttachFile(session: string): string;
+  /**
+   * The worktree this session was adopted from, as `<project>/<slug>`.
+   *
+   * No stamp, for `sessionNameFile`'s reason: it is a fact about the session,
+   * which outlives every container in it, and one that never changes after the
+   * session is created — adoption happens once and the file is written with it.
+   *
+   * **It records where the code came from, not a link to a live thing.** The
+   * worktree may be deleted the day after; the session keeps its clone and this
+   * file keeps saying what it was cut from, which is exactly the sentence
+   * somebody reading an old session wants. Nothing is keyed on it and nothing
+   * looks the worktree up to check it is still there.
+   *
+   * Absent is the ordinary case: every session made by `POST /api/sessions` has
+   * no worktree behind it at all (§12.2).
+   */
+  sessionAdoptedFile(session: string): string;
 }
 
 /**
@@ -231,6 +248,7 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     sessionKeepFile: (session) => join(home, "state", "session", session, "keep"),
     sessionNameFile: (session) => join(home, "state", "session", session, "name"),
     sessionAttachFile: (session) => join(home, "state", "session", session, "attach"),
+    sessionAdoptedFile: (session) => join(home, "state", "session", session, "adopted"),
   };
 }
 

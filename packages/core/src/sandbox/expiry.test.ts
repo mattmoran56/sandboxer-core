@@ -317,6 +317,7 @@ function session(overrides: Partial<Session> = {}): Session {
   return {
     id: "eng-3941",
     name: null,
+    adopted: null,
     created: "2026-08-25T09:00:00.000Z",
     ttl: "8h",
     state: "running",
