@@ -120,31 +120,43 @@ written over somebody's work.
 
 ### A session in the dashboard
 
-The browser app draws a session now. **New session** is in the top bar of every screen, at the
-head of the worktree column, on the home page, on the sessions pane and beside a project's New
-worktree — and it asks for nothing: one click makes a session and lands you in it. The id is the
+The browser app is organised around a session now, sidebar included. **New session** is in the
+top bar of every screen, at the head of the session column, on the home page and on a project's
+pane — and it asks for nothing: one click makes a session and lands you in it. The id is the
 server's to choose, because the id is the address; the **name** is set afterwards, on the
-session's own pane, and a session nobody has named shows its id as its title. `/sessions` lists
-every session on the machine; `/sessions/<id>` shows one — its checkouts, its runtimes, and
-start, stop and delete. Adding code to a session asks for a project and a branch, and the file
-explorer and the branch diff are the same two components a worktree has, pointed at the
-session's container instead.
+session's own pane, and a session nobody has named shows its id as its title.
+
+**The sidebar lists sessions.** It was the list of worktrees; the rows are drawn the same way —
+a state dot at the head, the name, the id or what the session holds under it, one thing at the
+right-hand end — so nothing about reading the column changed but what is in it. `/sessions` is
+that same list given a screen, which is what the phone's tab bar switches to.
+
+**`/sessions/<id>` opens on its agent**, with its checkouts, its runtimes and the controls over
+its container in a column that slides out beside it. It is the shape a worktree's pane already
+had, and literally the same two components.
+
+**Worktrees are untouched in everything but where they are listed.** Every sandbox on this
+machine is on a worktree and every one of them still has its own pane. `/worktrees` is the whole
+list, at every width — linked from the foot of the session column and a tab on the phone — and a
+project's own pane lists its worktrees with a **Start** beside each, which is where one is
+managed from now.
+
+**New worktree has gone as an action, and `/new` with it.** Code is added to a session instead,
+from inside the session. The one thing that form could do and nothing else now can is cut a
+*new* branch from a base; starting a branch that already exists is unchanged.
+
+> [!WARNING] A session's conversation does not connect
+> The pane dials `/sessions/<id>/agent`, which is the address the contract names, and the
+> server's agent socket still only accepts a sandbox's `/p/<project>/s/<slug>/agent` — it
+> refuses anything else with a 404 before it even checks the cookie. So a session's pane shows
+> **disconnected** and a Reconnect that will keep failing. Everything in the column beside it
+> works. Nothing was stubbed to hide this, and nothing about the server was changed to make it
+> look otherwise.
 
 **Nothing in the browser app has been opened in a browser.** It is tested in jsdom against the
 shapes the server really answers with, which catches a pane wired to the wrong route and says
-nothing at all about how any of it looks or feels. That is true of the two code views as well,
-which were built the same way.
-
-**Worktrees are untouched and still have the sidebar.** A session has no terminal and no
-conversation yet — no socket reaches a workstation — so the worktree model is still the one that
-can do a day's work, and replacing the sidebar with a list of sessions would have taken that away
-to make room for something that cannot yet replace it.
-
-**One gap you will meet by reloading the page.** `/sessions` and `/sessions/<id>` are not in the
-server's list of app routes, so a reload or a bookmark of either is answered by the app's 404
-document: the page loads and draws correctly, at HTTP 404, and a login that has expired lands on
-the app rather than on the sign-in form. Clicking through to a session from inside the app is
-unaffected.
+nothing at all about how any of it looks or feels. That is true of the two code views, the
+session column and the session pane alike.
 
 ### How an agent asks for a runtime
 
@@ -225,8 +237,8 @@ one thing wrong in the details.
 
 ### The dashboard's browser app
 
-**All of it is unproven.** `@sandboxr/web` replaced the server-rendered pages wholesale: the sidebar
-of worktrees and its groupings, the panes, the new-worktree routes, settings, the themes.
+**All of it is unproven.** `@sandboxr/web` replaced the server-rendered pages wholesale: the
+sidebar, the worktree list and its groupings, the panes, settings, the themes.
 
 Its pieces are unit-tested and its API is typed at both ends. **Nobody has sat in front of it and
 taken a project through a day's work.**

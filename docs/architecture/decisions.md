@@ -535,7 +535,7 @@ your worktree mounted.
 
 **The dashboard is a single-page app, not a set of documents.** *Obvious:* server-render each page
 and let the browser navigate between them. It is less machinery, it works with JavaScript off, and
-it is what the dashboard was. *Why not:* the sidebar is a list of every worktree on the machine,
+it is what the dashboard was. *Why not:* the sidebar is a list of every session on the machine,
 grouped and collapsible, and it is a list somebody keeps their place in. A full page load puts that
 list back to the top on every click, re-collapses nothing and re-fetches everything — and the pane
 you clicked into is the small half of the screen. *Instead:* the server answers JSON and serves one

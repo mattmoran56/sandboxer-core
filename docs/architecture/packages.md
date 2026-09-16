@@ -204,7 +204,7 @@ recognises a real `<form>` doing a real `POST`.
 ## `packages/web`
 
 **What it owns.** The dashboard as a browser app. React, TypeScript, Tailwind, built by Vite into
-`dist/`. The sidebar of worktrees, the panes, the forms, the log and terminal views, the agent
+`dist/`. The sidebar of sessions, the panes, the forms, the log and terminal views, the agent
 session view, the themes.
 
 **Its public surface** is its build output. `package.json` exports `./dist/*` and nothing else, and

@@ -795,8 +795,8 @@ the second worktree tears the first one's sandbox down and hands its database to
 wrote it. Nothing downstream can tell the two apart.
 
 The guard runs when sandboxr **cuts** a worktree, so it covers `sandboxr worktree add` and the
-dashboard's New worktree, and not a worktree you cut yourself with `git worktree add`. For those,
-pass a name: `sandboxr up <name>`.
+dashboard's **Start** on a branch, and not a worktree you cut yourself. For those, pass a name:
+`sandboxr up <name>`.
 
 Collisions already on disk are deliberately left alone. Renaming a worktree that has a running
 sandbox would leave its container and its volumes stranded under the old name — `sandboxr down` one
