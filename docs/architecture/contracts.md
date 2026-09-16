@@ -278,14 +278,21 @@ Images are named under one namespace, and the split between them decides what ma
 - Project layer: `sandboxr/<project>:<12 hex>`, the hash covering the tool version, the rendered
   Dockerfile and every staged manifest. Content-addressed, so every sandbox of a project shares one
   image and a rebuild is triggered by exactly the things the build reads.
-- The machine's own: `sandboxr/base` and `sandboxr/dashboard`, tagged by tool version and by
-  `latest`. Built by `init`.
-- `sandboxr/workstation` (§12.3), tagged the same way and on the same never-reclaimed list, but
-  **built the first time a session is created rather than by `init`**. Every other image here is a
-  prerequisite of the next thing somebody does — the first `up` fails without a base — and this one
-  is not: a machine that never creates a session never needs it, and it carries a full `claude`
-  install. Revisit when a session is the ordinary way to start work.
-  `container/workstation/` is excluded from the base image's digest for the same reason the other
+- The machine's own: `sandboxr/base`, `sandboxr/dashboard` and `sandboxr/workstation` (§12.3),
+  tagged by tool version and by `latest`. **All three are built by `init`**, and all three are on
+  the never-reclaimed list.
+- **`sandboxr/workstation` used to be built by the first `createSession` instead**, on the argument
+  that a machine which never creates a session never needs it. That argument has expired on its own
+  stated condition — "revisit when a session is the ordinary way to start work" — and a session now
+  *is* the thing the dashboard is organised around. The cost of leaving it where it was is paid in
+  the one place it must not be: the first **New session** on a machine took the several minutes of a
+  `claude` install, in a request that answers one JSON body and has nowhere to stream a build log to
+  (§12.6.2). A build belongs in the verb that sets a machine up, beside the other two, where it is
+  expected to take a while and says so. `createSession` still calls `ensureWorkstationImage` and
+  must keep doing so: `init` having built it is what makes a create fast, never what makes it
+  correct, and the tag carries the tool version — so an upgrade invalidates it, and `init` is the
+  verb somebody runs after one.
+- `container/workstation/` is excluded from the base image's digest for the same reason the other
   two excluded directories are: it shares not one layer with the base, so including it would
   rebuild the base for a change that cannot affect it.
 
@@ -3002,6 +3009,21 @@ describe a checkout a workstation does not have; `driver` and `env` describe a p
 run; `access` describes hostnames it does not serve on (§12.2). Four labels in total, and a fifth
 would need an argument here first.
 
+**A workstation is running or it is stopped, and there is no third word.** `SessionState` is those
+two, against a sandbox's four, because `starting` and `degraded` are read from markers a sandbox's
+own service tree writes and a workstation supervises nothing that would write them — a `starting` it
+could never leave is a state nothing clears. The proposal that keeps arriving is a *creating*: let
+`POST /api/sessions` answer at once and bring the workstation up behind it, so the pane can draw a
+session that exists with a container that is still coming. **It is refused, and on grounds older
+than this section.** A session's existence is `docker ps` over §12.3's labels and nothing else — a
+session whose workstation is not there yet would have to be remembered somewhere on the host, which
+is the manifest §3.4 exists to not have; `getSession` already refuses to answer with a session built
+from host files alone, because that is "a row on the dashboard whose every action fails"; and a
+build that fails leaves the row behind with nothing holding the id and nothing to clear it. It also
+buys nothing: the minutes are an image build, and drawing a row while it runs does not shorten it.
+The fix for a slow create is to build the image in `init`, where the other two are built, which is
+what §3.3's image list now says.
+
 The work volume carries `sandboxr.session` alone. `sandboxr.kind` has no reading on a volume — the
 table above puts it on containers — and the name already says what the volume is for.
 
@@ -3149,6 +3171,9 @@ whole:
 - **`name` carries no stamp** (§4.2.1). It names the session, which outlives every container in
   it; stamping it would throw the name away the first time somebody pressed Rebuild. Same
   validation, same 60 code points, same rule that it is presentation and reaches no identifier.
+  Written by `POST /api/sessions` when a name was given with the create, and by
+  `PATCH /api/sessions/:session` at any time after — which is the ordinary way a session gets one,
+  because the create takes no fields (§12.6.2).
 - **`attach` is an mtime and a heartbeat** (§4.2.2), written by the dashboard while it holds the
   workstation's terminal or agent socket, believed for `ATTACH_LIVE_GRACE_MS`, stamped once more
   on release.
@@ -3182,7 +3207,7 @@ is the one thing that has to be got right before any of these routes exist:
   — an absence is never rendered as an assertion — applied to authorisation rather than to a
   failed read.
 
-Three readings were closed rather than left open, each because the rule above does not settle it:
+Four readings were closed rather than left open, each because the rule above does not settle it:
 
 - **Creating, deleting, starting and stopping a session need a password that covers every
   project.** A workstation carries the machine's GitHub token and the shared Claude credential
@@ -3190,6 +3215,19 @@ Three readings were closed rather than left open, each because the rule above do
   runtimes, which are sandboxes of projects the caller may hold no grant over (§12.8). That is the
   same bar the global `clone` action takes, for the same reason. **Reading** a session — the list,
   one session, its repositories — needs only a session, and is filtered.
+- **Renaming a session takes that same bar, and the reason is not the one above.** A name reaches
+  no container, no credential and no project: it is one host file, presentation only (§4.2.1). The
+  reason is what a name is *for*. A session belongs to no project, so a narrow password has no
+  claim over one to be measured against — which leaves exactly two answers, machine-wide or any
+  signed-in reader, and the second is the dangerous one. Every session on the machine is already
+  readable by any password (the list is not filtered, for the reason above it); making every
+  session's name **writable** by any password would let one rewrite the labels a person picks a
+  session out by, and the verb they then press is `DELETE`. §8.1 puts the wording of a destructive
+  confirmation on the server precisely so a browser cannot be wrong about what it is destroying; a
+  name anybody can edit reintroduces that by the back door, with a person rather than a browser as
+  the thing misled. The bar is therefore the one every non-repository session write already takes,
+  and that is the second reason: the list is closed at "every session write that is not scoped to a
+  repository", so the next write added inherits an answer instead of guessing one.
 - **A runtime the reader's password does not cover answers 404, not 403**, on
   `…/r/:runtime`. It is already absent from that session's runtime list, so a 403 would confirm
   that a sandbox exists inside a project the reader may not see.
@@ -3250,7 +3288,8 @@ a workstation yet.
 | Route | Answers |
 |---|---|
 | `GET /api/sessions` | Every session on the machine, each with its runtimes narrowed to the grant and the count of what was withheld |
-| `POST /api/sessions` | Makes one, from an optional id, name and lifetime (§12.2). A taken **id** is a `409` carrying core's own sentence, which names the workstation or the work volume holding it. It can take as long as building the workstation image, because that is what it does when the image is not there |
+| `POST /api/sessions` | Makes one, from an optional id, name and lifetime (§12.2). A taken **id** is a `409` carrying core's own sentence, which names the workstation or the work volume holding it. **Every field being optional is the point**: the ordinary create sends `{}` and gets a derived id (§12.2's third input), so making a session is one click with nothing to fill in and the name is settled afterwards by the `PATCH` below. It is a volume and a container — a second or two — on a machine whose workstation image `init` has built, which is every machine that has been set up. It still calls `ensureWorkstationImage`, so on one where the tag is missing it takes as long as that build, and there is nowhere on the wire for the build's output to go |
+| `PATCH /api/sessions/:session` | Names it, from a `name`. Writes `state/session/<session>/name` and touches nothing else — no container, no volume, no label. An **empty or whitespace-only name clears it**, which is one instruction from a person and not a second route: a cleared field means "go back to having no name". Answers the session, so `name` is `null` on a clear and **never the id** (§12.1) — the browser writes the sentence that shows an id where there is no name, and a route that substituted one would be indistinguishable from a name somebody typed. A name that is not one — a control character, more than 60 code points — is a `400` that does not echo it back. Takes the machine-wide bar of §12.6.1 |
 | `GET /api/sessions/:session` | One session in full, including the sentence a delete confirms with |
 | `DELETE /api/sessions/:session` | Deletes it (§12.8), and answers what went and what would not. **It takes no `force` and refuses one that is offered**: §8.1 says a browser may not force a destructive action, and ignoring the parameter would leave a browser believing it had one |
 | `POST /api/sessions/:session/start` | Starts a stopped workstation. A `404` when the container has gone, which pressing Start again would never fix |

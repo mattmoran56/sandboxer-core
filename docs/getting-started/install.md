@@ -92,10 +92,11 @@ flowchart TB
   b["Create ~/.sandboxr and the shared Docker network"]
   c["Build sandboxr/base — the image every sandbox runs from"]
   d["Build sandboxr/dashboard"]
+  d2["Build sandboxr/workstation — the image a session's agent runs in"]
   e["Issue a certificate for the domain, if mkcert is trusted"]
   f["Start the shared router on 127.0.0.1:80 and :443"]
   g["Start the dashboard on the bare domain"]
-  a --> b --> c --> d --> e --> f --> g
+  a --> b --> c --> d --> d2 --> e --> f --> g
 ```
 
 ### Why the first run is slow
@@ -111,6 +112,13 @@ Every sandbox on the machine then starts from it.
 The dashboard image is small and quick, and is built separately on purpose: it carries a Docker
 client and the base image deliberately does not. That is what stops a project — or an agent
 working inside a sandbox — driving Docker.
+
+The workstation image is the third, and it is the container a
+[session's](../guides/dashboard.md) agent runs in — around 640 MB, most of it `claude`. It is built
+here rather than the first time somebody makes a session, because a session is now the ordinary way
+to start work: left where it was, the build landed on whoever pressed **New session** first, as
+several silent minutes inside a request with nowhere to show progress. Built here, making a session
+is a second or so.
 
 ### What it prints
 
@@ -211,7 +219,7 @@ Teardown deliberately leaves sandboxes running. Those are `sandboxr down`'s busi
 |---|---|
 | `--no-tls` | Serve plain http even if a trusted CA is present |
 | `--tls` | Insist on https even if the CA is not trusted yet |
-| `--rebuild` | Rebuild the base image (and the dashboard image) even if a current tag exists |
+| `--rebuild` | Rebuild the base, dashboard and workstation images even if a current tag exists |
 | `--bind ADDR` | Publish the router on this address instead of `127.0.0.1` |
 | `--http-port N` | Publish http on N instead of 80 |
 | `--https-port N` | Publish https on N instead of 443 |
@@ -242,15 +250,19 @@ The full list is in [Environment variables](../reference/environment.md).
 - `~/.sandboxr/config.yaml`, written once, commented and explained. It is where you set how long
   a sandbox may sit unused. Never rewritten after the first time.
 - The shared Docker network, named `sandboxr`.
-- Images `sandboxr/base:<tool version>` and `sandboxr/dashboard:<tool version>`, each also tagged
-  `:latest`. Both are protected from `sandboxr prune`.
+- Images `sandboxr/base:<tool version>`, `sandboxr/dashboard:<tool version>` and
+  `sandboxr/workstation:<tool version>`, each also tagged `:latest`. All three are protected from
+  `sandboxr prune`. The workstation image is what a session's agent runs in; building it here is
+  what makes creating a session fast, and `createSession` still builds one if the tag is missing —
+  which it is after an upgrade, since the tag carries the tool version.
 - A certificate for the domain and one wildcard under it, in `~/.sandboxr/tls`, when mkcert's root
   is trusted. That is the only certificate on the machine: a sandbox hostname is one label deep, so
   the wildcard covers every sandbox as well as the dashboard, and starting a sandbox issues
   nothing.
 - Containers `sandboxr-router` and `sandboxr-dashboard`.
 
-**Timeouts**: the base image build is allowed 30 minutes, the dashboard image 10.
+**Timeouts**: the base image build is allowed 30 minutes, the dashboard image 10, the workstation
+image 20.
 
 </details>
 
