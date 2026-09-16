@@ -148,8 +148,9 @@ With `--project` you do not have to be anywhere in particular. There is no workt
 in, so the current directory is not consulted at all. The worktree is created if it is missing and
 reused if it is not.
 
-From the dashboard, the same thing is a button — **New worktree** offers a new branch, an existing
-branch, an existing worktree or an open pull request. See [The dashboard](../guides/dashboard.md).
+From the dashboard, the same thing is a button: open the project and press **Start** beside the
+branch, the worktree or the open pull request you want. See
+[The dashboard](../guides/dashboard.md).
 
 ## `--project` on the other commands
 

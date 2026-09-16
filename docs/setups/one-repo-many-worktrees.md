@@ -110,7 +110,7 @@ first branch's database.
 
 **Which of these happens depends on who cut the worktree.**
 
-When sandboxr cut it — `sandboxr worktree add`, or the dashboard's New worktree — it compares the
+When sandboxr cut it — `sandboxr worktree add`, or a **Start** on the dashboard — it compares the
 slug the new worktree would take against the ones its siblings already answer to, and on a match
 gives it one of its own instead:
 

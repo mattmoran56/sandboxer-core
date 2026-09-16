@@ -559,8 +559,9 @@ it never becomes a sandbox's `/workspace` — see §5.6.
 #### 4.1.1 What a worktree reports
 
 `Worktree` in `packages/core/src/worktree.ts` is what a listing of `wt/` yields, and it is the
-unit the dashboard's sidebar is built from — a worktree is the thing that persists, and a
-sandbox is something that comes and goes on top of it.
+unit the dashboard's `/worktrees` pane and every project's own pane are built from — a worktree
+is the thing that persists, and a sandbox is something that comes and goes on top of it. It was
+the unit the sidebar was built from until the column became the list of sessions (§12).
 
 | Field | Meaning | When it cannot be read |
 |---|---|---|
@@ -821,7 +822,7 @@ file is filed under the slug and would be that sibling's name too.
 The dashboard's control is the pencil beside a worktree's title, which sends that route directly.
 **Where the name is shown and where the slug still is, is part of this section**, because the two
 answer different questions: the name is shown wherever a worktree is identified to a *person* — the
-worktree page's title and breadcrumb, its sidebar row, its row on a project's pane, the home view's
+worktree page's title and breadcrumb, its row on the `/worktrees` pane, its row on a project's pane, the home view's
 lists — and the slug stays wherever it is the thing that identifies the *sandbox*: under the title,
 in the worktree's `Slug` fact, in the Sandbox panel, in the container name and in every hostname. A
 page that showed only the name would leave somebody who renamed a worktree "the checkout flow
@@ -1535,7 +1536,7 @@ to it is a capability handed to the least supervised process on the machine.
 | Route | Answers |
 |---|---|
 | `GET /api/bootstrap` | The domain, the session, the closed action table (§8), and the default lifetime the new-sandbox form offers. What the app needs before it can draw anything |
-| `GET /api/workspace` | Every project, every worktree and every sandbox on the machine, plus a summary. The one call the sidebar and the home view are drawn from. Each worktree carries the state of its pull request, from a cached per-repository index rather than a `gh` call per row (§4.1.2), and the agent session live on it, from the server's own registry (§7.2) |
+| `GET /api/workspace` | Every project, every worktree and every sandbox on the machine, plus a summary. The one call the home view, the `/worktrees` pane and every project's pane are drawn from — the sidebar is `GET /api/sessions` (§12.6.2). Each worktree carries the state of its pull request, from a cached per-repository index rather than a `gh` call per row (§4.1.2), and the agent session live on it, from the server's own registry (§7.2) |
 | `GET /api/projects/:project` | One project's worktrees, branches and open pull requests. The list is read live, so it is the authoritative one; the state on each worktree beside it comes from the index and may be up to five minutes behind |
 | `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its project's config declares |
 | `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
@@ -1564,16 +1565,22 @@ while the tab is hidden or while an action is running, a failed poll leaves the 
 on screen and says it is stale rather than blanking the page, and returning to the tab refreshes
 at once.
 
-**The HTML shell** is served at `/`, `/worktrees`, `/new`, `/settings`, `/repos`,
-`/p/:project`, `/p/:project/branches`, `/p/:project/w/:slug` and `/p/:project/s/:slug`. Every
-one of them returns the same document; the app decides what to draw. `/assets/*` serves the
-built bundle.
+**The HTML shell** is served at `/`, `/worktrees`, `/sessions`, `/sessions/:session`, `/new`,
+`/settings`, `/repos`, `/p/:project`, `/p/:project/branches`, `/p/:project/w/:slug` and
+`/p/:project/s/:slug`. Every one of them returns the same document; the app decides what to
+draw. `/assets/*` serves the built bundle.
 
-`/worktrees` is the sidebar's list as a pane. It exists because the sidebar is not drawn below
-the `md` breakpoint and a phone would otherwise have no way to browse the machine at all — so
-it is a route with a URL, reachable by bookmark, named in the manifest's shortcuts and given a
-tab of its own in the bottom bar, rather than a panel the shell opens over itself. Being a
-route is what makes it a history entry, which is what the back gesture has to have.
+`/worktrees` is the whole list of worktrees as a pane, at every width. It used to be the
+sidebar's list given a screen, and it is the only one of the two now: the column lists sessions
+(§12). So it is a route with a URL, reachable by bookmark, named in the manifest's shortcuts,
+given a tab of its own in the bottom bar and linked from the foot of the session column, rather
+than a panel the shell opens over itself. Being a route is what makes it a history entry, which
+is what the back gesture has to have.
+
+**`/new` is no longer one of these**, and the app answers it with the not-found pane (§12). The
+shell is still served at that path, so a stale bookmark gets a 200 and a page saying nothing
+lives there rather than the server's 404 — which is the right way round while the route is only
+recently gone.
 
 **Six files are served from the origin root**, and each is there because the name is
 referenced from somewhere that cannot be rebuilt with the bundle, so none of them can carry a
@@ -2798,13 +2805,30 @@ tool over a real stdio pipe against a real HTTP server — and **neither has bee
 in a workstation**, because nothing starts one yet. That last piece is the socket into a
 workstation, and it is the one thing between here and a session that shows you its work running.
 
-**The browser app draws a session now.** `/sessions` lists them, `/sessions/<id>` is one — its
-checkouts, its runtimes, and start, stop and delete — and **New session** is the app's primary
-create action. It is in the header at every width, at the head of the worktree column, on the
-home page, on the sessions pane and beside a project's New worktree; the header's copy is the
-one that makes it ambient, and every other is at the head of a list somebody is already
-reading. It is deliberately **not** in the phone's tab bar, which already carries one
-destination more than a tab bar is for.
+**The browser app is organised around a session now, sidebar included.** The column at every
+width above `md` is the list of sessions (`components/shell/SessionBrowser.tsx`), drawn row for
+row the way the worktree column was drawn: a state dot at the head, the name, the id or what the
+session holds under it, and one thing at the right-hand end. `/sessions` is that same list given
+a screen, which is what the phone's tab bar switches to. **New session** is the app's primary
+create action — in the header at every width, at the head of the session column, on the home page
+and on a project's pane; the header's copy is the one that makes it ambient. It is deliberately
+**not** in the phone's tab bar, which already carries one destination more than a tab bar is for.
+
+**`/sessions/<id>` opens on its agent**, filling the pane, with the checkouts, the runtimes and
+the three verbs over the workstation in a slide-out column beside it. It is the shape the worktree
+pane already had and it is literally the same two components — `AgentSession` given a third
+`endpoints`, and one shared `SidePanel`. The conversation is dialled at `/sessions/:session/agent`
+below, **which nothing answers yet**: see the closing paragraph of this preamble.
+
+**`New worktree` has gone as an action, and `/new` with it.** Code is something you add to a
+session, from inside the session — `POST /api/sessions/:session/repos` (§12.5) — so a second
+create making a different noun out of a form is the thing that went. Nothing running was taken
+away with it: every worktree-backed sandbox on this machine keeps its own pane at
+`/p/<project>/w/<slug>`, `/worktrees` is still the whole list as a pane, and **a project's own
+pane is where a worktree is managed from** — it lists every worktree in the project with its
+sandbox, its pull request and a Start beside each. The one thing `/new` could do that nothing else
+now can is **cut a new branch** (`up` with a `branch` and a `base`); starting a branch that already
+exists is unchanged.
 
 **The create asks for nothing and the id is never a field.** One click posts an empty body and
 lands on the session it made; `POST /api/sessions` invents the id, and the id is the *address*
@@ -2819,19 +2843,20 @@ modal to hold, and a dialog containing only a progress bar blocks the page for n
 session is a project and a branch; §7.4's two read-only views are the same two components,
 pointed at a workstation rather than at a sandbox. Everything §12 says about an absence is drawn as one: an unreadable
 work volume is `unknown` and never `none` (§12.5), and `runtimesWithheld` and the repositories
-listing's `withheld` are rendered rather than dropped (§12.6.1). **Worktrees are unchanged and
-still primary in the sidebar** — a session cannot yet do everything a worktree can (§12.10), and
-every sandbox on any real machine today is on a worktree. **None of the browser half has been
-opened in a browser**: it is tested in jsdom against the shapes above, and that is all.
-
-One gap that follows from the above and is the app's rather than this section's: **the server's
-`APP_ROUTES` does not list `/sessions` or `/sessions/:session`**, so a reload or a bookmark of
-either is answered by the 404 shell — the app boots and draws, at status 404 and without the
-sign-in redirect that carries `next=`. Navigating inside the app is unaffected.
+listing's `withheld` are rendered rather than dropped (§12.6.1). **Worktrees are unchanged in
+everything but where they are listed** — a session cannot yet do everything a worktree can
+(§12.10), and every sandbox on any real machine today is on a worktree, so all of §§3–8 still
+describes what runs. **None of the browser half has been opened in a browser**: it is tested in
+jsdom against the shapes above, and that is all.
 
 **The rest of §12 has not been built**: there is no CLI command, no session scope in §8's action
-table, and no socket reaches a workstation — so a session still has no terminal and no
-conversation, which is what the worktree model still has and this one does not.
+table, and **no socket reaches a workstation** — so a session still has no terminal and no
+conversation. That last one is now the one visible gap in the app rather than an absence
+somewhere else: `/sessions/<id>` opens on a conversation pane dialled at
+`WS /sessions/:session/agent`, the address §12.6 names, and the server's agent gateway pins
+`/^\/p\/([^/]+)\/s\/([^/]+)\/agent$/` and refuses everything else with a 404 before auth is
+consulted. So the pane draws its own **disconnected** state with a Reconnect beside it, and
+everything in the column next to it works. Nothing is stubbed to hide that.
 [`docs/reference/status.md`](../reference/status.md) carries the same division where a reader of
 the site will find it, and it is the only other place that has to.
 
@@ -3285,6 +3310,18 @@ Built, and listed in §7.1's table with every other route. `…/actions/:action`
 `…/agent` are **not** built: there is no session scope in §8's closed table, and no socket reaches
 a workstation yet.
 
+**The browser dials `…/agent` regardless**, and that is deliberate rather than an oversight. The
+session pane is the conversation pane every other agent surface uses (`AgentSession`, given an
+`endpoints`), pointed at `ws(s)://<host>/sessions/<session>/agent` with `?resume=` and `?model=`
+— the same query `/p/:project/s/:slug/agent` takes, since a session's conversation is that one
+noun along. The upgrade is refused with a 404 by `packages/server/src/agent.ts`, whose
+`AGENT_PATH` pins the sandbox shape, so what a reader sees is the pane's own **disconnected**
+state and a Reconnect. Nothing is stubbed to hide it. When the gateway learns this path, the
+browser needs no change; the one thing it will still lack is the slash-command listing, because
+there is no `GET /api/sessions/:session/agent/commands` to match
+`/api/p/:project/s/:slug/agent/commands`, and the pane is told `commands: null` — a real answer,
+meaning no menu and a composer that works, rather than a request to a route that 404s.
+
 | Route | Answers |
 |---|---|
 | `GET /api/sessions` | Every session on the machine, each with its runtimes narrowed to the grant and the count of what was withheld |
@@ -3452,3 +3489,5 @@ today; each right-hand entry is what the session model replaces it with.
 | §5, §6, §7.1, §8 | Unchanged. They are about a runtime, and a runtime is a sandbox |
 | §7.3's git mounts | Not used by a runtime: a clone on a work volume is self-contained and needs no identical-path mount (§12.4). §7.3's other two rules — the commit identity, the GitHub token — are unchanged, and the mounts remain the contract for a worktree |
 | §7.2's "agent session" on a worktree | A Run in a workstation, keyed on the session (§12.1, §12.7). The Run / Thread / Event model is untouched |
+| The dashboard's sidebar of worktrees | The sidebar of sessions. The worktree list is the `/worktrees` pane at every width, and a project's own pane is where one is managed from — both still list exactly what §4.1.1 reports |
+| The dashboard's **New worktree**, and `/new` | Nothing. Code is added to a session instead, with `POST /api/sessions/:session/repos` (§12.5). Starting a sandbox on an existing branch is unchanged and is still a Start on a project's pane; **cutting a new branch from a base has no button any more** |
