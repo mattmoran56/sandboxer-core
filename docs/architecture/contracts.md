@@ -1545,6 +1545,7 @@ to it is a capability handed to the least supervised process on the machine.
 | `GET`, `DELETE /api/sessions/:session` | One session, and deleting it. The delete takes no `force` (§8.1) |
 | `POST /api/sessions/:session/start`, `…/stop` | Its workstation. Stopping removes nothing (§12.8) |
 | `GET /api/sessions/:session/repos` | What is in its work volume. A read that failed says so rather than answering "none" (§12.5) |
+| `POST /api/sessions/:session/repos` | Clones one repository and branch into it — the only way code reaches a work volume. Checked against **that project's** grant, not the machine's (§12.5, §12.6.1) |
 | `GET /api/sessions/:session/r/:runtime` | The session's view of one runtime, which is the sandbox answer above reached by the other road (§12.4) |
 | `POST /api/sessions/:session/runtimes` | Runs one of that session's checkouts, and answers the URLs. Only a checkout already on the session's own work volume (§12.6.1.1) |
 | `POST /api/sessions/:session/r/:runtime/stop`, `DELETE …/r/:runtime` | Stops one, and removes one. The delete takes no `force` (§8.1) |
@@ -2757,9 +2758,24 @@ are unit tests against a fake one.
 
 **The dashboard's HTTP surface for a session is built** (§12.6.2): `/api/sessions/…` lists
 sessions, makes one, fetches one, deletes one, starts and stops a workstation, lists the
-repositories on a work volume, and serves §7.4's two read-only code views against a workstation
-rather than a sandbox. It is tested over real HTTP against a fake core and a fake daemon; it has
-**not** been driven against a real one.
+repositories on a work volume, **clones one into it**, and serves §7.4's two read-only code views
+against a workstation rather than a sandbox. Every route is tested over real HTTP against a fake
+core and a fake daemon.
+
+**Six of those routes have now been driven against a real daemon**, end to end in one pass: a
+session created, `POST …/repos` cloning a 1&nbsp;GB repository's `main` onto its work volume in
+twenty-four seconds, `GET …/repos` listing the checkout, and `…/files` and `…/diff` reading it out
+of the workstation — then the session deleted, taking its container, its volume and its host
+directory with it. The clone was checked for the two traps §12.5 names: its `origin` is the forge's
+URL and not `/src`, and it has no `objects/info/alternates`, so it is self-contained. `…/diff`
+resolved an upstream of `origin/main`, which is true only if the fetch of the mirror's
+`refs/remotes/origin/*` landed — the half that a plain clone of a bare mirror gets wrong. The
+refusals were exercised the same way: a second clone of one branch, a branch that resolves nowhere,
+a project the workspace does not hold, a project a narrow password may not see, and two branch names
+that want one directory.
+
+**`POST …/runtimes` and the `…/r/:runtime` routes have still not been driven against a real
+daemon**, and neither has starting or stopping a workstation.
 
 **A runtime can be brought up from a work volume and has been** (§12.4): `up({ runtime })` starts a
 sandbox whose `/workspace` is a checkout on `sandboxr-work-<session>`, and the demo project was
@@ -3040,7 +3056,12 @@ session. One volume per session, shared by its containers, never shared between 
   directory silently holding a different branch than its name says is the failure that looks like
   an editor eating somebody's work.
 - **The control plane owns the layout.** Adding a repository or a branch to a session is a control
-  plane operation, for the same reason creating a runtime is.
+  plane operation, for the same reason creating a runtime is. It is
+  `POST /api/sessions/:session/repos` (§12.6.2), over `addSessionRepo` in
+  `packages/core/src/session/repos.ts`, which resolves the three things the clone needs and that the
+  volume cannot know: the host's `repo.git` as the source (§12.9), the forge's URL as `origin`, and
+  the commit `freshenBranch` chose after a fetch (§4.1.3), passed as a **full sha** because the
+  mirror's ref namespace does not exist inside a clone of the mirror.
 - **A clone is written by a short-lived container mounting the volume**, running git out of the
   base image — never by the workstation, which may be stopped and must not have to be started to
   add a repository, and never by the host writing into Docker's volume directory, which on macOS
@@ -3179,6 +3200,11 @@ the dashboard and is authorised differently, and this is the whole of the differ
   needs to know what it may run — one session, and that session's repositories — and the three
   writes: start, stop, delete. Everything else on the machine, including `/api/p/:project/…` and
   every orchestrator route, refuses the token.
+- **`POST …/repos` is deliberately not on that list**, and it is the one write beside the volume's
+  own reads that an agent may not have. A workstation token covers every project of its session, so
+  opening the clone to one would let an agent pull *any* project on the machine onto its own volume
+  and then start a runtime of it — which is precisely the widening the rule above exists to prevent.
+  A session runs the code it already has, and **what it has is what a person put there**.
 - **A person reaches the same routes with a control session**, filtered by the ordinary project
   grant. Starting a runtime is checked against **the repository's** project and not against every
   project, which is §12.6.1's first rule — it reaches into a repository, and a runtime carries
@@ -3200,6 +3226,7 @@ a workstation yet.
 | `POST /api/sessions/:session/start` | Starts a stopped workstation. A `404` when the container has gone, which pressing Start again would never fix |
 | `POST /api/sessions/:session/stop` | Stops it, removing nothing (§12.8). Already stopped is a `200` that says it changed nothing, not a failure |
 | `GET /api/sessions/:session/repos` | What is in the work volume, read by a container that mounts it. **A read that failed says so** — `readable: false` with the reason — and never answers with an empty list (§12.5) |
+| `POST /api/sessions/:session/repos` | Clones one repository and branch onto the work volume, from a `project`, a `branch` and an optional `start`. `project` is the workspace directory name, which §12.5 spells `<repo>` and §4.1 makes the key a grant is held against — one name for both, because a second would be a second thing to get wrong and the thing it would get wrong is an access check. Answers `201` with `{ repo, dir, branch, head }`, `head` being the full sha it landed on. **Checked against that project's grant and not the machine's**, and a project the password does not cover answers `404` **in the same words** a project that is not in the workspace gets — anything else would let a narrow password enumerate the machine by reading the difference. §12.5's collision is a `409` naming both branches; a project whose remote this machine has lost is a `409`; a branch nothing resolves is a `404`; a volume that could not be read is a `503`, never an empty one. It answers synchronously and can take tens of seconds: a fetch plus a clone that really copies objects (§12.9), with no action-table scope to stream through |
 | `GET /api/sessions/:session/r/:runtime` | The session's view of one runtime, which is the body `GET /api/p/:project/s/:slug` answers. A runtime is a sandbox, and it has one description (§12.4) |
 | `POST /api/sessions/:session/runtimes` | Starts one, from a runtime `name`, a `repo`, a `branch` and an optional lifetime. Refused unless that checkout is on this session's work volume (§12.6.1.1). A taken runtime name is a `409` carrying core's own sentence. It can take as long as building the project's image. Answers the runtime **core really started** and its URLs — the route derives no slug, because the ceiling that shapes one is declared by a `sandboxr.yaml` the host has no copy of (§12.2) |
 | `POST /api/sessions/:session/r/:runtime/stop` | Stops it, removing nothing. Already stopped is a `200` that says it changed nothing |

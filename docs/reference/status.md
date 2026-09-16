@@ -45,21 +45,63 @@ the commit identity crossed as `GIT_AUTHOR_*` and `GIT_COMMITTER_*`, and **there
 client and no daemon socket**, which is the security claim §12.3 makes and the one worth checking
 by hand rather than believing.
 
-**What that does not settle** is everything a session is *for*: no runtime was created, nothing
-cloned a real repository into the volume, no agent ran, and no idle clock was involved. See the
-last section.
+**What that does not settle** is everything a session is *for*: no runtime was created, no agent
+ran, and no idle clock was involved. See the last section.
 
 ### A session on the dashboard's API
 
 The dashboard now answers for a session over HTTP: `/api/sessions` lists them, makes one, fetches
-one, deletes one, starts and stops a workstation, lists the repositories on a work volume, and
-serves the file explorer and the branch diff against a workstation rather than a sandbox.
+one, deletes one, starts and stops a workstation, lists the repositories on a work volume, puts one
+there, and serves the file explorer and the branch diff against a workstation rather than a sandbox.
 
-**It has been exercised over real HTTP against a fake core and a fake Docker daemon, and against
-nothing else.** No session has been made through it on a live machine, so what is proven is the
-route table, the access rules and the shapes — not that the call reaches a daemon and gets a
-container back. The core underneath it is the part that has been run for real, and the section
-above says exactly how far that went.
+**Putting a repository into a session has been run for real**, which matters because it was the one
+thing missing: a session could be made and could say what was on its volume, and there was no way to
+put anything there. A real repository — a monorepo of about a gigabyte — was cloned onto a real work
+volume through the route, in twenty-four seconds, and then read back through the same API.
+
+The rest of the surface is still only exercised against a fake core and a fake Docker daemon, so for
+those routes what is proven is the route table, the access rules and the shapes, rather than that the
+call reaches a daemon and gets a container back.
+
+<details>
+<summary><b>Fact sheet</b> — the clone route, and what was checked by hand</summary>
+
+**The route** is `POST /api/sessions/:session/repos`, with a body of `{ project, branch, start? }`.
+`project` is the workspace directory name, which is also the key a password's grant is held against
+— one name for both, deliberately, because a second one would be a second thing to get wrong and the
+thing it would get wrong is an access check. It answers `201` with `{ repo, dir, branch, head }`,
+where `head` is the full commit sha the checkout was created at.
+
+**It is checked against that project's grant**, not against a password covering the whole machine.
+Cloning a project into a session reaches into that project, exactly as the file explorer does. A
+project the password does not cover answers `404` **in the same words** a project that is not in the
+workspace gets, so a narrow password cannot learn which projects exist by reading the difference
+between two refusals.
+
+**An agent cannot reach it.** The workstation token opens five routes and this is deliberately not
+one of them: a token covers every project of its session, so opening the clone to one would let an
+agent pull any project on the machine onto its own volume and then run it. A session runs the code
+it already has, and what it has is what a person put there.
+
+**It answers synchronously and it is slow** — a fetch of the remote plus a clone that really copies
+objects, because a work volume is a different filesystem and git's hardlink optimisation cannot
+apply. There is no streaming form because the action table has no session scope yet.
+
+**What was checked on the live run**, beyond the clone succeeding: `origin` in the checkout is the
+forge's URL and not the container-local source path; there is no `objects/info/alternates`, so the
+clone is self-contained rather than depending on a host path no container can resolve; and the
+branch has an upstream of `origin/main`, which is true only if the mirror's remote-tracking refs were
+fetched on top — the half a plain clone of a bare mirror gets wrong, landing a session on whatever
+the branch looked like the day the machine first saw the project.
+
+**The refusals were each run once**: a second clone of a branch already there, a branch that resolves
+nowhere, a project the workspace does not hold, a project a narrow password may not see, and two
+branch names that want one directory — which is a `409` naming both branches rather than a checkout
+written over somebody's work.
+
+**What has not been run** is `start` on a stopped workstation, and the runtime routes below.
+
+</details>
 
 **The browser app does not draw any of it.** Every page of the dashboard is still the worktree
 model, deliberately: a half-replaced sidebar is worse than an unfinished one.

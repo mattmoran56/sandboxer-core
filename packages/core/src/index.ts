@@ -216,6 +216,8 @@ export {
   workspaceMountArgs,
 } from "./session/work.js";
 export type { CloneRequest, WorkEntry, WorkRunner } from "./session/work.js";
+export { addSessionRepo, SessionRepoError } from "./session/repos.js";
+export type { AddRepoRequest, AddedRepo, SessionRepoRefusal } from "./session/repos.js";
 export { RuntimeError, runtimeSlug, runtimeWorkspaceArgs, stageRuntime } from "./session/runtime.js";
 export type { RuntimeRequest, StagedRuntime } from "./session/runtime.js";
 
