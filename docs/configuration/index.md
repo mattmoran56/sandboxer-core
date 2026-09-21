@@ -353,8 +353,10 @@ access:
 `apps: public` is the default, and usually what you want. The point of a sandbox is
 sending somebody a link.
 
-`controls: password` is the only accepted value. The dashboard and every action it offers
-sit behind a password, and there is no setting that removes that.
+`controls: password` is the only accepted value, and there is no setting that removes it.
+sandboxr itself serves no controls over http — it is a command-line tool — so the field is a
+statement about whatever control plane the machine runs, for that control plane to keep. The
+engine parses it and enforces nothing.
 
 **What this buys you.** A link you can send to a designer or a product manager without
 giving them an account on your machine.

@@ -232,8 +232,9 @@ disabled unless it is named in `--with`. Three things follow, and all three are 
   the plan and all the way to the screen. The state derived for a dormant service is its own
   value, never `down`.
 
-On the dashboard a dormant service reads as **not started**, in the same grey as an app that
-has not been built, and it is never counted among the services that are not answering.
+Anything drawing a sandbox should read a dormant service as **not started**, in the same grey
+as an app that has not been built, and never count it among the services that are not
+answering.
 
 <details class="why">
 <summary><b>Why it works this way</b> — the bug that made this a rule</summary>
@@ -243,8 +244,8 @@ dormant service arrived at a path with no route. A host matcher matches every pa
 request fell through to the front-end's own site block.
 
 What came back was that front-end's answer. An unbuilt app replied with its 503 "not built
-yet" page, and the dashboard read every dormant service as `down`. Once that app *was*
-built, the same request got the single-page app's `index.html` and a 200 — and the same
+yet" page, and whatever read those probes called every dormant service `down`. Once that app
+*was* built, the same request got the single-page app's `index.html` and a 200 — and the same
 never-started service read as `up`.
 
 A service's reachability must not depend on whether an unrelated front-end has been built.

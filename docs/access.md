@@ -65,11 +65,10 @@ the engine forwards the request only when that container answers `200`. There is
 exception — a private project is private on every hostname it has.
 
 > [!IMPORTANT] Nobody has watched the whole handshake run
-> The middleware is written and unit-tested, and so is the front end's side of it in the
-> product this engine powers. Nobody has yet run a browser through the whole thing against a
-> live private project. Everything in this section is what the code does; none of it is
-> something that has been seen happening. [What is built](reference/status.md) is the whole
-> inventory.
+> The middleware is written and unit-tested. Nothing in this repository answers it, so nobody
+> has run a browser through the whole thing against a live private project. Everything in this
+> section is what the code does; none of it is something that has been seen happening.
+> [What is built](reference/status.md) is the whole inventory.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the middleware, the label it points at, and how the router knows</summary>
@@ -119,9 +118,9 @@ creates the shared Docker network, builds the base image, issues the certificate
 router config, starts the router and writes `host.env` — and then prints that **nothing is
 serving `https://<domain>`**, because sandboxr is a command-line tool.
 
-That is not a failure to report. There is no dashboard in this repository and no password: a
-control plane on the bare domain is somebody else's container, and the engine's whole part in
-it is a label.
+That is not a failure to report. There is no control plane in this repository and no password:
+whatever answers on the bare domain is somebody else's container, and the engine's whole part
+in it is a label.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — claiming the bare domain, and what the report hands you</summary>
@@ -137,8 +136,9 @@ It is what the forward-auth middleware calls, and the engine believes its answer
 `AccessReport.frontend` from `initAccess` is where a front end must listen and what the router
 will send it — `{ port, domain, tls }`. `sandboxr doctor` reports what is actually there, and
 says `nothing is serving <url> — sandboxr is a command-line tool` when the answer is nothing.
-Where something *is* there, `doctor` also warns when that front end's password variable is
-unset, because a front end admitting nobody looks identical to one that is down.
+An empty bare domain is **not** a failed check: it is the ordinary state of a machine that has
+run `init`, and reporting it as a fault would point somebody back at `init` in a loop that
+cannot end.
 
 `access.controls` in `sandboxr.yaml` accepts exactly one value, `password`, and there is no
 setting that removes it. The engine parses the field and enforces nothing: it is a statement
@@ -255,7 +255,7 @@ Nothing is stored: the token is read at `up` and lives only in the container's e
 **You are told when it is off, at the start rather than at the push.** `up` prints a line naming
 the exact key that would turn it on, and `sandboxr config` in the worktree prints the resolved mode
 with the key that decided it. That exists because `git commit` works either way, so the absence has
-no symptom at all until a push fails — which, in an agent session, is hours later.
+no symptom at all until a push fails — which, for an agent working unattended, is hours later.
 
 <details class="why">
 <summary><b>Why it works this way</b> — two behaviours of the token, and why the setting is not in <code>sandboxr.yaml</code></summary>
@@ -264,9 +264,11 @@ no symptom at all until a push fails — which, in an agent session, is hours la
   `GH_TOKEN` over http, so reading it means executing code inside the container. A public
   sandbox is still a dev build of an unfinished branch on an open hostname, so `up` says so
   once when the two settings meet.
-- **An agent session is not automatically allowed to use it.** `git push` and `gh` are
-  outside the commands a session may run without asking, deliberately. Everything inside a
-  sandbox is recoverable by deleting it, right up until a command reaches the network as you.
+- **Handing a sandbox the token is not the same as permitting its use.** Whatever runs
+  commands in there should keep `git push` and `gh` outside what it does without asking.
+  Everything inside a sandbox is recoverable by deleting it, right up until a command reaches
+  the network as you. The engine cannot enforce that distinction — it sets the variable and
+  stops.
 
 The setting lives on the machine because the token is yours, not the project's. A setting in
 a repository is a setting a repository can *ask for*, and cloning something new should never

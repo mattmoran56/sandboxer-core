@@ -94,7 +94,7 @@ From `packages/core/src/naming.ts` (rules 3 to 6) and `packages/core/src/worktre
 6. The worktree directory's basename.
 
 Rules 3 to 6 are `deriveSlug`, which is pure. Rule 2 reads a file, which is why the order
-lives in `slugFor` and why every caller — `up`, the dashboard, the CLI — goes through it.
+lives in `slugFor` and why every caller — `up`, the CLI, an embedder — goes through it.
 
 If none of those exist: `NamingError: cannot derive a slug: no explicit name, worktree or
 branch`. A name that sanitises to nothing gives

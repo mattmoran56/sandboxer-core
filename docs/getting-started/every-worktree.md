@@ -75,7 +75,7 @@ flowchart TB
     dep[("node_modules — one volume per lockfile hash")]
     go[("Go's build and module caches")]
     seed[("The seed cache, keyed on the source's content")]
-    rt["The shared router and the dashboard"]
+    rt["The shared router"]
   end
   subgraph s1["tkt-4821"]
     d1[("its database")]
@@ -102,7 +102,7 @@ flowchart TB
   two sandboxes read the same entry only when the thing cached was identical anyway.
 - **The seed cache.** Keyed on the content of the source database, so a dump or a fork is produced
   once and every sandbox restores its own copy from it.
-- **The shared router and the dashboard.** One of each, for every sandbox and every project.
+- **The shared router.** One for the machine, in front of every sandbox of every project.
 - **The git repository.** A worktree's `.git` points at the repository it was cut from, so that is
   mounted too, read-write, or nothing in git would work inside the sandbox. The cost is real: a
   sandbox can move a branch another worktree has checked out.
@@ -133,12 +133,19 @@ repaired afterwards.
 | `sandboxr-deps-<lockfile hash>` | every sandbox on that lockfile | `node_modules` |
 | `sandboxr-gocache` | the machine | Go's build cache |
 | `sandboxr-gomod` | the machine | Go's module cache |
-| `sandboxr-claude` | the machine | Claude Code's own state |
 
-**Images**: `sandboxr/base:<tool version>` and `sandboxr/dashboard:<tool version>` are the machine's,
-and are never reclaimed as superseded. `sandboxr/<project>:<content hash>` is a project's layer.
+Those are the engine's own shared volumes and the whole of them. An embedder that mounts a
+volume of its own into every sandbox — a credential store, say — hands it to `up` as a
+`volumes` row and reserves it from the collector by naming it in `protectVolumes`. The engine
+mounts what it is handed and has no name for any of it.
 
-**Containers**: `sandboxr-router`, `sandboxr-dashboard`, and one per sandbox.
+**Images**: `sandboxr/base:<tool version>` is the machine's, and is never reclaimed as
+superseded. `sandboxr/<project>:<content hash>` is a project's layer. An embedder's own base —
+built `FROM` this one and passed back as `UpOptions.baseImage` — is kept the same way, by being
+named in `protectImages`.
+
+**Containers**: `sandboxr-router`, one per sandbox, and whatever somebody put on the bare
+domain.
 
 **Host paths, all under `~/.sandboxr`**: `cache/` is the seed cache, mounted read-only into every
 sandbox. `build/<project>/<slug>.plan.json` and `build/<project>/<slug>.env` are per sandbox.
@@ -184,10 +191,10 @@ idleness, not uptime. The deadline is the later of "when it started" and "when a
 arrived", plus its ttl, and last-activity comes from the shared router's own access log. Expiring only ever **stops** a
 sandbox. It never removes one, so it reclaims memory and CPU and does nothing about disk.
 
-> [!IMPORTANT] Nothing enforces a lifetime while the dashboard is not running
-> The reaper lives in the dashboard process, which is the only always-on component holding the
-> Docker socket. On a laptop whose dashboard is usually stopped, sandboxes live until something
-> stops them. `SANDBOXR_REAP_MINUTES=0` is the honest setting there — see
+> [!IMPORTANT] Nothing runs `expire` for you
+> sandboxr starts no daemon and has no reaper of its own, so a ttl is enforced only when
+> something runs the command. On a machine where nothing does, sandboxes live until something
+> stops them. A cron entry every fifteen minutes is the whole fix — see
 > [Just the CLI, on my laptop](../setups/cli-only.md).
 
 **`gc` reaps sandboxes whose worktree is gone.** Delete a worktree and its sandbox is left behind;

@@ -34,7 +34,7 @@ heading, and never letterspaced. The documentation site is the engine's, and its
 sandboxr.
 
 A product built on sandboxr carries a name of its own, not this one, and writes it by its own
-rules. Jef is the one that exists.
+rules. Nothing here decides what that name is.
 
 In prose sandboxr is an ordinary noun. "sandboxr turns a git worktree into a running copy of a
 whole project, on its own hostname." That sentence is the one-line pitch. Longer descriptions are
@@ -160,10 +160,10 @@ geometry was drawn for.
 bars. The lockup is the one exception, because the wordmark is part of the mark rather than a
 neighbour of it: there the gap is 10px at a 28px mark, 0.36 of the side.
 
-**The icon always uses the *light* half of the `tide` brand, `#0b5f5a`, in both themes.** A
-home-screen icon sits on a wallpaper, not on the app's canvas, so it has no surface to be legible
-against and no way to know which theme is in force. The dark half is chosen to survive on
-near-black and disappears on a pale wallpaper.
+**The plate always uses the *light* half of the `tide` brand, `#0b5f5a`, in both themes.** An icon
+is drawn outside the app's canvas — a browser tab, a launcher, a wallpaper — so it has no surface
+to be legible against and no way to know which theme is in force. The dark half is chosen to
+survive on near-black and disappears on anything pale.
 
 </details>
 
@@ -225,8 +225,8 @@ are outside the schemes entirely: green means running and rose means something i
 scheme, because a colour that changes meaning between schemes is a colour nobody can learn.
 
 Every value is chosen against a contrast ratio rather than by eye. Text clears **4.5:1** against
-every surface it is put on, in both themes, and a test does the arithmetic rather than trusting
-anybody's judgement.
+every surface it is put on, in both themes. The arithmetic was done for each value rather than
+trusted to anybody's judgement, and the results are written down below.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — every token, both halves, from packages/tokens/tokens.css</summary>
@@ -293,8 +293,10 @@ allowed to say, and no scheme contains a purple, so nothing else can be mistaken
   about 4.36 on a `-soft` one, which a selected sidebar row is. Secondary text that can land on a
   tint uses `ink-muted`.
 
-`packages/web/src/app.css.test.ts` reads the stylesheet and does every one of those sums, including
-pinning that last failure *as* a failure — a rule nobody can fail is a rule that gets forgotten.
+**Nothing in this repository re-checks those sums.** `packages/tokens/tokens.css` is the whole of
+the design system here, and an app that consumes it is where a test asserting the ratios belongs.
+The `ink-subtle` result is written down *as* a failure for that reason — a rule nobody can fail is
+a rule that gets forgotten.
 
 </details>
 

@@ -110,16 +110,17 @@ engine plus whatever the project's own services cost. See
 There are two halves to that question, and they have different answers.
 
 **The apps** a sandbox serves are public by default. Anyone who can reach the machine sees a
-preview of unreleased work. Set `access.apps: private` and they sit behind the same password as
-everything else.
+preview of unreleased work. Set `access.apps: private` and every one of that project's hostnames
+goes through a check in the shared router first.
 
-**The controls** — the dashboard, the terminal, start, stop, rebuild, migrate — are always
-behind a password. That cannot be turned off.
+**The controls** — start, stop, rebuild, migrate — are the `sandboxr` command, run by whoever is
+at the machine. sandboxr serves no controls over http at all.
 
-> [!CAUTION] The controls are not negotiable
+> [!CAUTION] Anything you put in front of those controls is not negotiable
 > The thing that starts and stops containers talks to the Docker socket. A control page reachable
 > without a password is not a cosmetic mistake. It is the ability to run anything on the host.
-> [Access and security](access.md) is the whole story.
+> sandboxr prepares a bare domain and serves nothing on it; whatever you put there is yours to
+> authenticate. [Access and security](access.md) is the whole story.
 
 Making a project's apps public brings two refusals with it. The database may not be a copy of
 live customer data, unless the dump is marked as anonymised. Real third-party credentials may not
@@ -155,9 +156,9 @@ These are not bugs. They are how it behaves, and knowing them early saves an aft
   sandbox is up" is not the same as "the database is what I expected".
 - **One writer per file-backed database.** Two processes opening the same D1 or SQLite file
   deadlock, so exactly one service may own it.
-- **Nothing enforces a lifetime while the dashboard is not running.** The part that stops idle
-  sandboxes lives inside the dashboard process. On a laptop whose dashboard is usually off,
-  sandboxes live until something stops them.
+- **Nothing enforces a lifetime unless something runs `sandboxr expire`.** The engine has no
+  reaper of its own and starts no daemon. On a machine where nothing runs that command — from
+  cron, or by hand — sandboxes live until something stops them.
 
 ## One more thing, before you invest an afternoon
 

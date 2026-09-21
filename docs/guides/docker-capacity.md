@@ -14,8 +14,8 @@ and show me both reports before removing anything. Then reclaim in the order tha
 gives, least destructive first.
 
 Never run `docker system prune -a --volumes` — it deletes the shared volumes sandboxr
-protects, including an agent session's credentials. Stop and ask me before anything with
-`--yes` or `-a` in it.
+protects, and any volume something else shares across sandboxes. Stop and ask me before
+anything with `--yes` or `-a` in it.
 ```
 
 ## Stopping a container frees no disk
@@ -126,7 +126,7 @@ an unrelated storage error.
 |---|---|---|
 | **Docker's build cache** | Every image build, for ever, unless pruned | No |
 | **Project images** | One per project *per content hash* — a new one whenever the base image, the tool version, the Dockerfile or a lockfile changes | No |
-| The base and dashboard images | Once per machine, rebuilt on a version bump | No |
+| The base image | Once per machine, rebuilt on a version bump | No |
 | A sandbox's own volumes (`data`, `blob`, `bin`, `www`) | One set per sandbox | No — `sandboxr down` is what removes them |
 | The shared `deps-<hash>`, `gocache` and `gomod` volumes | One per distinct lockfile; the Go caches grow with what has been built | No, and deliberately never automatically |
 | The container's own writable layer | Barely — everything that matters is on a volume or a mount | Not applicable |
@@ -136,10 +136,10 @@ That last row is the one people fear, so it is worth being blunt. Deleting Docke
 volumes cannot touch a worktree, a branch or a commit. The durable thing is always the git
 repository on your own filesystem.
 
-The row above it is the one that surprises people. `sandboxr-claude` holds the credentials an
-agent session has been given. `sandboxr-gocache` and `sandboxr-gomod` are an expensive
-rebuild. **Nothing in sandboxr ever removes those three**, and the blunt Docker commands
-further down will.
+The row above it is the one that surprises people. `sandboxr-gocache` and `sandboxr-gomod` are
+an expensive rebuild. **Nothing in sandboxr ever removes them**, and the blunt Docker commands
+further down will. A volume an embedder shares across every sandbox — a credential store, say
+— is outside the collector's scope for the same reason, and just as exposed to those commands.
 
 ### Rough sizes, so a number is not a mystery
 
@@ -170,7 +170,7 @@ So the sum is simple:
 
 - **4 GB per sandbox you want running at once**, or more if any app in the project declares
   more.
-- **Plus about 2 GB** for the host and the dashboard.
+- **Plus about 2 GB** for the host, the router and anything else you run beside them.
 
 Four sandboxes of a project whose heaviest build asks for 6 GB wants 26 GB, not 16.
 
@@ -217,8 +217,9 @@ It offers three things and protects everything else:
 
 Each project's newest image survives, because its tag is a content hash and the next
 `sandboxr up` will find it and start in seconds instead of rebuilding a toolchain. It never
-touches `sandboxr-claude`, `sandboxr-gocache` or `sandboxr-gomod`, and never touches
-`sandboxr/base` or `sandboxr/dashboard`. Those are contract rules, not preferences.
+touches `sandboxr-gocache` or `sandboxr-gomod`, never touches `sandboxr/base`, and never
+touches a volume or an image whose name the engine did not mint. Those are contract rules, not
+preferences.
 
 > [!NOTE] Sizes are what removal actually returns
 > Two project images built on the same base each report several gigabytes in `docker images`,
@@ -265,16 +266,16 @@ download. On a big project that is tens of minutes, once.
 
 **`docker image prune`** — dangling images only. Safe, and usually small.
 
-**`docker image prune -a`** — every image no container is using. This takes
-`sandboxr/base` and `sandboxr/dashboard` too, because nothing is *running* from the base
-image between sandboxes. `sandboxr init` rebuilds them, in several minutes.
+**`docker image prune -a`** — every image no container is using. This takes `sandboxr/base`
+too, because nothing is *running* from the base image between sandboxes. `sandboxr init`
+rebuilds it, in several minutes.
 
 **`docker system prune -a --volumes`** — do not run this unless you want the machine empty.
 `--volumes` removes every volume no container has mounted, which includes:
 
-- **`sandboxr-claude`** — signing the machine out of every MCP server an agent session had
-  been authorised for.
 - **`sandboxr-gocache`** and **`sandboxr-gomod`** — an expensive rebuild.
+- **Any volume something else shares across sandboxes**, a credential store included. The
+  engine protects it from its own collector and cannot protect it from Docker.
 - The `data` volume of every **stopped** sandbox, which is its database.
 
 If you want room, the commands above it get you there without losing a credential you will

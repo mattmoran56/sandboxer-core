@@ -281,8 +281,10 @@ what it found:
   the project's clone on this machine), but nothing here will have that branch checked out
   any more.
 
-`--force` goes ahead anyway. There is no `--force` in the dashboard: the button refuses and
-tells you what to do about it, because "ask again, harder" is not a confirmation.
+`--force` goes ahead anyway, and it lives on the command rather than in the library: core
+refuses and reports what it found, and the override is typed by somebody at the machine.
+An embedder calling core gets the refusal and no way past it, because "ask again, harder" is
+not a confirmation.
 
 > [!WARNING] Two branches on one ticket can still share a sandbox
 > A slug is taken from a ticket id in the worktree's name, so `feat/eng-3941-answers` and
@@ -296,8 +298,8 @@ tells you what to do about it, because "ask again, harder" is not a confirmation
 <summary><b>Details for an agent</b> — what a delete removes, in order, and every refusal</summary>
 
 `sandboxr worktree delete <project> <branch> [--force]`. `<project>` is the workspace
-directory name, `<branch>` the branch that worktree has checked out. In the dashboard it is
-the `worktree-delete` action, project-scoped, taking the same `branch`.
+directory name, `<branch>` the branch that worktree has checked out. The verb is scoped to
+the *worktree*, not to a sandbox, because a worktree exists whether or not a container does.
 
 The order, and it is fixed:
 
@@ -368,8 +370,9 @@ deleted the branch's directory; the sandbox for it is now pointing at nothing. `
 `down` on it, which means the database goes too.
 
 It then removes any `sandboxr-` volume that no surviving sandbox owns and nothing has
-mounted. The shared volumes are never offered — `sandboxr-claude` holds credentials an agent
-session was given, and `sandboxr-gocache` and `sandboxr-gomod` are an expensive rebuild.
+mounted. The shared volumes are never offered — `sandboxr-gocache` and `sandboxr-gomod` are an
+expensive rebuild — and neither is a volume whose name the engine did not mint, so a volume an
+embedder shares across sandboxes is out of scope before any list is consulted.
 
 Last, it removes **project images a newer build has replaced**. Each project's image is tagged
 with a hash of what went into building it, so rebuilding the base image or upgrading sandboxr
@@ -395,9 +398,9 @@ slug may contain dashes, so `sandboxr-data-acme-web-tkt-4821` cannot be split ba
 parts unambiguously — and a wrong split here deletes somebody's database.
 
 Images follow the same doctrine, which is to keep on any doubt. An image survives if it is the
-newest of its project, if it is `sandboxr/base` or `sandboxr/dashboard`, if it is outside the
-`sandboxr/` namespace, if any container references it — running *or* stopped — or if Docker
-declined to say when it was built or how many containers hold it. Dangling and untagged images
+newest of its project, if it is `sandboxr/base`, if it is outside the `sandboxr/` namespace, if
+any container references it — running *or* stopped — or if Docker declined to say when it was
+built or how many containers hold it. Dangling and untagged images
 are not touched at all: they belong to `docker image prune`, and nothing here can tell one
 apart from a layer a build running right now is producing.
 
@@ -428,9 +431,8 @@ against each item:
 
 Each project's newest image always survives. Its tag is a content hash, so the next `up`
 finds it and starts in seconds instead of rebuilding a toolchain — which is the only reason
-to keep an image at all. `sandboxr/base` and `sandboxr/dashboard` are never removed as
-superseded either: they are tagged by version rather than by content, so "older tag" does
-not mean "replaced".
+to keep an image at all. `sandboxr/base` is never removed as superseded either: it is tagged
+by version rather than by content, so "older tag" does not mean "replaced".
 
 ```
 WOULD REMOVE  NAME                        SIZE    WHY
@@ -488,8 +490,8 @@ of them on it. A command you have to remember to run reclaims nothing on the day
 | `prune --build-cache` | never touched | orphans only | superseded ones, plus Docker's build cache | **no** — `--yes` to act |
 
 Never removed by anything sandboxr does: your worktree; the seed cache; `~/.sandboxr/logs`;
-`sandboxr-claude`; `sandboxr-gocache`; `sandboxr-gomod`; `sandboxr-deps-<hash>` while any
-container has it mounted; `sandboxr/base`; `sandboxr/dashboard`.
+`sandboxr-gocache`; `sandboxr-gomod`; `sandboxr-deps-<hash>` while any container has it
+mounted; `sandboxr/base`; anything outside the `sandboxr-` and `sandboxr/` namespaces.
 
 Volume names, from `packages/core/src/naming.ts`:
 `sandboxr-<data|blob|bin|www>-<project>-<slug>`.

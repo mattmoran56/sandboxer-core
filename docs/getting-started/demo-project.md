@@ -129,8 +129,8 @@ sandboxr: ">=0.1.0"
 ```
 
 `project` is the name that appears in every hostname, every container name and every volume name.
-It is why the URL above reads `…app.demo.sbx.localhost`. Change it and every name for this project
-changes with it.
+It is why the URL above reads `…--app--demo.sbx.localhost`. Change it and every name for this
+project changes with it.
 
 `sandboxr` is the version of the tool this config expects. It is a range, and it is checked before
 anything else is read. **Without it the config is refused** — both keys are required. That is
@@ -238,7 +238,7 @@ its own hostname.
 
 Field by field:
 
-- `label: app` becomes the second part of the hostname — `demo1.**app**.demo.sbx.localhost` — and
+- `label: app` becomes the second part of the hostname — `demo1--**app**--demo.sbx.localhost` — and
   it is what you name in `sandboxr reload --web=app`.
 - `package: .` is where the app lives, relative to the worktree.
 - `serve:` is the command. Its presence is what makes this a server rather than a static build. An
@@ -302,10 +302,11 @@ access:
 `apps: public` means anyone whose browser can reach the hostname gets the guestbook with no login.
 On a laptop that is your own browsers only — the router binds loopback.
 
-`controls: password` is the other half, and it is **not optional**. Starting, stopping and deleting
-sandboxes always sits behind the dashboard's password, because the dashboard holds the Docker
-socket. There is no setting that turns that off. [Access and security](../access.md) is the full
-picture.
+`controls: password` is the other half, and it is the only value the field accepts. sandboxr
+itself serves no controls over http — starting, stopping and deleting sandboxes is the `sandboxr`
+command, run by whoever is at the machine — so the field is a statement about any control plane
+the machine runs, and the engine parses it and enforces nothing.
+[Access and security](../access.md) is the full picture.
 
 These two are also the defaults, so the block is here to be read rather than because it is needed.
 Its real effect shows up elsewhere: because the apps are public, this project may only be seeded

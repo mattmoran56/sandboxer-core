@@ -192,13 +192,15 @@ left, rather than producing a hostname that does not work.
 There is no DNS to set up. Every current browser, and macOS's own resolver, answer any name
 under `.localhost` with the loopback address by themselves.
 
-### The dashboard is the exception
+### The bare domain is the exception
 
-The dashboard sits on the **bare domain** — `https://sbx.localhost` — and never on a per-sandbox
-hostname.
+The **bare domain** — `https://sbx.localhost` — is not a sandbox hostname and never becomes one.
+`sandboxr init` prepares it and serves nothing on it, so it is where a control plane goes if you
+put one there.
 
-That is deliberate. The dashboard can start and stop containers, so it must never be one guessed
-label away from an app that anyone can reach. It is also always behind a password.
+That separation is deliberate. A control plane can start and stop containers, so it must never be
+one guessed label away from an app that anyone can reach. sandboxr routes the bare domain and
+nothing more: whatever answers there brings its own authentication.
 [Access and security](access.md).
 
 > [!NOTE] HTTP or HTTPS depends on your machine

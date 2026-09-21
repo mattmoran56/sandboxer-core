@@ -75,9 +75,9 @@ exactly the ones you want.
 > -xdf` cannot destroy your logs, your seed cache or your certificates.
 
 > [!IMPORTANT] These logs are not a sign of life
-> The dashboard health-probes each sandbox by dialling its container directly, and every
-> probe is a request the sandbox's own router records in `caddy.log`. So the files keep
-> growing while a sandbox sits completely unused. If you are trying to work out whether
+> Anything that health-probes a sandbox dials its container directly, and every probe is a
+> request the sandbox's own router records in `caddy.log`. So the files keep growing while a
+> sandbox sits completely unused. If you are trying to work out whether
 > anybody is using a sandbox, ask `sandboxr expire --dry-run` — the idle clock reads the
 > *shared* router's log, which probes never touch.
 
