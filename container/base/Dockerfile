@@ -12,11 +12,47 @@
 # monorepo and a single-worker project on a file database, and the second of those
 # stays cheap -- most of why a Workers sandbox costs almost nothing is that it
 # never installs a database server.
+#
+# There is also no *agent* here, and that absence is deliberate rather than an
+# omission. sandboxr runs a project; it has no opinion about who or what edits
+# the worktree. An embedder that puts an agent in its sandboxes builds one layer
+# on top of this image and installs it there, and passes that image as the base
+# the project layer is built from. Keeping the agent out is what lets this image
+# be a dependency of products that do not have one.
 
 # --- caddy -------------------------------------------------------------------
 # A static Go binary, so it is safe to lift out of an Alpine image into a
 # glibc one.
 FROM caddy:2-alpine AS caddy
+
+# --- object storage ----------------------------------------------------------
+# Lifted out of MinIO's own images, and it used to be a `curl` from dl.min.io.
+#
+# That download stopped working: every URL under
+# `https://dl.min.io/server/minio/release/linux-<arch>/minio` (and the matching
+# `mc` one) now answers **410 Gone**, and the GitHub releases for `minio/minio`
+# carry no binary assets at all any more. The build failed on the MinIO layer
+# with `curl: (22) The requested URL returned error: 410` -- a number that reads
+# like a broken mirror and is in fact a withdrawal.
+#
+# What is still published is the container image, on quay.io rather than Docker
+# Hub (`docker pull minio/minio` answers "pull access denied ... repository does
+# not exist"). So the binaries come out of those images the same way `caddy`
+# above does, and for the same reason: both are static Go binaries, so lifting
+# one into a Debian image is safe.
+#
+# Pinned to an exact RELEASE tag, not `latest`: the base image is
+# content-addressed on the files under `container/`, so a floating tag would
+# leave two machines with the same digest running different object stores.
+#
+# `minio` and `mc` are pinned separately because MinIO releases them separately
+# -- there is no single tag that names both.
+#
+# Two full `FROM`s rather than one, because a stage is a whole image and these
+# are two images. Neither costs anything in the result: only the one binary each
+# is copied, and BuildKit never ships the rest.
+FROM quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z AS minio
+FROM quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z AS mc
 
 # --- runtime -----------------------------------------------------------------
 # Debian bookworm, and specifically NOT a vendor MySQL image.
@@ -102,88 +138,29 @@ RUN set -eux; \
 # in the base rather than a project layer because a public sandbox writing to
 # production storage is the kind of mistake that must be impossible rather than
 # configurable -- the endpoint the code sees is local whatever the project asked
-# for. The two binaries are the largest thing in this image after the agent
-# binary below; that is the price of the guarantee.
+# for. The two binaries are the largest single thing in this image; that is the
+# price of the guarantee.
 #
-# The arch goes straight into the download path here, so an unresolved one is a
-# 404 rather than an error about architecture -- see the note above the s6 block.
-RUN set -eux; \
-    ARCH="${TARGETARCH:-}"; \
-    if [ -z "$ARCH" ]; then ARCH="$(uname -m)"; fi; \
-    case "$ARCH" in \
-      arm64|aarch64) MINIO_ARCH=arm64 ;; \
-      amd64|x86_64)  MINIO_ARCH=amd64 ;; \
-      *) echo "unsupported arch $ARCH" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL "https://dl.min.io/server/minio/release/linux-${MINIO_ARCH}/minio" -o /usr/local/bin/minio; \
-    curl -fsSL "https://dl.min.io/client/mc/release/linux-${MINIO_ARCH}/mc"      -o /usr/local/bin/mc; \
-    chmod +x /usr/local/bin/minio /usr/local/bin/mc
-
-# Claude Code, in the base rather than a project layer, because a session runs
-# *inside* the sandbox: the host reaches in with `docker exec` and runs
-# `claude -p --output-format stream-json ...` (see
-# packages/core/src/agent/launch.ts). The binary therefore has to be in every
-# image, not in the ones whose project happened to ask for an agent -- a sandbox
-# that is missing it fails at the moment somebody opens a session, which is the
-# worst possible time to discover a build decision.
-#
-# The native installer, and specifically not `npm install -g
-# @anthropic-ai/claude-code`. This image has no Node and the paragraph at the top
-# of the file is the reason it stays that way; pulling a whole runtime in for one
-# binary that never calls it would undo that for nothing. The native installer
-# ships a self-contained executable -- same binary the npm package downloads,
-# without the runtime around it.
-#
-# No `TARGETARCH` case here, unlike every other download in this file, and that
-# is deliberate rather than an omission: install.sh resolves the platform from
-# `uname -m` itself, and it resolves it correctly under emulation, because a
-# cross-arch buildx build executes this RUN on the target architecture. Passing
-# it an arch is not a thing it accepts.
-#
-# HOME is forced because this is a home-directory installer: it puts a launcher
-# at `$HOME/.local/bin/claude` pointing into `$HOME/.local/share/claude/versions`,
-# and no `.local/bin` is on anyone's PATH here. Left at the default the install
-# succeeds, prints its own warning about PATH, and then `docker exec <container>
-# claude` fails with "executable file not found" -- a missing-binary error for a
-# binary that is present, at the moment somebody opens a session.
-#
-# So: install under /opt, then symlink into /usr/local/bin, which the ENV below
-# keeps on the PATH a non-login `docker exec` gets. A symlink rather than
-# installing straight into /usr/local because the installer owns the shape of
-# that tree -- launcher, `versions/`, whatever it grows next -- and we own one
-# link into it. If the layout changes, the link moves; nothing else here knows
-# what is behind it.
-#
-# The cost is roughly 240 MB, which makes this the largest single thing in the
-# image. It buys a sandbox where a session is already possible rather than one
-# more thing to install first.
-RUN set -eux; \
-    export HOME=/opt/claude-code; \
-    mkdir -p "$HOME"; \
-    curl -fsSL https://claude.ai/install.sh | bash; \
-    ln -sf "$HOME/.local/bin/claude" /usr/local/bin/claude; \
-    rm -rf "$HOME/.claude/downloads"
-
-# An image is a pinned artefact and the agent binary is part of it. Left to
-# itself Claude Code updates in the background, and in a container that update
-# lands under the *session's* HOME (/root), not the /opt tree /usr/local/bin
-# points at -- so it would neither take effect nor survive the container, while
-# two sandboxes built from one image slowly disagreed about what they were
-# running. Rebuild the image to move version.
-ENV DISABLE_AUTOUPDATER=1
+# No arch switch, unlike the downloads around it: a `COPY --from` takes the stage
+# as BuildKit resolved it, and BuildKit resolves a `FROM` to the *target*
+# platform. The arch is therefore right by construction rather than by a case
+# statement, which is one fewer place for the failure the s6 note describes.
+COPY --from=minio /usr/bin/minio /usr/local/bin/minio
+COPY --from=mc    /usr/bin/mc    /usr/local/bin/mc
+RUN chmod +x /usr/local/bin/minio /usr/local/bin/mc
 
 # --- gh, and a git that works ------------------------------------------------
 #
-# `gh` is in the base for the same reason `claude` is: the point of a sandbox is
-# that the branch in it can be finished, and finishing a branch ends in a pull
-# request. A sandbox that can run the tests and cannot open the PR sends you back
-# to the host for the last step, which is the step you were trying to delegate.
+# `gh` is in the base because the point of a sandbox is that the branch in it can
+# be *finished*, and finishing a branch ends in a pull request. A sandbox that can
+# run the tests and cannot open the PR sends you back to the host for the last
+# step, which is the step you were trying to delegate.
 #
 # The release tarball rather than the apt repository: adding a repository means a
 # key, a sources list and an `apt-get update` layer that invalidates on every
 # rebuild, for one static Go binary. Measured on arm64 the binary is 50 MB and
-# the image goes from 625 MB to 672 MB — the second-largest single thing here,
-# after the ~240 MB `claude` costs.
+# adds about 47 MB to the image -- the largest single thing here after the object
+# storage pair above.
 #
 # The arch switch is the shape the s6 block explains at length; the value goes
 # straight into a download URL here, so an unresolved one is a 404 rather than an
@@ -204,7 +181,7 @@ RUN set -eux; \
 
 # Send git's https credentials through gh, exactly as dashboard/Dockerfile does.
 #
-# This is the half of "an agent can open a pull request" that is not `gh`: `gh pr
+# This is the half of "a sandbox can open a pull request" that is not `gh`: `gh pr
 # create` pushes the branch first, over https, and a `gh` that is logged in does
 # nothing for `git` on its own. `gh auth setup-git` would write this, but it
 # refuses to run without a credential and there is none at build time — so the
@@ -244,8 +221,8 @@ RUN git config --system gc.worktreePruneExpire never
 COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 
 # /command is where s6-overlay puts s6-svc, s6-rc and with-contenv. It is on the
-# PATH for supervised services but not for `docker exec`, which is how both the
-# CLI and an agent reach in to restart one process.
+# PATH for supervised services but not for `docker exec`, which is how the host
+# reaches in to restart one process.
 ENV PATH="/command:/usr/local/bin:${PATH}"
 
 COPY scripts/ /opt/sandboxr/scripts/
@@ -275,7 +252,7 @@ RUN mkdir -p \
       /empty \
  && chmod 555 /empty
 
-RUN caddy version && minio --version | head -1 && jq --version && claude --version \
+RUN caddy version && minio --version | head -1 && jq --version \
  && git --version && gh --version | head -1 && ldd --version | head -1
 
 # STAGE2_FAILS=0 keeps the container alive when a oneshot fails, because a sandbox

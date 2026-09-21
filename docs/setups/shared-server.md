@@ -33,7 +33,7 @@ client, no DNS writer and no service unit. Stop and tell me if I ask you to inst
 | Resource | Guidance |
 |---|---|
 | **Memory** | A sandbox's cap is the largest limit any one of the project's apps declares, floor **4 GB**. Budget at least that per concurrently running sandbox, plus 2 GB for the host and the dashboard. Four sandboxes of a project whose heaviest build asks for 6 GB wants 26 GB, not 16 |
-| **Disk** | 40 GB floor. The base image is around 670 MB. Each project's layer adds its toolchains and its dependency tree, and a large one measured 6 GB. Each sandbox adds a few hundred megabytes of volumes. Docker's build cache will take everything you leave it |
+| **Disk** | 40 GB floor. The base image is around 580 MB, and the agent layer on top of it another 234 MB. Each project's layer adds its toolchains and its dependency tree, and a large one measured 6 GB. Each sandbox adds a few hundred megabytes of volumes. Docker's build cache will take everything you leave it |
 | **CPU** | Builds are the only bursty part. Four cores suits a small team. Two feels slow the moment two people rebuild at once |
 | **Swap** | Some. It turns a hard out-of-memory kill into slowness, which is a much better failure |
 

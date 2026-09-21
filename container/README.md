@@ -14,7 +14,8 @@ Everything below implements it.
 
 | Path | What it is |
 |---|---|
-| `base/Dockerfile` | The generic base image: s6, Caddy, MinIO, `git`, `gh`, `claude`, these scripts |
+| `base/Dockerfile` | The generic base image: s6, Caddy, MinIO, `git`, `gh`, these scripts. No agent |
+| `jef-base/Dockerfile` | Jef's layer on the base: `claude`, and nothing else. See below |
 | `base/s6/` | The s6 bundle skeleton, copied in at boot and then added to |
 | `project/Dockerfile.template` | The per-project layer, rendered by the host |
 | `scripts/` | Everything the services actually run |
@@ -24,10 +25,10 @@ Everything below implements it.
 | `workstation/Dockerfile` | The image a *session's agent* runs in — not a sandbox. See below |
 | `workstation/idle.sh` | Its whole runtime: one process, so `docker exec` has something to exec into |
 
-## Two images, not one
+## Three images, not one
 
-The image is split in two, and the split is the main structural difference from
-the implementation this is ported from.
+The image is split, and the split is the main structural difference from the
+implementation this is ported from.
 
 That implementation baked one project's toolchains **and** its whole dependency
 tree into a single ~4.5 GB base. It worked, and it could never serve a second
@@ -35,28 +36,46 @@ project: the toolchain versions, the database engine and the `node_modules` were
 all facts about one repository.
 
 - **`base/Dockerfile`** — Debian bookworm, s6-overlay, Caddy, MinIO, `jq`,
-  `envsubst`, `git`, `gh`, `claude`, and these scripts. Nothing project-specific.
-  Shared by every sandbox of every project on the machine, and it stays small so
-  that adding a project costs one thin layer rather than another few gigabytes.
-  `claude` and `gh` are the two deliberate exceptions to "small": they are there
-  because the point of a sandbox is that the branch in it can be *finished*, and
-  a sandbox that can run the tests but not open the pull request sends you back
-  to the host for the last step — the step you were trying to delegate.
+  `envsubst`, `git`, `gh`, and these scripts. Nothing project-specific, and
+  **nothing agent-specific**. Shared by every sandbox of every project on the
+  machine, and it stays small so that adding a project costs one thin layer
+  rather than another few gigabytes. `gh` is the deliberate exception to "small":
+  it is there because the point of a sandbox is that the branch in it can be
+  *finished*, and a sandbox that can run the tests but not open the pull request
+  sends you back to the host for the last step — the step you were trying to
+  delegate.
+- **`jef-base/Dockerfile`** — `ARG BASE_IMAGE` / `FROM ${BASE_IMAGE}`, plus
+  `claude`. This is the whole of what Jef adds to a sandbox, and it is a layer of
+  its own because sandboxr is an engine that runs a project and has no opinion
+  about who edits the worktree. Everything in it moved out of `base/Dockerfile`,
+  comments included. Around 234 MB on top of the base, measured on arm64.
 - **`project/Dockerfile.template`** — rendered per project into a layer on top,
   adding exactly what that project's `toolchain:` and `database:` blocks declare,
   plus its dependency install.
 
 ```
-sandboxr/base:<version>            generic, one per machine
-    └── sandboxr/<project>:<hash>  toolchains + database engine + deps
-            └── one container per worktree
+sandboxr/base:<version>                generic, one per machine, no agent
+    └── jef/base:<tag>                 + claude
+            └── sandboxr/<project>:<hash>  toolchains + database engine + deps
+                    └── one container per worktree
 ```
+
+> [!WARNING]
+> Nothing on the host builds `jef/base` or passes it as the project layer's base
+> yet. `jef init` exists — it builds the dashboard, workstation and orchestrator
+> images — but this one is not among them, and nothing sets `UpOptions.baseImage`.
+> Both halves are still to come. Until they do, a freshly built sandbox has no
+> `claude` in it.
 
 ### Building them
 
 ```bash
 # base — context is this directory
 docker build -f base/Dockerfile -t sandboxr/base:0.1.0 .
+
+# jef-base — same context, on top of whatever base tag you just built
+docker build -f jef-base/Dockerfile --build-arg BASE_IMAGE=sandboxr/base:0.1.0 \
+  -t jef/base:0.1.0 .
 
 # project — the host renders the template and stages the manifests
 docker build -f <rendered Dockerfile> -t sandboxr/<project>:<hash> <staged context>

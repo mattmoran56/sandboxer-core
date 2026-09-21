@@ -37,17 +37,18 @@ This tree is being split in two, and the boundary is the reason this file exists
   knows nothing about agents, sessions or Jef.
 - **The product, `Jef`.** `packages/server`, `packages/web`, `packages/sessions`,
   `packages/orchestrator`, `packages/voice`, `packages/telegram`,
-  `packages/orchestrator-daemon`, `sidecars/`, and the dashboard, orchestrator and workstation
-  containers. It is an agent you talk to, built on the engine.
+  `packages/orchestrator-daemon`, `sidecars/`, `container/jef-base/`, and the dashboard,
+  orchestrator and workstation containers. It is an agent you talk to, built on the engine.
 
 ```
 packages/core      @sandboxr/core     engine   Config, drivers, docker orchestration, lifecycle
 packages/cli       @sandboxr/cli      engine   The `sandboxr` command
 packages/docs      @sandboxr/docs     engine   The documentation site
-container/         (no package)       engine   What runs INSIDE a sandbox: Dockerfiles, s6, scripts
+container/         (no package)       engine   What runs INSIDE a sandbox: Dockerfiles, s6, scripts — except jef-base/
 examples/          (no package)       engine   Example sandboxr.yaml files
 packages/server    @jef/server        product  The dashboard's server: auth, JSON API, terminal, actions
 packages/web       @jef/web           product  The dashboard's browser app: React, Tailwind, built by Vite
+container/jef-base (no package)       product  The agent layer on the base image: claude, and nothing else
 sidecars/          (no package)       product  The audio body: Python, by necessity — see §10
 docker-compose.yml (no package)       product  The whole constellation, in one file — see §11
 .env.example       (no package)       product  The settings that file reads, keys only

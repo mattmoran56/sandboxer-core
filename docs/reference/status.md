@@ -357,8 +357,9 @@ handle being explained.
 
 **Run for real:**
 
-- The base image's smoke check runs `claude --version` on the same PATH `docker exec` gets, so an
-  image a session could not start in fails the build.
+- The agent layer's smoke check runs `claude --version` on the same PATH `docker exec` gets, so an
+  image a session could not start in fails the build. That check moved out of the base image with
+  the `claude` install it guards, into `container/jef-base/Dockerfile`.
 - The command that reads a worktree's slash commands has been run against a live sandbox. The list of
   built-ins was taken from the `claude` binary in the image, and checked against the commands a live
   session announces on start, rather than written from memory.
@@ -739,9 +740,17 @@ service unit. mkcert is the only certificate issuer.
 [On a server, for a team](../setups/shared-server.md) is a plan with the arithmetic worked out, not
 instructions.
 
+**The agent layer, wired to anything.** `container/jef-base/Dockerfile` exists and has been built by
+hand on top of the base image; `claude --version` answers inside it and does not inside the base. But
+nothing on the host builds it and nothing passes it as the base a project layer is built from, so a
+sandbox created today has **no `claude` in it at all**. `jef init` exists and builds the dashboard,
+workstation and orchestrator images; it does not build this one. The two pieces left are that build
+step and `UpOptions.baseImage`, the argument that would point a project layer at it.
+
 **A supervised coding-agent service.** No `sandboxr.yaml` block declares an agent, and nothing in a
-sandbox's service tree runs one. What does exist is `claude` in the base image and a dashboard session
-that starts it with `docker exec` — see
+sandbox's service tree runs one. What does exist is `claude` in `container/jef-base/Dockerfile` — one
+layer on top of the agent-free base image — and a dashboard session that starts it with
+`docker exec` — see
 [Agent sessions in the dashboard](../guides/agent-sessions.md), and the entry for it above.
 [Your own agent in a sandbox](../guides/agents-in-a-sandbox.md) describes the other arrangement,
 running your own agent against the bind mount, which is a way of working rather than a feature.

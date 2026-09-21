@@ -56,7 +56,7 @@ sandboxr prune          # what could be handed back, and how much. Removes nothi
 | Volumes no sandbox owns any more | `sandboxr gc`, or `sandboxr prune --yes` |
 | A sandbox's volumes (a few hundred MB each) | `sandboxr down <slug>` |
 | **Docker's build cache — the thing that actually fills the disk** | `sandboxr prune --build-cache --yes`, or `docker builder prune -a` |
-| The base image (~670 MB, once per machine) | `docker image rm sandboxr/base:latest`, then `sandboxr init` to get it back |
+| The base image (~580 MB, once per machine) | `docker image rm sandboxr/base:latest`, then `sandboxr init` to get it back |
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — why the message says corrupt, and what <code>prune</code> will and will not touch</summary>

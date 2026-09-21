@@ -407,7 +407,8 @@ Assume any project toolchain exists — these scripts run under s6 before and so
 
 | Path | What it is |
 |---|---|
-| `base/Dockerfile` | The generic base: Debian bookworm, s6-overlay, Caddy, MinIO, `jq`, `envsubst`, `git`, `gh`, `claude`, and these scripts |
+| `base/Dockerfile` | The generic base: Debian bookworm, s6-overlay, Caddy, MinIO, `jq`, `envsubst`, `git`, `gh`, and these scripts. No agent |
+| `jef-base/Dockerfile` | Jef's layer on the base, and the only thing in it is `claude`. `ARG BASE_IMAGE` / `FROM ${BASE_IMAGE}` |
 | `base/s6/` | The s6 bundle skeleton, copied in at boot and then added to |
 | `project/Dockerfile.template` | The per-project layer. Rendered by the host, with blocks `go`, `node`, `mysql`, `sqlite`, `gomod`, `deps` |
 | `scripts/entrypoint.sh` | PID 1's first process. Reads the plan, exports the environment, generates everything, `exec`s `/init` |

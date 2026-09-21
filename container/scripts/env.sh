@@ -53,9 +53,10 @@
 # contracts §5.2's order true. Running first would otherwise make this the
 # *strongest* source rather than the weakest: a `--env-file` value and a `-e`
 # value are the host's own statement about this sandbox — the slug, the person's
-# git identity, GH_TOKEN, CLAUDE_CONFIG_DIR — and a file the project supplies must
-# not be able to replace one. The host's reserved-name list cannot be leaned on
-# here, because it deliberately covers only the names the *sandbox* derives; it
+# git identity, GH_TOKEN, whatever else the host chose to hand in — and a file
+# the project supplies must not be able to replace one. The host's reserved-name
+# list cannot be leaned on here, because it covers only the names the *sandbox*
+# derives; it
 # has no opinion on GIT_AUTHOR_EMAIL, and a secrets file quietly rewriting that
 # would put the wrong author on a commit with nothing anywhere saying why. A
 # project that really does want to override one has the plan's `env:` map, which

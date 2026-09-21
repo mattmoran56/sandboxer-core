@@ -109,8 +109,16 @@ flowchart TB
 
 The [base image](../reference/glossary.md) is the long part. It is a Debian image carrying the
 supervisor that runs a sandbox's services, the Caddy web server that answers inside it, MinIO for
-object storage, `jq`, `git`, the GitHub CLI and the `claude` binary. Measured on arm64 it comes to
-around 670 MB, and `claude` is about 240 MB of that.
+object storage, `jq`, `git` and the GitHub CLI. Measured on arm64 it comes to around 580 MB.
+
+It carries **no agent**. `claude` lives one layer above, in `container/jef-base/Dockerfile`, which
+adds about 234 MB and nothing else — sandboxr runs a project and has no opinion about who edits the
+worktree; Jef is the thing that puts an agent in there.
+
+> [!WARNING]
+> Nothing builds that layer or points a sandbox at it yet. `jef init` below builds the dashboard and
+> workstation images; this one is not among them. Until that wiring lands, a freshly built sandbox
+> has no `claude` in it.
 
 It is built once. Nothing rebuilds it unless you pass `--rebuild` or the tool's version changes.
 Every sandbox on the machine then starts from it.
@@ -119,11 +127,12 @@ The dashboard image is `jef init`'s, and it is built separately on purpose: it c
 client and the base image deliberately does not. That is what stops a project — or an agent
 working inside a sandbox — driving Docker.
 
-The workstation image is the third, and it is the container a
-[session's](../guides/dashboard.md) agent runs in — around 640 MB, most of it `claude`. `jef init`
-builds it too, rather than leaving it to the first time somebody makes a session, because a session
-is the ordinary way to start work: left where it was, the build landed on whoever pressed **New
-session** first, as several silent minutes inside a request with nowhere to show progress.
+The workstation image is the container a [session's](../guides/dashboard.md) agent runs in — around
+640 MB, most of it `claude`. That copy is the workstation's own and has nothing to do with the agent
+layer above the base: here the agent runs beside the sandbox rather than inside it. `jef init` builds
+it too, rather than leaving it to the first time somebody makes a session, because a session is the
+ordinary way to start work: left where it was, the build landed on whoever pressed **New session**
+first, as several silent minutes inside a request with nowhere to show progress.
 
 ### What it prints
 
