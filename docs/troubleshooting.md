@@ -72,8 +72,8 @@ mysqld's output and prints it on failure, so `sandboxr logs <slug>` carries the 
 A sandbox that fails to initialise on an older image will not show it; check `docker system df`
 before believing anything else.
 
-`sandboxr prune` reports before it removes, and never offers the shared volumes.
-`sandboxr-claude` holds an agent session's credentials, and the Go caches are expensive to rebuild.
+`sandboxr prune` reports before it removes, and never offers the shared volumes: the Go caches
+are expensive to rebuild, and anything an embedder declared its own is left alone on its word.
 
 The build cache is the one thing it asks about rather than assumes. sandboxr is not its only writer,
 so it is included only with `--build-cache`.
@@ -89,24 +89,25 @@ Start sandbox: docker build -f /tmp/sandboxr-build-Xh39sf/Dockerfile -t sandboxr
 DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
 ```
 
-**The notice is only the first line, and the real failure is below it.** A build started from the
-dashboard runs on Docker's *legacy* builder. That builder refuses the cache mounts a Go module or a
-dependency lockfile brings with it.
+**The notice is only the first line, and the real failure is below it.** A build started from a
+container that drives Docker — anything you put on the bare domain — runs on Docker's *legacy*
+builder, because such a container ships the Docker client alone. That builder refuses the cache
+mounts a Go module or a dependency lockfile brings with it.
 
-Until the dashboard image carries buildx, **build that project's image once from the host**:
+Until that container carries buildx, **build that project's image once from the host**:
 
 ```bash
 sandboxr up --project acme --branch main     # on the host, where buildx is installed
 ```
 
-The image tag is content-addressed, so the dashboard then finds it already built.
+The image tag is content-addressed, so the next build finds it already there.
 
 <details class="failure">
-<summary><b>If it goes wrong</b> — why the dashboard has no buildx, the architecture half that is fixed, and the cache-mount half that is not</summary>
+<summary><b>If it goes wrong</b> — why a container driving Docker has no buildx, the architecture half that is fixed, and the cache-mount half that is not</summary>
 
 `docker build` uses BuildKit when the `buildx` plugin is installed, and the *legacy* builder when it
-is not. The dashboard's image ships the Docker client on its own — no daemon, no compose, no buildx —
-so a build started from a browser always runs on the legacy builder.
+is not. An image that drives Docker ships the client on its own — no daemon, no compose, no buildx —
+so a build started from inside one always runs on the legacy builder.
 
 **The architecture half is fixed.** The legacy builder sets none of BuildKit's platform arguments.
 Every Dockerfile that switches on `TARGETARCH` then fails in whatever way its shell fails:
@@ -124,7 +125,7 @@ the --mount option requires BuildKit.
 ```
 
 A project that declares neither a Go module nor a `deps:` block has no cache mount in its layer, and
-builds from the dashboard either way.
+builds either way.
 
 </details>
 
@@ -211,9 +212,6 @@ If the value is one a front-end reads — a `VITE_*`, a `NEXT_PUBLIC_*` — **re
 ```bash
 sandboxr reload <slug> --web
 ```
-
-The dashboard marks running sandboxes that started before the last change and offers both
-buttons beside each one.
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — the restart worked and the front-end still shows the old value</summary>
@@ -337,8 +335,8 @@ The router terminates TLS only when a trusted certificate exists on the machine.
 never run `mkcert` it listens on port 80 alone. An `https://` URL for it fails to connect before any
 of sandboxr is involved, which is why the browser blames the site rather than the certificate.
 
-The dashboard reads the scheme off the router rather than assuming one. So once `sandboxr init` has
-written a certificate, the links it prints become `https://` on their own.
+Once `sandboxr init` has written a certificate, the router serves TLS and every URL sandboxr
+prints becomes `https://` on its own — the scheme is read off the router rather than assumed.
 
 </details>
 
@@ -794,9 +792,8 @@ Without it, both worktrees resolve to one slug, so they are one container and on
 the second worktree tears the first one's sandbox down and hands its database to a branch that never
 wrote it. Nothing downstream can tell the two apart.
 
-The guard runs when sandboxr **cuts** a worktree, so it covers `sandboxr worktree add` and the
-dashboard's **Start** on a branch, and not a worktree you cut yourself. For those, pass a name:
-`sandboxr up <name>`.
+The guard runs when sandboxr **cuts** a worktree, so it covers `sandboxr worktree add` and not a
+worktree you cut yourself. For those, pass a name: `sandboxr up <name>`.
 
 Collisions already on disk are deliberately left alone. Renaming a worktree that has a running
 sandbox would leave its container and its volumes stranded under the old name — `sandboxr down` one
@@ -857,8 +854,8 @@ projects:
   acme-monorepo: { github: token }
 ```
 
-**The key is the project's name as sandboxr shows it** — its directory in the workspace, the name in
-every dashboard URL — or the `project:` its own `sandboxr.yaml` declares. Either works. A key that
+**The key is the project's name as sandboxr shows it** — its directory in the workspace, the name
+`sandboxr ls` prints — or the `project:` its own `sandboxr.yaml` declares. Either works. A key that
 is neither does nothing at all, silently, which is the commonest way this goes wrong: run
 `sandboxr doctor` and it names any entry that matches no project, along with the names that would.
 `sandboxr config`, run in the worktree, says what this project resolved to.
@@ -891,9 +888,9 @@ nothing is stale.
 git will not check out one branch in two places, and the branch you want is very often already open
 elsewhere.
 
-For a project in the workspace, sandboxr handles this itself: `sandboxr worktree add` and the
-dashboard's Start button pick the right form. For a repository you keep yourself, run the commands by
-hand and then `sandboxr up` from inside the worktree.
+For a project in the workspace, sandboxr handles this itself: `sandboxr worktree add` picks the
+right form. For a repository you keep yourself, run the commands by hand and then `sandboxr up`
+from inside the worktree.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the four forms, and what a detached worktree means</summary>
@@ -925,9 +922,8 @@ sandboxr worktree pull acme feat/tkt-4821
 sandboxr stop feat-tkt-4821 && sandboxr start feat-tkt-4821
 ```
 
-From the dashboard both are buttons on the worktree — **Pull from Git**, then **Restart
-services**. A front-end is built rather than merely run, so rebuild those as well: **Rebuild
-front-ends**, or `sandboxr reload feat-tkt-4821 --web built`.
+A front-end is built rather than merely run, so rebuild those as well:
+`sandboxr reload feat-tkt-4821 --web built`.
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — the four things a pull refuses, and what each one wants</summary>
@@ -954,124 +950,6 @@ block anything.
 **The tree on disk decides whether it worked, not the exit code.** A repository hook can run
 *after* the checkout is already on disk, and fail. A `post-checkout` hook needing a tool the machine
 does not have does exactly this.
-
-## The dashboard
-
-### Every dashboard button fails with a strange error
-
-The dashboard loads the same `@sandboxr/core` the CLI does, so a half-saved source file breaks every
-button. Check the CLI works before debugging the dashboard.
-
-### The dashboard signs you in and then shows a blank page
-
-**The browser bundle has not been built.** The browser's network panel settles it: a 404 on
-something under `/assets/` means the bundle was never built. Run `npm run build` at the repository
-root.
-
-<details class="failure">
-<summary><b>If it goes wrong</b> — why a missing build renders as an empty page</summary>
-
-The dashboard is a browser app. The server sends an HTML shell, and the app itself comes from
-`@jef/web`'s build under `/assets/`. With that build missing, the shell still arrives and every
-asset 404s, which renders as an empty page rather than an error.
-
-`npm run build` at the repository root builds the two packages in the right order, because the server
-depends on the app. Building `@jef/server` on its own does not.
-
-</details>
-
-### Opening an agent session fails, saying there is no Claude credential
-
-```
-no Claude credential on this machine. Run `claude setup-token` on the host and set
-SANDBOXR_CLAUDE_TOKEN before starting the dashboard.
-```
-
-That is the whole of it. Mint a token on the host with `claude setup-token`, export
-`SANDBOXR_CLAUDE_TOKEN`, and run `sandboxr init` again.
-
-<details class="failure">
-<summary><b>If it goes wrong</b> — why the variable has to be set before <code>init</code></summary>
-
-It is forwarded to the dashboard container at `init` and nowhere else. Setting it in a shell after
-the dashboard is already running has no effect. See
-[Environment variables](reference/environment.md).
-
-</details>
-
-### A session on macOS says `Not logged in · Please run /login`
-
-**Your `~/.claude/.credentials.json` is being read as a login and is not one.** On macOS that
-file usually holds the OAuth tokens for MCP servers you have signed into, while your account
-login sits in the login keychain.
-
-sandboxr checks only that the file exists and is not empty, so an MCP-only file looks like a
-login. The token you set is then withheld, because a token would override a login, and the
-session is left with no credential at all. Setting `SANDBOXR_CLAUDE_TOKEN` cannot fix it.
-
-Either export the real credential from the keychain into that file — **merging**, not
-overwriting, or you lose the MCP tokens — or move the file aside so the token is used again.
-
-<details class="failure">
-<summary><b>If it goes wrong</b> — checking what the sandbox is actually given</summary>
-
-This is the same test the dashboard makes, and it reports the mount, never whether the file
-holds a login:
-
-```bash
-docker exec sandboxr-acme-tkt-4821 test -s /root/.claude/.credentials.json && echo mounted
-```
-
-An exported credential also goes stale: a rotation writes to the keychain and not to the
-file, and the symptom is this message again. `claude setup-token` is the credential built to
-be long-lived, and it works once nothing is being mistaken for a login.
-
-</details>
-
-### The repository list is empty, and `gh` works fine on this machine
-
-Settings → Projects lists what the **dashboard's** `gh` can reach, and the dashboard runs in a
-container. Your shell's `gh` is not the one being asked. `sandboxr init` again is the usual fix,
-because that is when the token is captured.
-
-The dashboard's log says which case you have, because an empty list looks the same either way:
-
-```bash
-docker logs sandboxr-dashboard | grep repositories
-```
-
-| The line says | What it means |
-|---|---|
-| `repositories: gh: Requires authentication (HTTP 401)` | The container has no usable token |
-| `repositories: there is no gh on this machine` | The dashboard image is not the one sandboxr builds |
-| `repositories: HTTP 403 …` | A token whose scopes do not include `repo` |
-| `repositories could not be listed: …` | Not `gh` at all — the workspace could not be read |
-
-The box for pasting a remote works throughout, whatever the listing says.
-
-<details class="failure">
-<summary><b>If it goes wrong</b> — where the token lives, what <code>init</code> does with it, and why the reason is not on screen</summary>
-
-The usual cause is where the token lives. On macOS `gh auth login` puts it in the login keychain, so
-`~/.config/gh/hosts.yml` names your account and holds no credential — and the dashboard mounts that
-directory. A keychain does not cross into a container, so the container's `gh` has a username, no
-token, and every call comes back `HTTP 401`.
-
-`sandboxr init` handles this. It runs `gh auth token` on the host and passes the value in as
-`GH_TOKEN`. Two things follow from *when* it does that:
-
-- **A dashboard started any other way has no token.** Run `sandboxr init` again.
-- **The token is captured once, at `init`.** Sign in again, or let it expire, and the container is
-  still holding the old one. `sandboxr init` again is the fix there too.
-
-The reason stays in the log and never reaches the browser. It can name a config path or an account,
-and any signed-in session could open that pane.
-
-The box for pasting a remote is the only route for a repository the listing could never return.
-That covers one in an organisation you can reach but are not a member of, and a remote that is not
-GitHub.
-
-</details>
 
 ## Config refusals
 

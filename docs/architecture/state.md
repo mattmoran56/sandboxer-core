@@ -30,11 +30,11 @@ sandboxr.ttl        seconds it may sit unused for, or "never"
 sandboxr.env        a digest of the environment it was created with — a record, not a comparison
 ```
 
-The shared router and the dashboard carry `sandboxr.role=router` and `sandboxr.role=dashboard`
-instead. Neither has a slug label, so neither can ever appear in a sandbox listing. The dashboard
-also carries `sandboxr.frontend`, which says "this container answers on the bare domain" — that
-one is not the dashboard's, it is what any container put there carries, and it is how the engine
-reads a request *about* a sandbox rather than *to* one.
+The shared router carries `sandboxr.role=router` instead, and a control plane somebody puts on
+the bare domain carries a role of its own. Neither has a slug label, so neither can ever appear in
+a sandbox listing. A control plane also carries `sandboxr.frontend`, which says "this container
+answers on the bare domain" — it is what *any* container put there carries, and it is how the
+engine reads a request *about* a sandbox rather than *to* one.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the label scheme's exact behaviour</summary>
@@ -103,17 +103,17 @@ The deadline is `max(startedAt, lastActive) + ttl`.
 - `startedAt` is Docker's own `State.StartedAt`, which Docker maintains. It gives the semantics
   anyone expects from a Restart button: restarting a sandbox buys it another full lifetime.
 - `lastActive` is the last time anybody used it, and four things count: a request that reached the
-  sandbox through the shared router, a dashboard route that names it (also in the router's log,
-  under the dashboard's own router name), an agent run on its worktree — joined through
-  `agent/runs.json` and timed by the transcript's mtime — and a terminal or agent socket somebody is
-  holding open, timed by the heartbeat in `state/attach/<project>/<slug>`.
+  sandbox through the shared router, a front end's route that names it (also in the router's log,
+  under that front end's own router name), activity the caller reports on its worktree, and a
+  socket somebody is holding open, timed by the heartbeat in
+  `state/attach/<project>/<slug>`.
 
 The first three are read at the moment they are asked for and none of them is written down for this
-purpose. The fourth is the exception, and the section below says why it has to be. A live agent run
-reads as activity *now*, so a sandbox cannot expire under a working agent; an ended one reads as
-when it ended, so the countdown starts from when the agent stopped. Because a killed dashboard
-leaves `running` rows behind for ever, a live row is believed only while the transcript it names is
-still being written to — and a held socket is believed on the same terms, and for the same fifteen
+purpose. The fourth is the exception, and the section below says why it has to be. Work reported
+as running reads as activity *now*, so a sandbox cannot expire under it; work reported as finished
+reads as when it finished, so the countdown starts from then. Because a caller killed mid-run
+leaves "running" behind for ever, the engine believes a live claim only while its evidence is still
+being written to — and a held socket is believed on the same terms, and for the same fifteen
 minutes, after its last heartbeat.
 
 Every failure is an *absence*, never an answer: a router that will not answer, a missing or corrupt
@@ -132,7 +132,7 @@ that acts on it is `sandboxr expire` — see [CLI commands](../reference/cli.md)
 
 - **A listing cannot be stale.** A container that does not exist cannot appear in `sandboxr ls`,
   because the listing *is* the container set.
-- **The dashboard cannot lie.** It reads live, so there is no cache to invalidate.
+- **A listing cannot lie.** Every reader reads live, so there is no cache to invalidate.
 - **Crash recovery is free.** Interrupt `up` halfway, reboot, `docker rm` a container by hand —
   nothing is left inconsistent, because there is no bookkeeping.
 - **The router needs no configuration file.** It resolves a hostname by matching labels, so starting
@@ -173,7 +173,7 @@ but you cannot ask what existed last week.
 
 ## Four things that look like exceptions, and are not
 
-A dashboard that manages projects needs to know about a project with nothing running. It also needs
+Anything that manages projects needs to know about a project with nothing running. It also needs
 a way to say "keep this one", a way to let you call a worktree something other than its branch, and
 a way to tell another process that somebody is sitting in a terminal right now. All four put
 something on the host, which on a fast read this page forbids. Here is the line.
@@ -197,9 +197,9 @@ Run the six failures above against it and none of them apply. No lifecycle comma
 It is also not a *list*. **A project is a directory containing `repo.git`**, so listing the projects
 is a `readdir` — the same shape of answer as `docker ps`.
 
-And it may only ever *add* projects to the dashboard, never filter them. The workspace the dashboard
-answers with is the directory listing **unioned** with what is running, so nothing running can be
-hidden by deregistering anything.
+And it may only ever *add* projects to a listing, never filter one. The workspace answer is the
+directory listing **unioned** with what is running, so nothing running can be hidden by
+deregistering anything.
 
 </details>
 
@@ -254,21 +254,21 @@ worktree changes one line on a screen and no address anywhere.
 <details class="why">
 <summary><b>Why it works this way</b> — the attach heartbeat, the one signal with no original to read</summary>
 
-While the dashboard holds a terminal or an agent socket open on a sandbox, it re-stamps
+While something holds a terminal or another socket open on a sandbox, it re-stamps
 `~/.sandboxr/state/attach/<project>/<slug>` every thirty seconds. That is a written signal in a page
 about not writing signals, so it needs the strongest form of the argument.
 
 **The test this file passes is that there is no original to read.** The router's log is the original
-for a request; the transcript is the original for an agent run. For an open socket there is nothing:
+for a request. For an open socket there is nothing:
 Traefik does not log a websocket until it *closes*, and stamps the line with when it **opened**. So
 a terminal held open all afternoon left no evidence of use, the reaper stopped the container under a
 live connection, and the log then recorded a request dated to that morning — a cause that looks
 nothing like its symptom.
 
-The one process that knows a socket is open is the dashboard holding it, and `sandboxr expire` on
-the command line is a *different process*. Keeping the set in memory would give the CLI and the
-dashboard two different answers to "is this in use", which is exactly the drift this page forbids.
-So the fact is put where both readers can see it.
+The one process that knows a socket is open is the one holding it, and `sandboxr expire` on the
+command line is a *different process*. Keeping the set in memory would give the two different
+answers to "is this in use", which is exactly the drift this page forbids. So the fact is put where
+both readers can see it.
 
 **It needs no stamp, and for a different reason than the display name.** All it says is "at time T a
 live process held a connection to this name". The deadline is `max(startedAt, lastActive)`, so a
@@ -276,7 +276,7 @@ marker older than the container that now has that name contributes nothing at al
 to be stamped because it is a *permission*; a timestamp cannot grant anything.
 
 Two things bound what it may mean, and both exist because an unbounded version would be worse than
-the bug. A dashboard killed with a terminal open leaves a marker nothing will move again, so past
+the bug. A holder killed with a terminal open leaves a marker nothing will move again, so past
 fifteen minutes it is credited with the moment it was last written and nothing more. And a laptop
 that sleeps with the tab open never closes its connection, so the holder pings each socket and one
 that stops answering stops counting — dropped rather than closed, so a laptop waking up simply
@@ -313,7 +313,7 @@ believed as soon as it stops being refreshed.
 <summary><b>Details for an agent</b> — three load-bearing details of the activity signal</summary>
 
 - **The per-sandbox logs are not a substitute.** `~/.sandboxr/logs/<project>/<slug>/` looks like the
-  same signal and is not. The dashboard's health probes dial containers directly on the Docker
+  same signal and is not. A control plane's health probes dial containers directly on the Docker
   network, so they write to those logs every few seconds on a sandbox nobody is touching. A timer
   keyed on them would never fire. The router's log is the right one *because* the probes do not go
   through the router.
@@ -376,9 +376,9 @@ nothing else it could be.
 | Container | `sandboxr-<project>-<slug>` |
 | Network | `sandboxr` — one, shared |
 | Per-sandbox volumes | `sandboxr-<purpose>-<project>-<slug>`, purpose one of `data`, `blob`, `bin`, `www` |
-| Shared volumes | `sandboxr-deps-<lockfile hash>`, `sandboxr-gocache`, `sandboxr-gomod`, `sandboxr-claude` |
+| Shared volumes | `sandboxr-deps-<lockfile hash>`, `sandboxr-gocache`, `sandboxr-gomod` |
 | Project image | `sandboxr/<project>:<12 hex>` — the hash covers the tool version, the rendered Dockerfile and every staged manifest |
-| The machine's own images | `sandboxr/base` and `sandboxr/dashboard`, tagged by tool version and `latest` |
+| The machine's own image | `sandboxr/base`, tagged by tool version and `latest` |
 
 <details class="agent">
 <summary><b>Details for an agent</b> — what <code>gc</code> and <code>prune</code> may each remove</summary>
@@ -398,10 +398,12 @@ them, plus — only when asked — Docker's build cache, which sandboxr is not t
 
 Four rules bind both:
 
-- **The shared volumes are never removed, by either.** Taking `sandboxr-claude` would sign the
-  machine out of every MCP server it has been given.
-- **`sandboxr/base` and `sandboxr/dashboard` are never removed as superseded.** They are tagged by
-  version rather than by content, so "older tag" does not mean "replaced".
+- **The shared volumes are never removed, by either**, and neither is anything the caller declared
+  its own: a machine-wide credential store looks exactly like a volume nobody wants on an evening
+  when every sandbox is stopped.
+- **`sandboxr/base` is never removed as superseded**, nor are the `sandboxr/` names reserved for a
+  product's own machine images. They are tagged by version rather than by content, so "older tag"
+  does not mean "replaced".
 - **Of each project's images, the newest survives.** A content-addressed tag means the next `up`
   finds it and starts rather than rebuilding, which is the reason the image is kept at all.
 - **An image any container references is never removed**, running or stopped, and neither is one

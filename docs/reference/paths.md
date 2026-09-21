@@ -35,21 +35,16 @@ Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.
 | `cache/` | Database seed artifacts, named by content | yes |
 | `logs/<project>/<slug>/` | Per-sandbox logs, and the schema baselines | **yes** — deliberately |
 | `tls/` | Certificates and keys the router serves | yes |
-| `state/` | Router config, the dynamic config directory, the dashboard's session key | yes |
+| `state/` | Router config and the dynamic config directory | yes |
 | `state/keep/<project>/<slug>` | Keeps one sandbox alive past its idle limit | **no** — see below |
 | `state/name/<project>/<slug>` | What to call one worktree on screen | **yes** — see below |
 | `state/slug/<project>/<worktree dir>` | The slug a worktree was given when it collided with a sibling | **yes** — see below |
 | `state/attach/<project>/<slug>` | When a socket was last held open on one sandbox | yes — see below |
-| `state/session/<session>/` | The same three files, for a session rather than a worktree — see below | goes with the session |
 | `secrets/<project>.env` | Third-party credentials, mode 0600. **A file you edit** — see below | yes |
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
 | `bin/` | Helper binaries built on the host | yes |
-| `run/` | The Unix sockets the voice and Telegram sidecars listen on | yes |
 | `host.env` | What only this machine can look up, for whatever runs on the bare domain. Mode 0600 — see below | yes |
-| `agent/runs.json` | Which agent session belongs to which sandbox | yes |
-| `agent/grants.json` | Standing agent permissions, per project | yes |
-| `agent/log/<id>.jsonl` | One agent session's transcript, append-only | yes |
 | `config.yaml` | The machine's own settings | yes |
 | `workspace/<project>/` | A managed project: its bare clone and its worktrees | yes |
 | `workspace/<project>/sandboxr.yaml` | Optional: a config for worktrees that have none | yes |
@@ -95,9 +90,9 @@ project's secrets.
 > quietly leaves the row out otherwise. It never reads what is in it.
 
 > [!WARNING] Upgrading: a machine with no `share:` row shares nothing
-> The Claude credential used to be mounted unconditionally. It is now a row like any other, so a
-> machine upgraded without one loses that login in every sandbox at once. `jef init` writes and
-> repairs the row; if you run the CLI on its own, add it by hand.
+> A coding agent's credential used to be mounted unconditionally. It is now a row like any other,
+> so a machine upgraded without one loses that login in every sandbox at once. Add the row by
+> hand.
 
 A missing file means the defaults. A malformed one is an error naming the file and the key — because
 silently applying a default lifetime to a machine where somebody has just written down the lifetime
@@ -109,7 +104,7 @@ would have matched.
 
 `secrets/<project>.env` is the other one. It holds a project's third-party credentials, at mode
 `0600`, as `NAME="value"` one per line. It is **edited, not generated**: `sandboxr secrets set`,
-`sandboxr secrets edit` and the dashboard's Environment panel all author it directly, and
+`sandboxr secrets edit` all author it directly, and
 `sandboxr secrets import` merges a project's own `.env` files into whatever is already there. It is
 mounted read-only into every sandbox of the project, so an edit reaches a running one on a restart.
 See [Secrets](../configuration/secrets.md).
@@ -118,9 +113,9 @@ See [Secrets](../configuration/secrets.md).
 
 `host.env` is the opposite of those two: generated every time `sandboxr init` runs, so an edit to it
 is lost. It holds the handful of values only a program running on this machine can find — the GitHub
-token out of the login keychain, your commit identity out of your gitconfig, and the path of your
-Claude login — so that whatever you put on the bare domain can read them rather than look them up
-itself. It is mode `0600` because it holds a token.
+token out of the login keychain and your commit identity out of your gitconfig, plus whatever
+extra keys the thing that ran `init` asked for — so that whatever you put on the bare domain can
+read them rather than look them up itself. It is mode `0600` because it holds a token.
 
 ### The keep-alive marker
 
@@ -132,8 +127,8 @@ left behind by a bare `docker rm` is ignored rather than applied to whatever tak
 
 ### The attach heartbeat
 
-`state/attach/<project>/<slug>` is stamped every thirty seconds while the dashboard is holding a
-terminal or an agent panel open on that sandbox, and once more when the last one closes. Only its
+`state/attach/<project>/<slug>` is stamped every thirty seconds while something on the bare domain
+is holding a terminal or a socket open on that sandbox, and once more when the last one closes. Only its
 modification time is read; the text inside is there so the directory means something if you look at
 it.
 
@@ -146,7 +141,8 @@ process.
 
 It survives `down`, and a stale one is harmless: all it records is a moment, and a moment older than
 the container currently holding that name counts for nothing. Delete it if you like — the sandbox
-falls back to its start time, which is the same thing that happens if the dashboard has never run.
+falls back to its start time, which is the same thing that happens on a machine where nothing has
+ever held a socket open.
 
 ### A worktree's name
 
@@ -191,27 +187,6 @@ is what you want from a value that ends up in a hostname.
 > The check happens when sandboxr creates a worktree, so it covers the ones under
 > `workspace/<project>/wt/`. Worktrees you keep yourself, in your own repository, can still
 > collide — pass a name with `sandboxr up <name>` if two of them share a ticket.
-
-### A session's three files
-
-A **session** — the thing that replaces the worktree, and which nothing you can type reaches yet
-([What is built](status.md)) — keeps the same three files as the rows above, in one directory of
-its own:
-
-```
-state/session/<session>/keep      keeps the session's container alive past its idle limit
-state/session/<session>/name      what to call the session on screen
-state/session/<session>/attach    when a socket was last held open on it
-```
-
-Each one behaves exactly as its worktree counterpart above does, including which of them carries
-a stamp and which must not. What is different is the shape, and the reason is a collision you
-would never find from the symptom: `state/keep/` has a *project* directory at its first level, so
-a session and a project of the same name would have been one file — and a sandbox would have
-stopped expiring because somebody had pinned a session.
-
-The directory is created the first time there is something to put in it, and deleting the session
-removes the whole of it in one go.
 
 ### The workspace
 
@@ -307,8 +282,7 @@ Where to look when you need the source rather than the documentation.
 |---|---|
 | `packages/core` | Config, drivers, Docker orchestration, the access layer, lifecycle |
 | `packages/cli` | The whole command surface |
-| `packages/server` | The dashboard's server |
-| `packages/web` | The dashboard's browser app |
+| `packages/tokens` | `tokens.css`: the palette the documentation site renders from |
 | `packages/docs` | The machinery that publishes `docs/` as a site |
 | `container/base`, `container/project` | The two images |
 | `container/scripts` | What a sandbox runs at boot |
@@ -325,13 +299,11 @@ Where to look when you need the source rather than the documentation.
 | What is in `~/.sandboxr/config.yaml`? | `packages/core/src/config/machine.ts` |
 | What does the container actually receive? | `packages/core/src/config/plan.ts`, and `container/README.md` |
 | What is a sandbox called? | `packages/core/src/naming.ts` |
-| Where does sandboxr write on my disk? | `packages/core/src/paths.ts`, and `packages/sessions/src/paths.ts` for a session's own files |
+| Where does sandboxr write on my disk? | `packages/core/src/paths.ts` |
 | Which paths does the container see? | `packages/core/src/sandbox/layout.ts` |
 | What does `docker run` get? | `packages/core/src/sandbox/run.ts` |
 | What does the host pass into a container? | `packages/core/src/sandbox/env.ts` |
 | Every command and flag | `packages/cli/src/main.ts`, the `USAGE` constant |
-| The dashboard's own variables | `packages/server/src/env.ts` |
-| What the dashboard can run | `packages/server/src/actions/table.ts` — a closed list |
 | What does the container do at boot? | `container/scripts/entrypoint.sh` |
 | How is a database seeded and migrated? | `container/scripts/db/<driver>.sh` |
 
@@ -351,11 +323,9 @@ For a project `acme` and a slug `tkt-4821`:
 | Built sites volume | `sandboxr-www-acme-tkt-4821` |
 | Shared dependencies | `sandboxr-deps-<16 hex of the lockfile hash>` |
 | Shared Go caches | `sandboxr-gocache`, `sandboxr-gomod` |
-| Shared agent state | `sandboxr-claude` |
 | Project image | `sandboxr/acme:<12 hex of the build inputs>` |
-| Machine images | `sandboxr/base`, `sandboxr/dashboard` |
+| Machine image | `sandboxr/base` |
 | The router | `sandboxr-router` |
-| The dashboard | `sandboxr-dashboard` |
 
 ## What is not stored anywhere
 
