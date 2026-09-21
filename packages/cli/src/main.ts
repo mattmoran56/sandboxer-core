@@ -103,7 +103,6 @@ SETUP
      --bind ADDR               Publish the router here instead of 127.0.0.1
      --http-port N             Publish http here instead of 80
      --https-port N            ...and https here instead of 443
-     --no-start                Prepare the machine but start nothing
   teardown [--network]         Stop the router and whatever is on the bare domain
 
 SANDBOX
@@ -1689,16 +1688,16 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
   const tls = args.flags.tls === undefined ? undefined : flagBoolean(args, "tls");
   const http = flagNumber(args, "http-port");
   const https = flagNumber(args, "https-port");
-  // `--no-start` parses as `start: false`, which is the only value that means
-  // anything here: absent is the default, and `--start` says what already happens.
-  const start = args.flags.start === undefined ? undefined : flagBoolean(args, "start");
+  // No `--no-start`. `InitOptions.start` is still there and still used — by
+  // `jef init --no-start`, whose compose deployment needs everything `init` does
+  // *except* the containers — but that is a prerequisite of `docker compose up`,
+  // and the engine ships no compose file for it to be a prerequisite of.
   const report = await initAccess({
     env,
     tls,
     rebuild: flagBoolean(args, "rebuild"),
     bind: flagString(args, "bind"),
     ports: { ...(http ? { http } : {}), ...(https ? { https } : {}) },
-    ...(start === undefined ? {} : { start }),
     log: (line) => out.step(line),
   });
 

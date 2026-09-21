@@ -89,6 +89,11 @@ export interface InitOptions {
    * start containers under the names compose then wants, and the up fails with
    * "container name is already in use" rather than with anything that names the
    * cause.
+   *
+   * **Reachable through this option and not through the `sandboxr` command.**
+   * The engine ships no compose file, so the one caller is `jef init
+   * --no-start`, and a flag on the engine's CLI whose whole justification is a
+   * file the engine does not have is a flag that reads as broken.
    */
   start?: boolean | undefined;
   /**

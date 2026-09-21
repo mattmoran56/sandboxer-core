@@ -86,11 +86,12 @@ installing mkcert's root.
 | `--bind ADDR` | Publish the router here instead of `127.0.0.1` |
 | `--http-port N` | Publish HTTP here instead of 80 |
 | `--https-port N` | Publish HTTPS here instead of 443 |
-| `--no-start` | Prepare the machine but start nothing |
 
-`--no-start` does everything except run the router: the directories, the image, the certificate,
-the router's configuration and `host.env` are all prerequisites that nothing but a host process can
-produce, and something else may want to start the router itself under the name `init` would take.
+`init` always starts the router. The one caller that wanted the preparation without it — the
+directories, the image, the certificate, the router's configuration and `host.env`, all
+prerequisites that nothing but a host process can produce — is a control plane bringing its own
+containers up from a compose file, and the engine ships no compose file. That caller reaches
+`InitOptions.start` through the API instead of through this command.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — what <code>init</code> reports, and the notes it can return</summary>
