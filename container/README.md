@@ -1,31 +1,34 @@
 # The sandbox container
 
-Everything that runs *inside* a sandbox, and the images it runs from — plus the
-workstation image a session's agent runs in, which is not a sandbox. The host side
-— config parsing, docker orchestration, the dashboard — is TypeScript and lives in
-`packages/`. This directory is the one part of the repository that is deliberately
-shell: it runs under s6 as PID 1's children, before and sometimes without any
-project toolchain, so it can only depend on what the base image guarantees.
+Everything that runs *inside* a sandbox, and the images it runs from. The host
+side — config parsing, docker orchestration, lifecycle — is TypeScript and lives
+in `packages/`. This directory is the one part of the repository that is
+deliberately shell: it runs under s6 as PID 1's children, before and sometimes
+without any project toolchain, so it can only depend on what the base image
+guarantees.
 
 Read [`docs/architecture/contracts.md`](../docs/architecture/contracts.md) first.
 Everything below implements it.
+
+**`jef-base/`, `workstation/`, `dashboard/` and `orchestrator/` are not the
+engine's** — they are Jef's, and they are documented in
+[`jef-base/README.md`](jef-base/README.md). Nothing in this file builds or names
+them.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
 | `base/Dockerfile` | The generic base image: s6, Caddy, MinIO, `git`, `gh`, these scripts. No agent |
-| `jef-base/Dockerfile` | Jef's layer on the base: `claude`, and nothing else. See below |
 | `base/s6/` | The s6 bundle skeleton, copied in at boot and then added to |
 | `project/Dockerfile.template` | The per-project layer, rendered by the host |
 | `scripts/` | Everything the services actually run |
 | `scripts/with-env` | An argv prefix that gives any command the computed environment |
 | `scripts/db/<driver>.sh` | One file per database driver |
 | `examples/*.plan.json` | Two worked plans, used to exercise the generators |
-| `workstation/Dockerfile` | The image a *session's agent* runs in — not a sandbox. See below |
-| `workstation/idle.sh` | Its whole runtime: one process, so `docker exec` has something to exec into |
+| `jef-base/`, `workstation/`, `dashboard/`, `orchestrator/` | Jef's — see [`jef-base/README.md`](jef-base/README.md) |
 
-## Three images, not one
+## Two images, not one
 
 The image is split, and the split is the main structural difference from the
 implementation this is ported from.
@@ -44,42 +47,30 @@ all facts about one repository.
   *finished*, and a sandbox that can run the tests but not open the pull request
   sends you back to the host for the last step — the step you were trying to
   delegate.
-- **`jef-base/Dockerfile`** — `ARG BASE_IMAGE` / `FROM ${BASE_IMAGE}`, plus
-  `claude`. This is the whole of what Jef adds to a sandbox, and it is a layer of
-  its own because sandboxr is an engine that runs a project and has no opinion
-  about who edits the worktree. Everything in it moved out of `base/Dockerfile`,
-  comments included. Around 234 MB on top of the base, measured on arm64.
 - **`project/Dockerfile.template`** — rendered per project into a layer on top,
   adding exactly what that project's `toolchain:` and `database:` blocks declare,
   plus its dependency install.
 
 ```
 sandboxr/base:<version>                generic, one per machine, no agent
-    └── jef/base:<tag>                 + claude
-            └── sandboxr/<project>:<hash>  toolchains + database engine + deps
-                    └── one container per worktree
+    └── sandboxr/<project>:<hash>      toolchains + database engine + deps
+            └── one container per worktree
 ```
 
-`jef init` builds `jef/base` — see `ensureJefBaseImage` in
-`packages/server/src/machine/images.ts` — and every `up` the dashboard makes
-passes it as `UpOptions.baseImage`, so the project layer is built `FROM` it. The
-tag is content-addressed on the engine base tag plus this Dockerfile's bytes, so
-a base rebuild moves it and the two can never drift.
+**`UpOptions.baseImage` is where a third layer goes.** An embedder that wants
+something in every sandbox — an agent, a profiler, a company CA — builds its own
+image `FROM` the base and hands the tag in, and the project layer is rendered on
+top of that instead. Jef's is `jef-base/`, and it is the only one that exists.
 
-**A sandbox started by the engine's own `sandboxr up` has no agent in it**, and
-that is the boundary rather than an oversight: the engine's CLI does not pass
-`baseImage`, so it gets the engine's agent-free base. `jef doctor` is what says
-whether this machine has the agent layer at all.
+**A sandbox started by `sandboxr up` has no agent in it**, and that is the
+boundary rather than an oversight: the CLI passes no `baseImage`, so it gets the
+agent-free base. What Jef layers on it is [`jef-base/README.md`](jef-base/README.md).
 
 ### Building them
 
 ```bash
 # base — context is this directory
 docker build -f base/Dockerfile -t sandboxr/base:0.1.0 .
-
-# jef-base — same context, on top of whatever base tag you just built
-docker build -f jef-base/Dockerfile --build-arg BASE_IMAGE=sandboxr/base:0.1.0 \
-  -t jef/base:0.1.0 .
 
 # project — the host renders the template and stages the manifests
 docker build -f <rendered Dockerfile> -t sandboxr/<project>:<hash> <staged context>
@@ -106,44 +97,6 @@ to hit one of those traps will find it.
 The build context holds only **manifests**, never source: a source change must
 never re-run a dependency install. The worktree itself is bind-mounted at run
 time.
-
-## The workstation image
-
-A **session** is one agent working on one branch, and the container that agent runs
-in is its **workstation** — `sandboxr-ws-<session>`, built from
-`workstation/Dockerfile`, with the session's work volume `sandboxr-work-<session>`
-at `/work` holding clones laid out `/work/<repo>/<branch>/`. It is not a sandbox and
-does not run a project: the copies of a project that actually serve traffic are
-*runtimes*, and they are containers of their own.
-
-```bash
-docker build -f workstation/Dockerfile -t sandboxr/workstation:<version> .
-```
-
-`ensureWorkstationImage` in `packages/core/src/access/index.ts` runs that build, the
-first time a session is created rather than during `init` — see contracts §3.3 for
-why this one image is lazy where the base and the dashboard are not.
-
-> [!NOTE]
-> `createSession` in `packages/sessions/src/session/` builds this image, creates the
-> work volume and starts the container. **Nothing clones into the volume yet**, and
-> no agent runs in here: `/work` comes up empty, and filling it is a later step.
-
-What is in it is Node 22, `git`, `gh` and `claude`, and what is *not* in it matters
-as much:
-
-- **No Docker client, and never the daemon socket.** That is the whole reason the
-  agent moved out of the sandbox. A container that can reach the host daemon can
-  start another with the host filesystem inside it, so an agent is contained only
-  while it has no way to speak to Docker. The build fails if a client ever appears.
-  An agent that wants a runtime will ask the control plane for one.
-- **No bind mount from the host workspace.** A workstation's code is a clone on its
-  own volume — which is also why none of the identical-path mounting `gitMounts`
-  does for a sandbox's linked worktree applies here, and why this image does *not*
-  copy base's `gc.worktreePruneExpire` pin. A plain clone inside a volume writes
-  down only paths that exist inside the container.
-- **No browser, no display server, no computer-use tooling.** That is a later step
-  and a heavy one; the Dockerfile says where it would go.
 
 ## The plan
 
@@ -423,13 +376,13 @@ own services, and nothing else — that is most of why such a sandbox is cheap.
 
 `db-init` provisions the database, runs migrations, creates buckets and applies
 fixtures. It exists for every driver, `none` included, because it is also what
-writes the status file the dashboard reads: a sandbox with no database still has to
+writes the status file a reader outside the container reads: a sandbox with no database still has to
 be able to say it finished booting.
 
 **Caddy is deliberately not gated on `db-init`.** It serves the status surface and
 the "not built yet" pages, neither of which touches the database, and a first-boot
-restore legitimately takes minutes — which is exactly when the dashboard most needs
-an answer. A backend that is not up yet is a 502, and a 502 is a truthful answer;
+restore legitimately takes minutes — which is exactly when whatever is watching the
+sandbox most needs an answer. A backend that is not up yet is a 502, and a 502 is a truthful answer;
 a refused connection is not an answer at all. (The implementation this is ported
 from did gate Caddy on database init, and the sandbox was unreachable and
 unexplained for the whole of its first boot as a result.)
@@ -488,8 +441,8 @@ matcher matches every path. A health route is written **only** for a service tha
 is going to run — a service the plan marks `optional` and nobody named in
 `SANDBOXR_WITH` gets none, deliberately — so the probe of a dormant service was
 the request that landed there. What came back was the front-end's own answer: an
-unbuilt app replied with its 503 "not built yet" page, and the dashboard read
-every dormant service as `down`; once that app was built the same request got the
+unbuilt app replied with its 503 "not built yet" page, so every dormant service read
+as `down`; once that app was built the same request got the
 SPA's `index.html` and a 200, and the same never-started service read as `up`. A
 service's reachability must not depend on whether an unrelated front-end has been
 built, which is what the 404 restores — the router saying it has no route, which
@@ -683,9 +636,9 @@ wrong here.
   the environment. "Inherits" is the word to be careful with: a build under
   supervision inherits them, and a build the host starts with `docker exec` does
   not — that one goes through `scripts/with-env`, and the host's rebuild does.
-- **The docker CLI in the image.** It was there because the dashboard ran from the
-  same image and shelled out to the CLI. Here the dashboard is a host-side Node
-  service, so the sandbox has no reason to talk to Docker at all.
+- **The docker CLI in the image.** It was there because a control plane ran from
+  the same image and shelled out to the CLI. Here every control plane is a
+  host-side Node process, so the sandbox has no reason to talk to Docker at all.
 
 ## Verifying without a full build
 
