@@ -6,21 +6,15 @@ exists so one file serves both. This file is the contract between the content an
 they disagree, one of them is a bug.
 
 > [!IMPORTANT] This file is not a site page
-> Like `README.md`, `docs/architecture/contracts.md` and everything under `docs/jef/`, it is
-> excluded from the build. `NOT_PAGES` in `packages/docs/src/lib/route.ts` is the list.
+> Like `README.md` and `docs/architecture/contracts.md`, it is excluded from the build.
+> `NOT_PAGES` in `packages/docs/src/lib/route.ts` is the list.
 
-## Two halves, and the seam between them
+## These pages are the engine's
 
-**`docs/` is the engine's documentation and `docs/jef/` is Jef's.** The engine is moving to a
-repository of its own and takes `docs/` with it; `docs/jef/` stays behind. That is why the site
-publishes one and not the other, and it makes one rule absolute:
-
-**An engine page may not link to anything under `docs/jef/`.** After the extraction that file is
-not there, and a link to it is a 404 with nobody to notice. Name the product thing in prose
-instead. Jef's pages may link back into `docs/` freely, because Jef keeps the engine as a
-dependency.
-
-Everything below applies to both halves.
+`docs/` documents `sandboxr` and nothing else. The product built on it documents itself in its
+own repository, and **a page here may not link into that one**: a relative link to a file that is
+not in this tree is a 404 on the site and a dead link on GitHub, with nobody to notice. Name the
+product thing in prose instead.
 
 ## Who the pages are for
 
@@ -93,7 +87,7 @@ card with a copy button, so a person can hand it straight to their agent.
 
 ````md
 ```prompt
-Install sandboxr on this machine and bring the dashboard up.
+Install sandboxr on this machine and set it up.
 
 Read https://…/getting-started/install/ first, then work through it. Stop and
 tell me if Docker is not running or has under 8 GB of memory available.
@@ -110,18 +104,18 @@ Rules:
 - **Every page a person could arrive at cold opens with one**, immediately after the
   introductory sentences and before the manual instructions. The person who wants their agent to
   do it should never have to scroll.
-- **`docs/reference/agent-prompts.md` collects every engine prompt and `docs/jef/agent-prompts.md`
-  every one of Jef's**, and both are **maintained by hand** — there is no generator and no test.
-  A prompt edited in place has to be edited in its index too, byte for byte, or the two disagree
-  and nothing says so. A prompt that names a page by path must name one that exists.
+- **`docs/reference/agent-prompts.md` collects every one of them**, and it is **maintained by
+  hand** — there is no generator and no test. A prompt edited in place has to be edited there
+  too, byte for byte, or the two disagree and nothing says so. A prompt that names a page by
+  path must name one that exists.
 
 ### 3. Callouts
 
 GitHub alerts, with a title after the marker.
 
 ```md
-> [!WARNING] The password is a root credential
-> Anyone who has it can run every action the dashboard offers.
+> [!WARNING] The token is a root credential
+> Anyone who has it can push to every repository you can.
 ```
 
 `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`. Use them for things that are true regardless of

@@ -58,8 +58,8 @@ sandboxr up
 ==> Seeding: empty, then migrations and seeds/fixtures.sql
 ==> Building sandboxr/acme:8f2c1a94d0b7
 ==> acme has no GitHub token: git commit works in this sandbox, gh and git push do not.
-      Set projects.acme.github: token in /home/you/.sandboxr/config.yaml, and allow the
-      session git push and gh — neither is in its default allowlist.
+      Set projects.acme.github: token in /home/you/.sandboxr/config.yaml, and check
+      whatever runs commands in there may use gh and git push.
 ==> Starting tkt-4821 from tkt-4821@a1b2c3d
 ==> Applied fixtures from seeds/fixtures.sql
   ok Sandbox tkt-4821 is running

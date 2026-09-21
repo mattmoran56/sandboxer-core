@@ -1777,7 +1777,7 @@ async function cmdConfig(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
   };
   const github = decideGithub({ ...key, config: machine });
   // Both names, because either is a valid `projects:` key and only one of them
-  // is the name the dashboard and the URLs show.
+  // is the name every URL shows and every listing prints.
   if (key.directory !== undefined && key.directory !== config.project) {
     out.line(`  keyed by    ${key.directory} (the workspace directory) or ${config.project}`);
   }
@@ -1789,7 +1789,7 @@ async function cmdConfig(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
     out.dim(`  No GitHub token in this project's sandboxes: git commit works, gh and git push do not.`);
     out.dim(
       `  Set projects.${key.directory ?? config.project}.github: token in ${paths(env).configFile}` +
-        ", and allow the session git push and gh — neither is in the default allowlist.",
+        ", and check whatever runs commands in there may use gh and git push.",
     );
   }
   out.line(`  backends    ${config.backends.map((backend) => backend.label).join(", ") || "none"}`);

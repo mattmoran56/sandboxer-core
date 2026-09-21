@@ -583,7 +583,7 @@ describe("up", () => {
     // opening a file — writing the other one is the mistake this pre-empts.
     expect(said).toContain("projects.acme-monorepo.github: token");
     expect(said).toMatch(/git commit works in this sandbox/);
-    expect(said).toMatch(/default allowlist/);
+    expect(said).toMatch(/may use gh and git push/);
   });
 
   it("says nothing about the token when the project is opted in", async () => {

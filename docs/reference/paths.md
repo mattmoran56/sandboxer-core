@@ -238,8 +238,7 @@ the state somewhere nobody looks.
 | `/opt/sandboxr/scripts/` | The container scripts | from the image |
 | `/opt/deps` | Dependencies installed into the image, copied out on first boot | from the image |
 | `/go/pkg/mod`, `/go/cache` | Go's module and build caches | machine-wide volumes |
-| `/root/.claude` | Claude Code's state | the machine-wide `sandboxr-claude` volume |
-| `/root/.claude/.credentials.json` | The host's own `~/.claude/.credentials.json`, when it has one. On Linux that file is its Claude Code login; on macOS it usually is not — that file there normally holds MCP tokens, while the login sits in the keychain | that one file, read-write |
+| `<each `share:` row's `into:`>` | Whatever `config.yaml` says to share — an `.npmrc`, a deploy key, a tool's stored credential | that one host file, read-write |
 
 ```bash
 sandboxr shell tkt-4821      # and look for yourself

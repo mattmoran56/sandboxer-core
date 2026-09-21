@@ -161,8 +161,9 @@ ttl: 12h
 #
 # git itself works either way: a sandbox can always commit to its own worktree.
 #
-# Note that a session also has to be allowed to run \`git push\` and \`gh\`: neither
-# is in the default allowlist, so a token on its own is not enough.
+# Note that whatever runs commands inside a sandbox also has to be allowed to
+# run \`git push\` and \`gh\`. A coding agent's default allowlist usually is not,
+# so a token on its own is not always enough.
 github: none
 
 # Files on this machine that every sandbox can read, bind-mounted one at a time.
@@ -186,8 +187,8 @@ github: none
 # Per project, for the ones that want a different answer. Optional — remove the
 # whole block if every project on this machine is the same.
 #
-# The key is a project's directory in the workspace — the name the dashboard
-# shows and every URL uses — or the \`project:\` its own sandboxr.yaml declares.
+# The key is a project's directory in the workspace — the name every listing
+# prints and every URL uses — or the \`project:\` its own sandboxr.yaml declares.
 # Either works; the directory wins if a machine has both. A key matching neither
 # does nothing at all, so \`sandboxr doctor\` names one it cannot match.
 #projects:

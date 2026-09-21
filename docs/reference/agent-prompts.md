@@ -87,7 +87,6 @@ Stop and ask me if:
 - `mkcert` is not installed, or its root certificate is not trusted. Do not run `mkcert -install`
   yourself; it needs my password.
 - Port 80 or port 443 is already taken on this machine.
-- You do not have a value for SANDBOXR_PASSWORD.
 ```
 
 ### Which setup is yours
@@ -110,7 +109,7 @@ this machine looks like a shared server rather than somebody's laptop.
 
 ### Just the CLI, on my laptop
 
-Sets the machine up with the CLI and no dashboard.
+Sets the machine up for the command line, with nothing on the bare domain.
 
 **Needs first:** Docker, Node 22 or newer, git.  
 **From:** [Just the CLI, on my laptop](../setups/cli-only.md)
@@ -513,8 +512,8 @@ and show me both reports before removing anything. Then reclaim in the order tha
 gives, least destructive first.
 
 Never run `docker system prune -a --volumes` — it deletes the shared volumes sandboxr
-protects, including an agent session's credentials. Stop and ask me before anything with
-`--yes` or `-a` in it.
+protects, and any volume something else shares across sandboxes. Stop and ask me before
+anything with `--yes` or `-a` in it.
 ```
 
 ### Access and security
@@ -567,9 +566,9 @@ I want to change how sandboxr behaves. Before you write anything, work out which
 change belongs in.
 
 Read docs/architecture/packages.md, then docs/architecture/contracts.md. Follow these rules:
-logic about what a sandbox is goes in packages/core, never in packages/cli, packages/server or
-packages/web; only container/ may contain shell; the browser app renders what the API sends and
-decides nothing. Documentation is updated in the same change that makes it true.
+logic about what a sandbox is goes in packages/core, never in packages/cli; only container/ may
+contain shell; the engine imports nothing from anything built on top of it. Documentation is
+updated in the same change that makes it true.
 
 Tell me which package you picked and why before you edit anything. Stop and ask me if the change
 would alter a boundary described in contracts.md — that file has to change first, in its own

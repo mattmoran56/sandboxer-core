@@ -210,7 +210,7 @@ describe("config, the machine's settings for this project", () => {
     expect(result.stderr).toContain("projects.acme-monorepo.github: token");
     // Two independent reasons a push fails; naming one of them misleads.
     expect(result.stderr).toContain("git commit works");
-    expect(result.stderr).toContain("default allowlist");
+    expect(result.stderr).toContain("may use gh and git push");
   });
 });
 

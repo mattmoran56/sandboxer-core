@@ -423,16 +423,17 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   const ghToken = github.mode === "token" ? await hostGhToken(env) : undefined;
   if (github.mode === "none") {
     // **Said here because here is the last moment it is cheap to act on.** The
-    // token being off has no symptom until `git push`, which is hours later and
-    // inside an agent session: the repository is bind-mounted read-write and the
-    // identity crosses as `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (§7.1), so `git
-    // commit` works perfectly and nothing suggests anything is missing.
+    // token being off has no symptom until `git push`, which can be hours later
+    // and unattended: the repository is bind-mounted read-write and the identity
+    // crosses as `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (§7.1), so `git commit` works
+    // perfectly and nothing suggests anything is missing.
     //
-    // Both causes, because there are two and a message naming one misleads. A
-    // session that has the token still cannot push until it is allowed to: `git
-    // push` and `gh` are deliberately absent from `DEFAULT_ALLOWED_TOOLS` in
-    // the sessions package's `agent/launch.ts`, which allows `git add` and
-    // `git commit` and stops there.
+    // **Both causes, because there are two and a message naming one misleads.**
+    // The token can be off, and the thing running commands in the sandbox can be
+    // forbidden to run these two. A coding agent typically allows `git add` and
+    // `git commit` and stops there, deliberately — which the engine cannot see
+    // and cannot fix, so it says so rather than letting the operator set the
+    // token and hit the same wall again.
     //
     // The key is quoted with the *directory* name where there is one, because
     // that is the name the operator can see without opening a file — and writing
@@ -441,7 +442,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     log(`${config.project} has no GitHub token: git commit works in this sandbox, gh and git push do not.`);
     log(
       `  Set projects.${key}.github: token in ${p.configFile}` +
-        ", and allow the session git push and gh — neither is in its default allowlist.",
+        ", and check whatever runs commands in there may use gh and git push.",
     );
   }
   // Not a refusal, unlike the seed and secret rules in ../config/access.ts, and
