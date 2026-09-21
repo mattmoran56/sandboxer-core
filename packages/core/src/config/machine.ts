@@ -12,6 +12,9 @@
  * ```yaml
  * ttl: 12h
  * github: none
+ * share:
+ *   - host: ~/.claude/.credentials.json
+ *     into: /root/.claude/.credentials.json
  * projects:
  *   acme-monorepo: { ttl: 3d, github: token }
  * ```
@@ -21,6 +24,10 @@
  * The example above is written with the two spelled differently on purpose: an
  * example where they agree is what let this file's lookup match one name for a
  * year without anybody noticing. See `projectEntry`.
+ *
+ * `share:` is here for the same reason `github:` is, and the reason is below:
+ * these are the *operator's* files, and which of them every sandbox on the
+ * machine may read is the machine's decision.
  *
  * `github:` is here, and not in `sandboxr.yaml`, on purpose. The token is the
  * *operator's*, not the project's, and a setting that lives in a repository is a
@@ -40,9 +47,10 @@
  *   stopping a week of work after twelve hours.
  */
 
+import { statSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
@@ -100,9 +108,20 @@ const githubField = z.enum(GITHUB_MODES);
  * a file that decides when containers stop must be an error naming the key, not
  * a setting that quietly does nothing.
  */
+export const sharedFileSchema = z.strictObject({
+  /** A path on this machine. `~` expands to `$HOME`. */
+  host: z.string().min(1),
+  /** Where it appears inside every sandbox. Absolute. */
+  into: z.string().min(1).startsWith("/", { message: "must be an absolute path inside the container" }),
+});
+
+/** One host file, bind-mounted into every sandbox this machine starts (§4.3). */
+export type SharedFile = z.infer<typeof sharedFileSchema>;
+
 export const machineConfigSchema = z.strictObject({
   ttl: ttlField.optional(),
   github: githubField.optional(),
+  share: z.array(sharedFileSchema).optional(),
   projects: z
     .record(z.string(), z.strictObject({ ttl: ttlField.optional(), github: githubField.optional() }))
     .optional(),
@@ -145,6 +164,24 @@ ttl: 12h
 # is in the default allowlist, so a token on its own is not enough.
 github: none
 
+# Files on this machine that every sandbox can read, bind-mounted one at a time.
+#
+# This is how a login you already have — a Claude credential, an .npmrc, a
+# read-only deploy key — reaches the containers without being copied into an
+# image or typed into a project's secrets. \`~\` expands.
+#
+# One file per row, never a directory. Mounting a directory hands every sandbox
+# everything else in it, and for a tool's config directory that usually includes
+# settings the host itself executes.
+#
+# A row whose \`host:\` is missing, or empty, is skipped rather than mounted:
+# Docker answers a missing bind source by creating a *directory* at that path on
+# the host, and an empty file mounted over a container's working copy replaces a
+# credential with nothing.
+#share:
+#  - host: ~/.claude/.credentials.json
+#    into: /root/.claude/.credentials.json
+
 # Per project, for the ones that want a different answer. Optional — remove the
 # whole block if every project on this machine is the same.
 #
@@ -156,6 +193,56 @@ github: none
 #  acme-monorepo: { ttl: 3d, github: token }
 #  demo: { ttl: never }
 `;
+
+/**
+ * The `share:` rows this machine can actually honour, with `~` expanded.
+ *
+ * The disk-touching is here rather than in ../sandbox/run.ts, which is
+ * deliberately a pure function over an input record so that every mount can be
+ * asserted without a daemon and without touching disk. Same division as
+ * `gitMounts` and `hostGitIdentity` in ../git.ts.
+ *
+ * **Two guards that look like belt-and-braces and are not.** Both were learned
+ * from the Claude credential this key replaced, and both generalise:
+ *
+ * **The file has to be there.** Docker does not refuse a bind whose source is
+ * missing — it silently creates a *directory* at that path on the host and
+ * mounts that. Whatever was supposed to read the file then fails with a message
+ * naming neither Docker nor the mount, and the host is left with a directory
+ * where its own file used to be.
+ *
+ * **The file has to be non-empty.** A zero-byte file mounted over a container's
+ * working copy replaces something with nothing, and the failure looks nothing
+ * like its cause. The incident: on macOS `~/.claude/.credentials.json` is often
+ * an empty placeholder, because the account login is in the keychain. Mounted,
+ * it made Claude Code report `Not logged in` inside every sandbox on the
+ * machine — with a valid credential sitting on the host the whole time.
+ * Observed, not feared.
+ *
+ * Size, never contents. sandboxr has no reason to read a file somebody asked it
+ * to share, and does not.
+ *
+ * A row that is skipped is skipped silently and one at a time. The alternative —
+ * refusing to start — would mean a machine could not run a sandbox because an
+ * operator's `.npmrc` had been tidied away, which is not a fault of the sandbox.
+ */
+export function sharedFiles(config: MachineConfig, env: NodeJS.ProcessEnv = process.env): SharedFile[] {
+  const home = env.HOME?.trim();
+  const out: SharedFile[] = [];
+  for (const row of config.share ?? []) {
+    const host = row.host.startsWith("~/") && home ? join(home, row.host.slice(2)) : row.host;
+    try {
+      const stat = statSync(host);
+      if (!stat.isFile() || stat.size === 0) continue;
+    } catch {
+      // No file, or a path this process may not stat. Either way there is
+      // nothing to share.
+      continue;
+    }
+    out.push({ host, into: row.into });
+  }
+  return out;
+}
 
 /**
  * The machine's settings, or the defaults when there is no file.

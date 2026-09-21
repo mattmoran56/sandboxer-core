@@ -71,11 +71,33 @@ commented example the first time and never touches it again.
 ttl: 12h
 # Whether a sandbox is handed this machine's GitHub token. `none` or `token`.
 github: none
+# Files on this machine that every sandbox can read. One file per row, never a
+# directory. `~` expands.
+share:
+  - host: ~/.claude/.credentials.json
+    into: /root/.claude/.credentials.json
 # Per project, optional. The key is the project's workspace directory, or the
 # `project:` its own sandboxr.yaml declares. Either works.
 projects:
   acme-monorepo: { ttl: 3d, github: token }
 ```
+
+`share:` is how a login you already have on this machine — a Claude credential, an `.npmrc`, a
+read-only deploy key — reaches the containers without being copied into an image or typed into a
+project's secrets.
+
+> [!WARNING] A row whose file is missing or empty is skipped, on purpose
+> Docker answers a missing bind source by creating a **directory** at that path on your machine,
+> which loses the file you were pointing at. An empty file mounted over a container's working copy
+> replaces something with nothing — which is how a Mac whose `~/.claude/.credentials.json` is an
+> empty placeholder made every sandbox report `Not logged in`, with a valid login sitting on the
+> host the whole time. So sandboxr checks that the source is a file with something in it, and
+> quietly leaves the row out otherwise. It never reads what is in it.
+
+> [!WARNING] Upgrading: a machine with no `share:` row shares nothing
+> The Claude credential used to be mounted unconditionally. It is now a row like any other, so a
+> machine upgraded without one loses that login in every sandbox at once. `jef init` writes and
+> repairs the row; if you run the CLI on its own, add it by hand.
 
 A missing file means the defaults. A malformed one is an error naming the file and the key — because
 silently applying a default lifetime to a machine where somebody has just written down the lifetime

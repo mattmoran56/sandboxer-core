@@ -20,13 +20,13 @@ import {
   depsVolumeName,
   volumeName,
 } from "../naming.js";
+import type { SharedFile } from "../config/machine.js";
 import { labelArgs } from "./labels.js";
 import {
   BIN_DIR,
   BLOB_DIR,
   CACHE_DIR,
   CLAUDE_DIR,
-  CREDENTIALS_FILE,
   DATA_DIR,
   GOCACHE_DIR,
   GOMOD_DIR,
@@ -111,13 +111,13 @@ export interface RunInput {
    */
   ghToken?: string | undefined;
   /**
-   * The host's Claude Code login, as a path on the host.
+   * Host files shared into this sandbox, from `config.yaml`'s `share:` (§4.3).
    *
-   * Absent unless that file exists, which on macOS it never does. Resolved by
-   * `hostClaudeCredentials` in ../agent/credentials.ts, which is where the whole
-   * reasoning lives.
+   * Already filtered: `sharedFiles` in ../config/machine.ts expands `~` and
+   * drops any row whose source is missing or zero-byte, and that filtering is
+   * where the argument for it lives. Nothing here touches disk.
    */
-  claudeCredentials?: string | undefined;
+  shared?: readonly SharedFile[] | undefined;
   /**
    * The labels the shared router reconciles from.
    *
@@ -251,25 +251,27 @@ export function runArgs(input: RunInput): string[] {
   // below is not optional.
   args.push("-v", `${CLAUDE_VOLUME}:${CLAUDE_DIR}`);
   args.push("-e", `CLAUDE_CONFIG_DIR=${CLAUDE_DIR}`);
-  // The host's login, one file, mounted over the volume's copy of it.
+  // The machine's shared files, one bind each (contracts §4.3).
   //
-  // **The single file and not the directory**, and that is the security boundary
-  // rather than tidiness: binding all of `~/.claude` would give every sandbox
-  // write access to the host's settings.json, which can define hooks — commands
-  // the host's own Claude Code then executes. A sandbox writing one is a
-  // container-to-host escalation delivered by a convenience feature, and the
-  // same mount would hand it the person's history, plans and project state too.
+  // **A file at a time and never a directory**, and that is a security boundary
+  // rather than tidiness. The rule was learned from the one row every machine
+  // has: binding all of `~/.claude` instead of the single credential would give
+  // every sandbox write access to the host's settings.json, which can define
+  // hooks — commands the host's own Claude Code then executes. A sandbox writing
+  // one is a container-to-host escalation delivered by a convenience feature,
+  // and the same mount would hand it the person's history, plans and project
+  // state too. The schema takes a file path per row for exactly this reason.
   //
   // **Read-write, deliberately.** An OAuth refresh token rotates and is
   // single-use, so a *copy* dies the first time either side refreshes; sharing
-  // the one file means the refresh a sandbox performs updates the host's login
+  // the one file means the refresh a sandbox performs updates the host's file
   // and every other sandbox's at once. Read-only would work exactly until that
   // first refresh and then fail the same way copying did.
   //
-  // Ordered after the volume because Docker applies mounts by path depth, not by
-  // argument order — but written after it anyway, so reading this list top to
-  // bottom describes what the container actually gets.
-  if (input.claudeCredentials) args.push("-v", `${input.claudeCredentials}:${CREDENTIALS_FILE}`);
+  // Ordered after the volumes because Docker applies mounts by path depth, not
+  // by argument order — but written after them anyway, so reading this list top
+  // to bottom describes what the container actually gets.
+  for (const file of input.shared ?? []) args.push("-v", `${file.host}:${file.into}`);
 
   // The commit identity, as four variables rather than a mounted gitconfig.
   //

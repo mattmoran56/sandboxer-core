@@ -31,7 +31,7 @@ import { CREDENTIALS_ENV, hostClaudeCredentials } from "../agent/credentials.js"
 import { NETWORK } from "../naming.js";
 import { isInside, paths } from "../paths.js";
 import { installRoot } from "../install.js";
-import { CREDENTIALS_FILE } from "../sandbox/layout.js";
+import { CREDENTIALS_FILE } from "../agent/credentials.js";
 
 export const ORCHESTRATOR_CONTAINER = "sandboxr-orchestrator";
 

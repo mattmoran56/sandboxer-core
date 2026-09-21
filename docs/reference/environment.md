@@ -205,17 +205,25 @@ Anything else falls back to `auto`, and that includes `bypassPermissions`: it is
 is root. Honouring it would give you a dashboard where every session died instantly and silently. It
 applies to sessions and never to a side question.
 
-**`SANDBOXR_CLAUDE_CREDENTIALS`** — resolved for you at `sandboxr init`, from the host's
+**`SANDBOXR_CLAUDE_CREDENTIALS`** — resolved for you at `jef init`, from the host's
 `CLAUDE_CONFIG_DIR` or `$HOME/.claude`, and forwarded to the dashboard, which cannot see your home
-directory to work it out for itself. When that file exists it is bind-mounted read-write into every
-sandbox at `/root/.claude/.credentials.json`, so one login is *shared* rather than copied. Set it
-yourself only for a credential kept somewhere unusual. **On macOS that file is usually not a login**
+directory to work it out for itself. What actually mounts it into every sandbox is a `share:` row
+in `~/.sandboxr/config.yaml` ([host paths](paths.md)), which `jef init` writes from this — the
+engine binds whatever the machine's config names and knows nothing about Claude. When the file
+exists it lands read-write at `/root/.claude/.credentials.json`, so one login is *shared* rather
+than copied. Set this yourself only for a credential kept somewhere unusual.
+
+> [!WARNING] A machine with no `share:` row shares no login
+> This used to be mounted unconditionally. If you upgrade without running `jef init`, every
+> sandbox loses the host's Claude login at once — and the symptom, `Not logged in` inside a
+> session, looks nothing like its cause. **On macOS that file is usually not a login**
 — it holds MCP OAuth tokens, while the account credential is in the login keychain — and mounting
 one costs you the session's credential entirely:
 [why, and what to do](../guides/agent-sessions.md#on-macos-that-file-is-usually-not-your-login). A path that names nothing is worse than no
-path at all, because Docker answers a missing bind source by creating a directory. So sandboxr
-checks that the file exists and is non-empty before forwarding it. A credential deleted afterwards
-needs another `init` to be noticed.
+path at all, because Docker answers a missing bind source by creating a directory. So the file is
+checked for existence and for having something in it twice: once here before the row is written,
+and again on every `up` when the row is read. A credential deleted afterwards stops being mounted
+on the next start.
 
 `init` forwards exactly four of these into the dashboard container by name:
 `SANDBOXR_CLAUDE_TOKEN`, `SANDBOXR_CLAUDE_MODEL`, `SANDBOXR_CLAUDE_MCP` and

@@ -299,10 +299,12 @@ can read every credential in it. None of these shared volumes is ever reaped by 
 when a sandbox is deleted (§ garbage collection); reaping this one would silently sign the
 machine out of every server it had been given.
 
-One path inside that volume comes from the host rather than from the volume: when
-`~/.claude/.credentials.json` exists on the host it is bind-mounted read-write over the volume's
-copy, so a login is shared with every sandbox rather than duplicated into each. On macOS that file
-is usually not a login at all, which has a consequence worth knowing. See §7.2.
+A path inside that volume may come from the host rather than from the volume, and that is not a
+special case any more: it is a `share:` row in the machine's `config.yaml` (§4.3), like any other
+host file the operator shares. Jef's `jef init` writes the row that puts
+`~/.claude/.credentials.json` over the volume's copy, so a login is shared with every sandbox
+rather than duplicated into each. On macOS that file is usually not a login at all, which has a
+consequence worth knowing. See §7.2.
 
 Images are named under one namespace, and the split between them decides what may be reclaimed:
 
@@ -2021,10 +2023,13 @@ a container whose job is executing project code, in a volume every sandbox on th
 
 #### The host's login, shared rather than copied
 
-**When the host has `~/.claude/.credentials.json`, that one file is bind-mounted read-write into
-every sandbox** at `/root/.claude/.credentials.json`, over the volume. It is resolved on the host
-by `hostClaudeCredentials` (`packages/core/src/agent/credentials.ts`), which honours the host's own
-`CLAUDE_CONFIG_DIR` and never assumes `$HOME` is `/root`.
+**When the machine's `config.yaml` shares `~/.claude/.credentials.json`, that one file is
+bind-mounted read-write into every sandbox** at `/root/.claude/.credentials.json`, over the volume.
+It is a `share:` row (§4.3), which is the engine's general form of "bind this host file into every
+sandbox"; the engine mounts it without knowing what it is. Finding the file is
+`hostClaudeCredentials` (`packages/core/src/agent/credentials.ts`), which honours the host's own
+`CLAUDE_CONFIG_DIR` and never assumes `$HOME` is `/root`, and `jef init` writes and repairs the row
+from it. **A machine with no such row shares no login** — see §4.3's upgrade note.
 
 **Shared, not copied, because an OAuth refresh token rotates and is single-use.** Two copies
 invalidate each other the first time either side refreshes: the host refreshes, the sandbox's copy

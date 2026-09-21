@@ -289,30 +289,43 @@ describe("runArgs", () => {
     expect(index).toBeLessThan(args.indexOf("--entrypoint"));
   });
 
-  describe("the host's Claude login", () => {
-    const shared = runArgs({ ...base, claudeCredentials: "/Users/ada/.claude/.credentials.json" });
-
-    it("mounts the one file over the volume's copy of it", () => {
-      expect(shared).toContain("/Users/ada/.claude/.credentials.json:/root/.claude/.credentials.json");
+  // `config.yaml`'s `share:` (contracts §4.3). The Claude login is the row every
+  // machine has, and the one this feature was generalised out of, so it is what
+  // these cases are written with.
+  describe("the machine's shared files", () => {
+    const withShared = runArgs({
+      ...base,
+      shared: [
+        { host: "/Users/ada/.claude/.credentials.json", into: "/root/.claude/.credentials.json" },
+        { host: "/Users/ada/.npmrc", into: "/root/.npmrc" },
+      ],
     });
 
-    // The whole security argument for this feature. Binding `~/.claude` itself
-    // would give every sandbox write access to the host's settings.json, which
-    // can define hooks — commands the host's own Claude Code then executes.
-    it("never mounts the directory around it", () => {
-      expect(shared).not.toContain("/Users/ada/.claude:/root/.claude");
-      expect(shared.filter((arg) => arg.startsWith("/Users/ada/.claude:"))).toHaveLength(0);
+    it("mounts each one over whatever the container had there", () => {
+      expect(withShared).toContain("/Users/ada/.claude/.credentials.json:/root/.claude/.credentials.json");
+      expect(withShared).toContain("/Users/ada/.npmrc:/root/.npmrc");
+    });
+
+    // The whole security argument for this feature, learned from the one row
+    // every machine has. Binding `~/.claude` itself would give every sandbox
+    // write access to the host's settings.json, which can define hooks —
+    // commands the host's own Claude Code then executes.
+    it("never mounts the directory around a file", () => {
+      expect(withShared).not.toContain("/Users/ada/.claude:/root/.claude");
+      expect(withShared.filter((arg) => arg.startsWith("/Users/ada/.claude:"))).toHaveLength(0);
     });
 
     // A refresh token rotates and is single-use, so the sandbox has to be able
     // to write the rotated one back. `:ro` would work until the first refresh.
-    it("mounts it read-write", () => {
-      expect(shared.join(" ")).not.toContain(".credentials.json:/root/.claude/.credentials.json:ro");
+    it("mounts them read-write", () => {
+      expect(withShared.join(" ")).not.toContain(".credentials.json:/root/.claude/.credentials.json:ro");
     });
 
-    // Docker answers a missing bind source by creating a directory there, so
-    // "no file on the host" has to mean no mount at all rather than an empty one.
-    it("adds nothing when the host has no login", () => {
+    // A machine with no `share:` row shares nothing. That is the upgrade note
+    // §4.3 makes: before this key existed the Claude credential was mounted
+    // unconditionally, and a machine upgraded without a row loses that login in
+    // every sandbox at once.
+    it("adds nothing at all when the machine shares nothing", () => {
       expect(args.join(" ")).not.toContain("/root/.claude/.credentials.json");
       expect(args).toContain("sandboxr-claude:/root/.claude");
     });

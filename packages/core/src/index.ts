@@ -47,6 +47,7 @@ export {
   resolveGithub,
   resolveTtl,
   reviewProjectEntries,
+  sharedFiles,
   writeMachineConfigExample,
 } from "./config/machine.js";
 export type {
@@ -59,6 +60,7 @@ export type {
   ProjectEntryMatch,
   ProjectIdentity,
   ProjectKey,
+  SharedFile,
   TtlInput,
 } from "./config/machine.js";
 export { compareVersions, parseVersion, satisfies, VersionError } from "./config/version.js";

@@ -10,6 +10,11 @@
 // - reviewProjectEntries: keys matching no project, keys matching two, and the names that would work
 // - loadMachineConfig: an unknown github mode is an error naming the field
 // - writeMachineConfigExample: writes once, never overwrites, and what it writes parses back
+// - share: the rows load, `~` expands, and `into:` must be absolute
+// - sharedFiles: a missing source is skipped, because Docker answers a missing
+//   bind by creating a directory at that path on the host
+// - sharedFiles: a zero-byte source is skipped, which is the macOS credential
+//   that read as `Not logged in` inside every sandbox on the machine
 
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,6 +32,7 @@ import {
   resolveGithub,
   resolveTtl,
   reviewProjectEntries,
+  sharedFiles,
   writeMachineConfigExample,
 } from "./machine.js";
 
@@ -297,5 +303,65 @@ describe("loadMachineConfig, the github field", () => {
     // nothing at all — which for a credential setting is the wrong way to fail.
     await writeFile(paths({ SANDBOXR_HOME: home }).configFile, "github: yes\n");
     await expect(loadMachineConfig({ SANDBOXR_HOME: home })).rejects.toThrow(/github/);
+  });
+});
+
+describe("share:", () => {
+  it("loads the rows as written", async () => {
+    await write("share:\n  - host: /Users/ada/.npmrc\n    into: /root/.npmrc\n");
+    const config = await loadMachineConfig(env);
+    expect(config.share).toEqual([{ host: "/Users/ada/.npmrc", into: "/root/.npmrc" }]);
+  });
+
+  // A relative `into:` is a path Docker reads as a *volume name*, which would
+  // create an anonymous volume rather than mounting the file — a failure with no
+  // symptom until whatever was supposed to read it says the file is missing.
+  it("refuses an `into:` that is not absolute", async () => {
+    await write("share:\n  - host: /Users/ada/.npmrc\n    into: root/.npmrc\n");
+    await expect(loadMachineConfig(env)).rejects.toThrow(/absolute/);
+  });
+
+  it("expands `~` against HOME", async () => {
+    const home = await mkdtemp(join(tmpdir(), "sandboxr-share-"));
+    await writeFile(join(home, ".npmrc"), "//registry:_authToken=x\n", "utf8");
+
+    const files = sharedFiles({ share: [{ host: "~/.npmrc", into: "/root/.npmrc" }] }, { HOME: home });
+    expect(files).toEqual([{ host: join(home, ".npmrc"), into: "/root/.npmrc" }]);
+  });
+
+  // Docker does not refuse a bind whose source is missing: it silently creates a
+  // *directory* at that path on the host and mounts that. So the operator loses
+  // the file they were pointing at, and whatever was meant to read it fails with
+  // a message naming neither Docker nor the mount.
+  it("skips a row whose source is not there", () => {
+    const files = sharedFiles({ share: [{ host: "/nowhere/at/all", into: "/root/.npmrc" }] }, {});
+    expect(files).toEqual([]);
+  });
+
+  // The incident this rule came from. On macOS `~/.claude/.credentials.json` is
+  // often an empty placeholder, because the account login is in the keychain.
+  // Mounted over the container's working copy it replaced a credential with
+  // nothing, and Claude Code reported `Not logged in` in every sandbox on the
+  // machine — with a valid credential on the host the whole time.
+  it("skips a row whose source is zero bytes", async () => {
+    const home = await mkdtemp(join(tmpdir(), "sandboxr-share-"));
+    await writeFile(join(home, "empty"), "", "utf8");
+
+    expect(sharedFiles({ share: [{ host: join(home, "empty"), into: "/root/x" }] }, {})).toEqual([]);
+  });
+
+  // A directory is not a file, and mounting one hands the sandbox everything
+  // else inside it — which for a tool's config directory usually includes
+  // settings the host itself executes.
+  it("skips a row pointing at a directory", async () => {
+    const home = await mkdtemp(join(tmpdir(), "sandboxr-share-"));
+    expect(sharedFiles({ share: [{ host: home, into: "/root/x" }] }, {})).toEqual([]);
+  });
+
+  // The upgrade note §4.3 makes: before this key existed the Claude credential
+  // was mounted unconditionally, so a machine upgraded without a row written for
+  // it loses that login in every sandbox at once.
+  it("shares nothing on a machine with no rows", () => {
+    expect(sharedFiles({}, {})).toEqual([]);
   });
 });
