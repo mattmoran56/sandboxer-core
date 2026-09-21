@@ -41,12 +41,7 @@ import { hostGitIdentity, type GitIdentity } from "../git.js";
 import { NETWORK } from "../naming.js";
 import { isInside, paths } from "../paths.js";
 import { dashboardEntry, installRoot } from "../install.js";
-import {
-  HANDSHAKE_PRIORITY,
-  HANDSHAKE_ROUTER,
-  handshakeRule,
-  routeLabels,
-} from "./router.js";
+import { frontendRouteLabels } from "./frontend.js";
 
 export const DASHBOARD_CONTAINER = "sandboxr-dashboard";
 
@@ -169,19 +164,13 @@ const forwardedEnvironment = (env: NodeJS.ProcessEnv): Record<string, string> =>
 };
 
 /**
- * The Traefik labels that put the dashboard on the machine: two routers onto one
- * service.
+ * The Traefik labels that put the dashboard on the machine.
  *
- * The first is the control plane: the bare domain, and only the bare domain. The
- * terminal, every action and every page live behind it, which is why the session
- * cookie can be host-only.
- *
- * The second is the private-app login handshake, and it is the one deliberate
- * exception to "the dashboard never answers on a sandbox hostname". It answers one
- * reserved path there — see `handshakeRule` — because the cookie that opens a
- * private app has to be set *on* that app's hostname, and only something answering
- * there can set it. It carries no forward-auth middleware, or the request that
- * exists to obtain a credential would need that credential first.
+ * The dashboard is a **front end** (contracts §7.5): a container on the bare
+ * domain. The two routers, the handshake exception and the reasoning behind both
+ * are `frontendRouteLabels` in ./frontend.ts, which is the engine's general form
+ * of this and is what `sandboxr.frontend` is stamped by. Nothing about the shape
+ * was the dashboard's — this is only the one front end Jef happens to run.
  *
  * **Its own function rather than an expression inside `dashboardArgs`**, because
  * the top-level `docker-compose.yml` starts this same container and therefore has
@@ -189,22 +178,12 @@ const forwardedEnvironment = (env: NodeJS.ProcessEnv): Record<string, string> =>
  * against *this*, so a rule edited here fails there rather than drifting.
  */
 export function dashboardLabels(input: { domain: string; tls: boolean }): Record<string, string> {
-  return {
-    ...routeLabels({
-      name: DASHBOARD_CONTAINER,
-      rule: `Host(\`${input.domain}\`)`,
-      port: DASHBOARD_PORT,
-      tls: input.tls,
-    }),
-    ...routeLabels({
-      name: HANDSHAKE_ROUTER,
-      rule: handshakeRule(input.domain),
-      port: DASHBOARD_PORT,
-      tls: input.tls,
-      service: DASHBOARD_CONTAINER,
-      priority: HANDSHAKE_PRIORITY,
-    }),
-  };
+  return frontendRouteLabels({
+    container: DASHBOARD_CONTAINER,
+    port: DASHBOARD_PORT,
+    domain: input.domain,
+    tls: input.tls,
+  });
 }
 
 /**

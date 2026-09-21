@@ -81,7 +81,9 @@ with every sandbox, and a default of "expose everything" would publish a contain
 internet-facing entry point the moment it joined.
 
 Two more labels exist on the machine's own containers, and they are what keeps those containers out
-of every sandbox listing: `sandboxr.role=router` and `sandboxr.role=dashboard`.
+of every sandbox listing: `sandboxr.role=router` and `sandboxr.role=dashboard`. A third,
+`sandboxr.frontend`, marks whatever answers on the bare domain — the dashboard here, and anything
+else somebody puts there.
 
 </details>
 

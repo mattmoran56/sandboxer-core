@@ -31,7 +31,10 @@ sandboxr.env        a digest of the environment it was created with — a record
 ```
 
 The shared router and the dashboard carry `sandboxr.role=router` and `sandboxr.role=dashboard`
-instead. Neither has a slug label, so neither can ever appear in a sandbox listing.
+instead. Neither has a slug label, so neither can ever appear in a sandbox listing. The dashboard
+also carries `sandboxr.frontend`, which says "this container answers on the bare domain" — that
+one is not the dashboard's, it is what any container put there carries, and it is how the engine
+reads a request *about* a sandbox rather than *to* one.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the label scheme's exact behaviour</summary>

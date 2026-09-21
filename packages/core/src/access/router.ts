@@ -233,7 +233,10 @@ export function sandboxRouteLabels(input: {
 export async function writeRouterConfig(options: {
   env?: NodeJS.ProcessEnv | undefined;
   cert?: Certificate | undefined;
-  dashboardPort: number;
+  /** The container the bare domain's front end runs in (contracts §7.5). */
+  frontendContainer: string;
+  /** The port it listens on inside that container. */
+  frontendPort: number;
   ports?: RouterPorts | undefined;
 }): Promise<RouterFiles> {
   const p = paths(options.env ?? process.env);
@@ -286,8 +289,12 @@ export async function writeRouterConfig(options: {
   );
 
   // The forward-auth middleware a private project's app hostnames go through.
-  // It points at the dashboard by container name, which resolves on the shared
-  // network — one mechanism for sessions, used twice (contracts §7).
+  // It points at the **front end** by container name, which resolves on the
+  // shared network — one mechanism for sessions, used twice (contracts §7).
+  //
+  // Named by the caller rather than looked up, because this file is written by
+  // `init` and a front end need not exist yet: the engine starts none (§7.5), so
+  // there is nothing to list at the moment the address has to be decided.
   await writeFile(
     join(dynamic, "middlewares.yml"),
     [
@@ -296,7 +303,7 @@ export async function writeRouterConfig(options: {
       "  middlewares:",
       "    sandboxr-auth:",
       "      forwardAuth:",
-      `        address: "http://sandboxr-dashboard:${options.dashboardPort}/auth/verify"`,
+      `        address: "http://${options.frontendContainer}:${options.frontendPort}/auth/verify"`,
       "        trustForwardHeader: true",
       "",
     ].join("\n"),

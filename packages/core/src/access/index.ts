@@ -61,6 +61,7 @@ import {
 } from "./tls.js";
 
 export * from "./router.js";
+export * from "./frontend.js";
 export * from "./dashboard.js";
 export * from "./host-env.js";
 export * from "./tls.js";
@@ -474,7 +475,16 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   }
 
   // --- the router --------------------------------------------------------------
-  const files = await writeRouterConfig({ env, cert, dashboardPort: DASHBOARD_PORT, ports });
+  const files = await writeRouterConfig({
+    env,
+    cert,
+    // The front end `jef init` will start. The engine starts none of its own
+    // (contracts §7.5); this names the address the middleware has to carry
+    // before one exists to be listed.
+    frontendContainer: DASHBOARD_CONTAINER,
+    frontendPort: DASHBOARD_PORT,
+    ports,
+  });
   if (cert) await writeCertificateEntry(files.dynamic, cert, TLS_DIR, { isDefault: true });
   // Removed rather than left behind: this file is what `routerScheme` reads, so
   // a stale one from a previous run would have every command print URLs on a

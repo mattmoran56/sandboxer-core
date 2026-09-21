@@ -347,6 +347,11 @@ export {
   ensureWorkstationImage,
   ROUTER_CONTAINER,
   ROUTER_IMAGE,
+  FRONTEND_LABEL,
+  DEFAULT_FRONTEND_PORT,
+  DEFAULT_FRONTEND_CONTAINER,
+  frontendRouteLabels,
+  listFrontends,
   accessStatus,
   caTrusted,
   dashboardArgs,
@@ -369,7 +374,7 @@ export {
   stopRouter,
   teardownAccess,
 } from "./access/index.js";
-export type { AccessReport, AccessStatus, Certificate, InitOptions, TeardownOptions } from "./access/index.js";
+export type { AccessReport, AccessStatus, Certificate, FrontendRoute, InitOptions, TeardownOptions } from "./access/index.js";
 export {
   ORCHESTRATOR_CONTAINER,
   ORCHESTRATOR_IMAGE_NAME,
