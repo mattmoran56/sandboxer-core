@@ -208,7 +208,7 @@ recognises a real `<form>` doing a real `POST`.
 session view, the themes.
 
 **Its public surface** is its build output. `package.json` exports `./dist/*` and nothing else, and
-`@sandboxr/server` serves that directory.
+`@jef/server` serves that directory.
 
 **Who calls it.** A browser.
 
@@ -238,7 +238,7 @@ machine rather than a font CDN.
 There is no relaxation, including for the terminal. xterm's default renderer draws by injecting
 `<style>` elements, so the app loads its canvas renderer instead, which injects none.
 
-`npm --workspace @sandboxr/web run dev` serves the app with hot reload and proxies everything the
+`npm --workspace @jef/web run dev` serves the app with hot reload and proxies everything the
 server owns — the API, the login form, the action streams, the terminal socket — to
 `http://127.0.0.1:8080`. `SANDBOXR_SERVER` points it somewhere else.
 
@@ -275,7 +275,7 @@ with `shiki`.
 - `docs/architecture/contracts.md`, `packages/docs/AUTHORING.md` and any `README.md` are
   deliberately **not** site pages.
 
-This package depends on `@sandboxr/web`, so the two share one design system rather than keeping two.
+This package depends on `@jef/web`, so the two share one design system rather than keeping two.
 
 </details>
 
@@ -376,19 +376,19 @@ be invisible.
 |---|---|
 | `@sandboxr/core` | `yaml`, `zod` |
 | `@sandboxr/cli` | `@sandboxr/core` |
-| `@sandboxr/server` | `@sandboxr/core`, `@sandboxr/web`, `ws` |
-| `@sandboxr/web` | React, xterm, `marked`, the bundled fonts |
-| `@sandboxr/docs` | `@sandboxr/web`, `marked`, `mermaid`, React |
+| `@jef/server` | `@sandboxr/core`, `@jef/web`, `ws` |
+| `@jef/web` | React, xterm, `marked`, the bundled fonts |
+| `@sandboxr/docs` | `@jef/web`, `marked`, `mermaid`, React |
 | `container/` | Nothing in `packages/`. Only what the base image guarantees |
 
-**`@sandboxr/server` depends on `@sandboxr/web` and serves its `dist/`.** That is why a root
+**`@jef/server` depends on `@jef/web` and serves its `dist/`.** That is why a root
 `npm run build` gets the order right and building the server alone does not: without the bundle the
 dashboard answers its HTML shell and then 404s every asset, which looks like a blank page rather
 than a missing build.
 
 ```bash
 npm run build                              # every package, in dependency order
-npm --workspace @sandboxr/web run build    # the browser bundle on its own
+npm --workspace @jef/web run build    # the browser bundle on its own
 ```
 
 </details>

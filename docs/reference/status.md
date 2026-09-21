@@ -303,7 +303,7 @@ one thing wrong in the details.
 
 ### The dashboard's browser app
 
-**All of it is unproven.** `@sandboxr/web` replaced the server-rendered pages wholesale: the
+**All of it is unproven.** `@jef/web` replaced the server-rendered pages wholesale: the
 sidebar, the worktree list and its groupings, the panes, settings, the themes.
 
 Its pieces are unit-tested and its API is typed at both ends. **Nobody has sat in front of it and

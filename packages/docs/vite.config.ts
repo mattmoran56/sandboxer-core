@@ -16,8 +16,8 @@
 //    then uses to write one static HTML file per route. That is what makes a deep
 //    link work on a plain static host — there is no server for this site — and
 //    what makes a page readable with JavaScript off.
-//  - **The design tokens come from `@sandboxr/web`.** `src/docs.css` imports
-//    `@sandboxr/web/tokens.css` rather than restating a palette, because somebody
+//  - **The design tokens come from `@jef/web`.** `src/docs.css` imports
+//    `@jef/web/tokens.css` rather than restating a palette, because somebody
 //    with the dashboard in one tab and the docs in the other has to see one
 //    product. Only the long-form prose layer belongs to this package.
 

@@ -972,11 +972,11 @@ root.
 <summary><b>If it goes wrong</b> — why a missing build renders as an empty page</summary>
 
 The dashboard is a browser app. The server sends an HTML shell, and the app itself comes from
-`@sandboxr/web`'s build under `/assets/`. With that build missing, the shell still arrives and every
+`@jef/web`'s build under `/assets/`. With that build missing, the shell still arrives and every
 asset 404s, which renders as an empty page rather than an error.
 
 `npm run build` at the repository root builds the two packages in the right order, because the server
-depends on the app. Building `@sandboxr/server` on its own does not.
+depends on the app. Building `@jef/server` on its own does not.
 
 </details>
 

@@ -15,8 +15,8 @@ Read docs/brand.md first, and then packages/web/src/tokens.css, which is where t
 actually live. Build the surface from the semantic tokens — surface, line, ink, ink-muted, brand,
 and the status hues — and never from a hex you typed yourself. Headings are the serif, body is the
 sans, anything a machine cares about is the mono. Draw a panel or a card as a hairline on a
-surface, not as a shadow. Write the wordmark as `sandboxr`, lowercase, with no letterspacing and
-no tagline.
+surface, not as a shadow. Write the wordmark as `Jef` in the dashboard and `sandboxr` on the
+documentation site, with no letterspacing and no tagline.
 
 Stop and ask me if the surface seems to need a colour the palette does not have, a second
 typeface, a gradient, or the mark redrawn rather than rescaled.
@@ -28,32 +28,46 @@ page is what it means. Where the two disagree, the file is right and this page i
 
 ## The name
 
-The product is **sandboxr**. Always lowercase, including at the start of a sentence and in a
-heading, and never letterspaced. There is no tagline in the product itself: the dashboard's header
+There are two names, and which one a surface carries depends on what that surface is.
+
+**Jef** is the agent — the thing a person talks to. Capitalised, because it is a name and not a
+noun. The dashboard is Jef's: its wordmark, its browser tab, its home-screen icon and the agent's
+own introduction all say Jef. There is no tagline in the product itself: the dashboard's header
 carries the mark, the word, and the domain it serves — nothing else.
 
-In prose it is an ordinary noun. "sandboxr turns a git worktree into a running copy of a whole
-project, on its own hostname." That sentence is the one-line pitch, and it is the first line of the
-repository's README. Longer descriptions are that sentence plus what it costs, never a new one.
+**sandboxr** is the engine underneath. Always lowercase, including at the start of a sentence and
+in a heading, and never letterspaced. The documentation site is the engine's, and its wordmark says
+sandboxr.
+
+In prose sandboxr is an ordinary noun. "sandboxr turns a git worktree into a running copy of a
+whole project, on its own hostname." That sentence is the one-line pitch. Longer descriptions are
+that sentence plus what it costs, never a new one.
 
 The command is `sandboxr` too, and the config file is `sandboxr.yaml`, so the word is never
-capitalised anywhere a reader could copy it into a terminal and be wrong.
+capitalised anywhere a reader could copy it into a terminal and be wrong. Jef goes the other way:
+capitalised in every sentence a person reads, and lowercase only where it is an identifier rather
+than a name — the `@jef/*` package scope and the `[jef]` prefix on the server's log lines.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — how the name is written, everywhere it is written</summary>
 
 | Where | Written |
 |---|---|
-| Prose, mid-sentence | `sandboxr` |
-| Prose, at the start of a sentence | `sandboxr` — lowercase survives; rewrite the sentence rather than capitalise it |
-| A heading or a page title | `sandboxr` |
-| The wordmark | `sandboxr`, one word, no space, no letterspacing, no full stop |
-| The command, the package scope, the config file | `sandboxr`, `@sandboxr/*`, `sandboxr.yaml` |
+| The engine in prose, mid-sentence | `sandboxr` |
+| The engine in prose, at the start of a sentence | `sandboxr` — lowercase survives; rewrite the sentence rather than capitalise it |
+| The engine in a heading or a page title | `sandboxr` |
+| The command, the engine's package scope, the config file | `sandboxr`, `@sandboxr/*`, `sandboxr.yaml` |
 | A container, volume or hostname | `sandboxr-<project>-<slug>` — see [Paths](reference/paths.md) |
+| The agent, anywhere a person reads it | `Jef` |
+| The dashboard's wordmark | `Jef`, one word, no letterspacing, no full stop |
+| The dashboard's tab title | `Jef`, or `Jef — <view>` |
+| The documentation site's wordmark | `sandboxr`, one word, no space, no letterspacing, no full stop |
+| The product's package scope, the server's log prefix | `@jef/*`, `[jef]` |
 
-**Never `Sandboxr`, `SandboxR` or `SANDBOXR`.** The one exception is a place that upper-cases every
-word mechanically — an OS window title, a package registry's own display of a name — where nothing
-in the repository decides it.
+**Never `Sandboxr`, `SandboxR` or `SANDBOXR`, and never `JEF` or `jef`** outside the two
+identifiers above. The one exception is a place that upper-cases every word mechanically — an OS
+window title, a package registry's own display of a name — where nothing in the repository decides
+it.
 
 The one-line pitch, verbatim from `README.md`:
 
@@ -150,7 +164,7 @@ fractions, so the raster and the SVG cannot drift):
 | 192px, 512px | The manifest's `any` icons | Rounded corners, transparent outside them |
 | 512px | `icon-maskable-512.png` | Full bleed, mark scaled to 0.85 so its **diagonal** clears the launcher's safe circle |
 
-Regenerate the four PNGs with `npm --workspace @sandboxr/web run icons` after any change to the
+Regenerate the four PNGs with `npm --workspace @jef/web run icons` after any change to the
 geometry or the brand hue. They are committed; the server serves them straight out of the build.
 
 **Minimum size: 20px.** At 20px the stroke is 1.6px and the space between two bars is 1.5px, which
@@ -175,18 +189,20 @@ is a word, not a logotype: nothing has been drawn by hand, so it is reproduced b
 than by finding a file.
 
 The lockup is the mark, a 10px gap, and the wordmark, vertically centred on each other. **The
-dashboard and the documentation site draw the identical lockup**, in the identical sticky header
-over a hairline, because somebody with one in each tab has to see one product rather than two sites
-that share a palette.
+dashboard and the documentation site draw the same lockup down to the class list**, in the
+identical sticky header over a hairline, because somebody with one in each tab has to see one
+product rather than two sites that share a palette. Only the word differs: the dashboard sets
+`Jef`, the documentation site sets `sandboxr`.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the lockup, in the two places it is drawn</summary>
 
-Both headers draw the same three elements, and the classes are the same in each:
+Both headers draw the same three elements, and the classes are the same in each. Only the text
+inside the second span changes — `Jef` in the dashboard, `sandboxr` on the documentation site:
 
 ```html
 <span class="grid size-7 place-items-center rounded-[0.475rem] bg-brand text-brand-ink">…mark…</span>
-<span class="font-serif text-xl leading-none text-ink">sandboxr</span>
+<span class="font-serif text-xl leading-none text-ink">Jef</span>
 ```
 
 - **The plate** is `size-7` (28px), `bg-brand`, radius `0.475rem` (7.6px, which is 0.27 of 28), with
@@ -459,12 +475,13 @@ a prompt at the top of every page somebody can arrive at cold. It is `packages/d
   exists, in the palette or in the mark.
 - **No glass.** Nothing is translucent and nothing is blurred. There is no `backdrop-filter`, and
   no preference to turn one off.
-- **No capital S.** `sandboxr`, everywhere a person or a machine can read it.
+- **No capital S, and no lowercase J.** `sandboxr` and `Jef`, everywhere a person or a machine can
+  read them — bar the `@jef/*` scope and the `[jef]` log prefix, which are identifiers.
 - **No letterspaced wordmark**, no all-caps wordmark, and no tagline attached to it.
 - **No colour named in a component.** A component asks for `surface`, `line`, `ink` or `brand`; if
   what it needs has no token, the palette is what changes.
 - **No second palette in another app.** Anything sandboxr renders imports
-  `@sandboxr/web/tokens.css`. A palette that exists twice drifts, and it drifts silently — nothing
+  `@jef/web/tokens.css`. A palette that exists twice drifts, and it drifts silently — nothing
   about the dashboard looking right tells you the documentation site does.
 - **No shadow under a card or a panel**, and no radius typed as a number where a named one exists.
 - **No status colour reused for decoration.** Green means running; a green that means "nice" costs
