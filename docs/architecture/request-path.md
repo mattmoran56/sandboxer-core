@@ -80,10 +80,10 @@ Traefik's Docker provider runs with `exposedByDefault: false`. This router sits 
 with every sandbox, and a default of "expose everything" would publish a container to the
 internet-facing entry point the moment it joined.
 
-Two more labels exist on the machine's own containers, and they are what keeps those containers out
-of every sandbox listing: `sandboxr.role=router` and `sandboxr.role=dashboard`. A third,
-`sandboxr.frontend`, marks whatever answers on the bare domain — the dashboard here, and anything
-else somebody puts there.
+The router carries a label of its own, `sandboxr.role=router`, and it is what keeps the router out
+of every sandbox listing. A second label, `sandboxr.frontend`, marks whatever answers on the bare
+domain. The engine starts nothing there — see [contracts](contracts.md) §7.2 — so that label is
+worn by an embedder's container.
 
 </details>
 
@@ -124,33 +124,40 @@ trust a local name with no public DNS record. There is no ACME support — see
 
 </details>
 
-### Private projects, and the one path the dashboard answers elsewhere
+### Private projects, and the one path the bare domain answers elsewhere
 
 If `access.apps` is `private`, the sandbox's router entry carries a forward-auth middleware
-pointing at the dashboard's `GET /auth/verify`, which answers 200 or 401. A `public` project skips
-the middleware entirely. [Access and security](../access.md) describes this from a reader's side.
+pointing at `GET /auth/verify` on the bare domain, which answers 200 or 401. The engine writes the
+middleware and answers none of it: whatever front end an embedder put on the bare domain decides.
+A `public` project skips the middleware entirely. [Access and security](../access.md) describes
+this from a reader's side.
 
 The credential that opens a private app is bound to the hostname being asked about. A cookie can
-only be set by something answering *on* that hostname, so the dashboard needs a way to answer
-there. That is the one deliberate exception to "the dashboard never appears on a sandbox hostname".
+only be set by something answering *on* that hostname, so the front end needs a way to answer
+there. That is the one deliberate exception to "the front end never appears on a sandbox hostname".
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the handshake router, and what <code>/auth/verify</code> requires</summary>
 
-A second router entry sits on the dashboard's container:
+A second router entry sits on the front end's own container, written by `frontendRouteLabels` in
+`packages/core/src/access/frontend.ts`:
 
 | Label | Value |
 |---|---|
 | `traefik.http.routers.sandboxr-handshake.rule` | `` HostRegexp(`^[a-z0-9-]+\.[a-z0-9-]+\.[a-z0-9-]+\.<domain>$`) && PathPrefix(`/.sandboxr/auth`) `` |
-| `traefik.http.routers.sandboxr-handshake.service` | `sandboxr-dashboard` — two routers, one service |
+| `traefik.http.routers.sandboxr-handshake.service` | the front end's container name — two routers, one service |
 | `traefik.http.routers.sandboxr-handshake.priority` | `10000` |
+
+The middleware has to name a container before any front end exists to be listed, so the router
+config is written with a default, `sandboxr-dashboard`. An embedder calling its container anything
+else says so, and `init` rewrites the file.
 
 The priority is explicit because Traefik defaults it to the **length of the rule**, which would
 decide this by accident. The handshake rule's host pattern is generic where a sandbox's names its
 slug and project, so which string is longer depends on how long somebody's branch name is.
 
 The host pattern counts labels rather than naming anything. Three labels above the domain is a
-sandbox, and the dashboard's own bare domain has none, so this can never shadow the control plane.
+sandbox, and the bare domain has none, so this can never shadow the control plane.
 It carries no forward-auth middleware — the request whose whole purpose is to obtain a credential
 cannot be asked to present that credential first.
 
@@ -168,8 +175,8 @@ Two consequences:
   app's own `fetch` and every API client see a refusal rather than a login page.
 
 Note the two prefixes are different and both are reserved. `/.sandboxr/auth` belongs to the
-**dashboard**, on every sandboxr hostname. `/__sandboxr/` belongs to the **sandbox's own router**,
-below.
+**front end on the bare domain**, on every sandboxr hostname. `/__sandboxr/` belongs to the
+**sandbox's own router**, below.
 
 </details>
 
@@ -205,7 +212,7 @@ Written by `container/scripts/gen-caddyfile.sh` into `/run/sandboxr/Caddyfile` a
   with a warning rather than written as a broken proxy.
 - **An optional service nobody requested gets no site block at all.** Its hostname 404s exactly as
   a misspelling would. `sandboxr up --with cms` is what starts it. It gets no
-  `/__sandboxr/health/<id>` route either, which is how the dashboard tells a service that was never
+  `/__sandboxr/health/<id>` route either, which is how a caller tells a service that was never
   started from one that is failing.
 - **A health route is written only for a service that will run, and only when it declares one.** A
   service needs a port, a `health` path, and to have been requested.
@@ -233,8 +240,8 @@ inevitable rather than unlucky.
 The request that landed there was the health probe of a dormant service, because a dormant service
 deliberately gets no health route. What came back was the front-end's own answer.
 
-- While the app was unbuilt, the probe got that app's 503 "not built yet" page, and the dashboard
-  read every dormant service as `down`.
+- While the app was unbuilt, the probe got that app's 503 "not built yet" page, and whatever read
+  the probe called every dormant service `down`.
 - Once the app was built, the same probe got the app's `index.html` with a 200, and the same dead
   service read as `up`.
 
@@ -293,7 +300,7 @@ diagnostic in this whole section.
 | **404 reading `sandboxr: no route for …`** | You reached a sandbox and it serves no such hostname. Wrong label, wrong project, wrong slug, or a domain the sandbox was not started with | Check the label against the config, and the domain against `SANDBOXR_DOMAIN` |
 | **404 reading `sandboxr: no such status route …`** | You reached a sandbox and asked for a `/__sandboxr/` path that names nothing. For a health route, that means the service is dormant, not broken | `sandboxr up --with <name>` if you wanted it running |
 | **502** | The label is right and the service behind it is not up — still building, crashed, or waiting on the database | `sandboxr status`, then `sandboxr logs <slug>` |
-| **503 with build instructions** | The label is right and that app has never been built in this sandbox. Not a failure | `sandboxr reload <slug> --web=<label>`, or the app's own build button in the dashboard |
+| **503 with build instructions** | The label is right and that app has never been built in this sandbox. Not a failure | `sandboxr reload <slug> --web=<label>` |
 | **404 from something that is clearly an API** | You reached the right app, and a `routes` prefix points at the wrong service — or none matched, so the request fell through to the static files | Check the `routes` block for that label |
 | **`{"ok":false}`** | A `private` project's forward-auth refused a request that did not ask for a page — usually the app's own `fetch`, since a navigation is redirected to the login form instead | Open the app's own URL in a tab and sign in there first |
 | **A certificate warning** | The router is serving a certificate the browser does not trust | `mkcert -install`, then `sandboxr init` |
@@ -307,9 +314,8 @@ curl -s https://tkt-4821--app--acme.sbx.localhost/__sandboxr/live
 
 > [!NOTE] The 503 page names a command that does not exist yet
 > The "not built yet" page a sandbox serves says `sandboxr build <slug> --app <label>`. There is no
-> `build` verb in the command line today. Use `sandboxr reload <slug> --web=<label>`, or the
-> per-app build button in the dashboard. The message in `container/scripts/gen-caddyfile.sh` is
-> stale.
+> `build` verb in the command line today. Use `sandboxr reload <slug> --web=<label>`. The message
+> in `container/scripts/gen-caddyfile.sh` is stale.
 
 <details class="why">
 <summary><b>Why it works this way</b> — the domain is read in exactly one place</summary>

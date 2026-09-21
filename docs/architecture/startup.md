@@ -135,7 +135,7 @@ sounds harmless. It is not:
 
 - The logs fill with connection failures that look like the bug you are actually chasing.
 - A service that seeds or migrates on boot may do so against a half-restored database.
-- The dashboard shows red during a normal startup, so red stops meaning anything.
+- Anything watching the sandbox shows red during a normal startup, so red stops meaning anything.
 
 ## Nothing asserts a state
 

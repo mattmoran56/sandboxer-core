@@ -7,21 +7,16 @@ This page is for anyone about to change the code, or about to ask an agent to. I
 question per package: if this behaviour is wrong, which directory do I open?
 
 The short answer is almost always `packages/core`. Core holds every decision about what a sandbox
-is. The command line, and Jef's dashboard on top of it, are thin faces over core. If a change
-would let those two faces disagree, it belongs in core.
+is. The command line is a thin face over it, and so is anything else built on it. If a change
+would let two faces disagree, it belongs in core.
 
-**There is a second question underneath that one, and it is a repository boundary.** `core`,
-`cli`, `tokens`, `docs`, `container/` and `docs/` are the **engine**, sandboxr, which is moving
-to a repository of its own. `sessions`, `server`, `web`, `orchestrator`, `voice`, `telegram`,
-`orchestrator-daemon` and `sidecars/` are **Jef**, the product built on it. One rule holds the
-line: **the engine imports nothing from the product; the product imports the engine.** So a
-change that would have core reach for a session, an agent or the dashboard belongs on the other
-side of it — and the shape of the fix is always the same, a parameter the embedder supplies
-rather than a hook the engine reaches through. See [contracts §2](contracts.md).
-
-**Every heading below that is marked *Jef's, not the engine's* is on the product side.** They are
-described here because this is still one tree, and a change usually has to find the right
-directory in it. None of them ships with sandboxr.
+**There is a second question underneath that one, and it is a repository boundary.** Everything
+here is the **engine**: a command-line tool, and no control plane. A product is built on this
+engine and lives in another repository. One rule holds the line: **the engine imports nothing from
+the product; the product imports the engine.** So a change that would have core reach for a
+control plane, an agent or a session belongs on the other side of it — and the shape of the fix is
+always the same, a parameter the embedder supplies rather than a hook the engine reaches through.
+See [contracts §2](contracts.md).
 
 [The shape of it](index.md) is the one-screen version of this page. Read that first if you have
 not.
@@ -31,9 +26,9 @@ I want to change how sandboxr behaves. Before you write anything, work out which
 change belongs in.
 
 Read docs/architecture/packages.md, then docs/architecture/contracts.md. Follow these rules:
-logic about what a sandbox is goes in packages/core, never in packages/cli, packages/server or
-packages/web; only container/ may contain shell; the browser app renders what the API sends and
-decides nothing. Documentation is updated in the same change that makes it true.
+logic about what a sandbox is goes in packages/core, never in packages/cli; only container/ may
+contain shell; the engine imports nothing from anything built on top of it. Documentation is
+updated in the same change that makes it true.
 
 Tell me which package you picked and why before you edit anything. Stop and ask me if the change
 would alter a boundary described in contracts.md — that file has to change first, in its own
@@ -48,19 +43,19 @@ project's image layer. Working out the `docker run` arguments, the mounts and th
 The four database drivers. The shared router and the certificates. The git and GitHub plumbing.
 The lifecycle verbs.
 
-**Not** a session, and **not** an agent. A session, its workstation and its work volume are
-Jef's, in `packages/sessions`, and so is everything about the agent that works in one — the
-engine is handed a workspace rather than asked what a session is (Jef's contract, §9.4), and it
-has no name for Claude Code at all.
+**Not** an agent, and **not** a control plane. sandboxr runs a worktree in a container and has no
+name for a coding agent at all. It prepares the bare domain and leaves it empty — contracts §7.2 —
+and starts nothing there.
 
-**Not** the dashboard container, the orchestrator container or the images for either. Those are
-Jef's, in `packages/server/src/machine/`, and `jef init` is what starts them. The engine only
-prepares the bare domain and leaves it empty — contracts §7.2.
+Where the engine would otherwise have had to know what an embedder is doing, it takes a parameter
+instead of reaching for one. `up` is handed a `ProvidedWorkspace` when the code it is to run is a
+checkout the host has no worktree for, and `expire` is handed the activity somebody else can see
+and the engine cannot.
 
 **Its public surface** is one file: `packages/core/src/index.ts`. Nothing outside that file is
 a contract.
 
-**Who calls it.** `packages/cli`, `packages/sessions` and `packages/server`, and nothing else.
+**Who calls it.** `packages/cli`, and anything that embeds the engine. Nothing else here.
 
 **What it may never do.** Format output for a human, know that a web server exists, or spawn a
 process except through its own Docker wrapper.
@@ -81,10 +76,10 @@ that file is a contract.
 | `config/plan.ts` | `plan.json`. `planFor`, `writePlan`, `planPorts` |
 | `config/version.ts` | The `sandboxr:` version range |
 | `naming.ts` | Slugs, hostnames, container and volume names, image repositories, the migration lock name. `DEFAULT_DOMAIN`, `SLUG_MAX`, `NETWORK`, `SHARED_VOLUMES`, `PROTECTED_IMAGES` |
-| `paths.ts` | Every host path under `SANDBOXR_HOME` that the engine owns. A session's own files are `packages/sessions/src/paths.ts` |
+| `paths.ts` | Every host path under `SANDBOXR_HOME` that the engine owns |
 | `docker.ts` | A typed wrapper over the `docker` CLI. Arguments are arrays, never shell strings, and the runner is injectable |
 | `image.ts` | Rendering the project Dockerfile template, staging manifests, and the content-addressed tag |
-| `install.ts` | Where this installation of sandboxr lives, so the dashboard can mount it |
+| `install.ts` | Where this installation of sandboxr lives, so an embedder can mount it |
 | `secrets.ts` | Reading, editing, importing, filtering and checking a project's third-party credentials |
 | `git.ts` | `gitFacts`, `gitMounts`, `hostGitIdentity` — what makes git work inside a container |
 | `forge.ts` | Everything that shells out to `gh`: repositories, pull requests, merged branches, and `createPullIndex` — a project's pull requests by branch, cached and bounded by a timeout so a hung `gh` cannot stall a page |
@@ -120,10 +115,10 @@ the result.
 `packages/cli/src/main.ts` is the real, complete list of commands and flags. Every command returns
 an exit code rather than calling `process.exit`, so the whole surface can be driven from a test.
 
-**Who calls it.** People, and agents. Nothing in this repository calls it — in particular the
-dashboard does not.
+**Who calls it.** People, and agents. Nothing in this repository calls it, and an embedder must
+not either: it calls core in the same process.
 
-**What it may never do.** Decide anything. If the CLI and the dashboard could disagree about what
+**What it may never do.** Decide anything. If the CLI and an embedder could disagree about what
 a sandbox is, the logic is in the wrong package.
 
 <details class="agent">
@@ -140,205 +135,12 @@ Human-readable output goes to **stderr**; `--json` puts the result on **stdout**
 what makes a command pipeable without losing its narration.
 
 The package's only dependency is `@sandboxr/core`, and `src/boundary.test.ts` is the cut-down
-half of core's: the CLI is the engine's whole face, so a product import here would ship in the
-binary a colleague installs.
+half of core's: the CLI is the engine's whole face, so an import from outside the engine here
+would ship in the binary a colleague installs.
 
 Every command and flag is listed in [CLI commands](../reference/cli.md).
 
 </details>
-
-## `packages/sessions` — Jef's, not the engine's
-
-**What it owns.** What the engine is not. A session, the agent that works in one, and reading
-the code that agent changed are Jef's subjects: sandboxr runs a worktree in a container and knows
-nothing about agents. The session model in full — ids, labels, the workstation, the work volume,
-the clones on it, adoption, carrying uncommitted work across, a session's expiry and its activity
-signals, and the runtimes it starts through the engine — plus the code reader's half that is not
-Docker: the argument arrays, the parsers, and the path rule that keeps a file explorer inside its
-workspace.
-
-**Its public surface** is one file: `packages/sessions/src/index.ts`. As with core, nothing
-outside that file is a contract.
-
-**Who calls it.** `packages/server`, `packages/orchestrator` and `packages/orchestrator-daemon`.
-
-**What it may never do.** Be imported by `@sandboxr/core` or `@sandboxr/cli`. The dependency runs
-one way — the product knows about the engine and the engine knows nothing about the product — and
-that is the whole reason this package exists.
-
-<details class="agent">
-<summary><b>Details for an agent</b> — what is in it, and which question each file answers</summary>
-
-| Module | Answers |
-|---|---|
-| `code/paths.ts` | Which file did the caller mean? `safePath`, `resolveInRoot`, `baseName`, `CODE_PATH_MAX` — a `.` or `..` segment is refused outright rather than resolved |
-| `code/listing.ts` | The `find` and `head` argument arrays, the parsers for what comes back, and the binary test. `LISTING_LIMIT`, `FILE_READ_LIMIT` |
-| `code/diff.ts` | The `git` argument arrays for a branch's changes, and the parsers for `--numstat`, `--name-status` and a unified patch. `DIFF_FILE_LIMIT`, `PATCH_LIMIT` |
-| `paths.ts` | A session's four files on the host, under `state/session/<session>/`, derived from the engine's `paths(env).home` |
-| `session/index.ts` | The session lifecycle: `createSession`, `listSessions`, `getSession`, `deleteSession`, `startWorkstation`, `stopWorkstation` |
-| `session/id.ts`, `session/labels.ts`, `session/types.ts` | What a session is called, the labels a workstation carries, and the shapes |
-| `session/state.ts` | A session's four files on the host: keep, name, attach, adopted |
-| `session/work.ts` | The work volume and the clones on it: `ensureWorkVolume`, `cloneIntoWork`, `listWork`, `workPath` |
-| `session/repos.ts` | Adding a repository to a session, through `freshenBranch` |
-| `session/adopt.ts`, `session/adopt-name.ts`, `session/carry.ts` | Adoption (Jef's contract, §9.10.1): the clone at the worktree's own HEAD, the name derived from the branch, and the one patch that carries uncommitted work across |
-| `session/runtime.ts` | `stageRuntime` and `startRuntime`: staging a `ProvidedWorkspace` out of a work volume and handing it to the engine's `up` |
-| `session/image.ts` | The workstation image, built from **Jef's** `container/`, which the caller hands in |
-| `session/expiry.ts`, `session/expire.ts` | A workstation's deadline, on the engine's arithmetic, and the reaper that acts on it |
-| `session/activity.ts` | The activity signals the engine is handed: a live agent run, a held socket, and a front-end route that names a session |
-| `agent/launch.ts` | The `claude` argument list, its environment, the default tools and permission mode |
-| `agent/stream.ts` | `--output-format stream-json` turned into events, and the line reader under it |
-| `agent/store.ts` | Where a run is written down: the append-only transcript per session, and the index |
-| `agent/types.ts` | The Run / Thread / Event model (Jef's contract, §4) |
-| `agent/permissions.ts`, `agent/grants.ts` | The permission modes, the control frames, and the rules a person granted |
-| `agent/models.ts`, `agent/commands.ts` | The two closed tables: which models may be asked for, and which slash commands exist |
-| `agent/btw.ts`, `agent/spoken.ts` | The side question, and the `[spoken]` marker and prompt |
-| `agent/credentials.ts` | The host's Claude Code login: where it is, whether it is real, and the variables that carry it |
-
-The split with `packages/server/src/code.ts` is deliberate and the same one `agent-commands.ts`
-uses: this package owns the argument arrays and the parsers, because they are the same whether a
-CLI or a dashboard asks; the server owns the Docker calls and the ordering.
-
-Everything here that needs an engine fact takes it from `@sandboxr/core`'s public surface. Where
-the engine would have needed a session, the dependency is inverted instead: `up` is handed a
-`ProvidedWorkspace`, `expire` is handed the activity somebody else knows about, and
-`ensureWorkstationImage` is handed Jef's `container/` rather than deriving it from the engine's
-install root — which after the split resolves to the submodule, where there is no `workstation/`.
-
-</details>
-
-## `packages/server` — Jef's, not the engine's
-
-**What it owns.** The dashboard's server side. Sessions and the password. The JSON API. The closed
-table of actions and their streamed output. The log stream. The terminal WebSocket. The agent
-WebSocket. The reaper that stops sandboxes past their idle limit. It also serves the browser
-app's built bundle and one HTML shell.
-
-**And the machine Jef runs on**, in `src/machine/`: the dashboard container, the orchestrator
-container, the images for both, and `initJef` — which is `sandboxr init` plus the containers that
-make the bare domain answer. `jef init` is its bin. It lives here because the server is the thing
-being deployed: `dashboardArgs` puts `packages/server/dist/bin.js` on a `node` command line, and a
-package that knew how to start it from outside would be a second copy of what this one already is.
-
-**Its public surface** is `packages/server/src/index.ts`: `createServer`, `createApp`,
-`loadServerConfig`, the action table, the session and password types, and its own thin Docker
-client.
-
-**Who calls it.** The browser, over HTTP. And its own two binaries: `sandboxr-server`, which runs
-the dashboard, and `jef`, whose one verb is `jef init`.
-
-**What it may never do.** Shell out to the `sandboxr` command. Reach core anywhere except through
-`src/core/adapter.ts`. Offer a generic "run this command" endpoint. Render a sentence the browser
-should be writing.
-
-<details class="agent">
-<summary><b>Details for an agent</b> — the server's routes, and the rules they follow</summary>
-
-Every route declares its auth. There is no default, so a route added without a decision does not
-compile rather than shipping open.
-
-**Read routes.** Each requires a session, and each one naming a `:project` is additionally checked
-against that session's grant.
-
-| Route | Answers |
-|---|---|
-| `GET /api/bootstrap` | The domain, the session, the closed action table, and the default lifetime the new-sandbox form offers |
-| `GET /api/workspace` | Every project, worktree and sandbox on the machine, plus a summary. Each worktree carries the state of its pull request |
-| `GET /api/projects/:project` | One project's worktrees, branches and open pull requests |
-| `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its config declares |
-| `GET /api/repos` | The repositories this machine's `gh` can offer, each marked as already in the workspace or not |
-| `GET /api/p/:project/s/:slug/agent/runs` | The agent sessions recorded against one sandbox, newest first. The index only |
-| `GET /api/agent/models` | The models a session may run on, and the permission modes it may run in |
-| `GET /api/p/:project/agent/grants` | The standing permissions this project has been granted |
-| `DELETE /api/p/:project/agent/grants/:id` | Withdraws one. The only `DELETE` in the API |
-| `GET /api/p/:project/s/:slug/agent/commands` | The slash commands a session on that sandbox can be offered |
-| `GET /p/:project/s/:slug/logs` | The sandbox's log stream |
-
-**Action routes.** Three of them, one per scope, all `POST`:
-`/actions/:action`, `/p/:project/actions/:action`, `/p/:project/s/:slug/actions/:action`.
-
-**Sockets.** The terminal at `/p/:project/s/:slug/terminal`, and the agent at
-`/p/:project/s/:slug/agent`.
-
-**Public routes.** `/healthz`, `GET /login`, `POST /auth/login`, `POST /auth/logout`,
-`GET /auth/verify` (the router's forward-auth), `GET /.sandboxr/auth` (the private-app handshake),
-and `/assets/*`.
-
-**The HTML shell** is served at `/`, `/new`, `/settings`, `/repos`, `/p/:project`,
-`/p/:project/branches`, `/p/:project/w/:slug` and `/p/:project/s/:slug`. All eight return the same
-document; the browser app decides what to draw.
-
-`GET /api/workspace` is polled every thirty seconds. Nothing is fetched while the tab is hidden or
-while an action is running; a failed poll leaves the last good answer on screen and marks it stale;
-returning to the tab refreshes at once.
-
-`/login` and the private-app handshake pages stay server-rendered, on purpose. Login is the only
-way back in, so it has to work when the bundle does not — and a browser's password manager only
-recognises a real `<form>` doing a real `POST`.
-
-| File | What it is |
-|---|---|
-| `src/app.ts` | Every route, and the auth each one declares |
-| `src/server.ts`, `src/bin.ts` | The HTTP server and its binary |
-| `src/env.ts` | Every environment variable the server reads, and its default |
-| `src/core/adapter.ts` | **The one file that knows how core is really called** |
-| `src/core/port.ts` | `CoreApi` — the interface the rest of the package talks to |
-| `src/actions/table.ts` | The closed action table |
-| `src/actions/stream.ts` | Server-Sent Events: `start`, `log`, `step`, `done` |
-| `src/auth/` | Passwords, sessions, the rate limiter, the login and verify routes |
-| `src/api/dto.ts` | The shapes the API answers with |
-| `src/sandboxes/` | Collecting, probing and modelling what the API reports |
-| `src/docker/` | A minimal Docker socket client, for streaming an exec and hijacking a terminal |
-| `src/reaper.ts` | The idle timer |
-| `src/ui/` | The HTML shell, the login page and the handshake pages |
-
-</details>
-
-## `packages/web` — Jef's, not the engine's
-
-**What it owns.** The dashboard as a browser app. React, TypeScript, Tailwind, built by Vite into
-`dist/`. The sidebar of sessions, the panes, the forms, the log and terminal views, the agent
-session view, the themes.
-
-**Its public surface** is its build output. `package.json` exports `./dist/*` and nothing else, and
-`@jef/server` serves that directory.
-
-**Who calls it.** A browser.
-
-**What it may never do.** Hold any logic about what a sandbox is. Which actions apply to a stopped
-sandbox, what makes one degraded, what sentence a destructive action confirms with, how a slug is
-derived — every one of those is decided by core, reported by the server, and rendered here.
-
-> [!IMPORTANT] The server sends facts and the browser writes sentences
-> No field of any API response is a rendered string. An expiry is an instant, never `"3h 20m
-> left"`. A state is `degraded`, never `"degraded — something failed during boot"`. A page showing
-> a countdown re-renders it every second anyway, so a server-rendered copy of the same wording
-> would only be a second version to disagree with.
-
-<details class="agent">
-<summary><b>Details for an agent</b> — the browser app, and the one constraint on its build</summary>
-
-`packages/web/src/api/types.ts` is the browser's half of a contract whose other half is
-`packages/server/src/api/dto.ts`. They are two declarations of one thing, kept in step by hand,
-because importing the server's types would drag `node:http` and the Docker client into a browser
-bundle.
-
-**The content-security policy is a constraint on the build, not a preference.** No `unsafe-inline`
-for script, and no external origin. Nothing executable is inlined into a page, and nothing is
-fetched from another host — so no inlined assets, one stylesheet, and fonts served from this
-machine rather than a font CDN.
-
-There is no relaxation, including for the terminal. xterm's default renderer draws by injecting
-`<style>` elements, so the app loads its canvas renderer instead, which injects none.
-
-`npm --workspace @jef/web run dev` serves the app with hot reload and proxies everything the
-server owns — the API, the login form, the action streams, the terminal socket — to
-`http://127.0.0.1:8080`. `SANDBOXR_SERVER` points it somewhere else.
-
-</details>
-
-> [!WARNING] The browser app has never been driven through a day's work
-> Its pieces are unit-tested and its API is typed at both ends. Nobody has sat in front of it and
-> taken a project from start to finish. See [What is built](../reference/status.md).
 
 ## `packages/docs`
 
@@ -368,8 +170,8 @@ with `shiki`.
   deliberately **not** site pages.
 
 This package depends on `@sandboxr/tokens`, so the two share one design system rather than
-keeping two. It does not depend on the dashboard: this site is the engine's and the dashboard is
-Jef's, and an engine package may not depend on a product one.
+keeping two. It depends on nothing outside the engine: this site is the engine's, and an engine
+package may not depend on a product one.
 
 </details>
 
@@ -384,46 +186,12 @@ is shipped as written, so it declares the three `@fontsource*` packages it impor
 as a peer — the app's own `@tailwindcss/vite` is what resolves that import, and a second copy
 nested here would be a different Tailwind from the one the plugin runs.
 
-**Who calls it.** `packages/web` and `packages/docs`, and nothing else.
+**Who calls it.** `packages/docs`, and nothing else here. It is also what the product's dashboard
+in the other repository is drawn from, so the two look like one thing.
 
-**What it may never do.** Contain a component, a script, or anything specific to one of the two
-apps. It exists so that neither of them owns the palette — the dashboard is Jef's and the
-documentation site is the engine's, and a colour they disagreed about would be visible to anyone
-who opened both.
-
-## The orchestrator, and `sidecars/` — Jef's, not the engine's
-
-A second reader of sessions, opposite to the dashboard: it watches all of them and tells you
-only when one needs you. Four TypeScript packages and two Python sidecars, in a strict dependency
-DAG — nothing depends back up the chain, and voice never imports telegram.
-
-- **`packages/orchestrator`** — the base. The model that folds the run index, the event stream
-  and Claude Code's hooks into signals; the policy that turns a signal into an update, a question
-  or silence; the `Notifier` / `Forker` / `Summariser` / `Responder` interfaces; the hook ingest
-  server and the store feeder. Core-only, pure where it can be.
-- **`packages/voice`** — a `Notifier` that speaks and listens. The announcement ledger, the
-  barge-in `Speaker`, and the `SessionHistory` that is rewritten to what you actually heard when
-  you cut in. Drives the voice sidecar over a line protocol.
-- **`packages/telegram`** — a `Notifier` that calls you when you are away. The control protocol
-  and `TelegramCall`; the on-call conversation is a voice `Notifier`, reused whole.
-- **`packages/orchestrator-daemon`** — the top of the stack: wires the above from the environment
-  and runs the loop. Its bin is `sandboxr-orchestrator`.
-
-**`sidecars/`** is the one place host-side code is not TypeScript. On-device speech recognition,
-neural text-to-speech and Telegram group-call media are Python ecosystems, so the audio **body**
-is Python: `sidecars/voice` (Whisper, Piper, Silero) and `sidecars/telegram` (Telethon,
-pytgcalls, reusing the voice engine). Each has a stdlib, `pytest`-covered core and heavy engines
-behind an optional extra. Their control planes stay TypeScript. `sidecars/README.md` has the detail.
-
-Boundaries hold here too: speech never leaves the machine (the Telegram call excepted, which is
-your own account), and the base package never imports voice or telegram.
-
-**The agent you talk to is not in this DAG.** The four packages above are the *watching* half —
-noticing, deciding, saying. The conversation is a real Claude Code session, and it lives in
-`packages/server` (`orchestrator-agent.ts`, its socket, and the MCP server that gives it reach into
-the other sessions) because that is where `AgentSessions` and the Docker client already are. It
-runs in a container of its own, `sandboxr-orchestrator` — the dashboard's image plus `claude` —
-because the dashboard is the password-protected web surface and never holds the Claude login.
+**What it may never do.** Contain a component, a script, or anything specific to one app. It
+exists so that no app owns the palette — a colour the documentation site and the dashboard
+disagreed about would be visible to anyone who opened both.
 
 ## `container/`
 
@@ -446,8 +214,7 @@ Assume any project toolchain exists — these scripts run under s6 before and so
 
 | Path | What it is |
 |---|---|
-| `base/Dockerfile` | The generic base: Debian bookworm, s6-overlay, Caddy, MinIO, `jq`, `envsubst`, `git`, `gh`, and these scripts. No agent |
-| `jef-base/Dockerfile` | Jef's layer on the base, and the only thing in it is `claude`. `ARG BASE_IMAGE` / `FROM ${BASE_IMAGE}` |
+| `base/Dockerfile` | The generic base: Debian bookworm, s6-overlay, Caddy, MinIO, `jq`, `envsubst`, `git`, `gh`, and these scripts. No Docker client, and no agent |
 | `base/s6/` | The s6 bundle skeleton, copied in at boot and then added to |
 | `project/Dockerfile.template` | The per-project layer. Rendered by the host, with blocks `go`, `node`, `mysql`, `sqlite`, `gomod`, `deps` |
 | `scripts/entrypoint.sh` | PID 1's first process. Reads the plan, exports the environment, generates everything, `exec`s `/init` |
@@ -469,15 +236,13 @@ against a scratch directory without a container. `container/README.md` has the c
 
 ## The interfaces between them
 
-Seven boundaries. Each one is narrow on purpose, and each one is the place a mistake would otherwise
+Five boundaries. Each one is narrow on purpose, and each one is the place a mistake would otherwise
 be invisible.
 
 | Boundary | What crosses it | Rule |
 |---|---|---|
 | `cli` → `core` | Direct function calls, in process | The CLI passes arguments and prints results. It never computes a name, a path or a state |
-| `server` → `core` | Direct function calls, in process, through `src/core/adapter.ts` only | **Never shells out to the CLI.** A renamed core export is a compile error in that one file |
-| `sessions` → `core` | Direct function calls, in process | One way only, and `packages/core/src/boundary.test.ts` is what says so. `@sandboxr/core` importing `@jef/sessions` is the boundary failing, not a shortcut |
-| `web` ↔ `server` | HTTP and JSON, plus two WebSockets | The server sends facts; the browser writes sentences. Actions are a closed table, never a command in the request |
+| an embedder → `core` | Direct function calls, in process, through one file of the embedder's | **Never shells out to the CLI.** A renamed core export is then a compile error in that one file. One way only, and `packages/core/src/boundary.test.ts` is what says so — core importing anything built on it is the boundary failing, not a shortcut |
 | `core` → `container` | `plan.json`, mounted read-only, plus the environment | The plan is fully resolved. The container never merges a default or infers a kind |
 | `core` → Docker | Container labels, mounts, image tags, and the shared network | State lives only in labels. `list`, and which sandboxes `gc` reaps, are pure functions of `docker ps` |
 | `container` → the host | The status surface over HTTP, and marker files under `/run/sandboxr` | Every writer records a fact. Nothing asserts a state |
@@ -489,30 +254,23 @@ be invisible.
 |---|---|
 | `@sandboxr/core` | `yaml`, `zod` |
 | `@sandboxr/cli` | `@sandboxr/core` |
-| `@jef/sessions` | `@sandboxr/core` |
-| `@jef/server` | `@sandboxr/core`, `@jef/sessions`, `@jef/web`, `ws` |
-| `@jef/orchestrator` | `@sandboxr/core`, `@jef/sessions` |
-| `@jef/orchestrator-daemon` | `@sandboxr/core`, `@jef/sessions`, `@jef/orchestrator`, `@jef/voice`, `@jef/telegram` |
-| `@jef/web` | `@sandboxr/tokens`, React, xterm, `marked` |
 | `@sandboxr/docs` | `@sandboxr/tokens`, `marked`, `mermaid`, React |
 | `@sandboxr/tokens` | The three `@fontsource*` packages it imports; Tailwind, as a peer |
 | `container/` | Nothing in `packages/`. Only what the base image guarantees |
 
 **`packages/` is built in directory order, not dependency order.** `npm run build --workspaces`
-walks the directory listing, so `sessions` is reached after `orchestrator`, `orchestrator-daemon`
-and `server` — and on a cold clone its `dist/` does not exist when they compile. The failure is
-`Cannot find module '@jef/sessions'`, which reads like a missing install. Each of those three
-carries a TypeScript project reference to `../sessions`, the way `cli` references `core`, so
-`tsc -b` builds it first.
+walks the directory listing, so a root build gets the order right by accident rather than by
+design. What actually orders a build against another package's output is TypeScript: a package's
+`tsconfig.json` lists what it needs under `references`, and `tsc -b` builds those first.
+`packages/cli` references `../core` for exactly that reason.
 
-**`@jef/server` depends on `@jef/web` and serves its `dist/`.** That is why a root
-`npm run build` gets the order right and building the server alone does not: without the bundle the
-dashboard answers its HTML shell and then 404s every asset, which looks like a blank page rather
-than a missing build.
+A package whose reference is missing passes on a warm tree and fails on a cold clone, with
+`Cannot find module` — which reads like a missing install rather than a build order. Building one
+package on its own is where it bites.
 
 ```bash
-npm run build                              # every package, in dependency order
-npm --workspace @jef/web run build    # the browser bundle on its own
+npm run build                    # every package
+npm --workspace @sandboxr/cli run build    # one package, and its references first
 ```
 
 </details>

@@ -20,7 +20,7 @@ saying so in the commit message. A package that disagrees with the contract is a
 | Decision | Fixed by |
 |---|---|
 | Slug derivation, the 31-character ceiling, and hashing rather than truncation | §3.1 |
-| The hostname shape, and the dashboard living on the bare domain | §3.2 |
+| The hostname shape, and the bare domain a control plane may be put on | §3.2 |
 | Container, network, volume and image names; which volumes and images are never reclaimed | §3.3 |
 | Labels as the only state; labels holding durable state only; no `sandboxr.expires` | §3.4 |
 | Host paths under `SANDBOXR_HOME`; the workspace; the keep-alive stamp; `config.yaml` | §4, §4.1, §4.2, §4.3 |
@@ -31,15 +31,10 @@ saying so in the commit message. A package that disagrees with the contract is a
 | A worktree's own config always winning, and the bounded search | §5.6 |
 | The driver interface, and every rule that applies to every driver | §6 |
 | Where a seed artifact lives and how the container reaches it | §6.2 |
-| Sessions, forward-auth, the content-security policy, per-project grants | §7 |
-| The dashboard's HTTP surface, and "the server sends facts" | §7.1 |
-| Git mounts, the commit identity, and the GitHub token | §7.3 |
-| Actions as a closed table, and how a destination is read | §8 |
-| The session model: the workstation and its missing Docker socket, the runtime, the work volume, and what each delete removes | §12 |
-
-§12 is the one row on that list written **ahead** of the code, which is what "contract first"
-means. Nothing on this site describes it as working, and
-[What is built](../reference/status.md) says where it stands.
+| The forward-auth handshake, the bare domain it trusts, and that the engine answers none of it | §7 |
+| Git mounts, the commit identity, and the GitHub token | §7.1 |
+| Claiming the bare domain with `sandboxr.frontend`, and what `init` leaves empty | §7.2 |
+| The verbs and their scopes, and that a refusal is the last word | §8 |
 
 Everything else on this page is implementation reasoning. It is still load-bearing, and the
 comments in the source carry the same argument beside the code.
@@ -51,8 +46,8 @@ comments in the source carry the same argument beside the code.
 
 - **Two images, not one.** A small generic base, plus a thin per-project layer. One image with
   the toolchains baked in could serve only one project.
-- **The dashboard gets its own image, separate from the base.** Keeping the Docker client out
-  of the base is what stops a sandboxed project driving Docker.
+- **The Docker client is not in the base image.** Keeping it out is what stops a sandboxed
+  project driving Docker.
 - **Debian, not a vendor database image.** Those images carry a glibc too old for other things
   a sandbox has to run.
 - **MySQL from the vendor's generic tarball, not a package repository.** The distribution's
@@ -78,11 +73,12 @@ per-project layer holding exactly what that project's `toolchain:` and `database
 The project layer's build context holds **only dependency manifests, never source**, so a source
 change can never re-run a dependency install.
 
-**The dashboard gets its own image, separate from the base.** *Obvious:* one image, with the Docker
-client in it, used for both. *Why not:* the two have opposite needs. A sandbox runs a project and
-must never be able to reach the daemon. The dashboard does nothing else. *Instead:* keeping the
-Docker client out of the base is what stops a sandboxed project — or an agent inside one — driving
-Docker.
+**The Docker client is not in the base image.** *Obvious:* one image with the Docker client in it,
+used both for sandboxes and for whatever drives them. *Why not:* the two have opposite needs.
+Something driving sandboxes does nothing but reach the daemon; a sandbox runs a project and must
+never be able to reach it at all. *Instead:* the base image carries no Docker client, and anything
+that needs one builds its own image on top. That is what stops a sandboxed project — or an agent
+inside one — driving Docker.
 
 **Debian, not a vendor database image.** *Obvious:* base on the official image for whichever
 database the project needs. *Why not:* those images are built on a distribution whose glibc is too
@@ -206,7 +202,7 @@ the up-front check has to exist as well.
 
 **A service that cannot start is omitted, not supervised.** *Obvious:* declare every service and let
 supervision deal with failures. *Why not:* a service needing a database no migration creates can
-only crash-loop. It fills the log, shows red on the dashboard, and makes a working sandbox look
+only crash-loop. It fills the log, shows red in anything watching, and makes a working sandbox look
 broken. *Instead:* leave it out of the plan, or mark it `optional` — and leave a comment where the
 entry would go, saying why, otherwise somebody adds it back next quarter.
 
@@ -475,23 +471,19 @@ migration silently waits on the other.
 
 </details>
 
-## The dashboard
+## Embedding the engine
 
-- **The dashboard runs the same code as the CLI.** Both call `@sandboxr/core`. A second
-  implementation drifts within a week.
-- **Actions are a closed table.** The dashboard holds the Docker socket, so a generic command
-  endpoint behind a password is a remote shell with an extra step.
-- **An action's destination is read from its own output, and validated.** A second derivation
-  would be wrong for the awkward inputs the hashing exists for.
-- **Actions stream over two transports, not one.** Server-Sent Events for output, a WebSocket
-  for the terminal.
-- **The terminal is a route inside the dashboard.** App hostnames are `public` by default.
-- **The dashboard is a single-page app, not a set of documents.** The sidebar is a list
-  somebody keeps their place in.
-- **The server sends facts; the browser writes the sentences.** No field of any API response is
-  a rendered string.
-- **The login page stayed server-rendered.** It is the only way back in, and a password manager
-  wants a real `<form>`.
+The engine ships one face, the command line. These are the decisions that bind anything else
+built on it, and they are here because each one was paid for once.
+
+- **An embedder calls core in process, never the `sandboxr` command.** A second implementation
+  of a core rule drifts within a week.
+- **Whatever holds the Docker socket offers a closed table of commands, never a generic one.**
+  A "run this command" endpoint behind a password is a remote shell with an extra step.
+- **Core answers with facts, never rendered sentences.** An expiry is an instant, not
+  `"3h 20m left"`.
+- **A control plane lives on the bare domain, never on a sandbox hostname.** App hostnames are
+  `public` by default. [contracts](contracts.md) §7.2.
 - **Public sandboxes are refused, not warned.** Familiar warnings are invisible.
   [In full](../access.md).
 - **The `anonymised: true` flag is an assertion, not a check.** The tool cannot verify it.
@@ -499,64 +491,38 @@ migration silently waits on the other.
 <details class="why">
 <summary><b>Why it works this way</b> — the obvious design for each of those, why it fails, and what it costs</summary>
 
-**The dashboard runs the same code as the CLI.** *Obvious:* implement start, stop and rebuild in the
-web server; it is a few functions. *Why not:* it is not. Volume names keyed on a lockfile hash, seed
-cache invalidation, plan resolution, the worktree cases — a second implementation drifts within a
-week. Then the dashboard and the CLI disagree about what a sandbox is. *Instead:* both call
-`@sandboxr/core`, and the dashboard reaches it through exactly one file,
-`packages/server/src/core/adapter.ts`. It talks to the Docker socket directly for two things core
-cannot do: streaming an exec line by line, and hijacking a connection for a terminal.
+**An embedder calls core in process, never the `sandboxr` command.** *Obvious:* implement start,
+stop and rebuild in the thing that needs them; it is a few functions. *Why not:* it is not. Volume
+names keyed on a lockfile hash, seed cache invalidation, plan resolution, the worktree cases — a
+second implementation drifts within a week, and then the two disagree about what a sandbox is.
+*Instead:* call `@sandboxr/core`, and reach it through exactly one file of your own, so a renamed
+export is a compile error in one place rather than a surprise at run time. Two things core does not
+express, and an embedder that wants them holds the Docker socket itself: streaming an exec line by
+line, and hijacking a connection for a terminal.
 
-**Actions are a closed table.** *Obvious:* one endpoint that runs a command, with the command in the
-request. *Why not:* the dashboard holds the Docker socket. A generic command endpoint behind a
-password is a remote shell with an extra step, and a session-stealing bug becomes total compromise
-instead of a bounded one. *Instead:* a fixed table, every command an argument array rather than a
-shell string.
+**Whatever holds the Docker socket offers a closed table of commands, never a generic one.**
+*Obvious:* one endpoint that runs a command, with the command in the request. *Why not:* the thing
+holding the socket can start any container on the machine. A generic command endpoint behind a
+password is a remote shell with an extra step, and a credential-stealing bug becomes total
+compromise instead of a bounded one. *Instead:* a fixed table, every command an argument array
+rather than a shell string — which is also the rule core follows for every `docker` call it makes
+(contracts §7).
 
-**An action's destination is read from its own output, and validated.** *Obvious:* work out where to
-send the browser from the request. *Why not:* the names sandboxr gives things are computed by core,
-and a second derivation elsewhere would be wrong for exactly the awkward inputs the hashing exists
-for. *Instead:* the action declares how to read a destination out of its output — carried only on a
-successful finish, and validated as a path on this origin before it reaches the browser. A value
-that does not qualify yields no destination at all, because sending the reader somewhere plausible
-is a false claim about where the thing is.
+**Core answers with facts, never rendered sentences.** *Obvious:* have core write the words, where
+the data is. *Why not:* anything that changes on a timer then has the same wording twice. Once
+where it was first rendered, once in whatever re-renders it every second — and the two have to be
+kept identical by hand. That was literally the case for the lifetime countdown, and both copies
+carried a comment warning about the other. *Instead:* an expiry is an instant and a state is
+`degraded`, and the face writes the sentence. *The line this does not cross:* deciding is still
+core's. Which verbs apply to a sandbox now, and whether a refusal can be forced at all, are
+answers core gives (contracts §8).
 
-**Actions stream over two transports, not one.** *Obvious:* WebSockets for everything. *Why not:*
-most actions are one-way, and Server-Sent Events is the simpler tool for that — plain HTTP,
-reconnects on its own, works through anything that speaks HTTP. *Instead:* SSE for output, a
-WebSocket for the terminal, which is genuinely bidirectional. *The related decision:* the progress
-bar is a real fraction only where the output carries one. An invented percentage is worse than none,
-because people plan around it.
-
-**The terminal is a route inside the dashboard.** *Obvious:* give it its own hostname, like
-everything else. *Why not:* app hostnames are `public` by default, so a terminal on a per-sandbox
-hostname is one config mistake away from an interactive shell, on the internet, in a container with
-your worktree mounted.
-
-**The dashboard is a single-page app, not a set of documents.** *Obvious:* server-render each page
-and let the browser navigate between them. It is less machinery, it works with JavaScript off, and
-it is what the dashboard was. *Why not:* the sidebar is a list of every session on the machine,
-grouped and collapsible, and it is a list somebody keeps their place in. A full page load puts that
-list back to the top on every click, re-collapses nothing and re-fetches everything — and the pane
-you clicked into is the small half of the screen. *Instead:* the server answers JSON and serves one
-HTML shell, and the browser app swaps the pane and leaves the sidebar untouched. The URLs are
-unchanged, so a bookmark still works.
-
-**The server sends facts; the browser writes the sentences.** *Obvious:* render the words on the
-server, where the data is. *Why not:* anything that changes on a timer then has the same wording
-twice. Once in the template that first rendered it, once in the script that re-renders it every
-second — and the two have to be kept identical by hand. That was literally the case for the lifetime
-countdown, and both copies carried a comment warning about the other. *Instead:* no field of any API
-response is a rendered string. *The line this does not cross:* the browser writes sentences, it does
-not make decisions. Which actions apply to a sandbox now, and what a destructive one confirms with,
-are still fields on the response.
-
-**The login page stayed server-rendered.** *Obvious:* it is a form; the app can draw it like every
-other pane. *Why not:* two reasons, both hard. It is the only way back in, so it must work when the
-bundle does not — a dashboard you cannot sign into cannot be fixed from itself. And a browser's
-password manager recognises a real `<form>` doing a real `POST`. A form assembled by script after
-load frequently is not offered a saved password, and "it stopped filling in my password" is a bug
-nobody reports and everybody works around.
+**A control plane lives on the bare domain, never on a sandbox hostname.** *Obvious:* give a
+terminal, or any other control surface, its own sandbox hostname like everything else. *Why not:*
+app hostnames are `public` by default, so a terminal on a per-sandbox hostname is one config
+mistake away from an interactive shell, on the internet, in a container with your worktree mounted.
+*Instead:* the bare domain, which the engine leaves empty for exactly this, and which is the one
+address the forward-auth middleware trusts — [contracts](contracts.md) §7.2.
 
 **Public sandboxes are refused, not warned.** *Obvious:* print a warning and let the developer
 decide. *Why not:* neither failure is recoverable — leaked records cannot be un-leaked, spend cannot
@@ -588,10 +554,7 @@ reviewed file, rather than imply a guarantee that does not exist.
 | The derived status document | `container/scripts/status.sh` |
 | Migration verdicts and patterns | `container/scripts/migrate-run.sh`, `packages/core/src/drivers/migrate.ts` |
 | The memory check before a build | `container/scripts/build-static.sh` |
-| The closed action table | `packages/server/src/actions/table.ts` |
-| Sessions, grants, forward-auth | `packages/server/src/auth/` |
-| The JSON API's shapes | `packages/server/src/api/dto.ts`, mirrored in `packages/web/src/api/types.ts` |
-| The browser app | `packages/web/src/` |
+| The forward-auth middleware, and the bare domain's labels | `packages/core/src/access/router.ts`, `packages/core/src/access/frontend.ts` |
 
 **Next:** [Package by package](packages.md) for where each of these belongs, or
 [What is built](../reference/status.md) for which of them has actually been run.
