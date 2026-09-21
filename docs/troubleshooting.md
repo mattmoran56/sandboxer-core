@@ -867,9 +867,9 @@ Then start the sandbox again. See [Access and security](access.md) for what that
 it is more than the one project.
 
 > [!NOTE] There are two reasons `git push` fails, and the token is only one
-> A session also has to be *allowed* to run it. `git push` and `gh` are deliberately not in the
-> default set of commands an agent may run without asking, so a sandbox with a perfectly good token
-> still stops and asks. See [Agents in a sandbox](guides/agents-in-a-sandbox.md).
+> An agent working in the sandbox also has to be *allowed* to run it. `git push` and `gh` are
+> deliberately not in the default set of commands a coding agent may run without asking, so a
+> sandbox with a perfectly good token still stops and asks.
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — still logged out after turning it on</summary>
@@ -912,7 +912,7 @@ still reachable at the hostname you expect.
 Every one of those resolves a ref, so sandboxr fetches the project's mirror first and moves the
 local branch up to the remote where that is a fast-forward and the branch is checked out nowhere.
 A branch checked out elsewhere is never moved — the new worktree is detached at `origin/<branch>`
-instead. See [Projects, worktrees and lifetimes](guides/managed-sandboxes.md).
+instead. See [Several repositories at once](setups/many-projects.md).
 
 </details>
 
@@ -1011,8 +1011,6 @@ session is left with no credential at all. Setting `SANDBOXR_CLAUDE_TOKEN` canno
 
 Either export the real credential from the keychain into that file — **merging**, not
 overwriting, or you lose the MCP tokens — or move the file aside so the token is used again.
-The commands for both are in
-[Agent sessions](guides/agent-sessions.md#on-macos-that-file-is-usually-not-your-login).
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — checking what the sandbox is actually given</summary>

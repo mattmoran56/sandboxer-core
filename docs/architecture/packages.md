@@ -7,18 +7,21 @@ This page is for anyone about to change the code, or about to ask an agent to. I
 question per package: if this behaviour is wrong, which directory do I open?
 
 The short answer is almost always `packages/core`. Core holds every decision about what a sandbox
-is. The command line and the dashboard are thin faces over it. If a change would let those two
-faces disagree, it belongs in core.
+is. The command line, and Jef's dashboard on top of it, are thin faces over core. If a change
+would let those two faces disagree, it belongs in core.
 
 **There is a second question underneath that one, and it is a repository boundary.** `core`,
-`cli`, `docs`, `container/` and `docs/` are the **engine**, sandboxr, which is moving to a
-repository of its own. `server`, `web`, `orchestrator`, `voice`, `telegram`,
+`cli`, `tokens`, `docs`, `container/` and `docs/` are the **engine**, sandboxr, which is moving
+to a repository of its own. `sessions`, `server`, `web`, `orchestrator`, `voice`, `telegram`,
 `orchestrator-daemon` and `sidecars/` are **Jef**, the product built on it. One rule holds the
 line: **the engine imports nothing from the product; the product imports the engine.** So a
 change that would have core reach for a session, an agent or the dashboard belongs on the other
 side of it — and the shape of the fix is always the same, a parameter the embedder supplies
-rather than a hook the engine reaches through. See
-[contracts §2](contracts.md).
+rather than a hook the engine reaches through. See [contracts §2](contracts.md).
+
+**Every heading below that is marked *Jef's, not the engine's* is on the product side.** They are
+described here because this is still one tree, and a change usually has to find the right
+directory in it. None of them ships with sandboxr.
 
 [The shape of it](index.md) is the one-screen version of this page. Read that first if you have
 not.
@@ -47,10 +50,12 @@ The lifecycle verbs.
 
 **Not** a session, and **not** an agent. A session, its workstation and its work volume are
 Jef's, in `packages/sessions`, and so is everything about the agent that works in one — the
-engine is handed a workspace rather than asked what a session is (contracts §12.4), and it has
-no name for Claude Code at all. **Not** the dashboard container, the orchestrator container or the images for
-either — those are Jef's too, in `packages/server/src/machine/`, and `jef init` is what starts
-them (contracts §7.5).
+engine is handed a workspace rather than asked what a session is (Jef's contract, §9.4), and it
+has no name for Claude Code at all.
+
+**Not** the dashboard container, the orchestrator container or the images for either. Those are
+Jef's, in `packages/server/src/machine/`, and `jef init` is what starts them. The engine only
+prepares the bare domain and leaves it empty — contracts §7.2.
 
 **Its public surface** is one file: `packages/core/src/index.ts`. Nothing outside that file is
 a contract.
@@ -142,7 +147,7 @@ Every command and flag is listed in [CLI commands](../reference/cli.md).
 
 </details>
 
-## `packages/sessions`
+## `packages/sessions` — Jef's, not the engine's
 
 **What it owns.** What the engine is not. A session, the agent that works in one, and reading
 the code that agent changed are Jef's subjects: sandboxr runs a worktree in a container and knows
@@ -175,7 +180,7 @@ that is the whole reason this package exists.
 | `session/state.ts` | A session's four files on the host: keep, name, attach, adopted |
 | `session/work.ts` | The work volume and the clones on it: `ensureWorkVolume`, `cloneIntoWork`, `listWork`, `workPath` |
 | `session/repos.ts` | Adding a repository to a session, through `freshenBranch` |
-| `session/adopt.ts`, `session/adopt-name.ts`, `session/carry.ts` | Adoption (§12.10.1): the clone at the worktree's own HEAD, the name derived from the branch, and the one patch that carries uncommitted work across |
+| `session/adopt.ts`, `session/adopt-name.ts`, `session/carry.ts` | Adoption (Jef's contract, §9.10.1): the clone at the worktree's own HEAD, the name derived from the branch, and the one patch that carries uncommitted work across |
 | `session/runtime.ts` | `stageRuntime` and `startRuntime`: staging a `ProvidedWorkspace` out of a work volume and handing it to the engine's `up` |
 | `session/image.ts` | The workstation image, built from **Jef's** `container/`, which the caller hands in |
 | `session/expiry.ts`, `session/expire.ts` | A workstation's deadline, on the engine's arithmetic, and the reaper that acts on it |
@@ -183,7 +188,7 @@ that is the whole reason this package exists.
 | `agent/launch.ts` | The `claude` argument list, its environment, the default tools and permission mode |
 | `agent/stream.ts` | `--output-format stream-json` turned into events, and the line reader under it |
 | `agent/store.ts` | Where a run is written down: the append-only transcript per session, and the index |
-| `agent/types.ts` | The Run / Thread / Event model (contracts §7.2) |
+| `agent/types.ts` | The Run / Thread / Event model (Jef's contract, §4) |
 | `agent/permissions.ts`, `agent/grants.ts` | The permission modes, the control frames, and the rules a person granted |
 | `agent/models.ts`, `agent/commands.ts` | The two closed tables: which models may be asked for, and which slash commands exist |
 | `agent/btw.ts`, `agent/spoken.ts` | The side question, and the `[spoken]` marker and prompt |
@@ -201,7 +206,7 @@ install root — which after the split resolves to the submodule, where there is
 
 </details>
 
-## `packages/server`
+## `packages/server` — Jef's, not the engine's
 
 **What it owns.** The dashboard's server side. Sessions and the password. The JSON API. The closed
 table of actions and their streamed output. The log stream. The terminal WebSocket. The agent
@@ -288,7 +293,7 @@ recognises a real `<form>` doing a real `POST`.
 
 </details>
 
-## `packages/web`
+## `packages/web` — Jef's, not the engine's
 
 **What it owns.** The dashboard as a browser app. React, TypeScript, Tailwind, built by Vite into
 `dist/`. The sidebar of sessions, the panes, the forms, the log and terminal views, the agent
@@ -386,7 +391,7 @@ apps. It exists so that neither of them owns the palette — the dashboard is Je
 documentation site is the engine's, and a colour they disagreed about would be visible to anyone
 who opened both.
 
-## The orchestrator, and `sidecars/`
+## The orchestrator, and `sidecars/` — Jef's, not the engine's
 
 A second reader of sessions, opposite to the dashboard: it watches all of them and tells you
 only when one needs you. Four TypeScript packages and two Python sidecars, in a strict dependency
@@ -408,8 +413,7 @@ DAG — nothing depends back up the chain, and voice never imports telegram.
 neural text-to-speech and Telegram group-call media are Python ecosystems, so the audio **body**
 is Python: `sidecars/voice` (Whisper, Piper, Silero) and `sidecars/telegram` (Telethon,
 pytgcalls, reusing the voice engine). Each has a stdlib, `pytest`-covered core and heavy engines
-behind an optional extra. Their control planes stay TypeScript. See
-[the orchestrator guide](../guides/orchestrator.md) and `sidecars/README.md`.
+behind an optional extra. Their control planes stay TypeScript. `sidecars/README.md` has the detail.
 
 Boundaries hold here too: speech never leaves the machine (the Telegram call excepted, which is
 your own account), and the base package never imports voice or telegram.

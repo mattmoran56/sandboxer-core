@@ -15,40 +15,33 @@ Read docs/brand.md first, and then packages/tokens/tokens.css, which is where th
 actually live. Build the surface from the semantic tokens — surface, line, ink, ink-muted, brand,
 and the status hues — and never from a hex you typed yourself. Headings are the serif, body is the
 sans, anything a machine cares about is the mono. Draw a panel or a card as a hairline on a
-surface, not as a shadow. Write the wordmark as `Jef` in the dashboard and `sandboxr` on the
-documentation site, with no letterspacing and no tagline.
+surface, not as a shadow. Write the wordmark as `sandboxr`, with no letterspacing and no
+tagline.
 
 Stop and ask me if the surface seems to need a colour the palette does not have, a second
 typeface, a gradient, or the mark redrawn rather than rescaled.
 ```
 
-Two apps render this brand — the [dashboard](guides/dashboard.md) and this documentation site —
-and they share one stylesheet, `packages/tokens/tokens.css`. It is a package of its own,
-`@sandboxr/tokens`, so that both can depend on it and neither owns it. That file is the design
-system; this page is what it means. Where the two disagree, the file is right and this page is
-the bug.
+The values live in one stylesheet, `packages/tokens/tokens.css`. It is a package of its own,
+`@sandboxr/tokens`, so that every app built on sandboxr can depend on it and none of them owns it.
+That file is the design system; this page is what it means. Where the two disagree, the file is
+right and this page is the bug.
 
 ## The name
 
-There are two names, and which one a surface carries depends on what that surface is.
-
-**Jef** is the agent — the thing a person talks to. Capitalised, because it is a name and not a
-noun. The dashboard is Jef's: its wordmark, its browser tab, its home-screen icon and the agent's
-own introduction all say Jef. There is no tagline in the product itself: the dashboard's header
-carries the mark, the word, and the domain it serves — nothing else.
-
-**sandboxr** is the engine underneath. Always lowercase, including at the start of a sentence and
-in a heading, and never letterspaced. The documentation site is the engine's, and its wordmark says
+**sandboxr** is the engine. Always lowercase, including at the start of a sentence and in a
+heading, and never letterspaced. The documentation site is the engine's, and its wordmark says
 sandboxr.
+
+A product built on sandboxr carries a name of its own, not this one, and writes it by its own
+rules. Jef is the one that exists.
 
 In prose sandboxr is an ordinary noun. "sandboxr turns a git worktree into a running copy of a
 whole project, on its own hostname." That sentence is the one-line pitch. Longer descriptions are
 that sentence plus what it costs, never a new one.
 
 The command is `sandboxr` too, and the config file is `sandboxr.yaml`, so the word is never
-capitalised anywhere a reader could copy it into a terminal and be wrong. Jef goes the other way:
-capitalised in every sentence a person reads, and lowercase only where it is an identifier rather
-than a name — the `@jef/*` package scope and the `[jef]` prefix on the server's log lines.
+capitalised anywhere a reader could copy it into a terminal and be wrong.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — how the name is written, everywhere it is written</summary>
@@ -60,16 +53,11 @@ than a name — the `@jef/*` package scope and the `[jef]` prefix on the server'
 | The engine in a heading or a page title | `sandboxr` |
 | The command, the engine's package scope, the config file | `sandboxr`, `@sandboxr/*`, `sandboxr.yaml` |
 | A container, volume or hostname | `sandboxr-<project>-<slug>` — see [Paths](reference/paths.md) |
-| The agent, anywhere a person reads it | `Jef` |
-| The dashboard's wordmark | `Jef`, one word, no letterspacing, no full stop |
-| The dashboard's tab title | `Jef`, or `Jef — <view>` |
 | The documentation site's wordmark | `sandboxr`, one word, no space, no letterspacing, no full stop |
-| The product's package scope, the server's log prefix | `@jef/*`, `[jef]` |
 
-**Never `Sandboxr`, `SandboxR` or `SANDBOXR`, and never `JEF` or `jef`** outside the two
-identifiers above. The one exception is a place that upper-cases every word mechanically — an OS
-window title, a package registry's own display of a name — where nothing in the repository decides
-it.
+**Never `Sandboxr`, `SandboxR` or `SANDBOXR`.** The one exception is a place that upper-cases every
+word mechanically — an OS window title, a package registry's own display of a name — where nothing
+in the repository decides it.
 
 The one-line pitch, verbatim from `README.md`:
 
@@ -104,10 +92,9 @@ and they are the copies to hand somebody who needs the artwork. The wordmark ins
 live text in a serif stack rather than outlines, so a machine with none of those fonts renders it in
 its own serif rather than not at all.
 
-> [!NOTE] The icons have been looked at, not lived with
-> Nobody has added the dashboard to a phone's Home Screen and seen the mark on a real wallpaper. The
-> files are generated and checked; how the mark reads at that size on a device is not yet known. See
-> [What is built](reference/status.md).
+> [!NOTE] The mark has been looked at, not lived with
+> The committed SVGs are generated and checked. How the mark reads at icon size on a real device is
+> not yet known. See [What is built](reference/status.md).
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the two constructions, the exact paths, and every size it ships at</summary>
@@ -115,9 +102,9 @@ its own serif rather than not at all.
 **There are two constructions of the same mark, on two grids.** They differ only in how much of the
 plate the bars take, and each is used where it is used.
 
-*The 32-unit construction* — the whole icon, plate included. It is what `packages/web/index.html`
-and `packages/docs/index.html` embed as a `data:` URI favicon, and what `packages/web/build/icons.mjs`
-rasterises into the PNGs. Both committed SVGs in `docs/assets/brand/` use it.
+*The 32-unit construction* — the whole icon, plate included. It is what
+`packages/docs/index.html` embeds as a `data:` URI favicon, and what an app's own icon rasteriser
+starts from. Both committed SVGs in `docs/assets/brand/` use it.
 
 ```svg
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
@@ -131,8 +118,7 @@ rasterises into the PNGs. Both committed SVGs in `docs/assets/brand/` use it.
 ```
 
 *The 24-unit construction* — the glyph alone, drawn as `currentColor` strokes inside a plate the
-surrounding element paints. It is `Mark` in `packages/docs/src/components/icons.tsx` and the inline
-`<svg>` in `packages/web/src/components/shell/Header.tsx`.
+surrounding element paints. It is `Mark` in `packages/docs/src/components/icons.tsx`.
 
 ```svg
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
@@ -145,8 +131,8 @@ the header the glyph is rendered at 15px inside a 28px plate, so its longest bar
 plate's width; in the icon the longest bar is 50% of it. The icon's is the construction the PNGs are
 generated from, so it is the one to keep if they are ever reconciled.
 
-**Geometry, in units of the square's side** (`packages/web/build/icons.mjs` holds these as
-fractions, so the raster and the SVG cannot drift):
+**Geometry, in units of the square's side.** An app that rasterises the mark holds these as
+fractions rather than as pixels, so the raster and the SVG cannot drift:
 
 | | Value | Of a 32-unit square |
 |---|---|---|
@@ -160,14 +146,11 @@ fractions, so the raster and the SVG cannot drift):
 
 | Size | Where | Notes |
 |---|---|---|
-| 28px | Both headers' plate (`size-7`), glyph at 15px | The lockup's mark |
+| 28px | The header's plate (`size-7`), glyph at 15px | The lockup's mark |
 | 32px | The favicon, as a `data:` URI | A file would need a route of its own; `img-src 'self' data:` allows the URI |
-| 180px | `apple-touch-icon-180.png` | Full bleed — iOS rounds the corners itself, and a pre-rounded PNG gets rounded twice |
-| 192px, 512px | The manifest's `any` icons | Rounded corners, transparent outside them |
-| 512px | `icon-maskable-512.png` | Full bleed, mark scaled to 0.85 so its **diagonal** clears the launcher's safe circle |
 
-Regenerate the four PNGs with `npm --workspace @jef/web run icons` after any change to the
-geometry or the brand hue. They are committed; the server serves them straight out of the build.
+An app that installs to a home screen needs larger rasters than these two, and the rules for them
+belong to that app rather than here.
 
 **Minimum size: 20px.** At 20px the stroke is 1.6px and the space between two bars is 1.5px, which
 is as close as three lines can come before they read as a block. The favicon's 32px is the size the
@@ -190,21 +173,20 @@ The wordmark is the name set in **Instrument Serif**, in `ink`, at 20px with no 
 is a word, not a logotype: nothing has been drawn by hand, so it is reproduced by setting it rather
 than by finding a file.
 
-The lockup is the mark, a 10px gap, and the wordmark, vertically centred on each other. **The
-dashboard and the documentation site draw the same lockup down to the class list**, in the
-identical sticky header over a hairline, because somebody with one in each tab has to see one
-product rather than two sites that share a palette. Only the word differs: the dashboard sets
-`Jef`, the documentation site sets `sandboxr`.
+The lockup is the mark, a 10px gap, and the wordmark, vertically centred on each other, in a
+sticky header over a hairline. **An app built on sandboxr draws the same lockup down to the class
+list**, because somebody with one of each open in two tabs has to see one product rather than two
+sites that share a palette. Only the word differs.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the lockup, in the two places it is drawn</summary>
 
-Both headers draw the same three elements, and the classes are the same in each. Only the text
-inside the second span changes — `Jef` in the dashboard, `sandboxr` on the documentation site:
+Three elements, and the classes are the same wherever it is drawn. Only the text inside the second
+span changes:
 
 ```html
 <span class="grid size-7 place-items-center rounded-[0.475rem] bg-brand text-brand-ink">…mark…</span>
-<span class="font-serif text-xl leading-none text-ink">Jef</span>
+<span class="font-serif text-xl leading-none text-ink">sandboxr</span>
 ```
 
 - **The plate** is `size-7` (28px), `bg-brand`, radius `0.475rem` (7.6px, which is 0.27 of 28), with
@@ -218,13 +200,12 @@ inside the second span changes — `Jef` in the dashboard, `sandboxr` on the doc
 
 `--font-serif` in `packages/tokens/tokens.css` is the stack:
 `"Instrument Serif", ui-serif, Georgia, Cambria, "Times New Roman", serif`. `docs/assets/brand/lockup.svg`
-carries a shortened form of it — the fonts are self-hosted from npm because the dashboard's
-Content-Security-Policy is `font-src 'self'`, so an SVG that pointed at a font CDN would load
+carries a shortened form of it — the fonts are self-hosted from npm because the
+content-security policy here is `font-src 'self'`, so an SVG that pointed at a font CDN would load
 nothing, and one that embedded the face would carry a font in every copy of the file.
 
-Below `md` the dashboard's header replaces the lockup with a back control and the worktree's name
-when a worktree is open. That is the only place the lockup is dropped, and it is dropped rather than
-shrunk.
+**Where a narrow screen has no room for the lockup it is dropped, never shrunk**, and what replaces
+it is a control rather than a smaller wordmark.
 
 </details>
 
@@ -327,9 +308,9 @@ Three faces, each with one job.
 - **JetBrains Mono** is anything a machine cares about: a branch, a slug, a hostname, a path, a
   commit sha, a port.
 
-The one flourish is a single italic serif phrase in the brand colour, at the end of the dashboard's
-greeting. It is derived from the same facts as the paragraph beneath it rather than written by hand,
-so the headline and the working cannot disagree, and it is an `<em>` rather than a coloured span —
+The one flourish is a single italic serif phrase in the brand colour, at the end of a greeting. It
+is derived from the same facts as the paragraph beneath it rather than written by hand, so the
+headline and the working cannot disagree, and it is an `<em>` rather than a coloured span —
 somebody who cannot see the teal still gets the emphasis.
 
 <details class="agent">
@@ -343,17 +324,17 @@ The stacks, from `packages/tokens/tokens.css`:
 | `--font-sans` | `"Inter Tight Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif` | `font-sans` (the body default) |
 | `--font-mono` | `"JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace` | `font-mono` |
 
-All three are self-hosted from `@fontsource` rather than fetched from a CDN, because the dashboard's
-CSP is `font-src 'self'`.
+All three are self-hosted from `@fontsource` rather than fetched from a CDN, because the
+content-security policy here is `font-src 'self'`.
 
 The sizes that carry the design:
 
 | Size | Face | Where |
 |---|---|---|
-| 44px (`md:text-[2.75rem]`), 34px below `md` | Serif | The greeting at the top of the dashboard's home pane |
+| 44px (`md:text-[2.75rem]`), 34px below `md` | Serif | A greeting at the top of a home pane |
 | 34px (`text-[2.125rem]`) | Serif | A stat tile's numeral, where a number is the content |
 | 24px (`text-2xl`) | Serif | A section heading |
-| 19px (`text-[1.1875rem]`) | Serif | A panel title, and an escalation's question |
+| 19px (`text-[1.1875rem]`) | Serif | A panel title, and a question put to the reader |
 | 15px (`text-[0.9375rem]`) | Sans | The lede under a heading |
 | 14px (`text-sm`) | Sans | Body, rows, form labels |
 | 12px (`text-xs`) | Mono | A domain, a slug, a path, a sha |
@@ -413,9 +394,6 @@ ladder is as tight as it is.
 corner, `--gutter` is 16px, `--radius-sheet` is `screen − gutter`, and `--radius-inset` is one step
 further in again.
 
-The material is described from the dashboard's side, with what it replaced, in
-[The dashboard → The material is an outline](guides/dashboard.md#the-material-is-an-outline).
-
 </details>
 
 ## Voice
@@ -423,31 +401,29 @@ The material is described from the dashboard's side, with what it replaced, in
 sandboxr writes in lowercase, plain, slightly literary British English. It uses sentences where a
 lesser interface would use a label, and it says what a thing will do rather than what it is called.
 
-Four rules, and each has a real string behind it.
+Four rules, and each has a real string behind it — from the CLI, which is the whole of what the
+engine says to a person.
 
 **An empty state is a sentence, and it says where to go next.** Never an empty box, and never the
-word "empty". Most of these states are ordinary — a project with nothing running is the normal
-condition of most projects.
+word "empty". Most of these states are ordinary — a machine with nothing running is the normal
+condition of most machines.
 
-> This sandbox is not running, so there is no shell to attach to. Start it and the terminal opens
-> here — a socket to a stopped container is a connection that can only fail.
+> No sandboxes. Create one with: sandboxr up
 
-**Nothing is described as broken when it is only waiting.** The dashboard says "needs you", not
-"needs attention", because the set is faults *plus* an agent stopped on a question.
+**Nothing is described as broken when it is only waiting, or only absent.** A thing that is not
+there is reported as not there, with the command that would put it there.
 
-> Nothing needs you right now. A card appears here the moment the orchestrator wants your eyes on a
-> session — and if it is a question, an answer box comes with it.
+> No projects yet. Clone one with: sandboxr project clone <url>
 
-**A control says what happens, and a confirmation says what survives.** Not "Reload" but "Rebuild
-front-ends"; not "Prune" but "Collect garbage".
+**A command says what happens, and a refusal says what survives.** `gc` and `prune` name what they
+left alone as well as what they took.
 
-> Delete this sandbox? Its container, its database and its uploaded files go with it. The worktree
-> on disk is left alone.
+> web-api is still in use — left alone
 
-**When the product cannot be sure, it says so in the first person of the screen.** A dashboard that
-quietly goes stale is worse than one that admits it.
+**When the engine cannot be sure, it says so rather than guessing.** A confident wrong answer costs
+more than an admitted gap.
 
-> the last few refreshes failed — what is on screen may be out of date
+> gh is not installed here, or is not logged in, so there are no repositories to list.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the rules those four strings are examples of</summary>
@@ -477,19 +453,18 @@ a prompt at the top of every page somebody can arrive at cold. It is `packages/d
   exists, in the palette or in the mark.
 - **No glass.** Nothing is translucent and nothing is blurred. There is no `backdrop-filter`, and
   no preference to turn one off.
-- **No capital S, and no lowercase J.** `sandboxr` and `Jef`, everywhere a person or a machine can
-  read them — bar the `@jef/*` scope and the `[jef]` log prefix, which are identifiers.
+- **No capital S.** `sandboxr`, everywhere a person or a machine can read it.
 - **No letterspaced wordmark**, no all-caps wordmark, and no tagline attached to it.
 - **No colour named in a component.** A component asks for `surface`, `line`, `ink` or `brand`; if
   what it needs has no token, the palette is what changes.
-- **No second palette in another app.** Anything sandboxr renders imports
+- **No second palette in another app.** Anything built on sandboxr imports
   `@sandboxr/tokens/tokens.css`. A palette that exists twice drifts, and it drifts silently —
-  nothing about the dashboard looking right tells you the documentation site does.
+  nothing about one app looking right tells you the other does.
 - **No shadow under a card or a panel**, and no radius typed as a number where a named one exists.
 - **No status colour reused for decoration.** Green means running; a green that means "nice" costs
   the green its meaning.
 
 ---
 
-**Next:** [The dashboard](guides/dashboard.md) to see the material in the app it was designed for,
-or [What is built](reference/status.md) for what has actually been run.
+**Next:** [Paths](reference/paths.md) for the names the brand's rules apply to, or
+[What is built](reference/status.md) for what has actually been run.

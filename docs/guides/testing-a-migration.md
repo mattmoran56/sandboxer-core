@@ -226,10 +226,6 @@ At boot, a sandbox restores the seed, runs your migrations and applies fixtures.
 keeps running whatever happened. If the migration failed, it comes up `degraded` and the
 commands above are how you find out why.
 
-The dashboard runs the same three things as buttons — **Run migrations** and
-**Re-apply fixtures**, with the output streamed into the browser. See
-[The dashboard](dashboard.md).
-
 ## What this does not test
 
 Be honest with yourself about the four things a sandbox cannot tell you.
@@ -285,5 +281,5 @@ what decides whether this is one.
 </details>
 
 **Next:** [Databases](../databases.md) for drivers, seeds and what each engine needs
-declared. [The dashboard](dashboard.md) if you would rather run migrations as a button
-and watch the output stream.
+declared. [Logs, shells and terminals](logs-and-shells.md) if the migration failed and you
+want to read what it actually said.

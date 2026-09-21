@@ -352,7 +352,7 @@ the workspace fallback. `sandboxr config` prints it. This is the one place
 `root === dirname(file)` does not hold; code wanting the directory a declared path resolves
 against wants `root`, or `projectPath()`.
 
-See [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+See [Several repositories at once](../setups/many-projects.md).
 
 </details>
 

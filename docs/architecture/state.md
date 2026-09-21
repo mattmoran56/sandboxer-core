@@ -122,8 +122,9 @@ and the sandbox falls back to its start time. The alternative reading — "nobod
 would stop every sandbox on the machine at once.
 
 So the lifetime measures **idleness, not uptime**. Using a sandbox resets its clock. The precedence
-chain for the ttl itself, and the reaper that acts on it, are in
-[Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+chain for the ttl itself is in [Environment
+variables](../reference/environment.md#the-setting-that-is-a-file-not-a-variable), and the verb
+that acts on it is `sandboxr expire` — see [CLI commands](../reference/cli.md).
 
 </details>
 

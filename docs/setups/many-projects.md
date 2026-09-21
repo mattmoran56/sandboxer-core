@@ -148,10 +148,6 @@ With `--project` you do not have to be anywhere in particular. There is no workt
 in, so the current directory is not consulted at all. The worktree is created if it is missing and
 reused if it is not.
 
-From the dashboard, the same thing is a button: open the project and press **Start** beside the
-branch, the worktree or the open pull request you want. See
-[The dashboard](../guides/dashboard.md).
-
 ## `--project` on the other commands
 
 Once there is more than one project, a slug is no longer unique on its own. Two projects can each
@@ -177,7 +173,7 @@ The hostname shape does not change. There is simply a project label in it, and n
 https://tkt-4821--app--acme.sbx.localhost      acme's checkout branch
 https://tkt-4821--api--acme.sbx.localhost      the same sandbox's api
 https://main--app--demo.sbx.localhost          a different project entirely
-https://sbx.localhost                        the dashboard, for all of them
+https://sbx.localhost                          the bare domain, which serves nothing
 ```
 
 [How it works](../how-it-works.md) introduces the shape. Two things about the project part matter
@@ -225,9 +221,8 @@ agreed, not so a config can live permanently outside the code it describes.
 > [!NOTE] Some of this layer is newer than the rest
 > The workspace, the worktree commands and the pull-request listing have been driven for real —
 > cloning, cutting worktrees, listing, and starting a sandbox from a branch. The `gh` path is
-> exercised from recorded output rather than the live binary, no sandbox has yet been *started* from
-> a project-level config, and cloning a private repository from inside the dashboard's container has
-> not been done. [What is built](../reference/status.md) is precise about each one.
+> exercised from recorded output rather than the live binary, and no sandbox has yet been *started*
+> from a project-level config. [What is built](../reference/status.md) is precise about each one.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — every verb, every flag, every path</summary>
@@ -297,10 +292,8 @@ of the worktree; the project-level file is the only sanctioned way to reach outs
 used, `ResolvedConfig.file` and `ResolvedConfig.root` name different trees — the one place that
 happens — and `origin` is `project` rather than `repo`. `sandboxr config` prints all three.
 
-**The dashboard.** It has the workspace bind-mounted read-write at the identical path inside and out,
-which is what lets it clone and cut worktrees. Its project list is the workspace **unioned** with
-projects that have running containers, never filtered by the workspace — a sandbox whose project is
-not in the workspace must still appear.
+**Listing projects.** The workspace is **unioned** with the projects that have running containers,
+never filtered by the workspace — a sandbox whose project is not in the workspace must still appear.
 
 </details>
 
@@ -327,6 +320,5 @@ open. None of them is an error, and nothing else stops working.
 
 </details>
 
-**Next:** [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md) for lifetimes and
-keep-alive in depth, or [The dashboard on my laptop](dashboard-on-a-laptop.md) if you want all of
-this as buttons rather than commands.
+**Next:** [CLI commands](../reference/cli.md) for every flag `project` and `worktree` take, or
+[Start, stop, list, clean up](../guides/lifecycle.md) for lifetimes and keep-alive in depth.

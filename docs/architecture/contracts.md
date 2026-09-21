@@ -23,8 +23,8 @@ Two audiences, and the split matters:
 
 **The engine's unit is the worktree, full stop.** A *session* — a workstation, a work volume,
 several repositories checked out under one name a person typed — is not an engine noun. It is
-**Jef's**, and it is defined in [Jef's contract](../jef/contracts.md) — §9 there, with §9.10 as
-the map from each rule here to what Jef builds on it. An engine rule is never bent to suit a
+**Jef's**, and it is defined in Jef's contract — §9 there, with §9.10 as the map from each rule
+here to what Jef builds on it. An engine rule is never bent to suit a
 session: the engine is handed a workspace and starts a container on it.
 
 ## 2. Two repositories, and the one rule between them
@@ -58,8 +58,9 @@ docker-compose.yml (no package)       product  The whole constellation, in one f
 **The engine ships no `docker-compose.yml` and no `.env.example` describing one.** It is a CLI
 and a router; a constellation of long-running services is what a product assembles out of it.
 
-**This file is the engine's contract. [Jef's is `docs/jef/contracts.md`](../jef/contracts.md)**,
-and it holds what used to be §§7.1, 7.2, 7.4, 10, 11 and 12 of this one: the dashboard's HTTP
+**This file is the engine's contract. Jef's is `docs/jef/contracts.md`**, in the `meet-jef`
+repository — deliberately not a link, because the two files are about to stop sharing a tree. It
+holds what used to be §§7.1, 7.2, 7.4, 10, 11 and 12 of this one: the dashboard's HTTP
 surface, agent sessions, reading code in a container, the orchestrator, the compose file and the
 session model. Where the two look like they disagree, **this one binds** — Jef cannot change a
 slug ceiling or a volume's reclamation rule by describing it differently, it can only decline to
@@ -1746,7 +1747,7 @@ whole and one that does not leaves a container the engine's front-end listing ca
 
 What the engine can be asked to do, and the rules that hold whoever asks — the CLI, a cron job,
 or a product that calls core in process. **The verb is the engine's; the button, the stream and
-the confirmation dialog are not** ([Jef's §6](../jef/contracts.md)).
+the confirmation dialog are not** (Jef's §6).
 
 | Verb | Scope | What it does |
 |---|---|---|

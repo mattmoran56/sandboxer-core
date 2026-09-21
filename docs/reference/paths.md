@@ -46,7 +46,7 @@ Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
 | `bin/` | Helper binaries built on the host | yes |
 | `run/` | The Unix sockets the voice and Telegram sidecars listen on | yes |
-| `host.env` | What only this machine can look up, for the compose deployment. Mode 0600 — see below | yes |
+| `host.env` | What only this machine can look up, for whatever runs on the bare domain. Mode 0600 — see below | yes |
 | `agent/runs.json` | Which agent session belongs to which sandbox | yes |
 | `agent/grants.json` | Standing agent permissions, per project | yes |
 | `agent/log/<id>.jsonl` | One agent session's transcript, append-only | yes |
@@ -119,9 +119,8 @@ See [Secrets](../configuration/secrets.md).
 `host.env` is the opposite of those two: generated every time `sandboxr init` runs, so an edit to it
 is lost. It holds the handful of values only a program running on this machine can find — the GitHub
 token out of the login keychain, your commit identity out of your gitconfig, and the path of your
-Claude login — and [the compose deployment](../guides/compose.md) reads it. It is mode `0600` because
-it holds a token. The settings *you* choose live in `.env` beside the compose file, which is
-hand-written and never generated.
+Claude login — so that whatever you put on the bare domain can read them rather than look them up
+itself. It is mode `0600` because it holds a token.
 
 ### The keep-alive marker
 
@@ -265,7 +264,7 @@ the state somewhere nobody looks.
 | `/opt/deps` | Dependencies installed into the image, copied out on first boot | from the image |
 | `/go/pkg/mod`, `/go/cache` | Go's module and build caches | machine-wide volumes |
 | `/root/.claude` | Claude Code's state | the machine-wide `sandboxr-claude` volume |
-| `/root/.claude/.credentials.json` | The host's own `~/.claude/.credentials.json`, when it has one. On Linux that file is its Claude Code login; on macOS it [usually is not](../guides/agent-sessions.md#on-macos-that-file-is-usually-not-your-login) | that one file, read-write |
+| `/root/.claude/.credentials.json` | The host's own `~/.claude/.credentials.json`, when it has one. On Linux that file is its Claude Code login; on macOS it usually is not — that file there normally holds MCP tokens, while the login sits in the keychain | that one file, read-write |
 
 ```bash
 sandboxr shell tkt-4821      # and look for yourself

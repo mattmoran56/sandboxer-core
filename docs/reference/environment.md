@@ -32,15 +32,10 @@ order everything above is applied in.
 | `SANDBOXR_HTTP_PORT` | `80` | Where the router publishes HTTP |
 | `SANDBOXR_HTTPS_PORT` | `443` | Where the router publishes HTTPS |
 | `SANDBOXR_TTL_HOURS` | `12` | How long a sandbox may sit unused. **`config.yaml` beats this** |
-| `SANDBOXR_REAP_MINUTES` | `5` | How often the dashboard looks for idle sandboxes. **`0` turns it off** |
-| `SANDBOXR_PASSWORD` | — | The dashboard's password. Grants every project |
-| `SANDBOXR_PASSWORD_<PROJECT>` | — | A password granting one project |
-| `SANDBOXR_PROJECTS_<PROJECT>` | the suffix, lower-cased | A comma-separated list overriding what that password grants |
 | `SANDBOXR_CACHE_TTL_HOURS` | `24` | How long a cached seed is reused before it is taken again |
 | `SANDBOXR_INSTALL` | found by walking up | Where sandboxr itself is checked out |
 | `SANDBOXR_IMAGE` | the built project layer | **Skips the project image build entirely** |
 | `SANDBOXR_ROUTER_IMAGE` | a pinned Traefik | Override the router image |
-| `SANDBOXR_DASHBOARD_IMAGE` | the built dashboard image | Override the dashboard image |
 
 `.localhost` is why the default domain needs no setup: browsers and macOS resolve any name under it
 to the loopback address on their own.
@@ -49,11 +44,6 @@ to the loopback address on their own.
 > With it set, `up` never renders or builds the project's own image. Whatever you named is what the
 > sandbox has, toolchains and dependencies included. Useful for debugging an image, and confusing
 > when you have forgotten it is exported.
-
-`SANDBOXR_REAP_MINUTES` is read in whole minutes and clamped between `0` and `1440`. Anything under
-one minute truncates to zero, which is off rather than a busy loop. **`0` is the honest setting on a
-laptop**, because the reaper lives in the dashboard process and a laptop's dashboard is usually
-stopped. See [Just the CLI, on my laptop](../setups/cli-only.md).
 
 ### The setting that is a file, not a variable
 
@@ -66,12 +56,12 @@ projects:
   acme-monorepo: { ttl: 3d }
 ```
 
-The key is the project's workspace directory — the name in every dashboard URL — or the `project:`
-its own `sandboxr.yaml` declares. Either works.
+The key is the project's workspace directory — the name sandboxr calls that project everywhere
+else — or the `project:` its own `sandboxr.yaml` declares. Either works.
 
 Most specific wins:
 
-1. `--ttl` on the command, or the dashboard's field
+1. `--ttl` on the command
 2. the project's entry in `config.yaml`, under either of its names
 3. the file's top-level `ttl`
 4. `SANDBOXR_TTL_HOURS`
@@ -108,225 +98,26 @@ app user gets one anyway, because application config expects one.
 > perfectly. Nothing is lost — the container half does the work. It is recorded in
 > [What is built](status.md) and in the contract, and it is not fixed.
 
-### For the dashboard
-
-Set these on the dashboard's own process. `sandboxr init` sets the ones that matter, and forwards
-the agent-session, orchestrator and **database** variables it finds on the host.
-
-> [!IMPORTANT] The database variables above reach the dashboard only since this was fixed
-> The dashboard calls core in process, so everything in *For a MySQL project* is read from the
-> dashboard container's own environment — and none of those names was on the forwarded list. The
-> effect was not a different default in the browser: it was those settings doing nothing there
-> while `sandboxr` in a terminal honoured them. `SANDBOXR_SOURCE_DB_PASSWORD` bites first, because
-> its default is empty and no real local database has an empty root password, so `up` from the
-> browser failed at `could not fingerprint … — are the source credentials right?` while the very
-> message told you to set a variable that could not arrive. If you set these before the fix, run
-> `sandboxr init` again so the container is recreated with them.
-
-| Variable | Default | Range |
-|---|---|---|
-| `SANDBOXR_PORT`, or `PORT` | `8080` | 1–65535 |
-| `SANDBOXR_HOST` | `127.0.0.1` | |
-| `SANDBOXR_DOCKER_SOCKET` | `/var/run/docker.sock` | |
-| `SANDBOXR_SESSION_HOURS` | `168` | 1–8760 |
-| `SANDBOXR_APP_SESSION_MINUTES` | `60` | 1–1440 |
-| `SANDBOXR_SESSION_SECRET` | a file under `$SANDBOXR_HOME/state` | |
-| `SANDBOXR_INSECURE_COOKIES` | off | `1`, `true`, `yes` or `on` turns it on |
-| `SANDBOXR_TRUST_PROXY` | on | |
-| `SANDBOXR_LOGIN_MAX_ATTEMPTS` | `5` | 1–1000 |
-| `SANDBOXR_LOGIN_WINDOW_SECONDS` | `60` | 1–86400 |
-| `SANDBOXR_CONTAINER_SCRIPTS` | `/opt/sandboxr/scripts` | |
-| `SANDBOXR_TTL_HOURS` | `12` | 1–8760. Here it is only the *default in the form* |
-| `SANDBOXR_REAP_MINUTES` | `5` | 0–1440 |
-
-A value outside a range is clamped rather than refused, and an unreadable one falls back to the
-default. The dashboard refusing to boot over a malformed variable would take every sandbox on the
-machine with it.
-
-Two of those deserve a sentence each. `SANDBOXR_INSECURE_COOKIES` exists only for
-`http://localhost:8080` with no router in front; a session cookie sent over plain HTTP is readable
-by anything on the path, and the server says so at startup when you turn it off.
-`SANDBOXR_APP_SESSION_MINUTES` is short because it is set on a hostname the dashboard cannot answer
-on and therefore cannot clear — expiry is the whole of revocation for it.
-
-**Every `SANDBOXR_PASSWORD*` variable is read once at startup and then deleted from the
-environment**, so nothing the dashboard spawns inherits it.
-
-<details class="agent">
-<summary><b>Details for an agent</b> — how a password becomes a set of projects</summary>
-
-The table is built in `packages/server/src/auth/passwords.ts`.
-
-- `SANDBOXR_PASSWORD` grants `*` — every project.
-- `SANDBOXR_PASSWORD_<NAME>` grants the single project `<name>`, lower-cased with `_` turned into
-  `-`. So `SANDBOXR_PASSWORD_WIDGET_SHOP` grants `widget-shop`.
-- `SANDBOXR_PROJECTS_<NAME>`, when set, replaces that: a comma-separated list, trimmed and
-  lower-cased. One password for a group of projects is a real case.
-- An empty value is ignored, so `SANDBOXR_PASSWORD=` configures nothing rather than an empty
-  password.
-
-Each password is hashed with scrypt at startup and the plaintext is dropped. Verification hashes the
-candidate against **every** entry before deciding, so the timing does not leak how many passwords
-are configured.
-
-</details>
-
-### For agent sessions
-
-| Variable | Default | What it does |
-|---|---|---|
-| `SANDBOXR_CLAUDE_TOKEN` | — | The credential an [agent session](../guides/agent-sessions.md) runs with, unless the sandbox can read a login |
-| `SANDBOXR_CLAUDE_MCP` | none | MCP servers every session is given, as JSON |
-| `SANDBOXR_CLAUDE_MODEL` | `claude-opus-5` | Which model a session runs on when nothing picks one |
-| `SANDBOXR_CLAUDE_PERMISSION_MODE` | `auto` | Which mode a session *starts* in |
-| `SANDBOXR_CLAUDE_CREDENTIALS` | the host's `~/.claude/.credentials.json`, when it exists | Where the host keeps its Claude Code login |
-
-<details class="agent">
-<summary><b>Details for an agent</b> — every value each of the five accepts, and what an unreadable one costs</summary>
-
-**`SANDBOXR_CLAUDE_TOKEN`** — mint it with `claude setup-token` on the host. It is passed into the
-container as `CLAUDE_CODE_OAUTH_TOKEN` for the length of a session and written nowhere. Without it,
-and without a host login to share, opening a session fails and says so. `CLAUDE_CODE_OAUTH_TOKEN` is
-read as a fallback, for a host that already has one set. An empty value is treated as absent.
-
-**`SANDBOXR_CLAUDE_MCP`** — either the whole JSON a `.mcp.json` holds, or just the `mcpServers` map
-inside it; both spellings are accepted because pasting the wrong one is the obvious mistake. This is
-the *only* route: a setup-token does not load claude.ai connectors, so nothing added there is visible
-inside a sandbox. A value that will not parse becomes no servers rather than a dashboard that will
-not boot.
-
-**`SANDBOXR_CLAUDE_MODEL`** — one of `claude-opus-5`, `claude-fable-5`, `claude-sonnet-5`,
-`claude-opus-4-8`, `claude-haiku-4-5`. Anything else falls back to `claude-opus-5`. A session opened
-on a specific model runs on that one instead; this is only the answer when nothing asks.
-
-**`SANDBOXR_CLAUDE_PERMISSION_MODE`** — one of `auto`, `acceptEdits`, `manual`, `plan`, `dontAsk`.
-Anything else falls back to `auto`, and that includes `bypassPermissions`: it is a spelling of
-`--dangerously-skip-permissions`, which Claude Code refuses when running as root, and every sandbox
-is root. Honouring it would give you a dashboard where every session died instantly and silently. It
-applies to sessions and never to a side question.
-
-**`SANDBOXR_CLAUDE_CREDENTIALS`** — resolved for you at `jef init`, from the host's
-`CLAUDE_CONFIG_DIR` or `$HOME/.claude`, and forwarded to the dashboard, which cannot see your home
-directory to work it out for itself. What actually mounts it into every sandbox is a `share:` row
-in `~/.sandboxr/config.yaml` ([host paths](paths.md)), which `jef init` writes from this — the
-engine binds whatever the machine's config names and knows nothing about Claude. When the file
-exists it lands read-write at `/root/.claude/.credentials.json`, so one login is *shared* rather
-than copied. Set this yourself only for a credential kept somewhere unusual.
-
-> [!WARNING] A machine with no `share:` row shares no login
-> This used to be mounted unconditionally. If you upgrade without running `jef init`, every
-> sandbox loses the host's Claude login at once — and the symptom, `Not logged in` inside a
-> session, looks nothing like its cause. **On macOS that file is usually not a login**
-— it holds MCP OAuth tokens, while the account credential is in the login keychain — and mounting
-one costs you the session's credential entirely:
-[why, and what to do](../guides/agent-sessions.md#on-macos-that-file-is-usually-not-your-login). A path that names nothing is worse than no
-path at all, because Docker answers a missing bind source by creating a directory. So the file is
-checked for existence and for having something in it twice: once here before the row is written,
-and again on every `up` when the row is read. A credential deleted afterwards stops being mounted
-on the next start.
-
-`init` forwards exactly four of these into the dashboard container by name:
-`SANDBOXR_CLAUDE_TOKEN`, `SANDBOXR_CLAUDE_MODEL`, `SANDBOXR_CLAUDE_MCP` and
-`SANDBOXR_CLAUDE_PERMISSION_MODE`. A named list rather than a wildcard, because the dashboard is the
-one container on the machine holding a credential.
-
-</details>
-
-### For the orchestrator
-
-Set these on the [orchestrator](../guides/orchestrator.md) daemon's own process. It also reads
-`SANDBOXR_HOME` — the same run index the dashboard writes — and reuses `SANDBOXR_CLAUDE_TOKEN` and
-`SANDBOXR_CLAUDE_MODEL` above to fork a session for a summary.
-
-| Variable | Default | What it does |
-|---|---|---|
-| `SANDBOXR_ORCHESTRATOR_PORT` | `4600` | The loopback port Claude Code's hooks post to |
-| `SANDBOXR_ORCHESTRATOR_SUMMARIES` | on | `0` stops it forking sessions for summaries |
-| `SANDBOXR_VOICE_SOCKET` | — | The voice sidecar's socket. Unset runs without voice |
-| `SANDBOXR_TELEGRAM_SOCKET` | — | The telegram sidecar's socket. Unset runs without calls |
-| `SANDBOXR_TELEGRAM_CHAT_ID` | — | The group voice chat the userbot joins |
-| `SANDBOXR_TELEGRAM_USER_ID` | — | Who it brings into that chat |
-
-To run the orchestrator **inside the dashboard** instead, set these on the dashboard's own
-process (see [In the dashboard](../guides/orchestrator.md#in-the-dashboard)):
-
-| Variable | Default | What it does |
-|---|---|---|
-| `SANDBOXR_ORCHESTRATOR` | off | Any non-empty value but `0` turns on the dashboard's Orchestrator panel |
-| `SANDBOXR_VOICE_SOCKET` | unset | The voice sidecar's socket. Without it no conversation shows a microphone and `GET /api/voice` says why — everything else works. It needs no orchestrator: a machine can have a voice and talk to its worktrees without one |
-| `SANDBOXR_ORCHESTRATOR_STALL_MS` | model default | How long a quiet session waits before it is a question — lower it to try the panel out |
-| `SANDBOXR_VOICE_SOCKET` | — | The voice sidecar's socket, to speak a conversation and carry the browser's audio |
-
-The voice sidecar reads `SANDBOXR_VOICE_STREAMED` (or `--streamed`): set it so the sidecar's device
-is the socket rather than a local microphone, which is what the browser and the container both need.
-
-The **hook command** each session runs reads one variable of its own,
-`SANDBOXR_ORCHESTRATOR_URL`. Unset, it posts to `http://127.0.0.1:4600/hooks`, which is right for
-`claude` on the host. A session running inside a sandbox container needs it set to the daemon's
-address on the docker-bridge gateway — see the reachability note in
-[the orchestrator guide](../guides/orchestrator.md#2-point-the-hooks-at-the-daemon).
-
-<details class="agent">
-<summary><b>Details for an agent</b> — the two Python sidecars' own variables</summary>
-
-Each sidecar takes the same values as a flag or an environment variable, because the daemon's
-wiring starts it, not a person. Every one has a `--flag` twin; the flag wins where both are given.
-
-**The voice sidecar** (`sidecars/voice`). A Piper voice model is the one hard requirement:
-
-| Variable | Default | What it is |
-|---|---|---|
-| `SANDBOXR_VOICE_SOCKET` | `/tmp/sandboxr-voice.sock` | The socket the daemon connects to |
-| `SANDBOXR_PIPER_MODEL` | — | Path to a Piper `.onnx` voice. Required |
-| `SANDBOXR_PIPER_CONFIG` | beside the model | The voice's JSON config, if it is not alongside |
-| `SANDBOXR_WHISPER_SIZE` | `base.en` | The Whisper model size |
-| `SANDBOXR_WHISPER_DEVICE` | `cpu` | Where Whisper runs |
-| `SANDBOXR_WHISPER_COMPUTE` | `int8` | Its compute type |
-| `SANDBOXR_VAD_THRESHOLD` | `0.5` | Silero's speech probability above which a frame counts as speech |
-| `SANDBOXR_SILERO_MODEL` | faster-whisper's own copy | Path to `silero_vad_v6.onnx`. Only for an image that ships the model without faster-whisper; without it the sidecar falls back to the energy VAD |
-| `SANDBOXR_ENDPOINT_SILENCE_MS` | `1200` | The silence that ends a turn |
-| `SANDBOXR_NO_NEW_WORDS_MS` | `2000` | The second way a turn ends: the recognised words stop changing. For a car, a train, or any room the microphone never hears silence in. `0` disables it |
-| `SANDBOXR_VOICE_RATE` | `1.4` | The starting speaking pace, as a multiple of the voice's own. Clamped to 0.5–3, and overridden by the dashboard's setting once a browser connects |
-
-**The telegram sidecar** (`sidecars/telegram`) takes the same Piper, Whisper and end-of-turn
-variables, with the same defaults: a call is the same conversation as the desk, so the pace, the
-recogniser and the moment your turn ends are decided the same way (contracts §10.3.1). It also has
-its own. The three credentials are **read from the environment only, never a flag**, because a
-flag lands in shell history and process listings:
-
-| Variable | Default | What it is |
-|---|---|---|
-| `SANDBOXR_TELEGRAM_SOCKET` | `/tmp/sandboxr-telegram.sock` | The socket the daemon connects to |
-| `SANDBOXR_TELEGRAM_API_ID`, `SANDBOXR_TELEGRAM_API_HASH` | — | From `my.telegram.org`. Required, environment only |
-| `SANDBOXR_TELEGRAM_SESSION` | `sandboxr` | The Telethon session name |
-| `SANDBOXR_TELEGRAM_CHAT_ID`, `SANDBOXR_TELEGRAM_USER_ID` | — | The group voice chat, and who to bring in |
-
-The daemon itself also reads `SANDBOXR_CLAUDE_HAS_LOGIN` (`1` when the machine shares a Claude
-login, so a summary fork withholds the setup token just as the dashboard does).
-
-</details>
-
 ### The one variable that is not ours
 
 | Variable | Default | What it does |
 |---|---|---|
-| `GH_TOKEN`, or `GITHUB_TOKEN` | whatever `gh auth token` answers on the host | Reads pull requests, lists the repositories the dashboard offers, and clones a private one |
+| `GH_TOKEN`, or `GITHUB_TOKEN` | whatever `gh auth token` answers on the host | Reads pull requests, and clones a private repository |
 
-That is `gh`'s own variable. The dashboard passes it to `gh` and `git` by simply being in their
+That is `gh`'s own variable. sandboxr passes it to `gh` and `git` by simply being in their
 environment.
 
-It has to be a **value**, and the reason is easy to trip over. `sandboxr init` mounts the host's
-`~/.config/gh` into the container, but on macOS `gh auth login` keeps the token in the login
-keychain. The mounted `hosts.yml` then names your account and carries no credential, and a keychain
-does not cross into a container. So `init` runs `gh auth token` on the host and passes the result in.
+Set it yourself when there is no `gh` to ask, which is the ordinary case on a server. It wins over
+`gh auth token` when both are available, and a machine with neither simply has no token: nothing
+fails, and private repositories and pull requests are not readable.
 
-Set the variable yourself when there is no `gh` to ask, which is the ordinary case on a server. It
-wins over `gh auth token` when both are available.
+> [!NOTE] On the host it is read afresh, per command
+> `up` asks for a token at the moment it needs one, so signing in again with `gh` takes effect on
+> the very next command. A long-running process that captured the token when it started is a
+> different matter, and says so where it is documented.
 
-> [!NOTE] The token is captured when `sandboxr init` runs
-> It is not read afresh per request. Sign in again on the host, or let the token expire, and the
-> dashboard is still holding the old one until you run `sandboxr init` again. Without a token it
-> still boots and says so once: private repositories and pull requests are simply not readable.
+The same name appears in group 2 below. That is the token being handed **into** a sandbox, which
+happens only when `config.yaml` opts that project in.
 
 ## 2. Variables the host passes into a container
 
@@ -345,14 +136,13 @@ do not set these.
 | `SANDBOXR_S3_KEY`, `SANDBOXR_S3_SECRET` | `storage.driver: minio` | `sandboxr` / `sandboxr` |
 | `SANDBOXR_WITH` | `up --with` was used | the comma-separated list |
 | `SANDBOXR_SEED` | a seed source was chosen | `local`, `file` or `fixtures` |
-| `CLAUDE_CONFIG_DIR` | always | `/root/.claude` |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` | the host has a `git config user.name` and `user.email` | the host's identity |
 | `GH_TOKEN` | `config.yaml` says `github: token` for this project | the host's token |
 
 That is the whole of what `docker run` is told. **The project's own credentials are not in it.**
 They arrive as a file mounted into the container instead — see below.
 
-<details class="agent">
+<details class="why">
 <summary><b>Why it works this way</b> — the four <code>GIT_*</code> variables, and why the scheme comes from the host</summary>
 
 **The four `GIT_*` variables are how a sandbox knows who a commit is by.** A sandbox has no
@@ -365,11 +155,6 @@ set, because git fails on whichever is missing.
 router terminates TLS only when a trusted certificate exists on the machine, and it may be published
 on non-default ports. The container builds every `SANDBOXR_URL_<LABEL>` from these two, and a URL
 missing the port points at whatever else owns 443 on that machine.
-
-**`CLAUDE_CONFIG_DIR` is load-bearing.** Claude Code keeps its token, settings and history under
-`~/.claude`, and keeps the OAuth account, personal MCP servers and per-project trust in
-`~/.claude.json` — a file *beside* that directory. Mounting the directory alone persists the history
-and loses the login, which looks like the volume not working at all.
 
 `GH_TOKEN` is off by default. Turning it on is a decision worth making on purpose: the credential
 `gh auth token` prints is usually one that can push to every repository you can reach. See
@@ -386,8 +171,7 @@ not in `docker inspect`.
 Three things follow from it being a file the container reads rather than something `docker run` was
 told:
 
-- **An edited credential reaches a running sandbox on a restart.** `sandboxr stop` then `start`, or
-  Restart services in the dashboard.
+- **An edited credential reaches a running sandbox on a restart.** `sandboxr stop` then `start`.
 - **A value baked into a front-end bundle at build time needs a rebuild as well** — a `VITE_*`, a
   `NEXT_PUBLIC_*`. It is already in the built files.
 - **The names the sandbox derives for itself are refused in that file**, on the host, when you set
@@ -414,8 +198,7 @@ its own.** A `DB_HOST` in a secrets file cannot win, whatever it says.
 
 > [!WARNING] A credential under a name the `env:` map also defines is silently overwritten
 > The map is expanded last. Nothing fails, the variable has a value, and it is the map's rather
-> than yours. `sandboxr secrets list` and the dashboard's Environment panel both name which
-> variables those are, because nothing else would.
+> than yours. `sandboxr secrets list` names which variables those are, because nothing else would.
 
 ## 3. Variables the sandbox works out for itself
 
@@ -456,6 +239,16 @@ migrate:
 you point it at the sandbox's own directory. Both the migrate command and the owner's serve command
 need it. `sandboxr doctor` warns when it cannot see the variable in the command.
 
+<details class="facts">
+<summary><b>Fact sheet</b> — three names that are exported and read by nothing</summary>
+
+`SANDBOXR_ACCESS` in group 2, and `SANDBOXR_D1_OWNER` and `SANDBOXR_S3_REGION` in this group, are
+written into a container's environment and no script reads any of them back. They are there for
+your `env:` map to reach and for a person debugging inside a shell, and they are listed here so
+nobody goes looking for the code that consumes them. Setting one changes nothing on its own.
+
+</details>
+
 ### Why this group exists at all
 
 The rule that makes a sandbox safe: **nothing describing *where* something runs may be imported from
@@ -482,19 +275,28 @@ Values go through substitution, never a shell, so a value is data and never a co
 
 ## Setting them
 
+**Nothing reads a file.** sandboxr ships no `.env`, no `docker-compose.yml` and no settings file
+that these are read from — `sandboxr` reads them out of its own environment, so you export them in
+the shell you run it from.
+
 ```bash
-export SANDBOXR_PASSWORD='something long and random'
+export SANDBOXR_DOMAIN=sbx.example.com
 sandboxr init
 ```
 
 `SANDBOXR_DOMAIN` needs nothing locally: `sbx.localhost` already resolves.
 
-If you run the machine from the repository's `docker-compose.yml`, these go in `.env` beside it
-rather than in your shell — that is the whole point of the file, because a container's environment
-is fixed when the container is made and an export made afterwards reaches nothing. A few extra keys
-live only there: `SANDBOXR_DOMAIN_RE`, `SANDBOXR_ENTRYPOINT`, `SANDBOXR_TLS` and `COMPOSE_PROFILES`.
-`.env.example` documents each one, and [The whole machine in one file](../guides/compose.md)
-explains the split.
+If you would rather keep them in a file, keep them in a file of your own and source it first.
+`set -a` exports every name the file sets, which is the difference between a list of settings and a
+list of exports:
+
+```bash
+set -a && . ./.env && set +a
+sandboxr up
+```
+
+That file is yours. Nothing looks for it, nothing reads it on your behalf, and its name is not
+special.
 
 On a server, put them in the service unit's environment rather than a shell profile. A service
 started at boot has no login shell, and `SANDBOXR_HOME` falling back to a service account's home

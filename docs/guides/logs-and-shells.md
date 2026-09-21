@@ -25,9 +25,6 @@ container has no live processes to inspect.
 | **Per-service log files** | You know which service you care about | `~/.sandboxr/logs/<project>/<slug>/` |
 | **A shell inside** | You need to look at the filesystem, or run something | `sandboxr shell` |
 
-The [dashboard](dashboard.md) gives you the first and the third in a browser. Same
-information, no terminal of your own required.
-
 ## 1. The container's log stream
 
 ```bash
@@ -172,21 +169,6 @@ The same status surface is reachable over HTTP on every hostname the sandbox ser
 deliberately, so a probe can tell "the router has no such route" from "the service said no".
 
 </details>
-
-## The same three things in a browser
-
-The [dashboard](dashboard.md) streams a sandbox's log into its pane, and gives you a full
-interactive terminal inside the container over a websocket. The terminal opens a login shell,
-so the sandbox's own environment and toolchain are already on the `PATH`.
-
-Both sit behind the same password as every other control, and the terminal is a route within
-the dashboard rather than a hostname of its own — which is what makes the session cookie
-apply to it automatically. See [Access and security](../access.md).
-
-> [!NOTE] The browser terminal has not been opened against a real sandbox
-> Its security properties are unit-tested, including that the upgrade is authenticated
-> before the handshake completes. Nobody has typed into one for real. [What is
-> built](../reference/status.md) has the full inventory.
 
 ## Choosing between them
 

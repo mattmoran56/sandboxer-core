@@ -101,9 +101,8 @@ flowchart TB
 
 > [!NOTE] `sandboxr init` prepares the bare domain and does not fill it
 > It says so when it finishes: nothing is serving `https://<your domain>`, because `sandboxr` is a
-> command-line tool. Your sandboxes are reachable on their own hostnames either way. `jef init`
-> is the command that builds and starts a dashboard there — see
-> [the dashboard](../guides/dashboard.md).
+> command-line tool. Your sandboxes are reachable on their own hostnames either way. Putting your
+> own control plane on that domain is contracts §7.2, and Jef's `jef init` is one such thing.
 
 ### Why the first run is slow
 
@@ -125,7 +124,7 @@ The dashboard image is `jef init`'s, and it is built separately on purpose: it c
 client and the base image deliberately does not. That is what stops a project — or an agent
 working inside a sandbox — driving Docker.
 
-The workstation image is the container a [session's](../guides/dashboard.md) agent runs in — around
+The workstation image is the container a Jef session's agent runs in — around
 640 MB, most of it `claude`. That copy is the workstation's own and has nothing to do with the agent
 layer above the base: here the agent runs beside the sandbox rather than inside it. `jef init` builds
 it too, rather than leaving it to the first time somebody makes a session, because a session is the

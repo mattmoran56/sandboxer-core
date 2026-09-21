@@ -18,10 +18,6 @@ sandbox's apps are open to anyone with the URL, `credentials` decides whether re
 credentials may reach it, and `controls` is always `password`. See
 [Access and security](../access.md).
 
-**Action** — one thing the dashboard is allowed to run, taken from a fixed table in its own source.
-There is no box for typing a command, and there must never be one. See
-[The dashboard](../guides/dashboard.md).
-
 **Advisory lock** — a named lock a migration takes so two runs cannot overlap. sandboxr's is
 `sandboxr_migrate_<project>_<slug>`. See [Databases](../databases.md).
 
@@ -29,24 +25,14 @@ There is no box for typing a command, and there must never be one. See
 does the task for you. All of them are collected on
 [Every agent prompt](agent-prompts.md).
 
-**Agent session** — one `claude` process running *inside* a sandbox, on the worktree at
-`/workspace`, started and driven from the dashboard. See
-[Agent sessions in the dashboard](../guides/agent-sessions.md). The phrase is being retired,
-because [session](#s) is becoming the name of something else; the contract calls one of these a
-**run**.
-
 ## B
 
 **Backend** — a [runtime kind](#r): something compiled to a binary, kept running, holding a port.
 Declared under `backends:`. See [The three runtime kinds](../configuration/runtime-kinds.md).
 
-**Bare domain** — the domain on its own, with nothing in front of it. That is the dashboard's
-hostname, and it is never a sandbox's. See [Access and security](../access.md).
-
-**Barge-in** — talking over the orchestrator while it is speaking. It stops, works out how much
-of the announcement you actually heard, and takes what you said as your reply — and never
-afterwards acts as though you heard the part it had not reached. See
-[The orchestrator, voice and Telegram](../guides/orchestrator.md).
+**Bare domain** — the domain on its own, with nothing in front of it. It is never a sandbox's
+hostname. `sandboxr init` prepares it and serves nothing on it, so it is where a control plane of
+your own would go. See [Access and security](../access.md).
 
 **Base image** — the generic image every sandbox on the machine shares: the supervisor, the
 in-container router, the object store, `git`, `gh`, `claude` and the container scripts. Nothing
@@ -68,14 +54,10 @@ holding every service that worktree needs. See
 [How it works, in five steps](../how-it-works.md).
 
 **Controls** — everything that changes a sandbox: start, stop, rebuild, migrate, shell, terminal.
-**Controls are always behind a password and that cannot be turned off**, because the dashboard holds
-the Docker socket. See [Access and security](../access.md).
+**Controls are always behind a password and that cannot be turned off**, because whatever runs them
+holds the Docker socket. See [Access and security](../access.md).
 
 ## D
-
-**Dashboard** — the web app that lists every worktree on the machine and starts, stops, rebuilds and
-migrates the sandboxes on them. It sits on the [bare domain](#b). See
-[The dashboard](../guides/dashboard.md).
 
 **Degraded** — a state of its own: the container is running and the project's migration failed. The
 services are started deliberately, because inspecting a failed migration is a reason the sandbox
@@ -87,7 +69,7 @@ is the lockfile's, so every sandbox with the same dependencies shares one instal
 
 **Detached worktree** — a worktree checked out at a commit rather than on a branch. It is how git
 runs a branch that is already checked out somewhere else, and it is normal rather than a failure.
-See [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+See [Several repositories at once](../setups/many-projects.md).
 
 **Dirty** — a sandbox built from a worktree that had uncommitted changes. `sandboxr ls` marks it
 with a `*`. See [CLI commands](cli.md).
@@ -117,12 +99,8 @@ other way round, and removes only with `--yes`. See [CLI commands](cli.md).
 computed environment, writes the router config and generates the service list. See
 [The startup graph](../architecture/startup.md).
 
-**Escalation** — what the orchestrator raises when a session needs you: an **update** for
-something to know, or a **question** for something only you can decide. Voice and Telegram turn it
-into sound. See [The orchestrator, voice and Telegram](../guides/orchestrator.md).
-
 **Expire** — stopping every sandbox that has sat unused past its limit. It stops; it never removes.
-See [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+See [Start, stop, list, clean up](../guides/lifecycle.md).
 
 ## F
 
@@ -136,7 +114,8 @@ simply absent rather than wrong. See
 [Several repositories at once](../setups/many-projects.md).
 
 **Forward auth** — how a `private` project's app hostnames are protected without a second login.
-The shared router asks the dashboard whether the visitor's session is good, on every request. See
+The shared router asks whatever serves the bare domain whether the visitor is signed in, on every
+request. See
 [Access and security](../access.md).
 
 **Front-end** — anything declared under `frontends:`. There are two kinds: a
@@ -155,10 +134,8 @@ sandbox for two branches. It is recorded, because random characters cannot be de
 applies to worktrees sandboxr cut rather than ones you cut yourself. See
 [One repo, many branches](../setups/one-repo-many-worktrees.md).
 
-**Grant** — two senses, both narrow. A password's grant is the set of projects it may control. An
-agent grant is a standing permission a project has given a session. See
-[Access and security](../access.md) and
-[Agent sessions in the dashboard](../guides/agent-sessions.md).
+**Grant** — the set of projects one password may control. It is checked everywhere a project is
+named, not only at the login. See [Access and security](../access.md).
 
 ## H
 
@@ -168,17 +145,16 @@ agent grant is a standing permission a project has given a session. See
 ## I
 
 **Idle clock** — the timer behind a [ttl](#t). It measures **idleness, not uptime**: the deadline is
-the later of the container's start time and the last time anybody used it, plus the ttl. Four things
-count as use — a request through the router, opening the sandbox in the dashboard, an agent session
-running on its worktree, and a terminal or agent panel held open on it — and the last two hold the
-sandbox open until they stop. See
-[Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+the later of the container's start time and the last time anybody used it, plus the ttl. Two things
+count as use — a request through the router, and a socket somebody is holding open on the sandbox,
+which keeps it open until it closes. See
+[Start, stop, list, clean up](../guides/lifecycle.md).
 
 ## K
 
 **Keep-alive** — an exemption from the idle clock, set with `sandboxr keep` and removed with
 `sandboxr unkeep`. It is a file on the host, and it records which container it was written for. See
-[Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+[Start, stop, list, clean up](../guides/lifecycle.md).
 
 ## L
 
@@ -204,10 +180,6 @@ front-end, the in-container router. See [The startup graph](../architecture/star
 to any project: how long a sandbox may sit unused, and which projects get this machine's GitHub
 token. See [Paths](paths.md).
 
-**MCP server** — an outside tool server an agent session can be given. Because a sandbox
-authenticates with a setup-token, naming them in the dashboard's environment is the only route. See
-[Agent sessions in the dashboard](../guides/agent-sessions.md).
-
 **Migration** — a schema change, applied by **the project's own migration program**. sandboxr runs
 the command the config names and reads its output. It never reimplements the logic. See
 [Databases](../databases.md).
@@ -225,20 +197,10 @@ not ready. See [The startup graph](../architecture/startup.md).
 `sandboxr up --with <label>` asks for it. See
 [The three runtime kinds](../configuration/runtime-kinds.md).
 
-**Orchestrator** — a second reader of your sessions, opposite to the dashboard: it watches all of
-them at once and tells you, out loud, only when one needs you. It is also an agent you can talk
-to, with the run of the machine rather than of one worktree. It runs on the host — in the
-dashboard's own process, or as a daemon beside it — and never inside a sandbox. See
-[The orchestrator, voice and Telegram](../guides/orchestrator.md).
-
 **Owner** — for `d1` and `sqlite`, the single service allowed to open the database file. Every other
 service is denied the file's location outright. See [Databases](../databases.md).
 
 ## P
-
-**Permission mode** — which questions an agent session asks before it acts: `auto`, `acceptEdits`,
-`manual`, `plan` or `dontAsk`. See
-[Agent sessions in the dashboard](../guides/agent-sessions.md).
 
 **Plan** — see [plan.json](#p).
 
@@ -248,7 +210,8 @@ into one list. **Nothing inside a container ever reads `sandboxr.yaml`.** See
 [plan.json](../architecture/plan-json.md).
 
 **Private app** — an app hostname belonging to a project whose `access.apps` is `private`. The
-router will not serve it without a dashboard session. See [Access and security](../access.md).
+router will not serve it without a signed-in session on the [bare domain](#b). See
+[Access and security](../access.md).
 
 **Project** — a repository that describes itself in a `sandboxr.yaml`. The `project:` name in that
 file appears in every hostname, container name and volume name. One project has many sandboxes. See
@@ -272,13 +235,9 @@ default and removes only with `--yes`. See
 `closed` or `merged`. Four and not five — `draft` is GitHub's draft flag folded onto an *open* pull
 request, so one that was a draft when it merged is `merged`. **No mark at all** means either that
 there is no pull request or that this machine could not ask, and the two are deliberately one
-answer. See [The dashboard](../guides/dashboard.md).
+answer. See [CLI commands](cli.md).
 
 ## R
-
-**Reaper** — the loop that stops sandboxes past their idle limit. **It lives in the dashboard
-process**, so nothing enforces a lifetime while the dashboard is not running. See
-[Just the CLI, on my laptop](../setups/cli-only.md).
 
 **Reload** — rebuilding something inside a sandbox that is already running: a backend, a front-end,
 or the migrations. See [The edit–reload loop](../guides/edit-and-reload.md).
@@ -288,10 +247,10 @@ container per machine, which terminates TLS and picks a container by hostname. T
 router** is Caddy, inside every container. See
 [How a request arrives](../architecture/request-path.md).
 
-**Runtime** — a running copy of one project belonging to a [session](#s): its apps, its database,
-its hostnames. It is what a sandbox is today, seen from a session. **Not built yet** — §12 of
-[the contract](../architecture/contracts.md) defines it, and [What is built](status.md) says
-where it stands. Never a short form of *runtime kind*, which is the entry below.
+**Runtime** — one thing a project declares and a sandbox runs: a backend, or a front-end. A runtime
+marked `optional:` starts only when `sandboxr up --with <label>` asks for it. Never a short form of
+*runtime kind*, which is the entry below. See
+[The three runtime kinds](../configuration/runtime-kinds.md).
 
 **Runtime kind** — what a declared thing actually *is* at run time: a backend, a static front-end,
 or a served front-end. Exactly three, and none is a variation on another. Always spelled in full,
@@ -301,17 +260,10 @@ so it cannot be confused with a [runtime](#r). See
 ## S
 
 **Secrets** — third-party credentials a project needs, kept in one file per project that you edit
-by hand, from the CLI or from the dashboard, and can import its own `.env` files into under rules
+by hand or from the CLI, and can import its own `.env` files into under rules
 that refuse anything describing *where* something runs. The file is mounted read-only into every
 sandbox of the project. Names are printed; values never are, except when you ask for one.
 See [Secrets](../configuration/secrets.md).
-
-**Session** — the unit of work sandboxr is being reorganised around: an agent with a container,
-holding zero or more repositories and zero or more [runtimes](#r). "Write me a document" is a
-session with no code in it at all. §12 of [the contract](../architecture/contracts.md) defines it.
-**Creating, listing and deleting one exists in `packages/core`; nothing a person can type reaches
-it yet**, and [What is built](status.md) says exactly where the line falls. Today the unit is a
-[worktree](#w).
 
 **Storage** — the S3-compatible object store inside each sandbox, so uploads never reach a real
 bucket. Declared as `storage: { driver: minio, buckets: [...] }`, and `none` by default. See
@@ -344,17 +296,6 @@ dump you keep) or `fixtures` (SQL in the repository). See [Databases](../databas
 in memory whether or not anyone opens it. See
 [The three runtime kinds](../configuration/runtime-kinds.md).
 
-**Session** — the dashboard's signed-in state, held in a cookie. Not an
-[agent session](#a). See [Access and security](../access.md).
-
-**Side question** — a `/btw` in an agent session: a second, read-only process forked off the
-conversation, so you can ask something without disturbing the run. It is also how the orchestrator
-summarises a session. See [Agent sessions in the dashboard](../guides/agent-sessions.md).
-
-**Sidecar** — one of the two Python programs that are the orchestrator's audio body: `voice` owns
-the microphone and speakers, `telegram` places the call. Each runs on the host, beside the daemon,
-reached over a socket. See [The orchestrator, voice and Telegram](../guides/orchestrator.md).
-
 **Slug** — the short name for one sandbox, and the first piece of its hostname. Resolved, in order of
 preference, from an explicit argument, a slug recorded for the worktree, a ticket-style id in the
 worktree directory name, that pattern in the branch name, the branch name, then the directory name.
@@ -380,9 +321,6 @@ serves, whether or not its database is ready. See
 
 ## T
 
-**Terminal** — a shell inside a sandbox, in the browser. It is a route within the dashboard, so it
-inherits the dashboard's session. See [Logs, shells and terminals](../guides/logs-and-shells.md).
-
 **Toolchain** — the language runtimes a project asks for, as `toolchain: { go, node }`. They are
 installed into the project layer. See
 [sandboxr.yaml, field by field](../configuration/sandboxr-yaml.md).
@@ -393,30 +331,18 @@ from Docker labels, so starting a sandbox writes no config file. See
 
 **ttl** — how long a sandbox may sit **unused** before it is stopped. `30m`, `12h`, `3d`, a number
 of seconds, or `never`. Default 12 hours. See
-[Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+[Start, stop, list, clean up](../guides/lifecycle.md).
 
 ## W
-
-**Work volume** — the Docker volume holding one [session](#s)'s clones, laid out
-`/work/<repo>/<branch>/`. Stopping a session never touches it, and only deleting the session
-removes it. §12 of [the contract](../architecture/contracts.md) defines it. **It is created and
-removed with the session; nothing writes a clone into one yet** — see [What is built](status.md).
 
 **Workspace** — the repositories sandboxr keeps for itself, one directory per project, so a sandbox
 can be a branch you pick rather than a worktree you made by hand. See
 [Several repositories at once](../setups/many-projects.md).
 
-**Workstation** — the container a [session](#s)'s agent runs in, one per session. It has no Docker
-socket and no bind mount from your computer, so the agent can reach its own session's code and
-nothing else. §12 of [the contract](../architecture/contracts.md) defines it. **It can be created,
-started and stopped from `packages/core`; no agent runs in one yet** — see
-[What is built](status.md).
-
 **Worktree** — a second checkout of the same repository, made with `git worktree add`, so several
 branches are open at once sharing one `.git`. sandboxr works from worktrees rather than clones, so a
 sandbox is always tied to exactly one branch. See
-[How it works, in five steps](../how-it-works.md). This is the unit today; a [session](#s) is what
-replaces it.
+[How it works, in five steps](../how-it-works.md).
 
 ---
 

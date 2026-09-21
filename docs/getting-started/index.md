@@ -21,10 +21,9 @@ up the demo project in examples/demo-worker and confirm the page it serves loads
 Stop and ask me if:
 - Docker is not running, or has under 8 GB of memory available to it.
 - `mkcert` is missing and you would need my password to install its root certificate.
-- You cannot decide what SANDBOXR_PASSWORD should be.
 - `sandboxr doctor` reports anything it does not tell you how to fix.
 
-Tell me the dashboard URL and the demo sandbox's URL when you are done.
+Tell me the demo sandbox's URL when you are done.
 ```
 
 You need **Docker**, **Node 22 or newer** and **git**. Everything else is optional.
@@ -37,19 +36,19 @@ every one of them in a sentence.
 | I want to… | Go to |
 |---|---|
 | Try it on my laptop | [Install it](install.md) |
-| Get the dashboard running | [The dashboard on my laptop](../setups/dashboard-on-a-laptop.md) |
 | Set up my own project | [Build your config, step by step](../configuration/index.md) |
-| Put it on a server for my team | [On a server, for a team](../setups/shared-server.md) |
 | Run every branch at once | [Every worktree at once](every-worktree.md) |
+| Work on several repositories | [Several repositories at once](../setups/many-projects.md) |
+| Put it on a server for my team | [On a server, for a team](../setups/shared-server.md) |
 
-Not sure which of those you are? [Which setup is yours](../setups/index.md) lays the five out
+Not sure which of those you are? [Which setup is yours](../setups/index.md) lays the four out
 side by side, with what each costs.
 
 ## The four things you will do, in order
 
 1. **[Install it](install.md).** Get the `sandboxr` command, then run `sandboxr init` once. That
-   builds the container image every sandbox runs from, starts a shared router, and starts the
-   dashboard. Budget ten minutes, most of it Docker building.
+   builds the container image every sandbox runs from and starts the shared router that gives
+   every sandbox its hostname. Budget ten minutes, most of it Docker building.
 2. **[Start your first sandbox](first-sandbox.md).** Make a git worktree, run `sandboxr up` in it,
    and open the URL it prints. Then throw it away with `sandboxr down` and watch the database go
    with it.
@@ -77,7 +76,6 @@ npm link --workspace @sandboxr/cli
 sandboxr version
 
 # 2. Set the machine up. Idempotent — run it again to change anything.
-export SANDBOXR_PASSWORD='something long and random'
 sandboxr init
 
 # 3. Check it.

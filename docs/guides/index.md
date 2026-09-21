@@ -1,11 +1,11 @@
 ---
 title: Day to day
-description: The ten things you actually do with a sandbox once you have one, and which page covers each.
+description: The five things you actually do with a sandbox once you have one, and which page covers each.
 ---
 
-You have a [sandbox](../reference/glossary.md) running. This section is everything you do with it after that — start
-another, rebuild what you changed, read a log, put an agent to work, have one agent watch all of
-them for you, and get the disk back.
+You have a [sandbox](../reference/glossary.md) running. This section is everything you do with it
+after that — start another, rebuild what you changed, read a log, test a migration against real
+structure, and get the disk back.
 
 Each page is one task. Start with the first one; the rest you can read when you need them.
 
@@ -20,20 +20,14 @@ Stop and ask me if `sandboxr ls` reports no sandboxes — that means there is no
 here to look at yet, and we should do docs/getting-started/first-sandbox.md instead.
 ```
 
-## The ten pages
+## The five pages
 
 | Page | What it is for |
 |---|---|
 | [Start, stop, list, clean up](lifecycle.md) | The commands you run every day, and exactly what each one removes |
 | [The edit–reload loop](edit-and-reload.md) | How a file you save becomes running code, and why there is no hot reload |
 | [Logs, shells and terminals](logs-and-shells.md) | The three ways to see inside a sandbox, and which to reach for |
-| [The dashboard](dashboard.md) | The same work in a browser: every session in a sidebar, a pane per session and per sandbox |
-| [Projects, worktrees and lifetimes](managed-sandboxes.md) | Letting sandboxr hold the repositories, and having sandboxes stop themselves |
 | [Testing a migration](testing-a-migration.md) | Pointing a half-written migration at real structure, safely |
-| [Your own agent in a sandbox](agents-in-a-sandbox.md) | Giving a coding agent somewhere to see the result of its own work |
-| [Agent sessions in the dashboard](agent-sessions.md) | A Claude Code session running inside the sandbox itself, one per worktree |
-| [The orchestrator, voice and Telegram](orchestrator.md) | One agent that watches every session at once and tells you out loud when one needs you |
-| [The whole machine in one file](compose.md) | One compose file for the router, the dashboard, the agent and the voice, so bringing it all up is one command |
 | [Giving Docker the whole machine](docker-capacity.md) | Where Docker's disk and memory come from, and how to get space back |
 
 If something is broken rather than unfamiliar, go to

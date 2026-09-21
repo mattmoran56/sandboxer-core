@@ -8,8 +8,8 @@ key, a maps key. It must **not** have anything saying where things run. Those tw
 setting live side by side in the same `.env` files, so the config says which is which.
 
 Every one of those credentials lives in **one file**, `~/.sandboxr/secrets/<project>.env`.
-You can write it by hand, from the CLI, or from the dashboard; and you can import into it
-from the `.env` files your project already has. All four are the same file.
+You can write it by hand or from the CLI, and you can import into it from the `.env` files
+your project already has. All three are the same file.
 
 ```prompt
 Set up this project's secrets block and get its credentials into sandboxr.
@@ -34,7 +34,7 @@ name could plausibly be either a credential or an address.
 | Where | `~/.sandboxr/secrets/<project>.env` |
 | Mode | `0600` — nobody else on the machine reads it |
 | Format | `NAME="value"`, one per line, **always quoted** |
-| Written by | `secrets set`, `secrets edit`, `secrets import`, the dashboard, or your editor |
+| Written by | `secrets set`, `secrets edit`, `secrets import`, or your editor |
 
 There is deliberately **one** file, and no second hand-edited one layered over the imported
 one. Two files holding the same name is two answers to "what is this project's API key", and
@@ -188,7 +188,7 @@ secrets:
 
 **`keep` does double duty.** It is the allowlist an import filters against, *and* it is the
 project's statement of which credentials it needs at all. That second job is what lets
-`secrets check`, `secrets list` and the dashboard tell you a name is declared and not set —
+`secrets check` and `secrets list` tell you a name is declared and not set —
 and that has to be shown, because a front-end built without its API key does not fail. It
 falls back to whatever its code defaults to, and a default is often a production URL.
 
@@ -278,8 +278,7 @@ refresh.
 
 > [!TIP] A project with nothing to import from is the ordinary case
 > A fresh checkout whose `.env` files are all `.env.example` has no values to import. That is
-> what `secrets set` and the dashboard's panel are for; without them nothing would reach a
-> sandbox at all.
+> what `secrets set` is for; without it nothing would reach a sandbox at all.
 
 ## How it reaches a sandbox
 
@@ -290,7 +289,7 @@ script, before it derives anything of its own.
 Two consequences follow, and both are things people go looking for:
 
 - **A credential the services read at run time is picked up by a restart.** Change the value,
-  then Restart services in the dashboard or `sandboxr stop` and `start`. The container re-reads
+  then `sandboxr stop` and `sandboxr start`. The container re-reads
   the file every time it sets its environment up.
 - **A value baked into a front-end bundle at build time needs a rebuild too** — a `VITE_*`, a
   `NEXT_PUBLIC_*`. It is already in the built files, and nothing in the environment can reach
@@ -338,25 +337,17 @@ stating plainly.
 > [!WARNING] A name the `env:` map also defines is silently overwritten
 > The map is expanded last, so a credential you set under a name the map already claims is
 > replaced by the map's value. Nothing fails. The variable has a value, and it is the wrong
-> one. `secrets list`, `secrets set` and the dashboard all say which names those are, because
-> nothing else would.
+> one. `secrets list` and `secrets set` both say which names those are, because nothing else
+> would.
 
 [Environment variables](../reference/environment.md) has the whole of the sandbox's
 environment, group by group.
 
-## From the dashboard
+## What `secrets` does not touch
 
-A project's page in the dashboard has an **Environment** panel: the same file, as a table of
-names and values with one Save under it. It marks the names the project declares and does not
-have, and the names its own `env:` map will overwrite. An eye beside a row fetches that one
-value — its own request, which the server logs — and pasting a whole `.env` into a name box
-splits it into rows you can check before saving.
-
-It does **not** edit `sandboxr.yaml`. The `env:` map is versioned with the project's code, and
-it is still the only way to wire an internal address such as
+None of these verbs edits `sandboxr.yaml`. The `env:` map is versioned with the project's code,
+and it is still the only way to wire an internal address such as
 `VITE_API_URL: "${SANDBOXR_URL_API}"`.
-
-See [The dashboard](../guides/dashboard.md#the-environment-panel).
 
 ## Public sandboxes get dummy credentials
 
@@ -382,9 +373,8 @@ acme serves public apps, so it may not carry the real credentials in
 An empty file is not a refusal. What matters is whether anything is in it.
 
 It is a refusal rather than a warning because money spent calling somebody's API stays
-spent. The dashboard says the same thing earlier: a project in this state gets a read-only
-Environment panel naming both ways out, rather than a table that would build a file no
-sandbox could start with.
+spent. `secrets check` says the same thing before you ever try to start: it names both ways
+out rather than letting you build a file no sandbox could start with.
 
 Supply harmless values through `env:` instead:
 

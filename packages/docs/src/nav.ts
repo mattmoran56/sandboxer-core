@@ -15,6 +15,11 @@
 // **A label must equal the page's `title` frontmatter** — see AUTHORING.md. The
 // sidebar and the page heading disagreeing is how a reader ends up unsure whether
 // they clicked the right thing.
+//
+// **`docs/jef/` is not in here and must not be.** Those pages are the product's,
+// this site is the engine's, and the two are about to be two repositories. They
+// are excluded from the walk by `NOT_PAGES`, so the rule above still holds for
+// everything this site publishes.
 
 /** One page in the sidebar. `slug` is the empty string for the front page. */
 export interface NavPage {
@@ -58,7 +63,6 @@ export const NAV: readonly NavGroup[] = [
     pages: [
       { slug: "setups", label: "Which setup is yours" },
       { slug: "setups/cli-only", label: "Just the CLI, on my laptop" },
-      { slug: "setups/dashboard-on-a-laptop", label: "The dashboard on my laptop" },
       { slug: "setups/shared-server", label: "On a server, for a team" },
       { slug: "setups/one-repo-many-worktrees", label: "One repo, many branches" },
       { slug: "setups/many-projects", label: "Several repositories at once" },
@@ -71,16 +75,7 @@ export const NAV: readonly NavGroup[] = [
       { slug: "guides/lifecycle", label: "Start, stop, list, clean up" },
       { slug: "guides/edit-and-reload", label: "The edit–reload loop" },
       { slug: "guides/logs-and-shells", label: "Logs, shells and terminals" },
-      { slug: "guides/dashboard", label: "The dashboard" },
-      { slug: "guides/managed-sandboxes", label: "Projects, worktrees and lifetimes" },
       { slug: "guides/testing-a-migration", label: "Testing a migration" },
-      { slug: "guides/agents-in-a-sandbox", label: "Your own agent in a sandbox" },
-      { slug: "guides/agent-sessions", label: "Agent sessions in the dashboard" },
-      { slug: "guides/orchestrator", label: "The orchestrator, voice and Telegram" },
-      // After the orchestrator page rather than before it: the compose file runs
-      // the voice and Telegram sidecars, and a reader who has not met those yet
-      // would be choosing profiles for services they cannot name.
-      { slug: "guides/compose", label: "The whole machine in one file" },
       { slug: "guides/docker-capacity", label: "Giving Docker the whole machine" },
     ],
   },

@@ -103,7 +103,7 @@ Two refusals happen before any work is done, so a typo costs nothing: an unreada
 
 `--ttl` is only the first step of a precedence chain that also reads
 `~/.sandboxr/config.yaml` and `SANDBOXR_TTL_HOURS`. The rules are in
-[Projects, worktrees and lifetimes](managed-sandboxes.md).
+[Environment variables](../reference/environment.md#the-setting-that-is-a-file-not-a-variable).
 
 The URLs `up` prints are `<slug>--<label>--<project>.<domain>`, with the domain defaulting to
 `sbx.localhost` — see [How it works, in five steps](../how-it-works.md). Every field the
@@ -350,9 +350,11 @@ Each sandbox carries a lifetime, and the lifetime measures **idleness rather tha
 **`expire` only ever stops a sandbox. It never removes one.** So it hands back memory and
 CPU and no disk. `--project NAME` limits it to one project.
 
-The rules for how the deadline is worked out, where the ttl comes from, and how to exempt a
-sandbox with `keep`, are all in [Projects, worktrees and
-lifetimes](managed-sandboxes.md).
+Where the ttl comes from is in [Environment
+variables](../reference/environment.md#the-setting-that-is-a-file-not-a-variable). How the
+deadline is worked out, and what counts as use, is in [State lives in
+labels](../architecture/state.md). `keep` and `unkeep` are on [CLI
+commands](../reference/cli.md).
 
 ## `gc` — reap sandboxes whose work is over
 

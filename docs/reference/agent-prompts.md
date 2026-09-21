@@ -63,10 +63,9 @@ up the demo project in examples/demo-worker and confirm the page it serves loads
 Stop and ask me if:
 - Docker is not running, or has under 8 GB of memory available to it.
 - `mkcert` is missing and you would need my password to install its root certificate.
-- You cannot decide what SANDBOXR_PASSWORD should be.
 - `sandboxr doctor` reports anything it does not tell you how to fix.
 
-Tell me the dashboard URL and the demo sandbox's URL when you are done.
+Tell me the demo sandbox's URL when you are done.
 ```
 
 ### Install it
@@ -117,50 +116,14 @@ Sets the machine up with the CLI and no dashboard.
 **From:** [Just the CLI, on my laptop](../setups/cli-only.md)
 
 ```prompt
-Set this machine up to run sandboxr from the command line only, and start a sandbox from the
-repository in this directory.
+Set this machine up to run sandboxr, and start a sandbox from the repository in this directory.
 
 Read docs/getting-started/install.md, then docs/setups/cli-only.md, then work through them.
-Add SANDBOXR_REAP_MINUTES=0 to my shell profile and tell me you did, because nothing enforces a
-sandbox lifetime on a machine whose dashboard is not running.
+Once a sandbox is up, add a cron entry that runs `sandboxr expire` every fifteen minutes and tell
+me what you added — nothing else on this machine enforces a sandbox's lifetime.
 
 Stop and tell me if Docker is not running, if it has under 8 GB of memory, or if this directory
 has no sandboxr.yaml — I will need to write one before anything can start.
-```
-
-### The dashboard on my laptop
-
-Adds the dashboard, with a password.
-
-**Needs first:** you have chosen a password.  
-**From:** [The dashboard on my laptop](../setups/dashboard-on-a-laptop.md)
-
-```prompt
-Bring the sandboxr dashboard up on this machine and give me the URL to open.
-
-Read docs/setups/dashboard-on-a-laptop.md and docs/access.md first. Generate a long random
-password, set SANDBOXR_PASSWORD to it, run `jef init`, then run `sandboxr doctor` and show
-me every line of its output. Tell me the password once, plainly, and tell me where you put it.
-
-Stop and ask me before you write the password into any file that a repository could contain.
-Stop and tell me if `jef init` reports that mkcert's root is not trusted, because that is
-the difference between https and plain http and it needs my password to fix.
-```
-
-### The dashboard
-
-Brings the dashboard up and confirms you can sign in.
-
-**Needs first:** `SANDBOXR_PASSWORD` set, and `sandboxr init` run.  
-**From:** [The dashboard](../guides/dashboard.md)
-
-```prompt
-Bring the sandboxr dashboard up on this machine and tell me the URL to open and how to
-sign in.
-
-Read docs/guides/dashboard.md and docs/access.md. Stop and tell me if no password is
-set, if the dashboard container is not running, or if the browser bundle has not been
-built — do not print the password itself back to me.
 ```
 
 ## Running sandboxes
@@ -307,22 +270,6 @@ Do not run `sandboxr down`, `sandboxr worktree delete`, `sandboxr gc` or
 `sandboxr prune --yes` without asking me first — those four remove things, and
 `worktree delete` removes the directory on disk as well. Stop and tell me if Docker is
 not running.
-```
-
-### Projects, worktrees and lifetimes
-
-Clones a project, starts a sandbox on a branch, and reports its lifetime.
-
-**Needs first:** `gh` signed in, or a clone URL.  
-**From:** [Projects, worktrees and lifetimes](../guides/managed-sandboxes.md)
-
-```prompt
-Clone a repository into the sandboxr workspace and start a sandbox on one of its
-branches, then tell me when that sandbox will stop itself.
-
-Read docs/guides/managed-sandboxes.md and follow it. Stop and tell me if `gh` is not
-signed in on this machine, if the repository is already in the workspace, or if the
-branch does not exist and I have not said what to cut it from.
 ```
 
 ### Cheat sheet
@@ -530,79 +477,7 @@ you run anything. Stop and tell me if the sandbox comes up `degraded`, or if the
 migration fails — do not try to fix my migration unless I ask.
 ```
 
-### Your own agent in a sandbox
-
-Cuts a worktree and a sandbox for a ticket, ready for an agent to work in.
-
-**Needs first:** A repository, and `sandboxr init`.  
-**From:** [Your own agent in a sandbox](../guides/agents-in-a-sandbox.md)
-
-```prompt
-Set me up a worktree and a sandbox for the ticket I am about to describe, then work on
-the branch in that worktree while I watch the app running.
-
-Read docs/guides/agents-in-a-sandbox.md first. Use a new worktree, never my main
-checkout. Stop and tell me the sandbox's URLs once it is up, and stop and ask before
-running anything that would delete a sandbox or touch another one.
-```
-
-### Agent sessions in the dashboard
-
-Opens an agent session on a sandbox from the dashboard.
-
-**Needs first:** The dashboard running, and a credential for Claude Code.  
-**From:** [Agent sessions in the dashboard](../guides/agent-sessions.md)
-
-```prompt
-Open an agent session on this sandbox from the dashboard and tell me what it can and
-cannot reach on this machine.
-
-Read docs/guides/agent-sessions.md first. Check whether this machine has a Claude
-credential the dashboard can use before you try. Stop and tell me if there is none, or
-if opening a session fails — do not put a token anywhere except the dashboard's own
-environment.
-```
-
-### The orchestrator, voice and Telegram
-
-Sets up the orchestrator and proves the parts that do not need a microphone.
-
-**Needs first:** The packages built, and Docker running for summaries.  
-**From:** [The orchestrator, voice and Telegram](../guides/orchestrator.md)
-
-```prompt
-Set up the orchestrator for sandboxr on this machine and prove the parts that do not need
-a microphone.
-
-Read docs/guides/orchestrator.md first. Build every package, run the test suites, and start
-the orchestrator daemon with no voice or Telegram configured so it logs what it would say.
-Point a sandbox session's hooks at the hook bin and show me an escalation appearing in the
-log. Stop and tell me if Docker is not running. Do NOT put any Telegram credential anywhere
-except the sidecar's own environment, and do not attempt a real Telegram call — tell me what
-I would run on my Linux VM for the voice and call parts instead.
-```
-
 ## Looking after the machine
-
-### The whole machine in one file
-
-Brings the router, dashboard, orchestrator and voice sidecar up together with compose.
-
-**Needs first:** Docker running, and the packages built.  
-**From:** [The whole machine in one file](../guides/compose.md)
-
-```prompt
-Bring sandboxr's whole constellation up on this machine with docker compose.
-
-Read docs/guides/compose.md first, then work through it. Copy .env.example to .env and fill in
-the paths, the domain and a dashboard password. Run `jef init --no-start`, then
-`docker compose up -d`, then show me `docker compose ps` and the dashboard URL.
-
-Stop and tell me if Docker is not running, if this machine already has sandboxr containers
-running from a plain `jef init` (they have to be torn down first, and that is my call),
-or if anything asks you for a Telegram credential — those come from my environment and are
-never written to a file.
-```
 
 ### On a server, for a team
 
@@ -655,8 +530,8 @@ localhost.
 
 Read docs/access.md and work through the checklist at the bottom of it. Report, per
 project, its `access.apps`, its `access.credentials`, and which seed source it would
-actually use. Check whether SANDBOXR_PASSWORD is set and whether the router is serving
-https.
+actually use. Then run `sandboxr doctor` and tell me whether the router is serving https
+and what, if anything, is answering on the bare domain.
 
 Stop and tell me — do not change anything — if any project is `public` while seeding from
 a live database or carrying real credentials.
@@ -716,8 +591,8 @@ Read docs/brand.md first, and then packages/tokens/tokens.css, which is where th
 actually live. Build the surface from the semantic tokens — surface, line, ink, ink-muted, brand,
 and the status hues — and never from a hex you typed yourself. Headings are the serif, body is the
 sans, anything a machine cares about is the mono. Draw a panel or a card as a hairline on a
-surface, not as a shadow. Write the wordmark as `Jef` in the dashboard and `sandboxr` on the
-documentation site, with no letterspacing and no tagline.
+surface, not as a shadow. Write the wordmark as `sandboxr`, with no letterspacing and no
+tagline.
 
 Stop and ask me if the surface seems to need a colour the palette does not have, a second
 typeface, a gradient, or the mark redrawn rather than rescaled.

@@ -211,13 +211,6 @@ Keep one sandbox out of the clock's reach with `sandboxr keep <slug>`, and hand 
 `sandboxr unkeep <slug>`. A kept sandbox shows `kept` in the TTL column instead of its limit.
 `sandboxr expire --dry-run` is where you see how much idle time each one has left.
 
-## Doing it from the dashboard instead
-
-The dashboard at `https://sbx.localhost` lists every **worktree** on the machine, grouped by
-project, with the state of the sandbox on each row. It can start a sandbox for a branch that has
-none. For a reviewer who does not want a terminal, that is the whole interface — see
-[The dashboard](../guides/dashboard.md).
-
 **Next:** [Start, stop, list, clean up](../guides/lifecycle.md) — the day-to-day commands in full.
 Or [One repo, many branches](../setups/one-repo-many-worktrees.md), which takes this case further:
 how slugs collide, and how many sandboxes fit on a machine.

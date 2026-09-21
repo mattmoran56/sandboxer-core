@@ -75,9 +75,8 @@ installing mkcert's root.
 
 > [!NOTE] It prepares the bare domain and does not fill it
 > Nothing serves `https://<your domain>` after `sandboxr init`, and the command says so. `sandboxr`
-> is a command-line tool — your sandboxes are reachable on their own hostnames either way. If you
-> want a control plane there, [`jef init`](../guides/dashboard.md) is the command that builds and
-> starts one.
+> is a command-line tool — your sandboxes are reachable on their own hostnames either way. A control
+> plane there is yours to build and start; `init` prints the port it has to listen on.
 
 | Flag | What it does |
 |---|---|
@@ -475,8 +474,8 @@ would overwrite, and commits here that the remote has no equivalent of.
 work at risk; where none is genuinely absent, the worktree is moved onto the rebuilt branch by
 `git checkout` and the outcome is `replaced` rather than `fast-forwarded`. `--json` carries
 `outcome`, `branch`, `detached`, `from`, `to`, `commits` and `refusals`. A file a sandbox's own
-build wrote — `.env.local` beside a package — does not block a pull. See [Projects, worktrees and
-lifetimes](../guides/managed-sandboxes.md).
+build wrote — `.env.local` beside a package — does not block a pull. See
+[Several repositories at once](../setups/many-projects.md).
 
 `worktree add` fetches before it resolves anything, so a new worktree lands on the remote's
 current tip rather than on whatever the last fetch left behind. Where the local branch is behind
@@ -586,7 +585,7 @@ demo
 ```
 
 That is a project-level config, the fallback for a worktree that carries none. See
-[Projects, worktrees and lifetimes](../guides/managed-sandboxes.md).
+[Several repositories at once](../setups/many-projects.md).
 
 ### `sandboxr version` and `sandboxr help`
 

@@ -6,7 +6,21 @@ exists so one file serves both. This file is the contract between the content an
 they disagree, one of them is a bug.
 
 > [!IMPORTANT] This file is not a site page
-> Like `README.md` and `docs/architecture/contracts.md`, it is excluded from the build.
+> Like `README.md`, `docs/architecture/contracts.md` and everything under `docs/jef/`, it is
+> excluded from the build. `NOT_PAGES` in `packages/docs/src/lib/route.ts` is the list.
+
+## Two halves, and the seam between them
+
+**`docs/` is the engine's documentation and `docs/jef/` is Jef's.** The engine is moving to a
+repository of its own and takes `docs/` with it; `docs/jef/` stays behind. That is why the site
+publishes one and not the other, and it makes one rule absolute:
+
+**An engine page may not link to anything under `docs/jef/`.** After the extraction that file is
+not there, and a link to it is a 404 with nobody to notice. Name the product thing in prose
+instead. Jef's pages may link back into `docs/` freely, because Jef keeps the engine as a
+dependency.
+
+Everything below applies to both halves.
 
 ## Who the pages are for
 
@@ -96,6 +110,10 @@ Rules:
 - **Every page a person could arrive at cold opens with one**, immediately after the
   introductory sentences and before the manual instructions. The person who wants their agent to
   do it should never have to scroll.
+- **`docs/reference/agent-prompts.md` collects every engine prompt and `docs/jef/agent-prompts.md`
+  every one of Jef's**, and both are **maintained by hand** — there is no generator and no test.
+  A prompt edited in place has to be edited in its index too, byte for byte, or the two disagree
+  and nothing says so. A prompt that names a page by path must name one that exists.
 
 ### 3. Callouts
 
