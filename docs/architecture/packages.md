@@ -100,7 +100,9 @@ that file is a contract.
 | `access/frontend.ts` | The container on the bare domain: `FRONTEND_LABEL`, `frontendRouteLabels`, `listFrontends` |
 | `access/index.ts` | `initAccess`, `teardownAccess`, `accessStatus`, `ensureBaseImage`. It prepares the bare domain and does not fill it |
 
-Core depends on two runtime packages and nothing else: `yaml` and `zod`.
+Core depends on two runtime packages and nothing else: `yaml` and `zod`. `boundary.test.ts`
+beside them walks every file under `src/`, tests included, and fails with the file, the line and
+the specifier for anything that is not relative, `node:`-prefixed or one of those two.
 
 </details>
 
@@ -132,7 +134,9 @@ a sandbox is, the logic is in the wrong package.
 Human-readable output goes to **stderr**; `--json` puts the result on **stdout**. That split is
 what makes a command pipeable without losing its narration.
 
-The package's only dependency is `@sandboxr/core`.
+The package's only dependency is `@sandboxr/core`, and `src/boundary.test.ts` is the cut-down
+half of core's: the CLI is the engine's whole face, so a product import here would ship in the
+binary a colleague installs.
 
 Every command and flag is listed in [CLI commands](../reference/cli.md).
 
@@ -468,7 +472,7 @@ be invisible.
 |---|---|---|
 | `cli` → `core` | Direct function calls, in process | The CLI passes arguments and prints results. It never computes a name, a path or a state |
 | `server` → `core` | Direct function calls, in process, through `src/core/adapter.ts` only | **Never shells out to the CLI.** A renamed core export is a compile error in that one file |
-| `sessions` → `core` | Direct function calls, in process | One way only. `@sandboxr/core` importing `@jef/sessions` is the boundary failing, not a shortcut |
+| `sessions` → `core` | Direct function calls, in process | One way only, and `packages/core/src/boundary.test.ts` is what says so. `@sandboxr/core` importing `@jef/sessions` is the boundary failing, not a shortcut |
 | `web` ↔ `server` | HTTP and JSON, plus two WebSockets | The server sends facts; the browser writes sentences. Actions are a closed table, never a command in the request |
 | `core` → `container` | `plan.json`, mounted read-only, plus the environment | The plan is fully resolved. The container never merges a default or infers a kind |
 | `core` → Docker | Container labels, mounts, image tags, and the shared network | State lives only in labels. `list`, and which sandboxes `gc` reaps, are pure functions of `docker ps` |
