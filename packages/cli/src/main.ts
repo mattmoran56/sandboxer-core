@@ -1833,10 +1833,16 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
         ? { ok: true, text: `router is up, serving ${access.scheme} on ${access.domain}` }
         : { ok: false, text: "the shared router is not running", fix: "sandboxr init" },
     );
+    // **Not a failed check when it is empty**, and that is the whole reason this
+    // is a list rather than a boolean. The engine serves no control plane
+    // (contracts §7.5), so "nothing is on the bare domain" is the ordinary state
+    // of a machine set up with `sandboxr init` — reporting it as a fault, with
+    // `sandboxr init` as the fix, would send somebody round a loop that cannot
+    // end.
     findings.push(
-      access.dashboardRunning
-        ? { ok: true, text: `dashboard is up at ${access.scheme}://${access.domain}` }
-        : { ok: false, text: "the dashboard is not running", fix: "sandboxr init" },
+      access.frontends.length > 0
+        ? { ok: true, text: `${access.frontends.join(", ")} is serving ${access.url}` }
+        : { ok: true, text: `nothing is serving ${access.url} — sandboxr is a command-line tool` },
     );
     if (access.scheme === "http") {
       findings.push({
@@ -1850,11 +1856,12 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
         fix: "mkcert -install",
       });
     }
-    if (!env.SANDBOXR_PASSWORD) {
+    // Only worth saying when something is actually there to admit nobody.
+    if (access.frontends.length > 0 && !env.SANDBOXR_PASSWORD) {
       findings.push({
         ok: false,
         text: "SANDBOXR_PASSWORD is not set, so the dashboard admits nobody",
-        fix: "export SANDBOXR_PASSWORD=… && sandboxr init",
+        fix: "export SANDBOXR_PASSWORD=… && jef init",
       });
     }
   }

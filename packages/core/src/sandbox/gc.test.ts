@@ -21,10 +21,18 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BASE_IMAGE, DASHBOARD_IMAGE_NAME } from "../access/index.js";
+import { BASE_IMAGE } from "../access/index.js";
 import type { ImageRow } from "../docker.js";
 import { planGc, supersededImages } from "./gc.js";
 import type { Sandbox } from "./types.js";
+
+/**
+ * A name the engine reserves and never builds — see `PROTECTED_IMAGES`.
+ *
+ * Spelled here rather than imported: the image belongs to the product now, and
+ * the engine cannot import the product. The *reservation* is the engine's.
+ */
+const DASHBOARD_IMAGE_NAME = "sandboxr/dashboard";
 
 function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
   return {

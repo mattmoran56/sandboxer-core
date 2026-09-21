@@ -47,6 +47,8 @@
  *   the wait is bounded and a bounded-out call is simply another "no answer".
  */
 
+import { join } from "node:path";
+
 import { nodeRunner, type ExecResult, type Runner } from "./docker.js";
 import type { Project } from "./workspace.js";
 
@@ -907,4 +909,35 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | undefi
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * The host's GitHub token, from the environment or from `gh` itself.
+ *
+ * Here rather than beside the code that mounts it because it is a fact about
+ * *this machine*, like `hostGitIdentity` in ./git.ts, and because on macOS it is
+ * in the login keychain — so only a process on the host can read it out, and a
+ * container asking would get nothing (see access/host-env.ts).
+ *
+ * Never throws and never logs the value: a machine with no gh, or one that is
+ * not logged in, simply has no token, and whoever needs it says so once at start
+ * rather than failing every clone with a confusing git error.
+ */
+export async function hostGhToken(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
+  const declared = env.GH_TOKEN ?? env.GITHUB_TOKEN;
+  if (declared && declared !== "") return declared;
+  try {
+    const result = await nodeRunner("gh", ["auth", "token"]);
+    const token = result.code === 0 ? result.stdout.trim() : "";
+    return token === "" ? undefined : token;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Where gh keeps its configuration, honouring its own override. */
+export function ghConfigDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (env.GH_CONFIG_DIR && env.GH_CONFIG_DIR !== "") return env.GH_CONFIG_DIR;
+  const home = env.HOME;
+  return home && home !== "" ? join(home, ".config", "gh") : undefined;
 }

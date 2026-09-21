@@ -383,21 +383,23 @@ export function imageRepository(project: string): string {
  * Repositories under `sandboxr/` that are the machine's own images rather than
  * any project's layer, and are therefore never reclaimed as superseded.
  *
- * They are the two `init` builds — the base every sandbox runs from and the
- * dashboard — and both are tagged by tool version rather than by content, so the
- * "an older tag means a newer one replaced it" rule the collector applies to
- * project images does not hold for them. Losing either costs a rebuild measured
- * in minutes, and losing the base costs it on the next `up` rather than now,
- * which is the worst moment to discover it.
+ * **These are reserved names, and only the first is the engine's own.** The
+ * engine builds `sandboxr/base`; the other three are a product's — Jef's
+ * dashboard, workstation and orchestrator — and are named here for the same
+ * reason `WORK_VOLUME_PREFIX` is (§3.3): reclamation is the one direction where
+ * an unrecognised name must read as "something holds it", and the engine
+ * promises never to reap one whether or not the thing that built it is
+ * installed.
  *
- * `access/index.ts` spells these out as `BASE_IMAGE`, `DASHBOARD_IMAGE_NAME` and
- * `WORKSTATION_IMAGE_NAME`; a test pins the two lists together so a rename
- * cannot quietly unprotect one.
+ * All four are tagged by tool version rather than by content, so the "an older
+ * tag means a newer one replaced it" rule the collector applies to project
+ * images does not hold for them. Losing any of them costs a rebuild measured in
+ * minutes, and losing the base costs it on the next `up` rather than now, which
+ * is the worst moment to discover it.
  *
- * The workstation image (§12.3) joins them on the same terms. It is tagged by
- * tool version, so an older tag of it is an older *sandboxr* rather than a
- * superseded build — and losing it costs the rebuild at the moment somebody
- * asks for a session, which is the one moment the delay is least welcome.
+ * The workstation image (§12.3) is on the list on the same terms. Losing it
+ * costs the rebuild at the moment somebody asks for a session, which is the one
+ * moment the delay is least welcome.
  *
  * **The orchestrator was missing from this list and that was a real hole**, not a
  * tidiness point. `supersededImages` groups by repository and keeps only the

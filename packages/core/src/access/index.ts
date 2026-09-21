@@ -34,12 +34,10 @@ import { containerDir } from "../install.js";
 import { DEFAULT_DOMAIN, NETWORK } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { TOOL_VERSION } from "../tool-version.js";
-import { claudeHostEnv } from "../agent/credentials.js";
+import { hostGhToken } from "../forge.js";
 import { hostGitIdentity } from "../git.js";
-import { DASHBOARD_CONTAINER, hostGhToken } from "./dashboard.js";
 import { DEFAULT_FRONTEND_CONTAINER, DEFAULT_FRONTEND_PORT, listFrontends } from "./frontend.js";
 import { writeHostEnv } from "./host-env.js";
-import { ORCHESTRATOR_CONTAINER, ORCHESTRATOR_IMAGE_NAME, stopOrchestrator } from "./orchestrator.js";
 import {
   ROUTER_CONTAINER,
   TLS_DIR,
@@ -63,28 +61,11 @@ import {
 
 export * from "./router.js";
 export * from "./frontend.js";
-export * from "./dashboard.js";
 export * from "./host-env.js";
 export * from "./tls.js";
 
 /** The generic base image every sandbox runs from. */
 export const BASE_IMAGE = "sandboxr/base";
-
-/** The dashboard image: Node plus a Docker client. Built by `init`, like the base. */
-export const DASHBOARD_IMAGE_NAME = "sandboxr/dashboard";
-
-/**
- * The workstation image: a session's agent and the tools it works with
- * (contracts §12.3).
- *
- * The exact complement of the base image, which is why it is a third image
- * rather than a variant of either of the other two. Base exists to *run a
- * project* — Caddy, MinIO, s6, and a deliberate absence of any Node runtime; a
- * workstation is a Node runtime and no services whatsoever, so the two share no
- * layer worth sharing. And the dashboard's image ships a Docker client on
- * purpose, which is precisely the image this one must never come to resemble.
- */
-export const WORKSTATION_IMAGE_NAME = "sandboxr/workstation";
 
 export interface InitOptions {
   env?: NodeJS.ProcessEnv | undefined;
@@ -283,143 +264,10 @@ export async function ensureBaseImage(options: {
  * dashboard does nothing else. Keeping the Docker client out of the base is
  * what stops a sandboxed project — or an agent inside one — driving Docker.
  */
-/**
- * Whether this machine wants the orchestrator at all.
- *
- * The same variable the dashboard reads to decide whether to run the engine, so
- * there is one switch rather than two that can disagree — a machine with the
- * panel on and no agent container would offer an instruction box that could
- * never be answered.
- */
-export const orchestratorWanted = (env: NodeJS.ProcessEnv = process.env): boolean =>
-  (env.SANDBOXR_ORCHESTRATOR ?? "").trim() !== "" && env.SANDBOXR_ORCHESTRATOR !== "0";
 
-/**
- * Builds the orchestrator image, which is the dashboard's with Claude Code on it.
- *
- * `base` is passed as a build argument rather than hard-coded in the Dockerfile
- * so the two images cannot drift: whatever tag the dashboard was just built or
- * found at is the tag this is built from, in the same run.
- */
-export async function ensureOrchestratorImage(options: {
-  docker: Docker;
-  base: string;
-  env?: NodeJS.ProcessEnv | undefined;
-  rebuild?: boolean | undefined;
-  log?: ((line: string) => void) | undefined;
-}): Promise<string> {
-  const env = options.env ?? process.env;
-  const log = options.log ?? (() => undefined);
-  const tag = `${ORCHESTRATOR_IMAGE_NAME}:${TOOL_VERSION}`;
 
-  if (!options.rebuild && (await options.docker.imageExists(tag))) return tag;
 
-  const context = containerDir(env);
-  log(`Building ${tag}`);
-  await options.docker.ok(
-    [
-      "build",
-      "-f",
-      `${context}/orchestrator/Dockerfile`,
-      "--build-arg",
-      `BASE=${options.base}`,
-      "-t",
-      tag,
-      "-t",
-      `${ORCHESTRATOR_IMAGE_NAME}:latest`,
-      ...archBuildArgs(),
-      context,
-    ],
-    { timeoutMs: 15 * 60_000 },
-  );
-  log(`Built ${tag}`);
-  return tag;
-}
 
-/**
- * Builds the workstation image if it is not already here.
- *
- * Tagged by tool version rather than content-addressed like the base, which is
- * the dashboard's arrangement and the right one here for the same reason: the
- * image is one of the machine's own, so `PROTECTED_IMAGES` keeps every tag of it
- * and "an older tag means a newer one replaced it" does not hold.
- *
- * **Not built by `init`.** Every other image on that list is a prerequisite of
- * the next thing somebody does — the first `up` fails without a base — and a
- * workstation is not: a machine that never creates a session never needs one,
- * and this image carries a full `claude` install. So it is built the first time
- * a session is created, which is `ensureProjectImage`'s bargain rather than
- * `ensureBaseImage`'s, and the one line of log below is the whole of the warning
- * a person gets. Revisit when a session is the ordinary way to start work.
- */
-export async function ensureWorkstationImage(options: {
-  docker: Docker;
-  env?: NodeJS.ProcessEnv | undefined;
-  rebuild?: boolean | undefined;
-  log?: ((line: string) => void) | undefined;
-}): Promise<string> {
-  const env = options.env ?? process.env;
-  const log = options.log ?? (() => undefined);
-  const tag = `${WORKSTATION_IMAGE_NAME}:${TOOL_VERSION}`;
-
-  if (!options.rebuild && (await options.docker.imageExists(tag))) return tag;
-
-  const context = containerDir(env);
-  log(`Building ${tag} (a few minutes the first time)`);
-  await options.docker.ok(
-    [
-      "build",
-      "-f",
-      `${context}/workstation/Dockerfile`,
-      "-t",
-      tag,
-      "-t",
-      `${WORKSTATION_IMAGE_NAME}:latest`,
-      // Not optional, for the reason every build here passes it: `TARGETARCH` is
-      // a BuildKit built-in the legacy builder never sets, and this Dockerfile
-      // puts the resolved architecture straight into a download URL — so an
-      // unresolved one is a 404 that reads as a broken mirror rather than as
-      // anything mentioning architecture.
-      ...archBuildArgs(),
-      context,
-    ],
-    { timeoutMs: 20 * 60_000 },
-  );
-  log(`Built ${tag}`);
-  return tag;
-}
-
-export async function ensureDashboardImage(options: {
-  docker: Docker;
-  env?: NodeJS.ProcessEnv | undefined;
-  rebuild?: boolean | undefined;
-  log?: ((line: string) => void) | undefined;
-}): Promise<string> {
-  const env = options.env ?? process.env;
-  const log = options.log ?? (() => undefined);
-  const tag = `${DASHBOARD_IMAGE_NAME}:${TOOL_VERSION}`;
-
-  if (!options.rebuild && (await options.docker.imageExists(tag))) return tag;
-
-  const context = containerDir(env);
-  log(`Building ${tag}`);
-  await options.docker.ok(
-    [
-      "build",
-      "-f",
-      `${context}/dashboard/Dockerfile`,
-      "-t",
-      tag,
-      "-t",
-      `${DASHBOARD_IMAGE_NAME}:latest`,
-      ...archBuildArgs(),
-      context,
-    ],
-    { timeoutMs: 10 * 60_000 },
-  );
-  log(`Built ${tag}`);
-  return tag;
-}
 
 /**
  * Sets the machine up: directories, network, base image, certificate, router,
@@ -519,11 +367,11 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   await writeHostEnv({
     env,
     facts: { ghToken, gitIdentity },
-    // The keys the *product* has to look up here, named by the product rather
-    // than by the engine (contracts §11). Both are Claude's: a path on the host
-    // filesystem the dashboard cannot see, and the setup token under the name
-    // Claude Code itself reads. They leave with `jef init`.
-    extra: { ...claudeHostEnv(env), ...(options.hostEnvExtra ?? {}) },
+    // Whatever the caller had to look up here and the engine has no name for
+    // (contracts §11). `jef init` passes Claude's two: a path on the host
+    // filesystem the dashboard container cannot see, and the setup token under
+    // the name Claude Code itself reads.
+    extra: options.hostEnvExtra ?? {},
   });
 
   // --- the router ---------------------------------------------------------------
@@ -609,7 +457,6 @@ export async function teardownAccess(options: TeardownOptions = {}): Promise<{ r
   const log = options.log ?? (() => undefined);
   const removed: string[] = [];
 
-  await stopOrchestrator(docker).catch(() => undefined);
   // Whatever is on the bare domain, found by its label rather than by a name the
   // engine would have to know (contracts §7.5). A machine with no front end has
   // none of these and the loop does nothing.
@@ -637,11 +484,21 @@ export async function teardownAccess(options: TeardownOptions = {}): Promise<{ r
 export interface AccessStatus {
   domain: string;
   routerRunning: boolean;
-  dashboardRunning: boolean;
+  /**
+   * Every container claiming the bare domain, by name (contracts §7.5).
+   *
+   * A list rather than a boolean, and read from the label rather than from a
+   * name the engine would have to know. **Empty is not a fault**: the engine
+   * serves no control plane, so a machine with nothing here is a machine that
+   * has not been given one. Whoever reports this has to say that rather than
+   * calling it a failed check.
+   */
+  frontends: string[];
   /** The scheme the router is actually configured for, read from its own state. */
   scheme: "http" | "https";
   ports: RouterPorts;
-  dashboardUrl: string;
+  /** The bare domain, whether or not anything is serving it. */
+  url: string;
   certificatePresent: boolean;
   certificateTrusted: boolean;
   baseImagePresent: boolean;
@@ -661,10 +518,10 @@ export async function accessStatus(options: { env?: NodeJS.ProcessEnv; docker?: 
   return {
     domain,
     routerRunning: await docker.containerRunning(ROUTER_CONTAINER),
-    dashboardRunning: await docker.containerRunning(DASHBOARD_CONTAINER),
+    frontends: await listFrontends(docker),
     scheme,
     ports,
-    dashboardUrl: `${scheme}://${domain}${portSuffix(scheme, ports)}`,
+    url: `${scheme}://${domain}${portSuffix(scheme, ports)}`,
     certificatePresent,
     certificateTrusted: certificatePresent ? await caTrusted({ env }) : false,
     baseImagePresent:

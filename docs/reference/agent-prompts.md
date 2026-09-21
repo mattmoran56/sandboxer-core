@@ -132,18 +132,18 @@ has no sandboxr.yaml — I will need to write one before anything can start.
 
 Adds the dashboard, with a password.
 
-**Needs first:** `sandboxr init` has been run, and you have chosen a password.  
+**Needs first:** you have chosen a password.  
 **From:** [The dashboard on my laptop](../setups/dashboard-on-a-laptop.md)
 
 ```prompt
 Bring the sandboxr dashboard up on this machine and give me the URL to open.
 
 Read docs/setups/dashboard-on-a-laptop.md and docs/access.md first. Generate a long random
-password, set SANDBOXR_PASSWORD to it, run `sandboxr init`, then run `sandboxr doctor` and show
+password, set SANDBOXR_PASSWORD to it, run `jef init`, then run `sandboxr doctor` and show
 me every line of its output. Tell me the password once, plainly, and tell me where you put it.
 
 Stop and ask me before you write the password into any file that a repository could contain.
-Stop and tell me if `sandboxr init` reports that mkcert's root is not trusted, because that is
+Stop and tell me if `jef init` reports that mkcert's root is not trusted, because that is
 the difference between https and plain http and it needs my password to fix.
 ```
 
@@ -595,11 +595,11 @@ Brings the router, dashboard, orchestrator and voice sidecar up together with co
 Bring sandboxr's whole constellation up on this machine with docker compose.
 
 Read docs/guides/compose.md first, then work through it. Copy .env.example to .env and fill in
-the paths, the domain and a dashboard password. Run `sandboxr init --no-start`, then
+the paths, the domain and a dashboard password. Run `jef init --no-start`, then
 `docker compose up -d`, then show me `docker compose ps` and the dashboard URL.
 
 Stop and tell me if Docker is not running, if this machine already has sandboxr containers
-running from a plain `sandboxr init` (they have to be torn down first, and that is my call),
+running from a plain `jef init` (they have to be torn down first, and that is my call),
 or if anything asks you for a Telegram credential — those come from my environment and are
 never written to a file.
 ```

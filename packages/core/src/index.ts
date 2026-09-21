@@ -97,7 +97,7 @@ export type { DeriveSlugInput, HostParts, VolumePurpose } from "./naming.js";
 
 export { WORKTREES_DIR, canonicalPath, directoriesOf, isInside, paths, samePath, type Paths } from "./paths.js";
 
-export { docker, createDocker, DockerError, type Docker, type ExecResult } from "./docker.js";
+export { archBuildArgs, docker, createDocker, DockerError, type Docker, type ExecResult } from "./docker.js";
 export type { BuildCacheRow, DiskUsage, ImageRow, VolumeRow } from "./docker.js";
 
 export type { DatabaseDriver, DriverContext, MigrateResult, SeedArtifact } from "./drivers/types.js";
@@ -195,6 +195,7 @@ export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.
 export { planSessionExpiry, sessionDeadlineOf } from "./session/expiry.js";
 export type { SessionExpiryCandidate, SessionExpiryInput, SessionExpiryPlan } from "./session/expiry.js";
 export { expireSessions } from "./session/expire.js";
+export { WORKSTATION_IMAGE_NAME, ensureWorkstationImage } from "./session/image.js";
 export type { ExpireSessionsOptions } from "./session/expire.js";
 export {
   CLONE_SCRIPT,
@@ -321,6 +322,8 @@ export {
   alreadyAdded,
   createPullIndex,
   ghAvailable,
+  ghConfigDir,
+  hostGhToken,
   indexByBranch,
   listPullRequests,
   listRemoteRepos,
@@ -346,13 +349,19 @@ export { LABELS, labelsFor, sandboxFromLabels, deriveState } from "./sandbox/lab
 
 export {
   BASE_IMAGE,
-  DASHBOARD_CONTAINER,
-  DASHBOARD_IMAGE_NAME,
-  DASHBOARD_PORT,
-  WORKSTATION_IMAGE_NAME,
-  ensureWorkstationImage,
   ROUTER_CONTAINER,
   ROUTER_IMAGE,
+  AUTH_MIDDLEWARE,
+  HANDSHAKE_PATH,
+  HANDSHAKE_PRIORITY,
+  HANDSHAKE_ROUTER,
+  handshakeRule,
+  regexLiteral,
+  HOST_ENV_KEYS,
+  hostEnvironment,
+  formatHostEnv,
+  writeHostEnv,
+  HostEnvError,
   FRONTEND_LABEL,
   DEFAULT_FRONTEND_PORT,
   DEFAULT_FRONTEND_CONTAINER,
@@ -360,7 +369,6 @@ export {
   listFrontends,
   accessStatus,
   caTrusted,
-  dashboardArgs,
   domainOf,
   routerScheme,
   ensureBaseImage,
@@ -374,22 +382,11 @@ export {
   routeLabels,
   sandboxRouteLabels,
   sandboxRule,
-  startDashboard,
   startRouter,
-  stopDashboard,
   stopRouter,
   teardownAccess,
 } from "./access/index.js";
 export type { AccessReport, AccessStatus, Certificate, FrontendRoute, InitOptions, TeardownOptions } from "./access/index.js";
-export {
-  ORCHESTRATOR_CONTAINER,
-  ORCHESTRATOR_IMAGE_NAME,
-  orchestratorArgs,
-  startOrchestrator,
-  stopOrchestrator,
-} from "./access/orchestrator.js";
-export type { OrchestratorInput, StartOrchestratorOptions } from "./access/orchestrator.js";
-
 export {
   BLOCKS,
   ImageError,
@@ -405,7 +402,7 @@ export {
 } from "./image.js";
 export type { BuiltImage, RenderInput, StagedFile } from "./image.js";
 
-export { InstallError, containerDir, dashboardEntry, installRoot } from "./install.js";
+export { InstallError, containerDir, installRoot } from "./install.js";
 
 export {
   checkSecrets,
@@ -436,7 +433,13 @@ export type {
 export type { SecretsCheck, SecretsReport, SecretRules } from "./secrets.js";
 
 export { gitFacts, gitMounts, hostGitIdentity, type GitFacts, type GitIdentity } from "./git.js";
-export { CREDENTIALS_ENV, claudeConfigDir, hostClaudeCredentials } from "./agent/credentials.js";
+export {
+  CLAUDE_HOST_ENV_KEYS,
+  CREDENTIALS_ENV,
+  claudeConfigDir,
+  claudeHostEnv,
+  hostClaudeCredentials,
+} from "./agent/credentials.js";
 
 export { MAIN_THREAD } from "./agent/types.js";
 export type {

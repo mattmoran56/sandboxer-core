@@ -2904,7 +2904,7 @@ already performs, done once rather than in YAML. Both services load the file, so
 sees that token under a second name; it is the same secret §7.2 already gives it, and the login
 kept out of the web server is the *credentials file*, which remains a path here and a mount there.
 
-**`sandboxr init --no-start` is the prerequisite, and it is not optional.** The directories, the
+**`jef init --no-start` is the prerequisite, and it is not optional.** The directories, the
 three images, the certificate, the router's own configuration under `state/` and `host.env` are
 all things no compose file can produce. `--no-start` exists because the alternative is `init`
 starting containers under the names compose then wants, which fails as "container name is already

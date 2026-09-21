@@ -42,8 +42,11 @@ commit message.
 **What it owns.** Everything. Reading and validating `sandboxr.yaml`. Deriving slugs, hostnames,
 container names, volume names and image tags. Emitting [`plan.json`](plan-json.md). Building the
 project's image layer. Working out the `docker run` arguments, the mounts and the memory limit.
-The four database drivers. The shared router, the certificates and the dashboard container. The
-git and GitHub plumbing. The lifecycle verbs. The agent-session machinery.
+The four database drivers. The shared router and the certificates. The git and GitHub plumbing.
+The lifecycle verbs. The agent-session machinery.
+
+**Not** the dashboard container, the orchestrator container or the images for either. Those are
+Jef's, in `packages/server/src/machine/`, and `jef init` is what starts them (contracts §7.5).
 
 **Its public surface** is one file: `packages/core/src/index.ts`. Nothing outside that file is
 a contract.
@@ -91,8 +94,7 @@ that file is a contract.
 | `access/router.ts` | The shared router: its labels, its rules, its config, `startRouter`, `stopRouter` |
 | `access/tls.ts` | mkcert: `issueCertificate`, `caTrusted`, and `baseCertificateNames` — the machine's one certificate |
 | `access/frontend.ts` | The container on the bare domain: `FRONTEND_LABEL`, `frontendRouteLabels`, `listFrontends` |
-| `access/dashboard.ts` | The dashboard container's own `docker run` arguments |
-| `access/index.ts` | `initAccess`, `teardownAccess`, `accessStatus`, `ensureBaseImage` |
+| `access/index.ts` | `initAccess`, `teardownAccess`, `accessStatus`, `ensureBaseImage`. It prepares the bare domain and does not fill it |
 | `agent/` | Claude Code sessions: the stream parser, the transcript store, the launch arguments, permissions and grants |
 
 Core depends on two runtime packages and nothing else: `yaml` and `zod`.
@@ -140,11 +142,18 @@ table of actions and their streamed output. The log stream. The terminal WebSock
 WebSocket. The reaper that stops sandboxes past their idle limit. It also serves the browser
 app's built bundle and one HTML shell.
 
+**And the machine Jef runs on**, in `src/machine/`: the dashboard container, the orchestrator
+container, the images for both, and `initJef` — which is `sandboxr init` plus the containers that
+make the bare domain answer. `jef init` is its bin. It lives here because the server is the thing
+being deployed: `dashboardArgs` puts `packages/server/dist/bin.js` on a `node` command line, and a
+package that knew how to start it from outside would be a second copy of what this one already is.
+
 **Its public surface** is `packages/server/src/index.ts`: `createServer`, `createApp`,
 `loadServerConfig`, the action table, the session and password types, and its own thin Docker
 client.
 
-**Who calls it.** The browser, over HTTP. And `sandboxr-server`, its own binary.
+**Who calls it.** The browser, over HTTP. And its own two binaries: `sandboxr-server`, which runs
+the dashboard, and `jef`, whose one verb is `jef init`.
 
 **What it may never do.** Shell out to the `sandboxr` command. Reach core anywhere except through
 `src/core/adapter.ts`. Offer a generic "run this command" endpoint. Render a sentence the browser

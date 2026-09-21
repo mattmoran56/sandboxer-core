@@ -15,8 +15,18 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BASE_IMAGE, DASHBOARD_IMAGE_NAME, WORKSTATION_IMAGE_NAME } from "../access/index.js";
-import { ORCHESTRATOR_IMAGE_NAME } from "../access/orchestrator.js";
+import { BASE_IMAGE } from "../access/index.js";
+
+/**
+ * Names the engine reserves and never builds — see `PROTECTED_IMAGES`.
+ *
+ * Spelled here rather than imported, because they live in the product now and
+ * the engine cannot import the product. The reservation is the engine's; what is
+ * behind each name is not its business.
+ */
+const DASHBOARD_IMAGE_NAME = "sandboxr/dashboard";
+const WORKSTATION_IMAGE_NAME = "sandboxr/workstation";
+const ORCHESTRATOR_IMAGE_NAME = "sandboxr/orchestrator";
 import type { BuildCacheRow, ImageRow, VolumeRow } from "../docker.js";
 import { PROTECTED_IMAGES } from "../naming.js";
 import { formatBytes, planPrune } from "./prune.js";
@@ -156,9 +166,11 @@ describe("planPrune images", () => {
     expect(plan.images).toEqual([]);
   });
 
-  // A rename of either constant would otherwise unprotect it silently, and the
-  // symptom would be a base image removed from under the next `up`.
-  it("protects exactly the repositories access names", () => {
+  // A rename would otherwise unprotect one silently, and the symptom would be a
+  // base image removed from under the next `up`. Only the first is the engine's
+  // own build; the other three are names it *reserves* on the embedder's behalf,
+  // exactly as `WORK_VOLUME_PREFIX` reserves a volume prefix (contracts §3.3).
+  it("protects exactly the four reserved repositories", () => {
     expect([...PROTECTED_IMAGES]).toEqual([
       BASE_IMAGE,
       DASHBOARD_IMAGE_NAME,

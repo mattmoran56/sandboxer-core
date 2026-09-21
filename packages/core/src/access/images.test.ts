@@ -1,9 +1,6 @@
 // Tests for the images `init` builds, and what each one's digest covers:
 // - baseImageTag is a function of container/, so editing a base input moves it
 // - baseImageTag ignores container/workstation/, container/project/ and container/examples/
-// - ensureWorkstationImage builds container/workstation/Dockerfile, version-tagged and :latest
-// - ensureWorkstationImage passes TARGETARCH, which the legacy builder never sets
-// - ensureWorkstationImage does nothing when the tag is already here, and rebuilds when told to
 // - initAccess builds the base image and no product's: it prepares the bare domain
 //   and does not fill it (contracts §7.5)
 // - initAccess reports where a front end must listen, and says that nothing is
@@ -17,15 +14,18 @@ import { describe, expect, it } from "vitest";
 
 import type { Docker } from "../docker.js";
 import { TOOL_VERSION } from "../tool-version.js";
-import {
-  BASE_IMAGE,
-  DASHBOARD_IMAGE_NAME,
-  DEFAULT_FRONTEND_PORT,
-  WORKSTATION_IMAGE_NAME,
-  baseImageTag,
-  ensureWorkstationImage,
-  initAccess,
-} from "./index.js";
+import { BASE_IMAGE, DEFAULT_FRONTEND_PORT, baseImageTag, initAccess } from "./index.js";
+/**
+ * The product's image names, spelled here rather than imported.
+ *
+ * They belong to the product now — the dashboard's to
+ * `packages/server/src/machine/images.ts`, the workstation's to
+ * `../session/image.ts` — and these are names the engine must *not* build, so a
+ * literal is the honest form of the assertion. `PROTECTED_IMAGES` in
+ * ../naming.ts is where the same strings are reserved.
+ */
+const DASHBOARD_IMAGE_NAME = "sandboxr/dashboard";
+const WORKSTATION_IMAGE_NAME = "sandboxr/workstation";
 
 /** An installation whose `container/` holds one file in each directory that matters. */
 async function installation(): Promise<NodeJS.ProcessEnv> {
@@ -67,44 +67,6 @@ describe("baseImageTag", () => {
     const before = await baseImageTag(env);
     await writeFile(join(env.SANDBOXR_INSTALL as string, "container", dir, "Dockerfile"), "# changed\n", "utf8");
     expect(await baseImageTag(env)).toBe(before);
-  });
-});
-
-describe("ensureWorkstationImage", () => {
-  it("builds the workstation Dockerfile, version-tagged and latest", async () => {
-    const env = await installation();
-    const fake = fakeDocker();
-    const tag = await ensureWorkstationImage({ docker: fake.docker, env });
-
-    expect(tag).toBe(`${WORKSTATION_IMAGE_NAME}:${TOOL_VERSION}`);
-    const build = fake.builds[0] as string[];
-    expect(build[0]).toBe("build");
-    expect(build).toContain(join(env.SANDBOXR_INSTALL as string, "container", "workstation", "Dockerfile"));
-    expect(build).toContain(tag);
-    expect(build).toContain(`${WORKSTATION_IMAGE_NAME}:latest`);
-  });
-
-  // `TARGETARCH` is a BuildKit built-in the legacy builder never sets, and this
-  // Dockerfile puts the resolved architecture straight into a download URL — so
-  // an unresolved one is a 404 that reads as a broken mirror.
-  it("passes the architecture the legacy builder would not", async () => {
-    const env = await installation();
-    const fake = fakeDocker();
-    await ensureWorkstationImage({ docker: fake.docker, env });
-    expect((fake.builds[0] as string[]).join(" ")).toContain("TARGETARCH=");
-  });
-
-  it("builds nothing when the tag is already here, and rebuilds when told to", async () => {
-    const env = await installation();
-    const present = [`${WORKSTATION_IMAGE_NAME}:${TOOL_VERSION}`];
-
-    const found = fakeDocker(present);
-    await ensureWorkstationImage({ docker: found.docker, env });
-    expect(found.builds).toEqual([]);
-
-    const forced = fakeDocker(present);
-    await ensureWorkstationImage({ docker: forced.docker, env, rebuild: true });
-    expect(forced.builds).toHaveLength(1);
   });
 });
 

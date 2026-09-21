@@ -14,7 +14,6 @@ import {
   ROUTER_CONTAINER,
   domainOf,
   ensureBaseImage,
-  hostGhToken,
   listFrontends,
   portSuffix,
   routerPorts,
@@ -33,6 +32,7 @@ import { driverContext, getDriver } from "../drivers/index.js";
 import { chooseSeed } from "../drivers/seed.js";
 import { describeSeedChoice, mysqlSettings } from "../drivers/mysql.js";
 import type { SeedArtifact } from "../drivers/types.js";
+import { hostGhToken } from "../forge.js";
 import { gitFacts, gitMounts, hostGitIdentity } from "../git.js";
 import { findProject, projectDirectories } from "../workspace.js";
 import { addWorktree } from "../worktree.js";
