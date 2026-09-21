@@ -11,6 +11,10 @@
 // - up: keys config.yaml on the workspace directory as well as the declared project:
 // - up: says once that this project's sandboxes carry no GitHub token, and names both reasons push fails
 // - up: a failed provision leaves the sandbox up and reports the failure
+// - up on a provided workspace: the caller's mounts replace the worktree bind, and
+//   no gitMounts pair is added
+// - up on a provided workspace: the slug, the workspace name, the git facts, the
+//   extra labels and the "Starting … from" line all come from the caller
 // - reload: a backend build failure leaves the running process alone; a success restarts it
 // - reload: `all` covers the build-everything set, `built` covers what the sandbox has built, a name covers one app
 // - reload: a served front-end is restarted rather than built
@@ -636,6 +640,90 @@ describe("up", () => {
     await expect(
       up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home }, replace: false }),
     ).rejects.toThrow(/already exists/);
+  });
+
+  // The inversion (./provided.ts). The engine is handed a `/workspace` somebody
+  // else resolved — mounts, git facts, a slug, a directory of manifests — and
+  // starts a sandbox on it without knowing where any of it came from. Every
+  // field is asserted through the one thing that is observable from outside:
+  // the `docker run` vector.
+  describe("on a workspace somebody else resolved", () => {
+    const provided = {
+      slug: "eng-3941-web",
+      // Somewhere in /tmp that is never mounted anywhere. The config is passed
+      // explicitly here, so nothing reads it; the point is that the worktree
+      // bind below is the caller's mounts and not this path.
+      manifests: "/tmp/staged-xyz",
+      workspace: "/work/acme/main",
+      facts: { branch: "feat/thing", commit: "abc1234", dirty: true, worktree: "/work/acme/main", directory: "main" },
+      mounts: ["-v", "sandboxr-work-eng-3941:/work", "--mount", "type=volume,src=sandboxr-work-eng-3941,dst=/workspace"],
+      labels: { "sandboxr.session": "eng-3941" },
+      from: "acme/feat/thing@abc1234 in session eng-3941",
+    };
+
+    const startProvided = async () => {
+      const { home } = await worktree();
+      const { docker, argsOf } = fakeDocker({
+        running: true,
+        exists: false,
+        exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
+      });
+      const lines: string[] = [];
+      await up({
+        config: configOf(),
+        workspace: provided,
+        docker,
+        log: (line) => lines.push(line),
+        env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
+      });
+      return { args: (argsOf("ok")[0]?.[0] ?? []) as string[], lines };
+    };
+
+    // The mount vector is the whole of the inversion: whatever the caller gave
+    // replaces the worktree bind, and the engine adds nothing of its own to it.
+    it("mounts what it was given, and does not bind a worktree", async () => {
+      const { args } = await startProvided();
+      for (const mount of provided.mounts) expect(args).toContain(mount);
+      expect(args.some((arg) => arg.endsWith(":/workspace"))).toBe(false);
+      expect(args.some((arg) => arg.includes("/tmp/staged-xyz"))).toBe(false);
+    });
+
+    // `gitMounts` exists for a linked worktree's `.git` file naming an absolute
+    // host path. A workspace the caller resolved is its own business, and the
+    // engine has no checkout to read to find out what is in it.
+    it("adds none of gitMounts' identical-path pairs", async () => {
+      const { args } = await startProvided();
+      // What `gitMounts` produces is a mount whose host path and container path
+      // are the same string — that is the whole of the trick, and the whole of
+      // what must not be here.
+      const identical = args.filter((arg) => {
+        const split = arg.indexOf(":");
+        return split > 0 && arg.slice(0, split) === arg.slice(split + 1).replace(/:ro$/, "");
+      });
+      expect(identical).toEqual([]);
+    });
+
+    it("takes the slug, the workspace name and the git facts from the caller", async () => {
+      const { args } = await startProvided();
+      expect(args).toContain(`${LABELS.slug}=eng-3941-web`);
+      expect(args).toContain(`${LABELS.worktree}=/work/acme/main`);
+      expect(args).toContain(`${LABELS.branch}=feat/thing`);
+      expect(args).toContain(`${LABELS.commit}=abc1234`);
+      expect(args).toContain(`${LABELS.dirty}=true`);
+      expect(args).toContain("sandboxr-acme-eng-3941-web");
+    });
+
+    // Merged over the engine's, so an embedder can carry a group id the engine
+    // has nothing to compute (contracts §3.4).
+    it("merges the caller's labels over its own", async () => {
+      const { args } = await startProvided();
+      expect(args).toContain("sandboxr.session=eng-3941");
+    });
+
+    it("says what the caller said it was starting from", async () => {
+      const { lines } = await startProvided();
+      expect(lines).toContain("Starting eng-3941-web from acme/feat/thing@abc1234 in session eng-3941 (dirty)");
+    });
   });
 });
 

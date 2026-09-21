@@ -10,7 +10,7 @@
 import type { ResolvedConfig } from "../config/types.js";
 import type { Docker } from "../docker.js";
 import type { SeedSource } from "../drivers/types.js";
-import type { RuntimeRequest } from "../session/runtime.js";
+import type { ProvidedWorkspace } from "./provided.js";
 
 export type SandboxState = "stopped" | "starting" | "running" | "degraded";
 
@@ -95,16 +95,23 @@ export interface CommonOptions {
 
 export interface UpOptions extends CommonOptions {
   /**
-   * Start a **session's runtime** instead: a sandbox whose `/workspace` is a
-   * checkout in the session's work volume (contracts §12.4).
+   * Start on a `/workspace` the caller resolved, instead of on a host worktree.
    *
-   * Every other option still means what it says — a runtime is a sandbox — with
-   * two exceptions it makes no sense to combine with. `worktree`, `project` and
-   * `branch` are about finding a checkout on the host, and a session has none;
-   * `slug` is ignored, because a runtime's slug is a pure function of the
-   * session and the runtime name (§12.2) and nothing may give it another.
+   * Every other option still means what it says — this is a sandbox — with two
+   * exceptions it makes no sense to combine with. `worktree`, `project` and
+   * `branch` are about finding a checkout on the host, and a caller supplying
+   * one of these has none; `slug` is ignored, because the workspace brings its
+   * own and nothing may give it another. See ./provided.ts.
    */
-  runtime?: RuntimeRequest | undefined;
+  workspace?: ProvidedWorkspace | undefined;
+  /**
+   * The image this project's layer is built on. Defaults to `sandboxr/base`.
+   *
+   * For an embedder that ships a base of its own — one with an agent's
+   * toolchain in it, say — layered `FROM sandboxr/base` so every rule about
+   * what a sandbox's base has to contain still holds.
+   */
+  baseImage?: string | undefined;
   /** The worktree to run. Defaults to the directory the config was found in. */
   worktree?: string | undefined;
   /**

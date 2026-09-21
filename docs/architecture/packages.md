@@ -79,6 +79,7 @@ that file is a contract.
 | `workspace.ts` | The managed workspace: `cloneProject`, `listProjects`, `findProject`, `fetchProject` |
 | `worktree.ts` | Listing, adding and removing worktrees, and what a worktree reports |
 | `sandbox/index.ts` | The lifecycle: `up`, `down`, `start`, `stop`, `list`, `status`, `reload`, `expire`, `gc`, `prune` |
+| `sandbox/provided.ts` | `ProvidedWorkspace`: a `/workspace` somebody else resolved, for a sandbox whose code the host has no checkout of |
 | `sandbox/labels.ts` | The label scheme, and `deriveState` |
 | `sandbox/run.ts` | The `docker run` argument list, every mount, and the memory limit |
 | `sandbox/layout.ts` | The container-side paths the host must agree with |

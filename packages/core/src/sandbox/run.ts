@@ -88,14 +88,15 @@ export interface RunInput {
   /**
    * Where `/workspace` comes from, when it does not come from a host worktree.
    *
-   * A session's runtime gets its checkout from the work volume — `/work` whole
-   * and `/work/<repo>/<branch>` by subpath at `/workspace` — so there is no host
-   * path to bind and none of `gitMounts` applies. `runtimeWorkspaceArgs` in
-   * ../session/runtime.ts builds these, and the note at the top of that file is
-   * where the reasoning lives. Present means `worktree` and `gitMounts` are not
-   * read at all; absent is the worktree sandbox, unchanged.
+   * A `ProvidedWorkspace` brings its own mount vector (./provided.ts), because
+   * the engine has no checkout on the host to bind and cannot know what a
+   * caller's workspace is made of. Jef's runtime mounts a work volume — `/work`
+   * whole and `/work/<repo>/<branch>` by subpath at `/workspace` — through
+   * `runtimeWorkspaceArgs` in ../session/runtime.ts, and the note at the top of
+   * that file is where the reasoning lives. Present means `worktree` and
+   * `gitMounts` are not read at all; absent is the worktree sandbox, unchanged.
    */
-  workspaceMounts?: string[] | undefined;
+  workspaceMounts?: readonly string[] | undefined;
   /**
    * Who a commit made inside the sandbox is by. A sandbox has no `~/.gitconfig`
    * and git refuses to commit without this — see `hostGitIdentity`.

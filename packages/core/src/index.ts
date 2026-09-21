@@ -223,7 +223,7 @@ export { readableBranch, sessionNameForWorktree } from "./session/adopt-name.js"
 export type { WorktreeNameInput } from "./session/adopt-name.js";
 export { captureWorktreeChanges, carryIntoWork, CarryError } from "./session/carry.js";
 export type { WorktreeChanges } from "./session/carry.js";
-export { RuntimeError, runtimeSlug, runtimeWorkspaceArgs, stageRuntime } from "./session/runtime.js";
+export { RuntimeError, runtimeSlug, runtimeWorkspaceArgs, stageRuntime, startRuntime } from "./session/runtime.js";
 export type { RuntimeRequest, StagedRuntime } from "./session/runtime.js";
 
 export { formatBytes, planPrune } from "./sandbox/prune.js";
@@ -231,6 +231,7 @@ export type { PrunableImage, PrunableVolume, PruneInput, PrunePlan, PruneResult 
 export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js";
 export { ATTACH_HEARTBEAT_MS, attachFileFor, markAttached } from "./sandbox/attach.js";
 export type { AttachOptions } from "./sandbox/attach.js";
+export type { ProvidedWorkspace } from "./sandbox/provided.js";
 export {
   ATTACH_LIVE_GRACE_MS,
   DEFAULT_ACTIVITY_WINDOW,

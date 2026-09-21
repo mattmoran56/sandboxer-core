@@ -3262,6 +3262,14 @@ addressed today** — `/p/:project/s/:slug`, and the action scopes of §8 need n
 `/sessions/:session` (§12.6) is the session's own view, which links to them. Two addressing
 schemes for one container is how the two drift.
 
+**The engine is handed a workspace, not a session** (§2). `up` takes a `ProvidedWorkspace` —
+mounts, git facts, a slug and a directory of manifests — and knows nothing about sessions, work
+volumes or staging. `startRuntime` in `packages/core/src/session/runtime.ts` is the product side:
+it stages the checkout out of the work volume, builds the workspace, calls `up`, and disposes of
+the staging in a `finally`. **Whoever resolves a workspace disposes of it**, because the staged
+manifests are an input to one start and a stale copy would be a second opinion about what the
+project is.
+
 Three things a session adds:
 
 - **A runtime is created only by the control plane.** Core, driven by the CLI or the dashboard.
