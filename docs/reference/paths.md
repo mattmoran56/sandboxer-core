@@ -40,6 +40,7 @@ Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.
 | `state/name/<project>/<slug>` | What to call one worktree on screen | **yes** — see below |
 | `state/slug/<project>/<worktree dir>` | The slug a worktree was given when it collided with a sibling | **yes** — see below |
 | `state/attach/<project>/<slug>` | When a socket was last held open on one sandbox | yes — see below |
+| `state/session/<session>/` | The same three files, for a session rather than a worktree — see below | goes with the session |
 | `secrets/<project>.env` | Third-party credentials, mode 0600. **A file you edit** — see below | yes |
 | `build/<project>/<slug>.env` | The generated environment for one sandbox | yes |
 | `build/<project>/<slug>.plan.json` | The plan for one sandbox | yes |
@@ -169,6 +170,27 @@ is what you want from a value that ends up in a hostname.
 > The check happens when sandboxr creates a worktree, so it covers the ones under
 > `workspace/<project>/wt/`. Worktrees you keep yourself, in your own repository, can still
 > collide — pass a name with `sandboxr up <name>` if two of them share a ticket.
+
+### A session's three files
+
+A **session** — the thing that replaces the worktree, and which nothing you can type reaches yet
+([What is built](status.md)) — keeps the same three files as the rows above, in one directory of
+its own:
+
+```
+state/session/<session>/keep      keeps the session's container alive past its idle limit
+state/session/<session>/name      what to call the session on screen
+state/session/<session>/attach    when a socket was last held open on it
+```
+
+Each one behaves exactly as its worktree counterpart above does, including which of them carries
+a stamp and which must not. What is different is the shape, and the reason is a collision you
+would never find from the symptom: `state/keep/` has a *project* directory at its first level, so
+a session and a project of the same name would have been one file — and a sandbox would have
+stopped expiring because somebody had pinned a session.
+
+The directory is created the first time there is something to put in it, and deleting the session
+removes the whole of it in one go.
 
 ### The workspace
 

@@ -1,7 +1,9 @@
 // Tests for the lifecycle against a fake docker daemon:
 // - list: builds sandboxes from labels, filters by project, sorts, and ignores a container that is not ours
+// - list: filters by session, and a workstation carrying that session label is never read as a sandbox
 // - list: a stopped container is never asked for its markers
 // - down: removes the container and every volume it owned; --keep leaves the volumes
+// - down: never names a session's work volume — deleting a runtime is not deleting a session
 // - down: removes the plan, environment, heartbeat and logs the sandbox was named after
 // - down: a slug with no container is reported rather than treated as an error
 // - up: writes the environment file, carries the labels, and starts the container
@@ -221,6 +223,24 @@ describe("list", () => {
     expect(argsOf("ps")[0]?.[0]).toEqual(["label=sandboxr.slug", "label=sandboxr.project=acme"]);
   });
 
+  // A session's runtimes, joined on the `sandboxr.session` label rather than on
+  // a list the session keeps (contracts §12.4). `SANDBOX_FILTER` stays in front,
+  // so a workstation — which carries the session label and no slug — cannot
+  // arrive here and be read as a sandbox of a project it belongs to none of.
+  it("filters by session, and never lets a workstation through", async () => {
+    const { docker, argsOf } = fakeDocker({
+      rows: [
+        row({ ...labelsOf("eng-3941-web"), "sandboxr.session": "eng-3941" }, "sandboxr-acme-eng-3941-web"),
+        row({ ...labelsOf("other-web"), "sandboxr.session": "other" }, "sandboxr-acme-other-web"),
+        row({ "sandboxr.kind": "workstation", "sandboxr.session": "eng-3941" }, "sandboxr-ws-eng-3941"),
+      ],
+      exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
+    });
+    const sandboxes = await list({ docker, session: "eng-3941" });
+    expect(sandboxes.map((sandbox) => sandbox.slug)).toEqual(["eng-3941-web"]);
+    expect(argsOf("ps")[0]?.[0]).toEqual(["label=sandboxr.slug", "label=sandboxr.session=eng-3941"]);
+  });
+
   it("sorts by project and slug, so the list is stable between runs", async () => {
     const { docker } = fakeDocker({
       rows: [row(labelsOf("b"), "sandboxr-acme-b"), row(labelsOf("a"), "sandboxr-acme-a")],
@@ -290,6 +310,20 @@ describe("down", () => {
     expect(existsSync(join(home, "build", "acme", "tkt-1.env"))).toBe(false);
     expect(existsSync(join(home, "state", "attach", "acme", "tkt-1"))).toBe(false);
     expect(existsSync(join(home, "logs", "acme", "tkt-1"))).toBe(false);
+  });
+
+  // Contracts §12.8: deleting a runtime removes that runtime's own data, and the
+  // work volume is the session's rather than the runtime's — every other runtime
+  // of the session is running from the code in it. It cannot be named here by
+  // construction, because `down` asks for four purposes and a work volume is not
+  // one of them, and this pins that so a fifth purpose cannot quietly be added.
+  it("never names a work volume, even one belonging to the runtime's own session", async () => {
+    const { docker, argsOf } = fakeDocker({
+      exists: true,
+      volumes: ["sandboxr-work-eng-3941", "sandboxr-data-acme-eng-3941-web"],
+    });
+    await down("acme", "eng-3941-web", { docker, env: { SANDBOXR_HOME: await tempHome() } });
+    expect(argsOf("volumeRm").map((args) => args[0])).not.toContain("sandboxr-work-eng-3941");
   });
 
   // `--keep` means the container went and its data stayed, and the generated

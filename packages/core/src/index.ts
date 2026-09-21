@@ -70,6 +70,7 @@ export {
   NETWORK,
   NamingError,
   PROTECTED_IMAGES,
+  SESSION_ID_MAX,
   SHARED_VOLUMES,
   SLUG_MAX,
   SLUG_MIN,
@@ -84,7 +85,10 @@ export {
   sanitizeSlug,
   slugCeiling,
   urlFor,
+  WORK_VOLUME_PREFIX,
   volumeName,
+  workVolumeName,
+  workstationName,
 } from "./naming.js";
 export type { DeriveSlugInput, HostParts, VolumePurpose } from "./naming.js";
 
@@ -105,6 +109,13 @@ export {
   list,
   prune,
   reload,
+  // Exported for the same reason `SessionError` and `RuntimeError` are: it is
+  // the class of failure a *caller* can act on — a name already in use, a
+  // checkout that does not describe itself, a DNS budget that will not fit a
+  // slug — as against a fault in sandboxr. The dashboard turns one into an
+  // answer and anything else into a 500, and it cannot tell them apart without
+  // the class.
+  SandboxError,
   startSandbox,
   status,
   stopSandbox,
@@ -120,13 +131,106 @@ export type {
   PruneOptions,
   ReloadOptions,
   Sandbox,
+  SandboxKind,
   SandboxState,
   SandboxStatus,
   UpOptions,
 } from "./sandbox/types.js";
 
-export { deadlineOf, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
-export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.js";
+export {
+  DEFAULT_WORKSTATION_IMAGE,
+  SESSION_LABELS,
+  UNNAMED_SESSION_BASE,
+  WORKSTATION_FILTER,
+  SessionError,
+  createSession,
+  deleteSession,
+  getSession,
+  isSessionKeptAlive,
+  kindOf,
+  listSessions,
+  markSessionAttached,
+  readSessionKeep,
+  readSessionName,
+  parseAdopted,
+  readSessionAdopted,
+  removeSessionKeep,
+  removeSessionName,
+  removeSessionState,
+  sessionAttachFileFor,
+  sessionDirFor,
+  sessionFilter,
+  sessionFromLabels,
+  sessionId,
+  sessionIdBase,
+  startWorkstation,
+  stopWorkstation,
+  workVolumeArgs,
+  workVolumeLabels,
+  workstationArgs,
+  workstationLabels,
+  workstationState,
+  writeSessionAdopted,
+  writeSessionKeep,
+  writeSessionName,
+} from "./session/index.js";
+export type {
+  AdoptedFrom,
+  ContainerKind,
+  CreateSessionOptions,
+  DeleteSessionReport,
+  Session,
+  SessionIdInput,
+  SessionOptions,
+  SessionState,
+  WorkstationLabelInput,
+  WorkstationRunInput,
+} from "./session/index.js";
+
+export { deadlineOf, formatTtl, parseTtl, planExpiry, planSessionExpiry, sessionDeadlineOf } from "./sandbox/expiry.js";
+export type {
+  ExpiryCandidate,
+  ExpiryInput,
+  ExpiryPlan,
+  SessionExpiryCandidate,
+  SessionExpiryInput,
+  SessionExpiryPlan,
+} from "./sandbox/expiry.js";
+export { expireSessions } from "./session/expire.js";
+export type { ExpireSessionsOptions } from "./session/expire.js";
+export {
+  CLONE_SCRIPT,
+  LIST_SCRIPT,
+  WORK_DIR,
+  SESSION_LABEL,
+  UNKNOWN_BRANCH,
+  WorkVolumeError,
+  branchDir,
+  cloneArgs,
+  cloneIntoWork,
+  ensureWorkVolume,
+  isWorkVolume,
+  listArgs,
+  listWork,
+  parseWorkListing,
+  placeBranch,
+  removeWorkVolume,
+  workMountArgs,
+  workPath,
+  workspaceMountArgs,
+} from "./session/work.js";
+export type { CloneRequest, WorkEntry, WorkRunner } from "./session/work.js";
+export { addSessionRepo, SessionRepoError } from "./session/repos.js";
+export type { AddRepoRequest, AddedRepo, SessionRepoRefusal } from "./session/repos.js";
+export { adoptWorktree, AdoptError } from "./session/adopt.js";
+export type { AdoptWorktreeRequest, AdoptedWorktree, AdoptRefusal } from "./session/adopt.js";
+export { readableBranch, sessionNameForWorktree } from "./session/adopt-name.js";
+export type { WorktreeNameInput } from "./session/adopt-name.js";
+export { captureWorktreeChanges, carryIntoWork, CarryError } from "./session/carry.js";
+export type { WorktreeChanges } from "./session/carry.js";
+export { RuntimeError, runtimeSlug, runtimeWorkspaceArgs, stageRuntime } from "./session/runtime.js";
+export type { RuntimeRequest, StagedRuntime } from "./session/runtime.js";
+
 export { formatBytes, planPrune } from "./sandbox/prune.js";
 export type { PrunableImage, PrunableVolume, PruneInput, PrunePlan, PruneResult } from "./sandbox/prune.js";
 export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js";
@@ -138,10 +242,13 @@ export {
   ATTACH_LIVE_GRACE_MS,
   DEFAULT_ACTIVITY_WINDOW,
   agentActivity,
+  agentSessionActivity,
   attachedActivity,
   lastActivity,
   parseAccessLog,
   sandboxActivity,
+  sessionActivity,
+  sessionAttachedActivity,
 } from "./sandbox/activity.js";
 export type {
   ActivityOptions,
@@ -149,6 +256,7 @@ export type {
   AttachedActivityOptions,
   RouterActivity,
   SandboxActivityOptions,
+  SessionActivityOptions,
 } from "./sandbox/activity.js";
 
 export {
@@ -238,7 +346,10 @@ export { LABELS, labelsFor, sandboxFromLabels, deriveState } from "./sandbox/lab
 export {
   BASE_IMAGE,
   DASHBOARD_CONTAINER,
+  DASHBOARD_IMAGE_NAME,
   DASHBOARD_PORT,
+  WORKSTATION_IMAGE_NAME,
+  ensureWorkstationImage,
   ROUTER_CONTAINER,
   ROUTER_IMAGE,
   accessStatus,
@@ -395,3 +506,44 @@ export {
 } from "./agent/commands.js";
 export type { SlashCommand, SlashCommandHandler, SlashCommandSource } from "./agent/commands.js";
 export { NOTHING_ASKED, SIDE_QUESTION, sideQuestion, sideQuestionPreamble } from "./agent/btw.js";
+
+export { CODE_PATH_MAX, baseName, resolveInRoot, safePath } from "./code/paths.js";
+export {
+  FILE_READ_LIMIT,
+  LISTING_LIMIT,
+  listingArgv,
+  looksBinary,
+  parseListing,
+  readFileArgv,
+  readFileResult,
+} from "./code/listing.js";
+export type { CodeEntry, CodeEntryKind, CodeFile, CodeListing } from "./code/listing.js";
+export {
+  DIFF_FILE_LIMIT,
+  HEAD_ARGV,
+  MERGE_BASE_ARGV,
+  PATCH_LIMIT,
+  REPO_ROOT_ARGV,
+  UNTRACKED_ARGV,
+  UPSTREAM_ARGV,
+  isCommit,
+  mergeChanges,
+  nameStatusArgv,
+  nulFields,
+  numstatArgv,
+  parseNameStatus,
+  parseNumstat,
+  parsePatch,
+  patchArgv,
+  untrackedPatchArgv,
+} from "./code/diff.js";
+export type {
+  ChangeStatus,
+  ChangedFile,
+  DiffBase,
+  DiffSummary,
+  Patch,
+  PatchHunk,
+  PatchLine,
+  PatchLineKind,
+} from "./code/diff.js";

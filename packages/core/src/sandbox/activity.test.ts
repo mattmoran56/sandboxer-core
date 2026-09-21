@@ -25,6 +25,15 @@
 // - sandboxActivity: a held-open socket outweighs the router line, which is stamped when it opened
 // - sandboxActivity: a set with no readable ttl reads nothing at all
 // - sandboxActivity: docker failing and the agent index failing together are still an absence
+// - parseAccessLog: a dashboard route naming a session counts, under the session id
+// - parseAccessLog: `/sessions` with no id, and a session route on a sandbox's own router, count for nothing
+// - agentSessionActivity: the join is on `session`, and a run without one contributes nothing
+// - agentSessionActivity: a live run holds its session open, and an ended one counts at endedAt
+// - sessionAttachedActivity: the heartbeat is read from state/session/<session>/attach
+// - sessionAttachedActivity: past the grace window it counts when it was written, not now
+// - sessionActivity: merges the three signals a workstation has onto the session id
+// - sessionActivity: a workstation's own hostname is not a signal, because it has none
+// - sessionActivity: a set with no readable ttl reads nothing at all
 
 import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -33,14 +42,19 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { Docker, ExecResult } from "../docker.js";
+import { sessionAttachFileFor } from "../session/state.js";
+import type { Session } from "../session/types.js";
 import {
   ATTACH_LIVE_GRACE_MS,
   DEFAULT_ACTIVITY_WINDOW,
   agentActivity,
+  agentSessionActivity,
   attachedActivity,
   lastActivity,
   parseAccessLog,
   sandboxActivity,
+  sessionActivity,
+  sessionAttachedActivity,
 } from "./activity.js";
 import { attachFileFor } from "./attach.js";
 import type { Sandbox } from "./types.js";
@@ -250,6 +264,8 @@ interface RunRow {
   sessionId: string;
   project: string;
   slug: string;
+  /** The sandboxr session, for a run that happened in a workstation (§12.7). */
+  session?: string;
   state: string;
   startedAt: string;
   updatedAt: string;
@@ -547,6 +563,221 @@ describe("sandboxActivity", () => {
   // planner then falls every sandbox back to its own start time.
   it("reads docker and the agent index both failing as an absence", async () => {
     const seen = await sandboxActivity([sandbox()], {
+      docker: fakeDocker({ code: 1, stdout: "", stderr: "Error: No such container: sandboxr-router" }),
+      env,
+      now: NOW,
+    });
+    expect(seen.size).toBe(0);
+  });
+});
+
+/* --- a workstation: three of the four signals, re-keyed on the session ---- */
+
+function session(overrides: Partial<Session> = {}): Session {
+  return {
+    id: "eng-3941",
+    name: null,
+    adopted: null,
+    created: "2026-08-25T09:00:00.000Z",
+    ttl: "12h",
+    state: "running",
+    runtimes: [],
+    ...overrides,
+  };
+}
+
+/** A heartbeat for one session, with its mtime set to when it was last written. */
+async function writeSessionAttach(id: string, at: Date): Promise<void> {
+  const file = sessionAttachFileFor(id, { SANDBOXR_HOME: home });
+  await mkdir(join(home, "state", "session", id), { recursive: true });
+  await writeFile(file, `${at.toISOString()}\n`, "utf8");
+  await utimes(file, at, at);
+}
+
+describe("parseAccessLog, for sessions", () => {
+  // §12.6: a session's routes are top-level, because a session belongs to no
+  // project. Without this, opening a session, its terminal or its agent leaves
+  // no evidence anywhere — a workstation has no hostname of its own to be asked
+  // for instead.
+  it("counts a dashboard route that names a session", () => {
+    const text = [
+      dashboard("26/Aug/2026:15:00:00 +0000", "GET /api/sessions/eng-3941 HTTP/1.1"),
+      dashboard("26/Aug/2026:16:30:00 +0000", "GET /sessions/eng-3941/terminal HTTP/1.1"),
+      dashboard("26/Aug/2026:16:00:00 +0000", "GET /api/sessions/doc-notes/r/web HTTP/1.1"),
+    ].join("\n");
+    const seen = parseAccessLog(text, NOW).sessions;
+    expect(seen.get("eng-3941")?.toISOString()).toBe("2026-08-26T16:30:00.000Z");
+    expect(seen.get("doc-notes")?.toISOString()).toBe("2026-08-26T16:00:00.000Z");
+  });
+
+  it("counts nothing for the session list, which names nobody", () => {
+    const text = dashboard("26/Aug/2026:15:00:00 +0000", "GET /api/sessions HTTP/1.1");
+    expect(parseAccessLog(text, NOW).sessions.size).toBe(0);
+  });
+
+  // Only the dashboard's own lines are read for a route. A path is the one field
+  // an outsider writes, and a request to a *sandbox's* hostname carrying a
+  // session-shaped path must not be able to hold somebody else's workstation up.
+  it("reads a session route only off the dashboard's own lines", () => {
+    const text = line("26/Aug/2026:15:00:00 +0000", "sandboxr-acme-tkt-1@docker", "GET /sessions/eng-3941 HTTP/1.1");
+    const seen = parseAccessLog(text, NOW);
+    expect(seen.sessions.size).toBe(0);
+    expect(seen.containers.has("sandboxr-acme-tkt-1")).toBe(true);
+  });
+
+  it("reads an empty log as no session activity rather than throwing", () => {
+    expect(parseAccessLog("", NOW).sessions.size).toBe(0);
+  });
+});
+
+describe("agentSessionActivity", () => {
+  // The substantive change of §12.7: a workstation carries no project and no
+  // slug, so the pair every run was keyed on cannot address one.
+  it("joins a run to a session on `session`, not on project and slug", async () => {
+    await writeIndex([
+      run({ sessionId: "s-1", project: "", slug: "", session: "eng-3941", endedAt: "2026-08-26T13:00:00.000Z" }),
+    ]);
+    const seen = await agentSessionActivity({ env, now: NOW });
+    expect([...seen.keys()]).toEqual(["eng-3941"]);
+    expect(seen.get("eng-3941")?.toISOString()).toBe("2026-08-26T13:00:00.000Z");
+  });
+
+  // An absence, never a guess. A run with no session says nothing about any
+  // workstation, and the workstation then falls back to its own start time.
+  it("contributes nothing for a run that names no session", async () => {
+    await writeIndex([run({ endedAt: "2026-08-26T13:00:00.000Z" }), run({ sessionId: "s-2", session: "" })]);
+    expect((await agentSessionActivity({ env, now: NOW })).size).toBe(0);
+  });
+
+  // The same failure the sandbox join exists for, one noun along: an agent is
+  // working in the workstation and nothing else is happening, so the clock must
+  // not run.
+  it("holds a session open while a run in it is live", async () => {
+    await writeIndex([run({ sessionId: "s-1", session: "eng-3941", state: "running", endedAt: null })]);
+    await writeTranscript("s-1", new Date("2026-08-26T17:55:00.000Z"));
+
+    expect((await agentSessionActivity({ env, now: NOW })).get("eng-3941")).toEqual(NOW);
+  });
+
+  // And the other half: the countdown starts when the agent stopped, which is
+  // why this is a timestamp rather than a second exemption beside the keep file.
+  it("counts an ended run at the moment it ended", async () => {
+    await writeIndex([run({ sessionId: "s-1", session: "eng-3941", state: "done", endedAt: "2026-08-26T09:30:00.000Z" })]);
+    expect((await agentSessionActivity({ env, now: NOW })).get("eng-3941")?.toISOString()).toBe(
+      "2026-08-26T09:30:00.000Z",
+    );
+  });
+
+  it("does not believe a `running` row whose transcript went quiet hours ago", async () => {
+    await writeIndex([run({ sessionId: "s-1", session: "eng-3941", state: "running", endedAt: null })]);
+    await writeTranscript("s-1", new Date("2026-08-26T12:00:00.000Z"));
+
+    expect((await agentSessionActivity({ env, now: NOW })).get("eng-3941")?.toISOString()).toBe(
+      "2026-08-26T12:00:00.000Z",
+    );
+  });
+
+  it("reads a home with no agent index as no activity", async () => {
+    expect((await agentSessionActivity({ env, now: NOW })).size).toBe(0);
+  });
+});
+
+describe("sessionAttachedActivity", () => {
+  // §12.6 moved the heartbeat from `state/attach/<project>/<slug>` to
+  // `state/session/<session>/attach`; the reasoning did not move with it.
+  it("holds a session open while a socket is being held on it", async () => {
+    await writeSessionAttach("eng-3941", new Date(NOW.getTime() - 60_000));
+
+    const seen = await sessionAttachedActivity([{ id: "eng-3941" }], { home, now: NOW });
+    expect(seen.get("eng-3941")).toEqual(NOW);
+  });
+
+  it("credits a heartbeat past the grace window with when it was written", async () => {
+    const stale = new Date(NOW.getTime() - ATTACH_LIVE_GRACE_MS - 60_000);
+    await writeSessionAttach("eng-3941", stale);
+
+    const seen = await sessionAttachedActivity([{ id: "eng-3941" }], { home, now: NOW });
+    expect(seen.get("eng-3941")?.toISOString()).toBe(stale.toISOString());
+  });
+
+  it("reads a session nobody has ever attached to as an absence", async () => {
+    expect((await sessionAttachedActivity([{ id: "eng-3941" }], { home, now: NOW })).size).toBe(0);
+  });
+
+  it("reads the home out of the environment when it is not handed one", async () => {
+    await writeSessionAttach("eng-3941", new Date(NOW.getTime() - 60_000));
+
+    const seen = await sessionAttachedActivity([{ id: "eng-3941" }], { env, now: NOW });
+    expect(seen.get("eng-3941")).toEqual(NOW);
+  });
+});
+
+describe("sessionActivity", () => {
+  it("merges the dashboard's routes, agent runs and the heartbeat onto the session id", async () => {
+    const text = dashboard("26/Aug/2026:15:00:00 +0000", "GET /api/sessions/eng-3941 HTTP/1.1");
+    await writeIndex([run({ sessionId: "s-1", session: "eng-3941", endedAt: "2026-08-26T12:00:00.000Z" })]);
+
+    const seen = await sessionActivity([session()], {
+      docker: fakeDocker({ code: 0, stdout: text, stderr: "" }),
+      env,
+      now: NOW,
+    });
+    expect(seen.get("eng-3941")?.toISOString()).toBe("2026-08-26T15:00:00.000Z");
+  });
+
+  it("lets a held-open socket win over an older dashboard route", async () => {
+    await writeSessionAttach("eng-3941", new Date(NOW.getTime() - 30_000));
+
+    const seen = await sessionActivity([session()], {
+      docker: fakeDocker({
+        code: 0,
+        stdout: dashboard("26/Aug/2026:09:00:00 +0000", "GET /api/sessions/eng-3941 HTTP/1.1"),
+        stderr: "",
+      }),
+      env,
+      now: NOW,
+    });
+    expect(seen.get("eng-3941")).toEqual(NOW);
+  });
+
+  // §12.7's missing signal, asserted rather than assumed. A workstation has no
+  // hostname, so a busy machine's router log can be full of a sandbox's traffic
+  // and say nothing at all about a session — and the answer here has to be an
+  // absence, which the planner reads as "run the clock from startedAt".
+  it("reads no signal from a router log full of sandbox traffic", async () => {
+    const seen = await sessionActivity([session()], {
+      docker: fakeDocker({ code: 0, stdout: REAL_LOG, stderr: "" }),
+      env,
+      now: NOW,
+    });
+    expect(seen.size).toBe(0);
+  });
+
+  it("reads the window from the longest ttl in the set", async () => {
+    const calls: Array<{ name: string; since?: string }> = [];
+    await sessionActivity([session({ ttl: "12h" }), session({ id: "b", ttl: "3d" })], {
+      docker: fakeDocker({ code: 0, stdout: "", stderr: "" }, calls),
+      env,
+      now: NOW,
+    });
+    expect(calls[0]?.since).toBe("73h");
+  });
+
+  it("reads nothing at all when no session in the set can expire", async () => {
+    const calls: Array<{ name: string; since?: string }> = [];
+    const seen = await sessionActivity([session({ ttl: "never" }), session({ id: "b", ttl: "rubbish" })], {
+      docker: fakeDocker({ code: 0, stdout: REAL_LOG, stderr: "" }, calls),
+      env,
+      now: NOW,
+    });
+    expect(calls).toEqual([]);
+    expect(seen.size).toBe(0);
+  });
+
+  // Every read failing at once must still be an absence: the alternative would
+  // stop every workstation on the machine, taking the agents in them with it.
+  it("reads docker and the agent index both failing as an absence", async () => {
+    const seen = await sessionActivity([session()], {
       docker: fakeDocker({ code: 1, stdout: "", stderr: "Error: No such container: sandboxr-router" }),
       env,
       now: NOW,

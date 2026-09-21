@@ -25,6 +25,19 @@ export const LABELS = {
   access: "sandboxr.access",
   ttl: "sandboxr.ttl",
   env: "sandboxr.env",
+  // The two a session adds (contracts §12.3). `kind` goes on every container
+  // sandboxr creates; a container carrying none is a pre-session sandbox and
+  // reads as `runtime`, which is what `sandboxFromLabels` does with it.
+  //
+  // `session` is deliberately *absent* rather than empty on a sandbox that
+  // belongs to no session, for the reason §12.3 gives for a workstation's
+  // missing `project` and `slug`: an empty string is a value something will one
+  // day compare against.
+  kind: "sandboxr.kind",
+  // The same label name ../session/work.ts stamps on a work volume, spelled
+  // again rather than imported: this is the container's label set, and work.ts
+  // imports ./run.ts, so reaching the other way round would be a module cycle.
+  session: "sandboxr.session",
 } as const;
 
 /**
@@ -69,6 +82,12 @@ export interface LabelInput {
    * stale — every sandbox running before this existed has none.
    */
   env?: string | undefined;
+  /**
+   * The session this container belongs to, when it belongs to one (§12.3).
+   *
+   * A worktree-backed sandbox has none and gets no label at all.
+   */
+  session?: string | undefined;
 }
 
 export function labelsFor(input: LabelInput): Record<string, string> {
@@ -93,6 +112,13 @@ export function labelsFor(input: LabelInput): Record<string, string> {
     // before sandboxr stamped this" are different facts and only one of them
     // means the dashboard has to keep quiet.
     [LABELS.env]: input.env ?? "",
+    // Every sandbox this function labels is a runtime: a worktree-backed one is
+    // what §12.10 maps onto the noun, and a workstation is labelled where it is
+    // created rather than here, because it has no project, no slug and no
+    // driver to describe.
+    [LABELS.kind]: "runtime",
+    // Spread rather than a key with an empty value: absent is the contract.
+    ...(input.session === undefined || input.session === "" ? {} : { [LABELS.session]: input.session }),
   };
 }
 
@@ -149,6 +175,14 @@ export function sandboxFromLabels(
     // cannot parse has to fail closed, and an unlabelled sandbox that came out
     // as "already expired" would be stopped the first time the reaper ran.
     ttl: labels[LABELS.ttl] ?? "never",
+    // A container with no `kind` is a pre-session sandbox, and §12.3 says it
+    // reads as a runtime. `workstation` is the only other reading, so anything
+    // else — a hand-written label, a future kind this version does not know —
+    // falls back rather than being passed through as a word nothing handles.
+    kind: labels[LABELS.kind] === "workstation" ? "workstation" : "runtime",
+    // Empty means "belongs to no session", which is what every sandbox running
+    // today is.
+    session: labels[LABELS.session] ?? "",
     state,
     container: container === "" && project !== "" ? containerName(project, slug) : container,
   };

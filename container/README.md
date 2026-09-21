@@ -1,6 +1,7 @@
 # The sandbox container
 
-Everything that runs *inside* a sandbox, and the images it runs from. The host side
+Everything that runs *inside* a sandbox, and the images it runs from — plus the
+workstation image a session's agent runs in, which is not a sandbox. The host side
 — config parsing, docker orchestration, the dashboard — is TypeScript and lives in
 `packages/`. This directory is the one part of the repository that is deliberately
 shell: it runs under s6 as PID 1's children, before and sometimes without any
@@ -20,6 +21,8 @@ Everything below implements it.
 | `scripts/with-env` | An argv prefix that gives any command the computed environment |
 | `scripts/db/<driver>.sh` | One file per database driver |
 | `examples/*.plan.json` | Two worked plans, used to exercise the generators |
+| `workstation/Dockerfile` | The image a *session's agent* runs in — not a sandbox. See below |
+| `workstation/idle.sh` | Its whole runtime: one process, so `docker exec` has something to exec into |
 
 ## Two images, not one
 
@@ -80,6 +83,44 @@ to hit one of those traps will find it.
 The build context holds only **manifests**, never source: a source change must
 never re-run a dependency install. The worktree itself is bind-mounted at run
 time.
+
+## The workstation image
+
+A **session** is one agent working on one branch, and the container that agent runs
+in is its **workstation** — `sandboxr-ws-<session>`, built from
+`workstation/Dockerfile`, with the session's work volume `sandboxr-work-<session>`
+at `/work` holding clones laid out `/work/<repo>/<branch>/`. It is not a sandbox and
+does not run a project: the copies of a project that actually serve traffic are
+*runtimes*, and they are containers of their own.
+
+```bash
+docker build -f workstation/Dockerfile -t sandboxr/workstation:<version> .
+```
+
+`ensureWorkstationImage` in `packages/core/src/access/index.ts` runs that build, the
+first time a session is created rather than during `init` — see contracts §3.3 for
+why this one image is lazy where the base and the dashboard are not.
+
+> [!NOTE]
+> `createSession` in `packages/core/src/session/` builds this image, creates the
+> work volume and starts the container. **Nothing clones into the volume yet**, and
+> no agent runs in here: `/work` comes up empty, and filling it is a later step.
+
+What is in it is Node 22, `git`, `gh` and `claude`, and what is *not* in it matters
+as much:
+
+- **No Docker client, and never the daemon socket.** That is the whole reason the
+  agent moved out of the sandbox. A container that can reach the host daemon can
+  start another with the host filesystem inside it, so an agent is contained only
+  while it has no way to speak to Docker. The build fails if a client ever appears.
+  An agent that wants a runtime will ask the control plane for one.
+- **No bind mount from the host workspace.** A workstation's code is a clone on its
+  own volume — which is also why none of the identical-path mounting `gitMounts`
+  does for a sandbox's linked worktree applies here, and why this image does *not*
+  copy base's `gc.worktreePruneExpire` pin. A plain clone inside a volume writes
+  down only paths that exist inside the container.
+- **No browser, no display server, no computer-use tooling.** That is a later step
+  and a heavy one; the Dockerfile says where it would go.
 
 ## The plan
 

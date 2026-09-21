@@ -35,6 +35,11 @@ saying so in the commit message. A package that disagrees with the contract is a
 | The dashboard's HTTP surface, and "the server sends facts" | §7.1 |
 | Git mounts, the commit identity, and the GitHub token | §7.3 |
 | Actions as a closed table, and how a destination is read | §8 |
+| The session model: the workstation and its missing Docker socket, the runtime, the work volume, and what each delete removes | §12 |
+
+§12 is the one row on that list written **ahead** of the code, which is what "contract first"
+means. Nothing on this site describes it as working, and
+[What is built](../reference/status.md) says where it stands.
 
 Everything else on this page is implementation reasoning. It is still load-bearing, and the
 comments in the source carry the same argument beside the code.
@@ -530,7 +535,7 @@ your worktree mounted.
 
 **The dashboard is a single-page app, not a set of documents.** *Obvious:* server-render each page
 and let the browser navigate between them. It is less machinery, it works with JavaScript off, and
-it is what the dashboard was. *Why not:* the sidebar is a list of every worktree on the machine,
+it is what the dashboard was. *Why not:* the sidebar is a list of every session on the machine,
 grouped and collapsible, and it is a list somebody keeps their place in. A full page load puts that
 list back to the top on every click, re-collapses nothing and re-fetches everything — and the pane
 you clicked into is the small half of the screen. *Instead:* the server answers JSON and serves one

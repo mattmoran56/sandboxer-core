@@ -31,7 +31,9 @@ does the task for you. All of them are collected on
 
 **Agent session** — one `claude` process running *inside* a sandbox, on the worktree at
 `/workspace`, started and driven from the dashboard. See
-[Agent sessions in the dashboard](../guides/agent-sessions.md).
+[Agent sessions in the dashboard](../guides/agent-sessions.md). The phrase is being retired,
+because [session](#s) is becoming the name of something else; the contract calls one of these a
+**run**.
 
 ## B
 
@@ -286,8 +288,14 @@ container per machine, which terminates TLS and picks a container by hostname. T
 router** is Caddy, inside every container. See
 [How a request arrives](../architecture/request-path.md).
 
+**Runtime** — a running copy of one project belonging to a [session](#s): its apps, its database,
+its hostnames. It is what a sandbox is today, seen from a session. **Not built yet** — §12 of
+[the contract](../architecture/contracts.md) defines it, and [What is built](status.md) says
+where it stands. Never a short form of *runtime kind*, which is the entry below.
+
 **Runtime kind** — what a declared thing actually *is* at run time: a backend, a static front-end,
-or a served front-end. Exactly three, and none is a variation on another. See
+or a served front-end. Exactly three, and none is a variation on another. Always spelled in full,
+so it cannot be confused with a [runtime](#r). See
 [The three runtime kinds](../configuration/runtime-kinds.md).
 
 ## S
@@ -297,6 +305,13 @@ by hand, from the CLI or from the dashboard, and can import its own `.env` files
 that refuse anything describing *where* something runs. The file is mounted read-only into every
 sandbox of the project. Names are printed; values never are, except when you ask for one.
 See [Secrets](../configuration/secrets.md).
+
+**Session** — the unit of work sandboxr is being reorganised around: an agent with a container,
+holding zero or more repositories and zero or more [runtimes](#r). "Write me a document" is a
+session with no code in it at all. §12 of [the contract](../architecture/contracts.md) defines it.
+**Creating, listing and deleting one exists in `packages/core`; nothing a person can type reaches
+it yet**, and [What is built](status.md) says exactly where the line falls. Today the unit is a
+[worktree](#w).
 
 **Storage** — the S3-compatible object store inside each sandbox, so uploads never reach a real
 bucket. Declared as `storage: { driver: minio, buckets: [...] }`, and `none` by default. See
@@ -382,14 +397,26 @@ of seconds, or `never`. Default 12 hours. See
 
 ## W
 
+**Work volume** — the Docker volume holding one [session](#s)'s clones, laid out
+`/work/<repo>/<branch>/`. Stopping a session never touches it, and only deleting the session
+removes it. §12 of [the contract](../architecture/contracts.md) defines it. **It is created and
+removed with the session; nothing writes a clone into one yet** — see [What is built](status.md).
+
 **Workspace** — the repositories sandboxr keeps for itself, one directory per project, so a sandbox
 can be a branch you pick rather than a worktree you made by hand. See
 [Several repositories at once](../setups/many-projects.md).
 
+**Workstation** — the container a [session](#s)'s agent runs in, one per session. It has no Docker
+socket and no bind mount from your computer, so the agent can reach its own session's code and
+nothing else. §12 of [the contract](../architecture/contracts.md) defines it. **It can be created,
+started and stopped from `packages/core`; no agent runs in one yet** — see
+[What is built](status.md).
+
 **Worktree** — a second checkout of the same repository, made with `git worktree add`, so several
 branches are open at once sharing one `.git`. sandboxr works from worktrees rather than clones, so a
 sandbox is always tied to exactly one branch. See
-[How it works, in five steps](../how-it-works.md).
+[How it works, in five steps](../how-it-works.md). This is the unit today; a [session](#s) is what
+replaces it.
 
 ---
 

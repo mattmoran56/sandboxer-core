@@ -27,7 +27,7 @@ here to look at yet, and we should do docs/getting-started/first-sandbox.md inst
 | [Start, stop, list, clean up](lifecycle.md) | The commands you run every day, and exactly what each one removes |
 | [The edit–reload loop](edit-and-reload.md) | How a file you save becomes running code, and why there is no hot reload |
 | [Logs, shells and terminals](logs-and-shells.md) | The three ways to see inside a sandbox, and which to reach for |
-| [The dashboard](dashboard.md) | The same work in a browser: every worktree in a sidebar, a pane per sandbox |
+| [The dashboard](dashboard.md) | The same work in a browser: every session in a sidebar, a pane per session and per sandbox |
 | [Projects, worktrees and lifetimes](managed-sandboxes.md) | Letting sandboxr hold the repositories, and having sandboxes stop themselves |
 | [Testing a migration](testing-a-migration.md) | Pointing a half-written migration at real structure, safely |
 | [Your own agent in a sandbox](agents-in-a-sandbox.md) | Giving a coding agent somewhere to see the result of its own work |

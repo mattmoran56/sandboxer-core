@@ -156,6 +156,54 @@ export interface Paths {
    * the same reason: this names a directory on disk, not a container.
    */
   slugFile(project: string, worktreeDir: string): string;
+  /**
+   * One session's state, all of it, in one directory (contracts §12.6).
+   *
+   * **A directory per session rather than a parallel tree per file**, and `session/`
+   * is a namespace rather than decoration. `state/keep/<project>/<slug>` puts a
+   * *project* directory at its first level, so a session id written there could
+   * collide with a project of the same name — and the two would then be one
+   * file, exempting a sandbox from its lifetime because somebody pinned a
+   * session. The nesting also makes deleting a session one `rm -r` rather than
+   * a removal per file, each of which can half-succeed.
+   */
+  sessionDir(session: string): string;
+  /**
+   * Keeps one session's workstation alive past its idle limit.
+   *
+   * Carries the workstation's `sandboxr.created`, exactly as `keepFile` does and
+   * for the same reason (§4.2): it is an exemption applying to one *container
+   * instance*, a workstation is recreated as a sandbox is, and a stale marker
+   * must fail closed rather than silently keep its successor alive.
+   */
+  sessionKeepFile(session: string): string;
+  /**
+   * What to call one session on screen.
+   *
+   * No stamp, and there must not be one (§4.2.1): the name belongs to the
+   * session, which outlives every container in it, so stamping it would throw
+   * the name away the first time somebody rebuilt the workstation.
+   */
+  sessionNameFile(session: string): string;
+  /** The heartbeat saying a live process holds a socket on one workstation (§4.2.2). */
+  sessionAttachFile(session: string): string;
+  /**
+   * The worktree this session was adopted from, as `<project>/<slug>`.
+   *
+   * No stamp, for `sessionNameFile`'s reason: it is a fact about the session,
+   * which outlives every container in it, and one that never changes after the
+   * session is created — adoption happens once and the file is written with it.
+   *
+   * **It records where the code came from, not a link to a live thing.** The
+   * worktree may be deleted the day after; the session keeps its clone and this
+   * file keeps saying what it was cut from, which is exactly the sentence
+   * somebody reading an old session wants. Nothing is keyed on it and nothing
+   * looks the worktree up to check it is still there.
+   *
+   * Absent is the ordinary case: every session made by `POST /api/sessions` has
+   * no worktree behind it at all (§12.2).
+   */
+  sessionAdoptedFile(session: string): string;
 }
 
 /**
@@ -196,6 +244,11 @@ export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
     attachFile: (project, slug) => join(home, "state", "attach", project, slug),
     nameFile: (project, slug) => join(home, "state", "name", project, slug),
     slugFile: (project, worktreeDir) => join(home, "state", "slug", project, worktreeDir),
+    sessionDir: (session) => join(home, "state", "session", session),
+    sessionKeepFile: (session) => join(home, "state", "session", session, "keep"),
+    sessionNameFile: (session) => join(home, "state", "session", session, "name"),
+    sessionAttachFile: (session) => join(home, "state", "session", session, "attach"),
+    sessionAdoptedFile: (session) => join(home, "state", "session", session, "adopted"),
   };
 }
 
