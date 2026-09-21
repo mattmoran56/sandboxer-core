@@ -31,7 +31,16 @@ frontends:
   apps:
     - label: app
       package: .
-      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXR_D1_DIR"
+      # `--var` and not the `env:` block below: inside a Worker, `env` is
+      # wrangler's bindings, never the process environment. The sandbox exports
+      # SANDBOXR_SLUG to the container either way, and `env.SANDBOXR_SLUG` in
+      # src/index.js read `undefined` until this flag existed -- so every
+      # sandbox called itself "local" and the page could not say which one had
+      # served it.
+      serve: >-
+        npx wrangler dev --port 8787 --ip 127.0.0.1
+        --persist-to "$SANDBOXR_D1_DIR"
+        --var SANDBOXR_SLUG:"$SANDBOXR_SLUG"
       port: 8787
       health: /health
 
@@ -48,6 +57,10 @@ access:
 # The sandbox computes where things are and exports them under a SANDBOXR_ prefix;
 # a project reads its own names for the same things. This is the join between the
 # two, and it is why nothing here can point at a real service.
+#
+# The demo needs no renaming -- it reads the engine's own names -- so the block
+# carries one plain setting. The slug reaches the *Worker* through `--var` on
+# the serve command above, because a Worker's `env` is wrangler's bindings and
+# not the environment the process was started with.
 env:
-  SANDBOXR_SLUG: "${SANDBOXR_SLUG}"
   WRANGLER_SEND_METRICS: "false"
