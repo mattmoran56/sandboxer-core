@@ -67,37 +67,41 @@ it and exit `0`. An unrecognised command prints an error, then the usage, and ex
 ### `sandboxr init`
 
 Sets this machine up. It creates `~/.sandboxr` and the shared Docker network, writes the machine's
-settings file if there is none, builds the base and dashboard images, issues a certificate if one can
-be trusted, writes `~/.sandboxr/host.env`, then starts the router and the dashboard.
+settings file if there is none, builds the base image, issues a certificate if one can be trusted,
+writes `~/.sandboxr/host.env`, then starts the router.
 
-It is idempotent. Running it again is also how you change the domain, rotate the password, or pick up
-TLS after installing mkcert's root.
+It is idempotent. Running it again is also how you change the domain or pick up TLS after
+installing mkcert's root.
+
+> [!NOTE] It prepares the bare domain and does not fill it
+> Nothing serves `https://<your domain>` after `sandboxr init`, and the command says so. `sandboxr`
+> is a command-line tool — your sandboxes are reachable on their own hostnames either way. If you
+> want a control plane there, [`jef init`](../guides/dashboard.md) is the command that builds and
+> starts one.
 
 | Flag | What it does |
 |---|---|
 | `--no-tls` | Serve plain HTTP even if a trusted CA is present |
 | `--tls` | Insist on HTTPS even if the CA is not trusted yet |
-| `--rebuild` | Rebuild the base and dashboard images |
+| `--rebuild` | Rebuild the base image |
 | `--bind ADDR` | Publish the router here instead of `127.0.0.1` |
 | `--http-port N` | Publish HTTP here instead of 80 |
 | `--https-port N` | Publish HTTPS here instead of 443 |
 | `--no-start` | Prepare the machine but start nothing |
 
-It reads `SANDBOXR_PASSWORD` and passes it to the dashboard. Without one the dashboard starts and
-admits nobody, and `init` says so.
-
-`--no-start` does everything except run the router, the dashboard and the orchestrator, which is what
-[the compose deployment](../guides/compose.md) wants: everything else `init` does — the directories,
-the images, the certificate, the router's configuration and `host.env` — is a prerequisite of
-`docker compose up`, and no compose file can build an image or ask mkcert for a certificate. Left to
-start them, `init` would take the container names compose is about to use, and the up would fail with
-`container name is already in use`.
+`--no-start` does everything except run the router: the directories, the image, the certificate,
+the router's configuration and `host.env` are all prerequisites that nothing but a host process can
+produce, and something else may want to start the router itself under the name `init` would take.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — what <code>init</code> reports, and the notes it can return</summary>
 
-Prints the domain, the dashboard URL and the hostname shape. `--json` returns the whole report:
-`domain`, `scheme`, `ports`, `dashboardUrl`, `certificate`, `baseImage` and `notes`.
+Prints the domain, the hostname shape and the port a control plane on the bare domain should
+listen on. `--json` returns the whole report: `domain`, `scheme`, `ports`, `certificate`,
+`baseImage`, `frontend` and `notes`.
+
+`frontend` is `{ port, domain, tls }` — where a control plane must listen, and what the router will
+send it. A container that wants the bare domain carries the `sandboxr.frontend` label.
 
 `notes` is a list of things that need a person. Each is printed as a warning:
 
@@ -106,10 +110,10 @@ Prints the domain, the dashboard URL and the hostname shape. `--json` returns th
 - `mkcert's root is not in this machine's trust store, so the router serves plain http.`
 - `mkcert could not issue a certificate, so the router serves plain http.`
 - `The certificate is issued but its root is not trusted.`
-- `No SANDBOXR_PASSWORD is set, so the dashboard will admit nobody.`
+- `Nothing is serving <url> — sandboxr is a command-line tool.`
 
 The certificate covers the domain and one wildcard under it, and that is the whole machine: a
-sandbox hostname is one label deep, so the wildcard reaches every sandbox as well as the dashboard.
+sandbox hostname is one label deep, so the wildcard reaches every sandbox as well as the bare domain.
 Starting a sandbox issues no certificate of its own.
 
 `init` never installs a trust root implicitly. `mkcert -install` is the one step that needs an
@@ -119,7 +123,9 @@ administrator password, so it is left to you.
 
 ### `sandboxr teardown [--network]`
 
-Stops the router and the dashboard. With `--network` it also removes the shared Docker network.
+Stops the router, and whatever is on the bare domain — anything carrying the `sandboxr.frontend`
+label, found by the label rather than by a name. With `--network` it also removes the shared Docker
+network.
 
 **It leaves sandboxes running.** Those are `down`'s business, and it says so.
 
@@ -583,7 +589,7 @@ usage tree on stderr.
 
 | Command | Scope | Destructive |
 |---|---|---|
-| `init` | machine | Replaces the router and dashboard containers |
+| `init` | machine | Replaces the router container |
 | `teardown` | machine | Removes them. Leaves sandboxes alone |
 | `up` | one sandbox | Replaces the container; **keeps** its volumes |
 | `down` | one sandbox | Removes the container, the database and the uploads |

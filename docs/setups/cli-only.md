@@ -24,22 +24,22 @@ has no sandboxr.yaml — I will need to write one before anything can start.
 Exactly what everybody installs: Docker, Node 22, git, and the `sandboxr` command itself.
 [Install it](../getting-started/install.md) has the steps.
 
-## `init` still starts the dashboard, and there is no way to skip it
+## `init` starts no dashboard, and that is the default
 
-`sandboxr init` sets up the whole machine in one go: the shared Docker network, the base image, a
-certificate if mkcert is trusted, the shared router, and the dashboard.
+`sandboxr init` sets up the machine: the shared Docker network, the base image, a certificate if
+mkcert is trusted, and the shared router. It says when it finishes that nothing is serving the bare
+domain, because nothing is — `sandboxr` is a command-line tool, and this page is its ordinary
+setup rather than a subset of one.
 
-**There is no flag that leaves the dashboard out.** So "CLI only" is a decision about what you use,
-not about what gets installed. You have two honest ways to hold it:
+Your sandboxes are reachable either way. They answer on their own hostnames, through the same
+router, with or without anything on the domain itself.
 
-- **Leave it running and ignore it.** It costs one small container. Lifetimes are enforced, and the
-  browser is there the day you want it.
-- **Stop it.** `docker stop sandboxr-dashboard`, or `sandboxr teardown` to stop the router too.
-  Nothing about `up`, `down` or any other command changes.
+If you want the browser later, `jef init` builds and starts one — see
+[the dashboard on my laptop](dashboard-on-a-laptop.md).
 
-> [!NOTE] `doctor` will call a stopped dashboard a problem
-> `sandboxr doctor` lists "the dashboard is not running" as a failed check and suggests
-> `sandboxr init`. On this setup that is expected, not broken. Nothing else on the machine minds.
+> [!NOTE] The idle timer needs something running
+> Lifetimes are enforced by whatever runs `expire`. With no dashboard on the machine that is a cron
+> entry or a timer of your own; there is a section on it below.
 
 ## What still works — which is nearly everything
 
@@ -122,8 +122,7 @@ is absent for as long as the dashboard is.
 <summary><b>Details for an agent</b> — the full CLI surface on this setup, and the variables that change it</summary>
 
 **Every command works except the ones that are dashboard routes.** There are no CLI verbs that
-require the dashboard process. `sandboxr init` starts it regardless; stopping it afterwards is a
-plain `docker stop sandboxr-dashboard`.
+require a dashboard process, and `sandboxr init` starts none.
 
 Verbs, with the flags that matter here:
 

@@ -4,8 +4,10 @@
 // - ensureWorkstationImage builds container/workstation/Dockerfile, version-tagged and :latest
 // - ensureWorkstationImage passes TARGETARCH, which the legacy builder never sets
 // - ensureWorkstationImage does nothing when the tag is already here, and rebuilds when told to
-// - init builds the workstation image, beside the base and the dashboard, so the first
-//   `New session` on a machine is not the thing that pays for it (contracts §3.3)
+// - initAccess builds the base image and no product's: it prepares the bare domain
+//   and does not fill it (contracts §7.5)
+// - initAccess reports where a front end must listen, and says that nothing is
+//   serving the bare domain
 
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,7 +18,9 @@ import { describe, expect, it } from "vitest";
 import type { Docker } from "../docker.js";
 import { TOOL_VERSION } from "../tool-version.js";
 import {
+  BASE_IMAGE,
   DASHBOARD_IMAGE_NAME,
+  DEFAULT_FRONTEND_PORT,
   WORKSTATION_IMAGE_NAME,
   baseImageTag,
   ensureWorkstationImage,
@@ -105,22 +109,30 @@ describe("ensureWorkstationImage", () => {
 });
 
 /**
- * `init` builds the machine's images, and the workstation is one of them.
+ * `init` builds the machine's base image and nothing else.
  *
- * This moved. It used to be built by the first `createSession`, on the argument
- * that a machine which never makes a session never needs several hundred
- * megabytes of `claude` — an argument that carried its own expiry date, and a
- * session is now the thing the dashboard is organised around. The cost landed in
- * the one place it must not: `POST /api/sessions` answers one JSON body and has
- * nowhere to stream a build log to, so the first **New session** on a machine was
- * several silent minutes. A build belongs in the verb that sets a machine up.
+ * **It prepares the bare domain and does not fill it** (contracts §7.5). The
+ * base is the prerequisite of the next thing anybody does — the first `up`
+ * fails without it — which is the test for belonging in the engine's `init`. A
+ * dashboard's image, a workstation's and an orchestrator's are a *product's*,
+ * and `jef init` builds them.
+ *
+ * The workstation's build has to stay in a verb that sets a machine up, and the
+ * reason has not changed: it used to be built by the first `createSession`, on
+ * the argument that a machine which never makes a session never needs several
+ * hundred megabytes of `claude` — an argument that carried its own expiry date.
+ * The cost landed in the one place it must not: `POST /api/sessions` answers one
+ * JSON body and has nowhere to stream a build log to, so the first **New
+ * session** on a machine was several silent minutes. That assertion now lives on
+ * `initJef` in packages/server; what is asserted here is that the engine does
+ * *not* build it.
  *
  * Driven with `tls: false` and `start: false` so it is the images being asserted
  * and not mkcert or the router — the two halves of `init` that need a real
  * machine.
  */
 describe("initAccess", () => {
-  it("builds the workstation image beside the base and the dashboard", async () => {
+  const run = async (): Promise<{ built: string[]; report: Awaited<ReturnType<typeof initAccess>> }> => {
     const root = await mkdtemp(join(tmpdir(), "sandboxr-init-"));
     for (const dir of ["base", "project", "examples", "workstation", "dashboard", "scripts"]) {
       await mkdir(join(root, "container", dir), { recursive: true });
@@ -143,6 +155,7 @@ describe("initAccess", () => {
       available: async () => true,
       ensureNetwork: async () => undefined,
       imageExists: async () => false,
+      ps: async () => [],
       ok: async (args: string[]) => {
         if (args[0] === "build") {
           const tagged = args.indexOf("-t");
@@ -152,12 +165,32 @@ describe("initAccess", () => {
       },
     } as unknown as Docker;
 
-    await initAccess({ env, docker, tls: false, start: false });
+    const report = await initAccess({ env, docker, tls: false, start: false });
+    return { built, report };
+  };
 
-    // The workstation's, and it is the assertion this test exists for.
-    expect(built).toContain(`${WORKSTATION_IMAGE_NAME}:${TOOL_VERSION}`);
-    // Beside the dashboard's, so a reordering that dropped one is visible as the
-    // list it is rather than as a single missing tag.
-    expect(built).toContain(`${DASHBOARD_IMAGE_NAME}:${TOOL_VERSION}`);
+  it("builds the base image and no product's", async () => {
+    const { built } = await run();
+    // Content-addressed, so the tag carries a digest of `container/` after the
+    // version — matched by prefix rather than spelled, which would pin this test
+    // to a fixture's hash.
+    expect(built.some((tag) => tag.startsWith(`${BASE_IMAGE}:${TOOL_VERSION}`))).toBe(true);
+    expect(built).not.toContain(`${DASHBOARD_IMAGE_NAME}:${TOOL_VERSION}`);
+    expect(built).not.toContain(`${WORKSTATION_IMAGE_NAME}:${TOOL_VERSION}`);
+  });
+
+  // Where a front end must listen, and what the router will send it. Without
+  // this the engine would prepare a domain and leave whoever wants to serve it
+  // guessing at a port number.
+  it("reports where a front end must listen", async () => {
+    const { report } = await run();
+    expect(report.frontend).toEqual({ port: DEFAULT_FRONTEND_PORT, domain: report.domain, tls: false });
+  });
+
+  // A bare domain nobody is serving looks like a broken install rather than a
+  // finished one, so it is said out loud exactly once.
+  it("says that nothing is serving the bare domain", async () => {
+    const { report } = await run();
+    expect(report.notes.join("\n")).toContain("command-line tool");
   });
 });

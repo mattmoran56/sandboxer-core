@@ -34,11 +34,12 @@ import { containerDir } from "../install.js";
 import { DEFAULT_DOMAIN, NETWORK } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { TOOL_VERSION } from "../tool-version.js";
-import { claudeHostEnv, hostClaudeCredentials } from "../agent/credentials.js";
+import { claudeHostEnv } from "../agent/credentials.js";
 import { hostGitIdentity } from "../git.js";
-import { DASHBOARD_CONTAINER, DASHBOARD_PORT, hostGhToken, startDashboard, stopDashboard } from "./dashboard.js";
+import { DASHBOARD_CONTAINER, hostGhToken } from "./dashboard.js";
+import { DEFAULT_FRONTEND_CONTAINER, DEFAULT_FRONTEND_PORT, listFrontends } from "./frontend.js";
 import { writeHostEnv } from "./host-env.js";
-import { ORCHESTRATOR_CONTAINER, ORCHESTRATOR_IMAGE_NAME, startOrchestrator, stopOrchestrator } from "./orchestrator.js";
+import { ORCHESTRATOR_CONTAINER, ORCHESTRATOR_IMAGE_NAME, stopOrchestrator } from "./orchestrator.js";
 import {
   ROUTER_CONTAINER,
   TLS_DIR,
@@ -117,15 +118,30 @@ export interface InitOptions {
    * sorted, through the same quoting and the same newline refusal.
    */
   hostEnvExtra?: Record<string, string> | undefined;
+  /** The port the router forwards the bare domain to. Default 8080. */
+  frontendPort?: number | undefined;
+  /**
+   * The container the forward-auth middleware asks (§7.5).
+   *
+   * Named here because `init` writes the router's configuration before any
+   * front end exists to be listed — the engine starts none of its own.
+   */
+  frontendContainer?: string | undefined;
 }
 
 export interface AccessReport {
   domain: string;
   scheme: "http" | "https";
   ports: RouterPorts;
-  dashboardUrl: string;
   certificate?: Certificate | undefined;
   baseImage: string;
+  /**
+   * Where a front end must listen, and what the router will send it (§7.5).
+   *
+   * `init` prepares the bare domain and does not fill it. This is the whole of
+   * what a control plane needs to know to be the thing on it.
+   */
+  frontend: { port: number; domain: string; tls: boolean };
   /** Things that work now but would work better after one more command. */
   notes: string[];
 }
@@ -406,10 +422,18 @@ export async function ensureDashboardImage(options: {
 }
 
 /**
- * Sets the machine up: network, base image, certificate, router, dashboard.
+ * Sets the machine up: directories, network, base image, certificate, router,
+ * `host.env`.
  *
- * Idempotent. Running it again is how you change the domain, rotate the
- * password, or pick TLS up after installing mkcert's root.
+ * **It prepares the bare domain and does not fill it** (contracts §7.5). The
+ * engine serves no control plane — `sandboxr` is a command-line tool — so
+ * nothing answers `https://<domain>` after this unless an embedder puts a front
+ * end there. `AccessReport.frontend` is where one must listen. `jef init` is
+ * Jef's verb: it calls this, builds the dashboard, workstation and orchestrator
+ * images, and starts the dashboard and the orchestrator on that port.
+ *
+ * Idempotent. Running it again is how you change the domain or pick TLS up
+ * after installing mkcert's root.
  */
 export async function initAccess(options: InitOptions = {}): Promise<AccessReport> {
   const env = options.env ?? process.env;
@@ -434,30 +458,12 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   const configFile = await writeMachineConfigExample(env);
   if (configFile) notes.push(`Wrote ${configFile}. Edit it to change how long a sandbox may sit unused.`);
 
+  // The one image `init` builds. It is the prerequisite of the next thing
+  // anybody does — the first `up` fails without it — which is the test for
+  // belonging here. The dashboard's, the workstation's and the orchestrator's
+  // are a *product's* images and are built by `jef init`; the engine has no
+  // opinion about what a control plane is made of.
   const baseImage = await ensureBaseImage({ docker, env, rebuild: options.rebuild, log });
-  const dashboardImage = await ensureDashboardImage({ docker, env, rebuild: options.rebuild, log });
-  // The workstation's image, and it is built **here** rather than by the first
-  // `createSession` (contracts §3.3). It used to be built there, on the argument
-  // that a machine which never makes a session never needs several hundred
-  // megabytes of `claude` — and that argument carried its own expiry date, which
-  // has passed: a session is now the thing the dashboard is organised around, so
-  // "the first time a session is created" is "the first time somebody presses
-  // New session", and the build landed in a request that answers one JSON body
-  // and has nowhere to stream a build log to. Several silent minutes on a click.
-  //
-  // This does not make the create *correct* — `createSession` still calls
-  // `ensureWorkstationImage` and must keep doing so, because the tag carries the
-  // tool version, so an upgrade invalidates it and a machine can reach a create
-  // without the tag being there. It makes the create *fast*, which is a
-  // different property and the one that was missing.
-  await ensureWorkstationImage({ docker, env, rebuild: options.rebuild, log });
-  // The orchestrator's image is the dashboard's plus Claude Code, so it is built
-  // from it and therefore after it. Only when the feature is switched on: it is a
-  // few hundred megabytes, and a machine that has not asked for an agent should
-  // not be made to download one.
-  const orchestratorImage = orchestratorWanted(env)
-    ? await ensureOrchestratorImage({ docker, env, rebuild: options.rebuild, base: dashboardImage, log })
-    : undefined;
 
   // --- the certificate ---------------------------------------------------------
   //
@@ -483,14 +489,15 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   }
 
   // --- the router --------------------------------------------------------------
+  const frontendPort = options.frontendPort ?? DEFAULT_FRONTEND_PORT;
   const files = await writeRouterConfig({
     env,
     cert,
-    // The front end `jef init` will start. The engine starts none of its own
+    // The front end an embedder will start. The engine starts none of its own
     // (contracts §7.5); this names the address the middleware has to carry
     // before one exists to be listed.
-    frontendContainer: DASHBOARD_CONTAINER,
-    frontendPort: DASHBOARD_PORT,
+    frontendContainer: options.frontendContainer ?? DEFAULT_FRONTEND_CONTAINER,
+    frontendPort,
     ports,
   });
   if (cert) await writeCertificateEntry(files.dynamic, cert, TLS_DIR, { isDefault: true });
@@ -502,15 +509,13 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
 
   // --- what only the host can look up ------------------------------------------
   //
-  // Resolved here rather than inside `startDashboard`, which is where it used to
-  // happen alone, because it is now read twice: once by the `docker run` below,
-  // and once out of `host.env` by `docker compose up`. This is the last moment
-  // anything can reach the login keychain, the host's gitconfig or the host's
-  // filesystem — see access/host-env.ts — so a lookup left until the container is
-  // up is a lookup that answers nothing.
+  // Resolved here because here is the last moment anything can reach the login
+  // keychain, the host's gitconfig or the host's filesystem — see
+  // access/host-env.ts. A lookup left until a container is up is a lookup that
+  // answers nothing, and both the front end's `docker run` and
+  // `docker compose up` read the file this writes.
   const ghToken = await hostGhToken(env);
   const gitIdentity = await hostGitIdentity(env);
-  const claudeCredentials = hostClaudeCredentials(env);
   await writeHostEnv({
     env,
     facts: { ghToken, gitIdentity },
@@ -521,51 +526,35 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
     extra: { ...claudeHostEnv(env), ...(options.hostEnvExtra ?? {}) },
   });
 
-  // --- the dashboard -----------------------------------------------------------
-  const password = env.SANDBOXR_PASSWORD;
-  if (!password) {
-    notes.push(
-      "No SANDBOXR_PASSWORD is set, so the dashboard will admit nobody.\n" +
-        "  Set one and run `sandboxr init` again.",
-    );
-  }
-
+  // --- the router ---------------------------------------------------------------
   if (options.start === false) {
     notes.push(
-      `Nothing was started. ${p.hostEnvFile} and the router's configuration are ready for\n` +
-        "  `docker compose up -d` — see docs/guides/compose.md.",
+      `Nothing was started. ${p.hostEnvFile} and the router's configuration are ready.`,
     );
   } else {
     await startRouter({ env, docker, cert, files, bind: options.bind, ports, log });
-    await startDashboard({
-      docker,
-      domain,
-      tls: cert !== undefined,
-      password,
-      env,
-      log,
-      image: dashboardImage,
-      ...(ghToken ? { ghToken } : {}),
-      gitIdentity,
-      ...(claudeCredentials ? { claudeCredentials } : {}),
-    });
-    // The machine's agent, beside the dashboard rather than inside it — see
-    // access/orchestrator.ts for why the credential cannot live in the web server.
-    if (orchestratorImage) {
-      await startOrchestrator({ docker, env, image: orchestratorImage, log });
-    } else {
-      await stopOrchestrator(docker).catch(() => undefined);
-    }
   }
 
   const scheme = cert ? "https" : "http";
+  // Said once, because a bare domain nobody is serving looks like a broken
+  // install rather than a finished one. `sandboxr` is a command-line tool: it
+  // prepares the domain, and whether anything answers on it is an embedder's
+  // decision (contracts §7.5).
+  if ((await listFrontends(docker)).length === 0) {
+    notes.push(
+      `Nothing is serving ${scheme}://${domain}${portSuffix(scheme, ports)} — sandboxr is a command-line tool.\n` +
+        `  A control plane that wants the bare domain listens on ${frontendPort} and carries the\n` +
+        "  `sandboxr.frontend` label. Sandboxes are reachable either way.",
+    );
+  }
+
   return {
     domain,
     scheme,
     ports,
-    dashboardUrl: `${scheme}://${domain}${portSuffix(scheme, ports)}`,
     certificate: cert,
     baseImage,
+    frontend: { port: frontendPort, domain, tls: cert !== undefined },
     notes,
   };
 }
@@ -621,9 +610,13 @@ export async function teardownAccess(options: TeardownOptions = {}): Promise<{ r
   const removed: string[] = [];
 
   await stopOrchestrator(docker).catch(() => undefined);
-  if (await stopDashboard(docker)) {
-    removed.push(DASHBOARD_CONTAINER);
-    log(`Removed ${DASHBOARD_CONTAINER}`);
+  // Whatever is on the bare domain, found by its label rather than by a name the
+  // engine would have to know (contracts §7.5). A machine with no front end has
+  // none of these and the loop does nothing.
+  for (const container of await listFrontends(docker)) {
+    await docker.raw(["rm", "-f", container]);
+    removed.push(container);
+    log(`Removed ${container}`);
   }
   if (await stopRouter(docker)) {
     removed.push(ROUTER_CONTAINER);

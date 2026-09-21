@@ -91,13 +91,19 @@ flowchart TB
   a["<b>sandboxr init</b>"]
   b["Create ~/.sandboxr and the shared Docker network"]
   c["Build sandboxr/base — the image every sandbox runs from"]
-  d["Build sandboxr/dashboard"]
-  d2["Build sandboxr/workstation — the image a session's agent runs in"]
   e["Issue a certificate for the domain, if mkcert is trusted"]
   f["Start the shared router on 127.0.0.1:80 and :443"]
-  g["Start the dashboard on the bare domain"]
-  a --> b --> c --> d --> d2 --> e --> f --> g
+  a --> b --> c --> e --> f
+  f --> g["<b>jef init</b>"]
+  g --> h["Build sandboxr/dashboard and sandboxr/workstation"]
+  h --> i["Start the dashboard on the bare domain"]
 ```
+
+> [!NOTE] `sandboxr init` prepares the bare domain and does not fill it
+> It says so when it finishes: nothing is serving `https://<your domain>`, because `sandboxr` is a
+> command-line tool. Your sandboxes are reachable on their own hostnames either way. `jef init`
+> is the command that builds and starts a dashboard there — see
+> [the dashboard](../guides/dashboard.md).
 
 ### Why the first run is slow
 
@@ -109,26 +115,27 @@ around 670 MB, and `claude` is about 240 MB of that.
 It is built once. Nothing rebuilds it unless you pass `--rebuild` or the tool's version changes.
 Every sandbox on the machine then starts from it.
 
-The dashboard image is small and quick, and is built separately on purpose: it carries a Docker
+The dashboard image is `jef init`'s, and it is built separately on purpose: it carries a Docker
 client and the base image deliberately does not. That is what stops a project — or an agent
 working inside a sandbox — driving Docker.
 
 The workstation image is the third, and it is the container a
-[session's](../guides/dashboard.md) agent runs in — around 640 MB, most of it `claude`. It is built
-here rather than the first time somebody makes a session, because a session is now the ordinary way
-to start work: left where it was, the build landed on whoever pressed **New session** first, as
-several silent minutes inside a request with nowhere to show progress. Built here, making a session
-is a second or so.
+[session's](../guides/dashboard.md) agent runs in — around 640 MB, most of it `claude`. `jef init`
+builds it too, rather than leaving it to the first time somebody makes a session, because a session
+is the ordinary way to start work: left where it was, the build landed on whoever pressed **New
+session** first, as several silent minutes inside a request with nowhere to show progress.
 
 ### What it prints
 
 ```
   ok Ready on sbx.localhost
 
-  dashboard   https://sbx.localhost
   sandboxes   https://<slug>.<label>.<project>.sbx.localhost
+  bare domain https://sbx.localhost — free, for a control plane on port 8080
 
   Any name under sbx.localhost resolves to 127.0.0.1 on its own. Nothing to configure.
+
+  ! Nothing is serving https://sbx.localhost — sandboxr is a command-line tool.
 
   Next: cd into a project with a sandboxr.yaml and run `sandboxr up`.
 ```

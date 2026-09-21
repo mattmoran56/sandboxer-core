@@ -44,6 +44,7 @@ import {
   gitFacts,
   importSecrets,
   initAccess,
+  portSuffix,
   isKeptAlive,
   list,
   listProjects,
@@ -95,16 +96,15 @@ import { Output, processWriter, type Writer } from "./output.js";
 export const USAGE = `sandboxr — one container per git worktree, on its own hostname
 
 SETUP
-  init                         Set this machine up: router, certificate, dashboard
+  init                         Set this machine up: router, certificate, base image
      --no-tls                  Serve plain http even if a trusted CA is present
      --tls                     Insist on https even if the CA is not trusted yet
      --rebuild                 Rebuild the base image
      --bind ADDR               Publish the router here instead of 127.0.0.1
      --http-port N             Publish http here instead of 80
      --https-port N            ...and https here instead of 443
-     --no-start                Prepare the machine but start nothing — for
-                               \`docker compose up\` (docs/guides/compose.md)
-  teardown [--network]         Stop the router and the dashboard
+     --no-start                Prepare the machine but start nothing
+  teardown [--network]         Stop the router and whatever is on the bare domain
 
 SANDBOX
   up [slug]                    Start a sandbox from this worktree
@@ -1705,9 +1705,9 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
   if (out.json) out.data(report);
   out.ok(`Ready on ${report.domain}`);
   out.line();
-  out.line(`  dashboard   ${report.dashboardUrl}`);
-  const suffix = report.dashboardUrl.slice(`${report.scheme}://${report.domain}`.length);
+  const suffix = portSuffix(report.scheme, report.ports);
   out.line(`  sandboxes   ${report.scheme}://<slug>--<label>--<project>.${report.domain}${suffix}`);
+  out.line(`  bare domain ${report.scheme}://${report.domain}${suffix} — free, for a control plane on port ${report.frontend.port}`);
   out.line();
   // `.localhost` resolves to the loopback address with no configuration at all,
   // which is the whole reason it is the default — saying so once here saves the
@@ -1718,11 +1718,7 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
     out.warn(note);
   }
   out.line();
-  out.dim(
-    start === false
-      ? "  Next: `docker compose up -d` from this checkout."
-      : "  Next: cd into a project with a sandboxr.yaml and run `sandboxr up`.",
-  );
+  out.dim("  Next: cd into a project with a sandboxr.yaml and run `sandboxr up`.");
   return 0;
 }
 
