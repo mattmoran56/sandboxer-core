@@ -18,8 +18,9 @@ Two audiences, and the split matters:
 
 - **The apps** a sandbox serves are (by default) **public**. Someone who finds one sees a
   preview of unreleased features.
-- **The controls** — the dashboard, the terminal, start/stop/rebuild/migrate — are **behind
-  a password**. Always.
+- **The controls** — start, stop, rebuild, migrate, a shell inside — are the operator's, and
+  the engine offers them on a command line and nowhere else. A control plane that offers them
+  over HTTP is behind a password. Always.
 
 **The engine's unit is the worktree, full stop.** A *session* — a workstation, a work volume,
 several repositories checked out under one name a person typed — is not an engine noun. It is
@@ -29,46 +30,42 @@ session: the engine is handed a workspace and starts a container on it.
 
 ## 2. Two repositories, and the one rule between them
 
-This tree is being split in two, and the boundary is the reason this file exists.
+This tree was one repository until the engine was extracted from it, and the boundary is the
+reason this file exists.
 
-- **The engine, `sandboxr`.** `packages/core`, `packages/cli`, `packages/docs`, `packages/tokens`,
-  `container/`, `docs/`, `examples/`. It turns a git worktree into a running copy of a project on
-  its own hostname. It knows about worktrees, sandboxes, images, volumes, a router and a
-  certificate. It knows nothing about agents, sessions or Jef.
-- **The product, `Jef`.** `packages/server`, `packages/web`, `packages/sessions`,
-  `packages/orchestrator`, `packages/voice`, `packages/telegram`,
-  `packages/orchestrator-daemon`, `sidecars/`, `container/jef-base/`, and the dashboard,
-  orchestrator and workstation containers. It is an agent you talk to, built on the engine.
+- **The engine, `sandboxr`.** This repository: `packages/core`, `packages/cli`, `packages/docs`,
+  `packages/tokens`, `container/`, `docs/`, `examples/`. It turns a git worktree into a running
+  copy of a project on its own hostname. It knows about worktrees, sandboxes, images, volumes, a
+  router and a certificate. It knows nothing about agents, sessions or Jef.
+- **The product, `Jef`.** The `meet-jef` repository: a dashboard, agent sessions, an orchestrator,
+  a voice, a workstation container, an agent layer on the base image, and a compose file that runs
+  the lot. It is an agent you talk to, built on the engine. It embeds `@sandboxr/core` in process.
 
 ```
-packages/core      @sandboxr/core     engine   Config, drivers, docker orchestration, lifecycle
-packages/cli       @sandboxr/cli      engine   The `sandboxr` command
-packages/tokens    @sandboxr/tokens   engine   One stylesheet, tokens.css, and the fonts it imports
-packages/docs      @sandboxr/docs     engine   The documentation site
-container/         (no package)       engine   What runs INSIDE a sandbox: Dockerfiles, s6, scripts — except jef-base/
-examples/          (no package)       engine   Example sandboxr.yaml files
-packages/sessions  @jef/sessions      product  Sessions, the agent that works in one, and reading the code it changed
-packages/server    @jef/server        product  The dashboard's server: auth, JSON API, terminal, actions
-packages/web       @jef/web           product  The dashboard's browser app: React, Tailwind, built by Vite
-container/jef-base (no package)       product  The agent layer on the base image: claude, and nothing else
-sidecars/          (no package)       product  The audio body: Python, by necessity
-docker-compose.yml (no package)       product  The whole constellation, in one file
+packages/core      @sandboxr/core     Config, drivers, docker orchestration, lifecycle
+packages/cli       @sandboxr/cli      The `sandboxr` command
+packages/tokens    @sandboxr/tokens   One stylesheet, tokens.css, and the fonts it imports
+packages/docs      @sandboxr/docs     The documentation site
+container/         (no package)       What runs INSIDE a sandbox: Dockerfiles, s6, scripts
+examples/          (no package)       Example sandboxr.yaml files
 ```
 
-**The engine ships no `docker-compose.yml` and no `.env.example` describing one.** It is a CLI
-and a router; a constellation of long-running services is what a product assembles out of it.
+That is the whole of it. **The engine ships no `docker-compose.yml`, no dashboard, no session
+and no agent.** It is a CLI and a router; a constellation of long-running services is what a
+product assembles out of it.
 
 **This file is the engine's contract. Jef's is `docs/jef/contracts.md`**, in the `meet-jef`
-repository — deliberately not a link, because the two files are about to stop sharing a tree. It
-holds what used to be §§7.1, 7.2, 7.4, 10, 11 and 12 of this one: the dashboard's HTTP
-surface, agent sessions, reading code in a container, the orchestrator, the compose file and the
-session model. Where the two look like they disagree, **this one binds** — Jef cannot change a
+repository — deliberately not a link, because the two files are no longer in one tree. It holds
+what used to be §§7.1, 7.2, 7.4, 10, 11 and 12 of this one: the dashboard's HTTP surface, agent
+sessions, reading code in a container, the orchestrator, the compose file and the session
+model. Where the two look like they disagree, **this one binds** — Jef cannot change a
 slug ceiling or a volume's reclamation rule by describing it differently, it can only decline to
 use the thing. Jef's §9.10 is the map from each rule here to what Jef builds on it.
 
 **The rule, stated once: the engine imports nothing from the product; the product imports the
-engine.** Not "should not" — *cannot*, and a test says so. `@sandboxr/core` depends on `yaml` and
-`zod` and on nothing else; every import specifier in its source is relative, `node:`-prefixed, or
+engine.** Not "should not" — *cannot*: the product is not in this tree, and a test says so as
+well, because the rule has to survive somebody vendoring one repository into the other.
+`@sandboxr/core` depends on `yaml` and `zod` and on nothing else; every import specifier in its source is relative, `node:`-prefixed, or
 one of those two. `packages/core/src/boundary.test.ts` walks `src/**/*.ts` and fails with the
 file, the line and the specifier, and `packages/cli/src/boundary.test.ts` does the cut-down
 version for the CLI. They run under the ordinary `npm test`; there is no linter in this repo and
@@ -227,7 +224,7 @@ name, which is worse than the problem.
 
 ```
 <slug>--<label>--<project>.<domain>    an app or api inside a sandbox
-<domain>                               the dashboard (the control plane)
+<domain>                               whatever is on the bare domain (a control plane)
 ```
 
 - `label` comes from the project's config (`frontends[].label`, `backends[].label`).
@@ -319,35 +316,34 @@ Images are named under one namespace, and the split between them decides what ma
 - Project layer: `sandboxr/<project>:<12 hex>`, the hash covering the tool version, the rendered
   Dockerfile and every staged manifest. Content-addressed, so every sandbox of a project shares one
   image and a rebuild is triggered by exactly the things the build reads.
-- The machine's own: `sandboxr/base`, `sandboxr/dashboard` and `sandboxr/workstation` (Jef's §9.3),
-  tagged by tool version and by `latest`. **All three are built by `init`**, and all three are on
-  the never-reclaimed list. An embedder's own base is a fourth — Jef's is `jef/base`, the engine's
-  base with an agent on it, built by `jef init` and named to `up` as `baseImage` — and it is
-  **content-addressed on the engine base tag plus its own Dockerfile**, not tagged by tool version:
-  it is one layer on a tag that is already a digest of everything below it, so a base rebuild has to
-  move it or the two drift. The engine does not know its name. It is kept because the caller passes
-  it as `protectImages`, which is unioned with the engine's own reservations and never replaces
-  them.
-- **`sandboxr/workstation` used to be built by the first `createSession` instead**, on the argument
-  that a machine which never creates a session never needs it. That argument has expired on its own
-  stated condition — "revisit when a session is the ordinary way to start work" — and a session now
-  *is* the thing the dashboard is organised around. The cost of leaving it where it was is paid in
-  the one place it must not be: the first **New session** on a machine took the several minutes of a
-  `claude` install, in a request that answers one JSON body and has nowhere to stream a build log to
-  (Jef's §9.6.2). A build belongs in the verb that sets a machine up, beside the other two, where it is
-  expected to take a while and says so. `createSession` still calls `ensureWorkstationImage` and
-  must keep doing so: `init` having built it is what makes a create fast, never what makes it
-  correct, and the tag carries the tool version — so an upgrade invalidates it, and `init` is the
-  verb somebody runs after one.
+- The machine's own: `sandboxr/base`, tagged by tool version and by `latest`. **`init` builds this
+  one and no other**, and it is on the never-reclaimed list. `sandboxr/dashboard`,
+  `sandboxr/workstation` and `sandboxr/orchestrator` are **reserved names the engine never
+  builds**: a product tags its machine images under `sandboxr/` (Jef's §9.3) and the engine
+  promises never to reap one, whether or not the thing that built it is installed here.
+- An embedder's own base is another — Jef's is `jef/base`, the engine's base with an agent on it,
+  built by `jef init` and named to `up` as `baseImage`. It is **content-addressed on the engine
+  base tag plus its own Dockerfile**, not tagged by tool version: it is one layer on a tag that is
+  already a digest of everything below it, so a base rebuild has to move it or the two drift. The
+  engine does not know its name. It is kept because the caller passes it as `protectImages`, which
+  is unioned with the engine's own reservations and never replaces them.
+- **An image a product's own `init` builds belongs in that verb, not in the first request that
+  needs it.** Jef's workstation image was built by the first `createSession` instead, on the
+  argument that a machine which never creates a session never needs it — and the cost landed in
+  the one place it must not, as several silent minutes inside a request that answers one JSON body
+  and has nowhere to stream a build log to (Jef's §9.6.2). The engine's half of that lesson is why
+  `sandboxr init` builds the base rather than leaving it to the first `up`: a verb that sets a
+  machine up is expected to take a while and says so.
 - **The base image's digest covers `container/base/` and `container/scripts/`, and nothing else.**
   Those are the two directories `base/Dockerfile` copies from, so they are exactly what the build
   reads. This is an allowlist because it used to be a deny-list naming `project/`, `examples/` and
   `workstation/`, and every directory that arrived under `container/` afterwards silently joined the
-  digest — `workstation/` had to be noticed that way, and `dashboard/`, `orchestrator/` and
-  `jef-base/` would each have had to be noticed again. Including any of them rebuilds the base for a
-  change that cannot affect it: several minutes and several gigabytes, on the next `init`, for
-  nothing. The allowlist also survives the repository split, where the engine's tree holds `base/`
-  and `scripts/` and no others — a deny-list would have to name directories that are not there.
+  digest — `workstation/` had to be noticed that way, and the dashboard's, the orchestrator's and
+  the agent layer's would each have had to be noticed again. Including any of them rebuilds the
+  base for a change that cannot affect it: several minutes and several gigabytes, on the next
+  `init`, for nothing. The allowlist also survived the repository split, where the engine's tree
+  holds `base/`, `project/`, `examples/` and `scripts/` and no others — a deny-list would have to
+  name directories that are not there.
 
 **Reclamation is a contract, not a heuristic.** `gc` removes sandboxes, the volumes they owned, and
 the project images a newer build replaced. `prune` removes the same volumes and images with sizes
@@ -369,9 +365,10 @@ against them, and Docker's build cache when it is asked. Both are bound by five 
   clone and every uncommitted change in it. The engine promises never to reclaim one, without
   knowing what a session is. `isWorkVolume` in `packages/core/src/naming.ts` is the test, beside
   `WORK_VOLUME_PREFIX` which is the name it reserves.
-- `sandboxr/base` and `sandboxr/dashboard` are never removed as superseded: they are tagged by
-  version rather than by content, so "older tag" does not mean "replaced". An embedder adds its own
-  names to that list by passing them, and `jef/base` is on it.
+- `sandboxr/base`, and the `sandboxr/` names reserved for a product's machine images, are never
+  removed as superseded: they are tagged by version rather than by content, so "older tag" does not
+  mean "replaced". An embedder adds names outside that namespace by passing them, and `jef/base` is
+  on it that way.
 - Of each project's images, the newest survives. A content-addressed tag means the next `up` finds
   it and starts rather than rebuilding, and that is the reason the image is kept at all.
 - An image any container references — running or stopped — is never removed, and neither is one
