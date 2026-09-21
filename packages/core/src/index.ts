@@ -232,27 +232,30 @@ export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js"
 export { ATTACH_HEARTBEAT_MS, attachFileFor, markAttached } from "./sandbox/attach.js";
 export type { AttachOptions } from "./sandbox/attach.js";
 export {
-  AGENT_LIVE_GRACE_MS,
-  AGENT_LIVE_STATES,
   ATTACH_LIVE_GRACE_MS,
   DEFAULT_ACTIVITY_WINDOW,
-  agentActivity,
-  agentSessionActivity,
   attachedActivity,
   lastActivity,
   parseAccessLog,
   sandboxActivity,
-  sessionActivity,
-  sessionAttachedActivity,
 } from "./sandbox/activity.js";
 export type {
   ActivityOptions,
-  AgentActivityOptions,
   AttachedActivityOptions,
   RouterActivity,
+  RouterRequest,
   SandboxActivityOptions,
-  SessionActivityOptions,
 } from "./sandbox/activity.js";
+export {
+  AGENT_LIVE_GRACE_MS,
+  AGENT_LIVE_STATES,
+  agentActivity,
+  agentSessionActivity,
+  sessionActivity,
+  sessionAttachedActivity,
+  sessionRouteActivity,
+} from "./session/activity.js";
+export type { AgentActivityOptions, SessionActivityOptions } from "./session/activity.js";
 
 export {
   WorkspaceError,

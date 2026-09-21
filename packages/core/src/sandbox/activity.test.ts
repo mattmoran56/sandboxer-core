@@ -1,5 +1,5 @@
-// Tests for reading last-activity out of the router's access log, the agent
-// index and the agent transcripts:
+// Tests for reading last-activity out of the router's access log and the
+// held-socket markers — the signals the engine reads for itself:
 // - parseAccessLog against lines copied verbatim from a running sandboxr-router
 // - parseAccessLog: the newest line per container wins, whatever order they arrive in
 // - parseAccessLog: Traefik's own coloured startup chatter, blank lines and garbage are skipped
@@ -7,33 +7,27 @@
 // - parseAccessLog: the log's own UTC offset is honoured, not the host's
 // - parseAccessLog: a request line containing a decoy `"…@docker"` does not become a container
 // - parseAccessLog: a timestamp in the future is clamped to now rather than dropped
-// - parseAccessLog: a dashboard route naming a sandbox counts, under `<project>/<slug>`
-// - parseAccessLog: dashboard routes that name no sandbox, or name an impossible one, count for nothing
-// - parseAccessLog: an unreadable request field costs that line its dashboard reading and nothing else
-// - lastActivity: passes the window to `docker logs --since`
+// - parseAccessLog: a front end's route naming a sandbox counts, under `<project>/<slug>`
+// - parseAccessLog: front-end routes that name no sandbox, or name an impossible one, count for nothing
+// - parseAccessLog: an unreadable request field costs that line its route reading and nothing else
+// - parseAccessLog: a container nobody named a front end is read as a sandbox, and its paths are not routes
+// - parseAccessLog: every readable front-end request comes back in `requests`, for a caller with its own routes
+// - lastActivity: passes the window to `docker logs --since`, and the front ends through
 // - lastActivity: a router that is not running reads as empty, never as "nobody used anything"
-// - agentActivity: a live run holds its sandbox open — activity is now, not when it started
-// - agentActivity: an ended run counts at endedAt, so the countdown starts when the agent stopped
-// - agentActivity: a `running` row whose transcript went quiet is credited only with what it did
-// - agentActivity: a missing home, a corrupt index and rows missing their fields are all absences
-// - agentActivity: a transcript that cannot be stat'd falls back to the index, not to nothing
-// - attachedActivity: a fresh heartbeat holds its sandbox open — a socket is open right now
+// - attachedActivity: a fresh heartbeat holds its sandbox open — a socket or a run is live right now
 // - attachedActivity: a heartbeat past the grace window counts when it was written, not now
 // - attachedActivity: no marker, an empty home and a sandbox missing its names are all absences
 // - attachedActivity: a heartbeat from the future is clamped to now
-// - sandboxActivity: merges router traffic, dashboard routes and agent runs onto one container key
+// - sandboxActivity: merges router traffic, front-end routes and a caller's `extra` onto one container key
 // - sandboxActivity: a held-open socket outweighs the router line, which is stamped when it opened
+// - sandboxActivity: a caller that passes no `extra` still sees the attach marker — the run's own heartbeat
 // - sandboxActivity: a set with no readable ttl reads nothing at all
-// - sandboxActivity: docker failing and the agent index failing together are still an absence
-// - parseAccessLog: a dashboard route naming a session counts, under the session id
-// - parseAccessLog: `/sessions` with no id, and a session route on a sandbox's own router, count for nothing
-// - agentSessionActivity: the join is on `session`, and a run without one contributes nothing
-// - agentSessionActivity: a live run holds its session open, and an ended one counts at endedAt
-// - sessionAttachedActivity: the heartbeat is read from state/session/<session>/attach
-// - sessionAttachedActivity: past the grace window it counts when it was written, not now
-// - sessionActivity: merges the three signals a workstation has onto the session id
-// - sessionActivity: a workstation's own hostname is not a signal, because it has none
-// - sessionActivity: a set with no readable ttl reads nothing at all
+// - sandboxActivity: docker failing is an absence, never "nobody used anything"
+//
+// The agent index, the session join and the session's own routes are
+// ../session/activity.test.ts's. They are what an embedder supplies, and the
+// engine reads none of them.
+
 
 import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -42,19 +36,13 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { Docker, ExecResult } from "../docker.js";
-import { sessionAttachFileFor } from "../session/state.js";
-import type { Session } from "../session/types.js";
 import {
   ATTACH_LIVE_GRACE_MS,
   DEFAULT_ACTIVITY_WINDOW,
-  agentActivity,
-  agentSessionActivity,
   attachedActivity,
   lastActivity,
   parseAccessLog,
   sandboxActivity,
-  sessionActivity,
-  sessionAttachedActivity,
 } from "./activity.js";
 import { attachFileFor } from "./attach.js";
 import type { Sandbox } from "./types.js";
@@ -75,20 +63,27 @@ const REAL_LOG = `[90m2026-08-26T14:04:42Z[0m [32mINF[0m [1mStarting provider *d
 const line = (stamp: string, router: string, request = "GET / HTTP/1.1"): string =>
   `172.18.0.1 - - [${stamp}] "${request}" 200 1773 "-" "-" 1 "${router}" "http://172.18.0.3:80" 11ms`;
 
-const dashboard = (stamp: string, request: string): string => line(stamp, "sandboxr-dashboard@docker", request);
+/**
+ * The front ends on this machine, as `expire` resolves them with one
+ * `listFrontends`. The engine is *told* which containers these are: it starts
+ * none of them and has no name for one to compare against.
+ */
+const FRONTENDS = ["sandboxr-dashboard"];
+
+const frontend = (stamp: string, request: string): string => line(stamp, "sandboxr-dashboard@docker", request);
 
 describe("parseAccessLog", () => {
   it("reads a real router log into one time per sandbox", () => {
-    const seen = parseAccessLog(REAL_LOG, NOW).containers;
+    const seen = parseAccessLog(REAL_LOG, NOW, FRONTENDS).containers;
     expect([...seen.keys()].sort()).toEqual(["sandboxr-demo-staging", "sandboxr-demo-tkt-4821"]);
     expect(seen.get("sandboxr-demo-tkt-4821")?.toISOString()).toBe("2026-08-26T14:14:13.000Z");
   });
 
-  // The dashboard is polled by every open browser tab, so it is the busiest
-  // router on the machine — and it is not a sandbox. Left among the containers
-  // it would be one permanent entry nothing ever looks up.
-  it("does not treat the dashboard or the router as containers", () => {
-    const seen = parseAccessLog(REAL_LOG, NOW).containers;
+  // A front end is polled by every open browser tab, so it is the busiest router
+  // on the machine — and it is not a sandbox. Left among the containers it would
+  // be one permanent entry nothing ever looks up.
+  it("does not treat a front end or the router as containers", () => {
+    const seen = parseAccessLog(REAL_LOG, NOW, FRONTENDS).containers;
     expect(seen.has("sandboxr-dashboard")).toBe(false);
     expect(seen.has("sandboxr-router")).toBe(false);
   });
@@ -96,7 +91,7 @@ describe("parseAccessLog", () => {
   // A 404 on a hostname no sandbox claims. Traefik still logs it, with `-`
   // where the router name goes: a request, but not to anything.
   it("ignores a request nothing routed", () => {
-    expect(parseAccessLog(line("26/Aug/2026:14:08:15 +0000", "-"), NOW).containers.size).toBe(0);
+    expect(parseAccessLog(line("26/Aug/2026:14:08:15 +0000", "-"), NOW, FRONTENDS).containers.size).toBe(0);
   });
 
   it("keeps the newest line for a container, whatever order they arrive in", () => {
@@ -105,7 +100,7 @@ describe("parseAccessLog", () => {
       line("26/Aug/2026:09:00:00 +0000", "sandboxr-acme-tkt-1@docker"),
       line("26/Aug/2026:12:00:00 +0000", "sandboxr-acme-tkt-1@docker"),
     ].join("\n");
-    expect(parseAccessLog(text, NOW).containers.get("sandboxr-acme-tkt-1")?.toISOString()).toBe(
+    expect(parseAccessLog(text, NOW, FRONTENDS).containers.get("sandboxr-acme-tkt-1")?.toISOString()).toBe(
       "2026-08-26T16:00:00.000Z",
     );
   });
@@ -115,7 +110,7 @@ describe("parseAccessLog", () => {
   // every timestamp by the host's offset — expiring sandboxes an hour early on
   // one machine and an hour late on another.
   it("honours the log line's own UTC offset", () => {
-    const seen = parseAccessLog(line("26/Aug/2026:15:00:00 +0100", "sandboxr-acme-tkt-1@docker"), NOW);
+    const seen = parseAccessLog(line("26/Aug/2026:15:00:00 +0100", "sandboxr-acme-tkt-1@docker"), NOW, FRONTENDS);
     expect(seen.containers.get("sandboxr-acme-tkt-1")?.toISOString()).toBe("2026-08-26T14:00:00.000Z");
   });
 
@@ -126,50 +121,50 @@ describe("parseAccessLog", () => {
   it("is not fooled by a request path that looks like a router name", () => {
     const forged =
       '1.2.3.4 - - [26/Aug/2026:16:00:00 +0000] "GET /evil@docker" HTTP/1.1" 404 19 "-" "-" 9 "-" "-" 0ms';
-    expect(parseAccessLog(forged, NOW).containers.has("evil")).toBe(false);
+    expect(parseAccessLog(forged, NOW, FRONTENDS).containers.has("evil")).toBe(false);
   });
 
   it("skips blank lines, Traefik's own log lines and outright garbage", () => {
     const text = `\n\nnot a log line at all\n${REAL_LOG}`;
-    expect(parseAccessLog(text, NOW).containers.size).toBe(2);
+    expect(parseAccessLog(text, NOW, FRONTENDS).containers.size).toBe(2);
   });
 
   // Clamped rather than dropped: of the two readings of a clock-skewed line,
   // only "this happened just now" cannot shorten a sandbox's life.
   it("clamps a timestamp from the future to now", () => {
-    const seen = parseAccessLog(line("27/Aug/2026:09:00:00 +0000", "sandboxr-acme-tkt-1@docker"), NOW);
+    const seen = parseAccessLog(line("27/Aug/2026:09:00:00 +0000", "sandboxr-acme-tkt-1@docker"), NOW, FRONTENDS);
     expect(seen.containers.get("sandboxr-acme-tkt-1")).toEqual(NOW);
   });
 
   it("reads an empty log as no activity rather than throwing", () => {
-    const seen = parseAccessLog("", NOW);
+    const seen = parseAccessLog("", NOW, FRONTENDS);
     expect(seen.containers.size).toBe(0);
     expect(seen.sandboxes.size).toBe(0);
   });
 
-  // The whole point of reading the dashboard's lines: opening a worktree, its
+  // The whole point of reading a front end's lines: opening a worktree, its
   // terminal or its agent never touches the sandbox's own hostname, so without
-  // this a sandbox somebody is working in through the dashboard looks idle.
-  it("counts a dashboard route that names a sandbox", () => {
+  // this a sandbox somebody is working in through a browser looks idle.
+  it("counts a front end's route that names a sandbox", () => {
     const text = [
-      dashboard("26/Aug/2026:15:00:00 +0000", "GET /api/p/demo/s/tkt-4821 HTTP/1.1"),
-      dashboard("26/Aug/2026:16:00:00 +0000", "GET /p/acme/w/tkt-9 HTTP/1.1"),
-      dashboard("26/Aug/2026:16:30:00 +0000", "GET /p/acme/s/tkt-9/terminal HTTP/1.1"),
+      frontend("26/Aug/2026:15:00:00 +0000", "GET /api/p/demo/s/tkt-4821 HTTP/1.1"),
+      frontend("26/Aug/2026:16:00:00 +0000", "GET /p/acme/w/tkt-9 HTTP/1.1"),
+      frontend("26/Aug/2026:16:30:00 +0000", "GET /p/acme/s/tkt-9/terminal HTTP/1.1"),
     ].join("\n");
-    const seen = parseAccessLog(text, NOW).sandboxes;
+    const seen = parseAccessLog(text, NOW, FRONTENDS).sandboxes;
     expect(seen.get("demo/tkt-4821")?.toISOString()).toBe("2026-08-26T15:00:00.000Z");
     // The `w` and `s` forms are one view, so the later of the two wins for the
     // one sandbox they both name.
     expect(seen.get("acme/tkt-9")?.toISOString()).toBe("2026-08-26T16:30:00.000Z");
   });
 
-  it("counts nothing for a dashboard route that names no sandbox", () => {
+  it("counts nothing for a front-end route that names no sandbox", () => {
     const text = [
-      dashboard("26/Aug/2026:15:00:00 +0000", "GET /api/workspace HTTP/1.1"),
-      dashboard("26/Aug/2026:15:00:01 +0000", "GET /api/p/demo/env HTTP/1.1"),
-      dashboard("26/Aug/2026:15:00:02 +0000", "GET /assets/app.js HTTP/1.1"),
+      frontend("26/Aug/2026:15:00:00 +0000", "GET /api/workspace HTTP/1.1"),
+      frontend("26/Aug/2026:15:00:01 +0000", "GET /api/p/demo/env HTTP/1.1"),
+      frontend("26/Aug/2026:15:00:02 +0000", "GET /assets/app.js HTTP/1.1"),
     ].join("\n");
-    expect(parseAccessLog(text, NOW).sandboxes.size).toBe(0);
+    expect(parseAccessLog(text, NOW, FRONTENDS).sandboxes.size).toBe(0);
   });
 
   // A project is a workspace directory and a slug is `[a-z0-9-]` (§3.1), so a
@@ -177,10 +172,10 @@ describe("parseAccessLog", () => {
   // it is both safe and correct.
   it("counts nothing for a path that could not be a project and slug", () => {
     const text = [
-      dashboard("26/Aug/2026:15:00:00 +0000", "GET /api/p/../s/../etc HTTP/1.1"),
-      dashboard("26/Aug/2026:15:00:01 +0000", "GET /api/p/demo/s/%2e%2e HTTP/1.1"),
+      frontend("26/Aug/2026:15:00:00 +0000", "GET /api/p/../s/../etc HTTP/1.1"),
+      frontend("26/Aug/2026:15:00:01 +0000", "GET /api/p/demo/s/%2e%2e HTTP/1.1"),
     ].join("\n");
-    expect(parseAccessLog(text, NOW).sandboxes.size).toBe(0);
+    expect(parseAccessLog(text, NOW, FRONTENDS).sandboxes.size).toBe(0);
   });
 
   // The request field is read separately from the rest of the line on purpose:
@@ -188,7 +183,38 @@ describe("parseAccessLog", () => {
   // crafted path could take a whole line's worth of genuine activity with it.
   it("still reads a container from a line whose request field is unreadable", () => {
     const odd = '172.18.0.1 - - [26/Aug/2026:15:00:00 +0000] GET / 200 1 "-" "-" 1 "sandboxr-acme-tkt-1@docker" "http://172.18.0.3:80" 11ms';
-    expect(parseAccessLog(odd, NOW).containers.has("sandboxr-acme-tkt-1")).toBe(true);
+    expect(parseAccessLog(odd, NOW, FRONTENDS).containers.has("sandboxr-acme-tkt-1")).toBe(true);
+  });
+
+  // Which containers are front ends is the caller's to say. Told nothing, the
+  // engine reads every router name as a sandbox's own container — which is the
+  // honest answer, because that is what every other name in this log is.
+  it("reads a container nobody named a front end as a sandbox", () => {
+    const text = frontend("26/Aug/2026:15:00:00 +0000", "GET /api/p/acme/s/tkt-1 HTTP/1.1");
+    const seen = parseAccessLog(text, NOW, []);
+    expect(seen.containers.has("sandboxr-dashboard")).toBe(true);
+    expect(seen.sandboxes.size).toBe(0);
+  });
+
+  // The seam. A front end serves addresses for things the engine has no noun
+  // for, so every readable front-end request comes back as it was read and a
+  // caller applies its own patterns — which is how `…/sessions/<id>/…` is
+  // counted without this file knowing what a session is.
+  it("hands back every readable front-end request for a caller with its own routes", () => {
+    const text = [
+      frontend("26/Aug/2026:15:00:00 +0000", "GET /api/sessions/eng-3941 HTTP/1.1"),
+      frontend("26/Aug/2026:16:00:00 +0000", "GET /api/p/acme/s/tkt-1 HTTP/1.1"),
+      line("26/Aug/2026:16:30:00 +0000", "sandboxr-acme-tkt-1@docker", "GET /sessions/eng-3941 HTTP/1.1"),
+    ].join("\n");
+    const seen = parseAccessLog(text, NOW, FRONTENDS);
+    // The sandbox's own line is not a front end's, so its path — the one field
+    // an outsider writes — never reaches a caller as a route.
+    expect(seen.requests.map((request) => request.path)).toEqual([
+      "/api/sessions/eng-3941",
+      "/api/p/acme/s/tkt-1",
+    ]);
+    expect(seen.requests[0]?.container).toBe("sandboxr-dashboard");
+    expect(seen.requests[0]?.at.toISOString()).toBe("2026-08-26T15:00:00.000Z");
   });
 });
 
@@ -211,10 +237,25 @@ describe("lastActivity", () => {
     const seen = await lastActivity({
       docker: fakeDocker({ code: 0, stdout: REAL_LOG, stderr: "" }, calls),
       since: "13h",
+      frontends: FRONTENDS,
       now: NOW,
     });
     expect(calls).toEqual([{ name: "sandboxr-router", since: "13h" }]);
     expect(seen.containers.size).toBe(2);
+  });
+
+  // The front ends go through to the parse, or a front end's own lines read as
+  // traffic to a sandbox of that name and its request paths are never read at
+  // all — which is the only record of somebody opening a sandbox in a browser.
+  it("passes the front ends through to the parse", async () => {
+    const seen = await lastActivity({
+      docker: fakeDocker({ code: 0, stdout: REAL_LOG, stderr: "" }),
+      frontends: FRONTENDS,
+      now: NOW,
+    });
+    expect(seen.containers.has("sandboxr-dashboard")).toBe(false);
+    expect(seen.sandboxes.get("acme/fetch")).toBeUndefined();
+    expect(seen.requests.map((request) => request.path)).toEqual(["/p/acme/actions/fetch"]);
   });
 
   it("uses the default window when none is given", async () => {
@@ -241,13 +282,14 @@ describe("lastActivity", () => {
   it("finds access lines whichever stream docker put them on", async () => {
     const seen = await lastActivity({
       docker: fakeDocker({ code: 0, stdout: "", stderr: REAL_LOG }),
+      frontends: FRONTENDS,
       now: NOW,
     });
     expect(seen.containers.size).toBe(2);
   });
 });
 
-/* --- the agent signal ---------------------------------------------------- */
+/* --- the held-socket signal ---------------------------------------------- */
 
 let env: NodeJS.ProcessEnv;
 let home: string;
@@ -259,144 +301,6 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "sandboxr-activity-"));
   env = { SANDBOXR_HOME: home };
 });
-
-interface RunRow {
-  sessionId: string;
-  project: string;
-  slug: string;
-  /** The sandboxr session, for a run that happened in a workstation (§12.7). */
-  session?: string;
-  state: string;
-  startedAt: string;
-  updatedAt: string;
-  endedAt: string | null;
-}
-
-const run = (overrides: Partial<RunRow> = {}): RunRow => ({
-  sessionId: "s-1",
-  project: "acme",
-  slug: "tkt-1",
-  state: "done",
-  startedAt: "2026-08-26T09:00:00.000Z",
-  updatedAt: "2026-08-26T09:00:00.000Z",
-  endedAt: "2026-08-26T09:30:00.000Z",
-  ...overrides,
-});
-
-async function writeIndex(runs: unknown[]): Promise<void> {
-  await mkdir(join(home, "agent"), { recursive: true });
-  await writeFile(join(home, "agent", "runs.json"), JSON.stringify({ version: 1, runs }), "utf8");
-}
-
-/** A transcript for one session, with its mtime set to when it was last written. */
-async function writeTranscript(sessionId: string, at: Date): Promise<void> {
-  await mkdir(join(home, "agent", "log"), { recursive: true });
-  const file = join(home, "agent", "log", `${sessionId}.jsonl`);
-  await writeFile(file, '{"type":"assistant"}\n', "utf8");
-  await utimes(file, at, at);
-}
-
-describe("agentActivity", () => {
-  // The failure this whole signal exists for: somebody sets an agent going and
-  // walks away, nothing goes through the router, and the reaper stops the
-  // sandbox mid-run. A live run has to read as activity *now*.
-  it("holds a sandbox open while a run is live", async () => {
-    await writeIndex([run({ state: "running", endedAt: null, updatedAt: "2026-08-26T09:00:00.000Z" })]);
-    await writeTranscript("s-1", new Date("2026-08-26T17:55:00.000Z"));
-
-    const seen = await agentActivity({ env, now: NOW });
-    expect(seen.get("acme/tkt-1")).toEqual(NOW);
-  });
-
-  // The other half of the requirement, and the reason this is a timestamp rather
-  // than a boolean exemption: the countdown starts when the agent stopped, not
-  // when it started.
-  it("counts an ended run at the moment it ended", async () => {
-    await writeIndex([run({ state: "done", endedAt: "2026-08-26T09:30:00.000Z" })]);
-    const seen = await agentActivity({ env, now: NOW });
-    expect(seen.get("acme/tkt-1")?.toISOString()).toBe("2026-08-26T09:30:00.000Z");
-  });
-
-  it("falls back to updatedAt for a row that never got an endedAt", async () => {
-    await writeIndex([run({ state: "failed", endedAt: null, updatedAt: "2026-08-26T10:15:00.000Z" })]);
-    const seen = await agentActivity({ env, now: NOW });
-    expect(seen.get("acme/tkt-1")?.toISOString()).toBe("2026-08-26T10:15:00.000Z");
-  });
-
-  // A dashboard killed mid-run leaves rows saying `running` for ever. Believed
-  // at face value they would make those sandboxes unreapable, so the row is
-  // checked against the transcript it names and credited only with what the
-  // transcript can show.
-  it("does not believe a `running` row whose transcript went quiet hours ago", async () => {
-    await writeIndex([run({ state: "running", endedAt: null, updatedAt: "2026-08-26T09:00:00.000Z" })]);
-    await writeTranscript("s-1", new Date("2026-08-26T12:00:00.000Z"));
-
-    const seen = await agentActivity({ env, now: NOW });
-    expect(seen.get("acme/tkt-1")?.toISOString()).toBe("2026-08-26T12:00:00.000Z");
-  });
-
-  // The transcript is the evidence, so a live row with none is worth exactly the
-  // index's own timestamps — never nothing, because the row itself is a fact.
-  it("falls back to the index when a live run's transcript cannot be read", async () => {
-    await writeIndex([run({ state: "running", endedAt: null, updatedAt: "2026-08-26T11:00:00.000Z" })]);
-
-    const seen = await agentActivity({ env, now: NOW });
-    expect(seen.get("acme/tkt-1")?.toISOString()).toBe("2026-08-26T11:00:00.000Z");
-  });
-
-  it("takes the newest answer across several runs on one sandbox", async () => {
-    await writeIndex([
-      run({ sessionId: "s-1", endedAt: "2026-08-26T09:30:00.000Z" }),
-      run({ sessionId: "s-2", endedAt: "2026-08-26T14:00:00.000Z" }),
-      run({ sessionId: "s-3", endedAt: "2026-08-26T11:00:00.000Z" }),
-    ]);
-    const seen = await agentActivity({ env, now: NOW });
-    expect(seen.get("acme/tkt-1")?.toISOString()).toBe("2026-08-26T14:00:00.000Z");
-  });
-
-  it("clamps a stamp from the future to now", async () => {
-    await writeIndex([run({ endedAt: "2026-09-01T00:00:00.000Z" })]);
-    expect((await agentActivity({ env, now: NOW })).get("acme/tkt-1")).toEqual(NOW);
-  });
-
-  // Every one of these must be an *absence*, never an answer. A home nobody has
-  // run an agent on is the ordinary case, and a corrupt index is a cache that
-  // can be rebuilt — neither is a reason to tell the reaper anything.
-  it("reads a home with no agent index as no activity", async () => {
-    expect((await agentActivity({ env, now: NOW })).size).toBe(0);
-  });
-
-  it("reads a corrupt index as no activity rather than throwing", async () => {
-    await mkdir(join(home, "agent"), { recursive: true });
-    await writeFile(join(home, "agent", "runs.json"), "{not json at all", "utf8");
-    expect((await agentActivity({ env, now: NOW })).size).toBe(0);
-  });
-
-  it("reads an index that is not the shape it should be as no activity", async () => {
-    await mkdir(join(home, "agent"), { recursive: true });
-    await writeFile(join(home, "agent", "runs.json"), JSON.stringify({ version: 1, runs: "nope" }), "utf8");
-    expect((await agentActivity({ env, now: NOW })).size).toBe(0);
-  });
-
-  // One unusable row must cost its own contribution and nothing else's.
-  it("skips rows missing their fields and keeps the rest", async () => {
-    await writeIndex([
-      null,
-      { sessionId: "s-x" },
-      { sessionId: "s-y", project: "", slug: "tkt-2", state: "done", endedAt: "2026-08-26T10:00:00.000Z" },
-      run({ sessionId: "s-2", project: "demo", slug: "tkt-9", endedAt: "2026-08-26T13:00:00.000Z" }),
-    ]);
-    const seen = await agentActivity({ env, now: NOW });
-    expect([...seen.keys()]).toEqual(["demo/tkt-9"]);
-  });
-
-  it("skips a row whose stamps cannot be read", async () => {
-    await writeIndex([run({ endedAt: "not a date", updatedAt: "not a date either" })]);
-    expect((await agentActivity({ env, now: NOW })).size).toBe(0);
-  });
-});
-
-/* --- the held-socket signal ---------------------------------------------- */
 
 /** A heartbeat for one sandbox, with its mtime set to when it was last written. */
 async function writeAttach(project: string, slug: string, at: Date): Promise<void> {
@@ -411,14 +315,14 @@ describe("attachedActivity", () => {
   // closes and stamps the line with when it *opened*, so a terminal held open
   // for longer than the ttl left no evidence of use at all and the reaper
   // stopped the container under a live connection.
-  it("holds a sandbox open while a socket is being held on it", async () => {
+  it("holds a sandbox open while a socket or a run is being held on it", async () => {
     await writeAttach("acme", "tkt-1", new Date(NOW.getTime() - 60_000));
 
     const seen = await attachedActivity([{ project: "acme", slug: "tkt-1" }], { home, now: NOW });
     expect(seen.get("acme/tkt-1")).toEqual(NOW);
   });
 
-  // The bound on it, and the same rule as a live agent row: a dashboard killed
+  // The bound on it: a dashboard killed
   // while somebody had a terminal open leaves a marker nothing will ever move
   // again, and crediting that with `now` for ever produces a sandbox nothing on
   // the machine will reap.
@@ -491,29 +395,45 @@ function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
 }
 
 describe("sandboxActivity", () => {
-  it("merges router traffic, dashboard routes and agent runs onto the container key", async () => {
+  it("merges router traffic, front-end routes and a caller's extra onto the container key", async () => {
     const text = [
       line("26/Aug/2026:10:00:00 +0000", "sandboxr-acme-tkt-1@docker"),
-      dashboard("26/Aug/2026:15:00:00 +0000", "GET /api/p/acme/s/tkt-1 HTTP/1.1"),
+      frontend("26/Aug/2026:15:00:00 +0000", "GET /api/p/acme/s/tkt-1 HTTP/1.1"),
     ].join("\n");
-    await writeIndex([run({ endedAt: "2026-08-26T12:00:00.000Z" })]);
 
     const seen = await sandboxActivity([sandbox()], {
       docker: fakeDocker({ code: 0, stdout: text, stderr: "" }),
+      frontends: FRONTENDS,
+      extra: [new Map([["acme/tkt-1", new Date("2026-08-26T12:00:00.000Z")]])],
       env,
       now: NOW,
     });
-    // The dashboard line is the newest of the three, so it is the answer — which
+    // The front-end line is the newest of the three, so it is the answer — which
     // is the point: opening a worktree resets the clock.
     expect(seen.get("sandboxr-acme-tkt-1")?.toISOString()).toBe("2026-08-26T15:00:00.000Z");
   });
 
-  it("lets a live agent run win over older router traffic", async () => {
-    await writeIndex([run({ state: "running", endedAt: null })]);
-    await writeTranscript("s-1", new Date("2026-08-26T17:58:00.000Z"));
-
+  // What the embedder's half of the evidence buys. The engine cannot see a
+  // running agent (contracts §3.4), so a caller that can hands the map in.
+  it("lets a caller's extra win over older router traffic", async () => {
     const seen = await sandboxActivity([sandbox()], {
       docker: fakeDocker({ code: 0, stdout: line("26/Aug/2026:10:00:00 +0000", "sandboxr-acme-tkt-1@docker"), stderr: "" }),
+      extra: [new Map([["acme/tkt-1", NOW]])],
+      env,
+      now: NOW,
+    });
+    expect(seen.get("sandboxr-acme-tkt-1")).toEqual(NOW);
+  });
+
+  // The hole `extra` leaves, and what closes it. `sandboxr expire` from a cron
+  // job has nobody to hand it the agent map — so whoever holds a live run
+  // re-stamps the attach marker, and the engine's own signal covers it. Removing
+  // that heartbeat on the strength of `extra` existing re-opens this.
+  it("still sees a live run through the attach marker when nothing passes extra", async () => {
+    await writeAttach("acme", "tkt-1", new Date(NOW.getTime() - 30_000));
+
+    const seen = await sandboxActivity([sandbox()], {
+      docker: fakeDocker({ code: 0, stdout: line("26/Aug/2026:09:00:00 +0000", "sandboxr-acme-tkt-1@docker"), stderr: "" }),
       env,
       now: NOW,
     });
@@ -558,226 +478,11 @@ describe("sandboxActivity", () => {
     expect(seen.size).toBe(0);
   });
 
-  // Both signals failing at once is the case that would expire the machine if it
-  // were ever read as "nobody used anything". It has to be an empty map, and the
-  // planner then falls every sandbox back to its own start time.
-  it("reads docker and the agent index both failing as an absence", async () => {
+  // The case that would expire the machine if it were ever read as "nobody used
+  // anything". It has to be an empty map, and the planner then falls every
+  // sandbox back to its own start time.
+  it("reads docker failing as an absence", async () => {
     const seen = await sandboxActivity([sandbox()], {
-      docker: fakeDocker({ code: 1, stdout: "", stderr: "Error: No such container: sandboxr-router" }),
-      env,
-      now: NOW,
-    });
-    expect(seen.size).toBe(0);
-  });
-});
-
-/* --- a workstation: three of the four signals, re-keyed on the session ---- */
-
-function session(overrides: Partial<Session> = {}): Session {
-  return {
-    id: "eng-3941",
-    name: null,
-    adopted: null,
-    created: "2026-08-25T09:00:00.000Z",
-    ttl: "12h",
-    state: "running",
-    runtimes: [],
-    ...overrides,
-  };
-}
-
-/** A heartbeat for one session, with its mtime set to when it was last written. */
-async function writeSessionAttach(id: string, at: Date): Promise<void> {
-  const file = sessionAttachFileFor(id, { SANDBOXR_HOME: home });
-  await mkdir(join(home, "state", "session", id), { recursive: true });
-  await writeFile(file, `${at.toISOString()}\n`, "utf8");
-  await utimes(file, at, at);
-}
-
-describe("parseAccessLog, for sessions", () => {
-  // §12.6: a session's routes are top-level, because a session belongs to no
-  // project. Without this, opening a session, its terminal or its agent leaves
-  // no evidence anywhere — a workstation has no hostname of its own to be asked
-  // for instead.
-  it("counts a dashboard route that names a session", () => {
-    const text = [
-      dashboard("26/Aug/2026:15:00:00 +0000", "GET /api/sessions/eng-3941 HTTP/1.1"),
-      dashboard("26/Aug/2026:16:30:00 +0000", "GET /sessions/eng-3941/terminal HTTP/1.1"),
-      dashboard("26/Aug/2026:16:00:00 +0000", "GET /api/sessions/doc-notes/r/web HTTP/1.1"),
-    ].join("\n");
-    const seen = parseAccessLog(text, NOW).sessions;
-    expect(seen.get("eng-3941")?.toISOString()).toBe("2026-08-26T16:30:00.000Z");
-    expect(seen.get("doc-notes")?.toISOString()).toBe("2026-08-26T16:00:00.000Z");
-  });
-
-  it("counts nothing for the session list, which names nobody", () => {
-    const text = dashboard("26/Aug/2026:15:00:00 +0000", "GET /api/sessions HTTP/1.1");
-    expect(parseAccessLog(text, NOW).sessions.size).toBe(0);
-  });
-
-  // Only the dashboard's own lines are read for a route. A path is the one field
-  // an outsider writes, and a request to a *sandbox's* hostname carrying a
-  // session-shaped path must not be able to hold somebody else's workstation up.
-  it("reads a session route only off the dashboard's own lines", () => {
-    const text = line("26/Aug/2026:15:00:00 +0000", "sandboxr-acme-tkt-1@docker", "GET /sessions/eng-3941 HTTP/1.1");
-    const seen = parseAccessLog(text, NOW);
-    expect(seen.sessions.size).toBe(0);
-    expect(seen.containers.has("sandboxr-acme-tkt-1")).toBe(true);
-  });
-
-  it("reads an empty log as no session activity rather than throwing", () => {
-    expect(parseAccessLog("", NOW).sessions.size).toBe(0);
-  });
-});
-
-describe("agentSessionActivity", () => {
-  // The substantive change of §12.7: a workstation carries no project and no
-  // slug, so the pair every run was keyed on cannot address one.
-  it("joins a run to a session on `session`, not on project and slug", async () => {
-    await writeIndex([
-      run({ sessionId: "s-1", project: "", slug: "", session: "eng-3941", endedAt: "2026-08-26T13:00:00.000Z" }),
-    ]);
-    const seen = await agentSessionActivity({ env, now: NOW });
-    expect([...seen.keys()]).toEqual(["eng-3941"]);
-    expect(seen.get("eng-3941")?.toISOString()).toBe("2026-08-26T13:00:00.000Z");
-  });
-
-  // An absence, never a guess. A run with no session says nothing about any
-  // workstation, and the workstation then falls back to its own start time.
-  it("contributes nothing for a run that names no session", async () => {
-    await writeIndex([run({ endedAt: "2026-08-26T13:00:00.000Z" }), run({ sessionId: "s-2", session: "" })]);
-    expect((await agentSessionActivity({ env, now: NOW })).size).toBe(0);
-  });
-
-  // The same failure the sandbox join exists for, one noun along: an agent is
-  // working in the workstation and nothing else is happening, so the clock must
-  // not run.
-  it("holds a session open while a run in it is live", async () => {
-    await writeIndex([run({ sessionId: "s-1", session: "eng-3941", state: "running", endedAt: null })]);
-    await writeTranscript("s-1", new Date("2026-08-26T17:55:00.000Z"));
-
-    expect((await agentSessionActivity({ env, now: NOW })).get("eng-3941")).toEqual(NOW);
-  });
-
-  // And the other half: the countdown starts when the agent stopped, which is
-  // why this is a timestamp rather than a second exemption beside the keep file.
-  it("counts an ended run at the moment it ended", async () => {
-    await writeIndex([run({ sessionId: "s-1", session: "eng-3941", state: "done", endedAt: "2026-08-26T09:30:00.000Z" })]);
-    expect((await agentSessionActivity({ env, now: NOW })).get("eng-3941")?.toISOString()).toBe(
-      "2026-08-26T09:30:00.000Z",
-    );
-  });
-
-  it("does not believe a `running` row whose transcript went quiet hours ago", async () => {
-    await writeIndex([run({ sessionId: "s-1", session: "eng-3941", state: "running", endedAt: null })]);
-    await writeTranscript("s-1", new Date("2026-08-26T12:00:00.000Z"));
-
-    expect((await agentSessionActivity({ env, now: NOW })).get("eng-3941")?.toISOString()).toBe(
-      "2026-08-26T12:00:00.000Z",
-    );
-  });
-
-  it("reads a home with no agent index as no activity", async () => {
-    expect((await agentSessionActivity({ env, now: NOW })).size).toBe(0);
-  });
-});
-
-describe("sessionAttachedActivity", () => {
-  // §12.6 moved the heartbeat from `state/attach/<project>/<slug>` to
-  // `state/session/<session>/attach`; the reasoning did not move with it.
-  it("holds a session open while a socket is being held on it", async () => {
-    await writeSessionAttach("eng-3941", new Date(NOW.getTime() - 60_000));
-
-    const seen = await sessionAttachedActivity([{ id: "eng-3941" }], { home, now: NOW });
-    expect(seen.get("eng-3941")).toEqual(NOW);
-  });
-
-  it("credits a heartbeat past the grace window with when it was written", async () => {
-    const stale = new Date(NOW.getTime() - ATTACH_LIVE_GRACE_MS - 60_000);
-    await writeSessionAttach("eng-3941", stale);
-
-    const seen = await sessionAttachedActivity([{ id: "eng-3941" }], { home, now: NOW });
-    expect(seen.get("eng-3941")?.toISOString()).toBe(stale.toISOString());
-  });
-
-  it("reads a session nobody has ever attached to as an absence", async () => {
-    expect((await sessionAttachedActivity([{ id: "eng-3941" }], { home, now: NOW })).size).toBe(0);
-  });
-
-  it("reads the home out of the environment when it is not handed one", async () => {
-    await writeSessionAttach("eng-3941", new Date(NOW.getTime() - 60_000));
-
-    const seen = await sessionAttachedActivity([{ id: "eng-3941" }], { env, now: NOW });
-    expect(seen.get("eng-3941")).toEqual(NOW);
-  });
-});
-
-describe("sessionActivity", () => {
-  it("merges the dashboard's routes, agent runs and the heartbeat onto the session id", async () => {
-    const text = dashboard("26/Aug/2026:15:00:00 +0000", "GET /api/sessions/eng-3941 HTTP/1.1");
-    await writeIndex([run({ sessionId: "s-1", session: "eng-3941", endedAt: "2026-08-26T12:00:00.000Z" })]);
-
-    const seen = await sessionActivity([session()], {
-      docker: fakeDocker({ code: 0, stdout: text, stderr: "" }),
-      env,
-      now: NOW,
-    });
-    expect(seen.get("eng-3941")?.toISOString()).toBe("2026-08-26T15:00:00.000Z");
-  });
-
-  it("lets a held-open socket win over an older dashboard route", async () => {
-    await writeSessionAttach("eng-3941", new Date(NOW.getTime() - 30_000));
-
-    const seen = await sessionActivity([session()], {
-      docker: fakeDocker({
-        code: 0,
-        stdout: dashboard("26/Aug/2026:09:00:00 +0000", "GET /api/sessions/eng-3941 HTTP/1.1"),
-        stderr: "",
-      }),
-      env,
-      now: NOW,
-    });
-    expect(seen.get("eng-3941")).toEqual(NOW);
-  });
-
-  // §12.7's missing signal, asserted rather than assumed. A workstation has no
-  // hostname, so a busy machine's router log can be full of a sandbox's traffic
-  // and say nothing at all about a session — and the answer here has to be an
-  // absence, which the planner reads as "run the clock from startedAt".
-  it("reads no signal from a router log full of sandbox traffic", async () => {
-    const seen = await sessionActivity([session()], {
-      docker: fakeDocker({ code: 0, stdout: REAL_LOG, stderr: "" }),
-      env,
-      now: NOW,
-    });
-    expect(seen.size).toBe(0);
-  });
-
-  it("reads the window from the longest ttl in the set", async () => {
-    const calls: Array<{ name: string; since?: string }> = [];
-    await sessionActivity([session({ ttl: "12h" }), session({ id: "b", ttl: "3d" })], {
-      docker: fakeDocker({ code: 0, stdout: "", stderr: "" }, calls),
-      env,
-      now: NOW,
-    });
-    expect(calls[0]?.since).toBe("73h");
-  });
-
-  it("reads nothing at all when no session in the set can expire", async () => {
-    const calls: Array<{ name: string; since?: string }> = [];
-    const seen = await sessionActivity([session({ ttl: "never" }), session({ id: "b", ttl: "rubbish" })], {
-      docker: fakeDocker({ code: 0, stdout: REAL_LOG, stderr: "" }, calls),
-      env,
-      now: NOW,
-    });
-    expect(calls).toEqual([]);
-    expect(seen.size).toBe(0);
-  });
-
-  // Every read failing at once must still be an absence: the alternative would
-  // stop every workstation on the machine, taking the agents in them with it.
-  it("reads docker and the agent index both failing as an absence", async () => {
-    const seen = await sessionActivity([session()], {
       docker: fakeDocker({ code: 1, stdout: "", stderr: "Error: No such container: sandboxr-router" }),
       env,
       now: NOW,

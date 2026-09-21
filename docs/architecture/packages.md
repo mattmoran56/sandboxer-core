@@ -83,7 +83,7 @@ that file is a contract.
 | `sandbox/run.ts` | The `docker run` argument list, every mount, and the memory limit |
 | `sandbox/layout.ts` | The container-side paths the host must agree with |
 | `sandbox/expiry.ts` | The derived deadline, `parseTtl`, `formatTtl`, `planExpiry` |
-| `sandbox/activity.ts` | Last activity, parsed out of the shared router's access log |
+| `sandbox/activity.ts` | Last activity: the router's access log, the attach markers, and whatever the caller hands in |
 | `sandbox/keep.ts` | The keep-alive marker: `isKeptAlive`, `writeKeep`, `removeKeep` |
 | `sandbox/env.ts` | The environment handed to a container |
 | `drivers/` | `mysql`, `d1`/`sqlite` (one file driver), `none`, and the migration runner |

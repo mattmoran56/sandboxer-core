@@ -15,6 +15,7 @@ import {
   domainOf,
   ensureBaseImage,
   hostGhToken,
+  listFrontends,
   portSuffix,
   routerPorts,
   routerScheme,
@@ -38,7 +39,7 @@ import { runtimeSlug, runtimeWorkspaceArgs, stageRuntime, type StagedRuntime } f
 import { findProject, projectDirectories } from "../workspace.js";
 import { addWorktree } from "../worktree.js";
 import { slugFor } from "../worktree-slug.js";
-import { sandboxActivity } from "./activity.js";
+import { sandboxActivity, type SandboxActivityOptions } from "./activity.js";
 import { parseTtl, planExpiry, type ExpiryCandidate, type ExpiryPlan } from "./expiry.js";
 import { isKeptAlive, removeKeep } from "./keep.js";
 import { ensureProjectImage } from "../image.js";
@@ -893,9 +894,15 @@ export async function startSandbox(project: string, slug: string, options: Commo
  * The clock runs from the later of the container's current start time and the
  * last time anybody used it — not from `sandboxr.created`, see the note on the
  * ttl label in ./labels.ts. So restarting a sandbox buys it a full lifetime, and
- * so does using it: a request to one of its apps, opening it in the dashboard,
- * an agent running on its worktree, or a terminal held open on it.
+ * so does using it: a request to one of its apps, opening it through a front end
+ * on the bare domain, or a terminal or a live agent run held on it.
  * ./activity.ts is where each of those signals is read and why.
+ *
+ * **It takes no `extra` map, and that is the whole reason the attach marker
+ * covers a live run** (contracts §3.4). This is the entry point a cron job
+ * calls, and a cron job has nobody to hand it the embedder's half of the
+ * evidence. What stops it reaping a sandbox mid-run is the heartbeat, which is
+ * the engine's own signal and is read here whoever wrote it.
  */
 export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
   const docker = options.docker ?? defaultDocker;
@@ -910,9 +917,15 @@ export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
 
   const active = await activityFor(sandboxes, {
     docker,
-    // The home the agent index lives under, so `sandboxr expire` reads the same
-    // running-agent signal the dashboard's reaper does rather than a subset.
+    // The home the attach markers live under, so `sandboxr expire` reads the
+    // same held-socket and live-run heartbeats the dashboard's reaper does
+    // rather than a subset.
     env,
+    // Which containers on the bare domain are front ends (contracts §7.5).
+    // Without it their own lines read as traffic to a sandbox of that name, and
+    // — worse — their request paths, which are the only record of somebody
+    // opening a sandbox in a browser, are not read at all.
+    frontends: await listFrontends(docker),
     ...(options.now === undefined ? {} : { now: options.now }),
   });
 
@@ -947,7 +960,7 @@ export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
  */
 export async function activityFor(
   sandboxes: Sandbox[],
-  options: { docker?: Docker | undefined; env?: NodeJS.ProcessEnv | undefined; now?: Date | undefined } = {},
+  options: SandboxActivityOptions = {},
 ): Promise<Map<string, Date>> {
   return sandboxActivity(sandboxes, options);
 }

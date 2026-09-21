@@ -33,43 +33,26 @@
  * ## The three kinds of use a request to an app does not cover
  *
  * Traffic to a sandbox's own hostnames is only one of the ways somebody uses
- * one, and it is not the way that bites. Three more signals are read here. Two
- * follow the same rule as the first — derived at read time from something that
- * is written anyway, never a timestamp of our own — and the third is the one
- * place that rule genuinely cannot hold, which is argued out in ./attach.ts
- * rather than here.
+ * one, and it is not the way that bites. Three more signals reach the planner.
+ * One is derived here like the first, one is **handed in by the caller**, and
+ * one is written rather than derived and is argued out in ./attach.ts.
  *
- * **A running agent.** Somebody opens a worktree, sets Claude Code going and
- * walks away. Nothing goes through the router for an hour, the sandbox looks
- * idle, and the reaper stops it mid-run — the one failure that loses work
- * nobody can get back. The truthful signal is the run's own **transcript**:
- * contracts §7.2 says every line Claude Code emits is appended to
- * `$SANDBOXR_HOME/agent/log/<sessionId>.jsonl` *before* it is interpreted, so
- * that file's mtime is the last moment the agent produced anything, maintained
- * by the filesystem for free and visible to the CLI as well as to the server.
- * `runs.json` joins a session to its `project/slug`.
+ * **A front end's request paths.** Opening a worktree, opening its terminal,
+ * driving its agent: all of those are somebody using the sandbox, and none of
+ * them reaches the sandbox's own hostname. They reach whatever container the
+ * embedder put on the bare domain — a *front end* (contracts §7.5) — which is
+ * behind the same router, so they are already in the log being read, with the
+ * sandbox named in the request path (§7.1: every route that names one is
+ * `…/p/<project>/[sw]/<slug>/…`). One extra read of a string we already have,
+ * and no route has to remember to call anything.
  *
- * A run the index calls live (`running`, `idle`, `needs-input`) counts as
- * activity *now*, so the sandbox cannot expire under it; a run that has ended
- * counts at `endedAt`, so **the countdown starts from when the agent stopped**
- * rather than from when it started.
- *
- * The index is believed only so far. `agent-sessions.ts` owns a `docker exec`
- * that dies with the server, and a dashboard killed mid-run leaves rows saying
- * `running` for ever. A rule that took those at face value would produce
- * sandboxes nothing on the machine will ever reap, so a live row holds a
- * sandbox open only while the transcript it names has been written to inside
- * `AGENT_LIVE_GRACE_MS`. Past that the run is credited with what it actually
- * did — its last transcript line — and nothing more.
- *
- * **Dashboard interaction.** Opening a worktree, opening its terminal, driving
- * its agent: all of those are somebody using the sandbox, and none of them
- * reaches the sandbox's own hostname. They do reach the *dashboard*, which is
- * behind the same router — so they are already in the log being read, under
- * `sandboxr-dashboard@docker`, with the sandbox named in the request path
- * (§7.1: every route that names one is `…/p/<project>/[sw]/<slug>/…`). One
- * extra read of a string we already have, and no route has to remember to call
- * anything.
+ * Which containers are front ends is a **parameter**, `frontends`, resolved by
+ * the caller with one `listFrontends`. The engine starts none of them and has
+ * no name for one to compare against; what it knows is that a front end's lines
+ * are *about* sandboxes rather than *to* one. A caller that serves routes of its
+ * own gets every readable front-end request back in `RouterActivity.requests`
+ * and applies its own patterns — which is how a session's `/sessions/<id>/…`
+ * is read without this file knowing what a session is.
  *
  * Two things about that are deliberate. The health probes still never appear,
  * because they dial containers directly on the docker network rather than
@@ -80,6 +63,25 @@
  * keeping a sandbox alive, which is the direction this file already errs in
  * everywhere else, and only paths that name a sandbox the caller already has
  * are looked up at all.
+ *
+ * **Activity somebody else knows about.** `SandboxActivityOptions.extra` is a
+ * list of maps keyed `<project>/<slug>`, folded in the same loop as everything
+ * else. It exists because the engine cannot see a running agent: it does not
+ * know what an agent is, and the index and transcripts that record one belong
+ * to the embedder (§3.4). Jef passes `agentActivity` there.
+ *
+ * **The hole that parameter leaves, and what closes it.** Somebody sets an
+ * agent going and walks away. Nothing goes through the router for an hour, the
+ * sandbox looks idle, and the reaper stops it mid-run — the one failure that
+ * loses work nobody can get back. A caller that forgets `extra` gets exactly
+ * that, and `sandboxr expire` from a cron job has no caller to forget.
+ *
+ * So the engine keeps a signal of its own for it: **whoever holds a live run
+ * re-stamps `state/attach/<project>/<slug>`**, on the same heartbeat and the
+ * same grace window as a held-open socket. The marker is the engine's to read
+ * and the map is the embedder's to pass, and only one of those is still there
+ * when nobody passes anything. Removing the run's heartbeat on the argument
+ * that `extra` covers it would re-open this hole (§3.4).
  *
  * **A socket held open.** The paragraph above is true of *opening* a terminal
  * and false of *keeping* one open, and the difference is a property of the log
@@ -100,45 +102,16 @@
  * one reads as activity *then* — which is the last moment a socket is known to
  * have been held, and is exactly where the countdown should start.
  *
- * ## A workstation, which has three of those four signals
- *
- * Contracts §12.7. A session's workstation runs on the same clock as a sandbox
- * — `max(startedAt, lastActive) + ttl`, planned by the same function in
- * ./expiry.ts — and `sessionActivity` is `sandboxActivity` with two differences,
- * both of which are the session model rather than a second design.
- *
- * **The first signal is absent, and absent is not zero.** A workstation has no
- * hostname (§12.2): it serves no apps, so nothing about one ever reaches the
- * router under its own router name and the first row of §3.4's table simply has
- * no reading here. That absence must never be mistaken for "idle since the
- * beginning of time" — and it is not, because it is the same shape as a sandbox
- * whose log lines have scrolled out of the window, which `startedAt` as the
- * floor already answers (the note on it in ./expiry.ts is the argument, and it
- * is not repeated). Nothing here invents a date for a signal that does not
- * exist; the map simply has no entry from it.
- *
- * **The agent join moves from `project/slug` to the session.** A run in a
- * workstation has no project and no slug to be keyed on, so `runs.json` carries
- * `session` for exactly this (see `AgentRun`), and `agentSessionActivity` reads
- * the same rows on the same terms as `agentActivity` — a live row is believed
- * only as far as its transcript's mtime, for `AGENT_LIVE_GRACE_MS`.
- *
- * The other two are the same signals read at their session paths: dashboard
- * routes are `…/sessions/<session>/…` out of the *same* access log (§12.6), and
- * the held-socket heartbeat is `state/session/<session>/attach` (§12.6) rather
- * than `state/attach/<project>/<slug>`.
+ * The workstation half of all this — a subject with no hostname, and an agent
+ * joined on a session id rather than a `project/slug` — is ../session/activity.ts.
+ * It reads `RouterActivity.requests` for its own routes and `extra` for its own
+ * agent join, which is the whole of what this file gives an embedder.
  */
 
-import { readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 
-import { DASHBOARD_CONTAINER } from "../access/dashboard.js";
 import { ROUTER_CONTAINER } from "../access/router.js";
-import { agentPaths } from "../agent/store.js";
-import type { AgentRun, RunState } from "../agent/types.js";
 import { docker as defaultDocker, type Docker } from "../docker.js";
-import { paths } from "../paths.js";
-import { sessionAttachFileFor } from "../session/state.js";
-import type { Session } from "../session/types.js";
 import { attachFileFor } from "./attach.js";
 import { parseTtl } from "./expiry.js";
 import type { Sandbox } from "./types.js";
@@ -155,66 +128,69 @@ import type { Sandbox } from "./types.js";
 export const DEFAULT_ACTIVITY_WINDOW = "48h";
 
 /**
- * Run states in which a session is still somebody's business.
+ * How long a claim of liveness is believed without fresh evidence.
  *
- * `needs-input` is on the list and is the one worth explaining: a run blocked on
- * a permission question is not making progress, but it is a question waiting for
- * a person, and stopping the container out from under it destroys the answer
- * they were coming back to give.
- */
-export const AGENT_LIVE_STATES: ReadonlySet<RunState> = new Set<RunState>(["running", "idle", "needs-input"]);
-
-/**
- * How long a live-looking run is believed without fresh evidence.
+ * It bounds the held-socket marker: a dashboard killed while somebody had a
+ * terminal open leaves the last heartbeat behind, and past this window the
+ * sandbox is credited with the moment that heartbeat was written and nothing
+ * more, rather than becoming immortal.
  *
  * Longer than any single quiet stretch inside a working turn — a build or a test
  * suite between one tool call and its result — and far shorter than any ttl
- * worth setting, so a `running` row left behind by a killed dashboard stops
- * pinning its sandbox within the quarter hour rather than for ever.
- */
-export const AGENT_LIVE_GRACE_MS = 15 * 60_000;
-
-/**
- * How long a held-open socket is believed after its last heartbeat.
+ * worth setting.
  *
- * Deliberately `AGENT_LIVE_GRACE_MS` itself and not a second number beside it.
- * Both answer one question — how long a claim of liveness is believed without
- * fresh evidence — and two constants meaning one thing are two things to tune
- * and one of them to forget. It bounds the same failure too: a dashboard killed
- * while somebody had a terminal open leaves the last heartbeat behind, and past
- * this window the sandbox is credited with the moment that heartbeat was
- * written and nothing more, rather than becoming immortal.
+ * **It is one constant on purpose, and an embedder reuses it rather than
+ * choosing its own.** ../session/activity.ts's `AGENT_LIVE_GRACE_MS` *is* this
+ * number: both answer the same question, and two constants meaning one thing are
+ * two things to tune and one of them to forget.
  */
-export const ATTACH_LIVE_GRACE_MS = AGENT_LIVE_GRACE_MS;
+export const ATTACH_LIVE_GRACE_MS = 15 * 60_000;
 
 export interface ActivityOptions {
   docker?: Docker | undefined;
   /** How far back to read, in the form `docker logs --since` takes: `36h`. */
   since?: string | undefined;
   now?: Date | undefined;
+  /**
+   * Containers that answer through the router but are not sandboxes.
+   *
+   * Resolved by the caller with one `listFrontends` (contracts §7.5). Their
+   * lines are read as being *about* a sandbox rather than *to* one; every other
+   * router name in the log is a sandbox's own container name.
+   */
+  frontends?: readonly string[] | undefined;
+}
+
+/** One readable request a front end answered. */
+export interface RouterRequest {
+  /** The front end's container name — the router name Traefik wrote. */
+  container: string;
+  /** The path it was asked for. The one field of a log line an outsider writes. */
+  path: string;
+  at: Date;
 }
 
 /**
  * What the router's log says was used, split by *what the line is evidence of*.
  *
- * Three maps rather than one because they are keyed differently and cannot be
+ * Two maps rather than one because they are keyed differently and cannot be
  * merged without a list to join them on: a request to a sandbox's own hostname
- * names a container, a request to the dashboard names either a `project/slug`
- * or a session, and the two dashboard routes are different addresses for
- * different things (§12.4). `sandboxActivity` and `sessionActivity` are where
- * the joins happen.
+ * names a container, and a request to a front end names a `<project>/<slug>` in
+ * its path. `sandboxActivity` is where the join happens.
  *
- * `containers` has no session counterpart, and that is the absence §12.7 makes:
- * a workstation has no hostname, so no line in this log is ever *about* one
- * under its own router name.
+ * `requests` is the third, and it is the seam. A front end may serve addresses
+ * for things the engine has no noun for — a session, an orchestrator, anything
+ * an embedder builds — and the engine cannot be taught each one. So every
+ * readable front-end request comes back as it was read, and a caller with routes
+ * of its own applies its own patterns to them (contracts §3.4).
  */
 export interface RouterActivity {
   /** By container name: requests that reached a sandbox's own hostnames. */
   containers: Map<string, Date>;
-  /** By `<project>/<slug>`: dashboard routes that name a sandbox. */
+  /** By `<project>/<slug>`: front-end routes that name a sandbox (§7.1). */
   sandboxes: Map<string, Date>;
-  /** By session id: dashboard routes that name a session (§12.6). */
-  sessions: Map<string, Date>;
+  /** Every readable front-end request, for a caller with routes of its own. */
+  requests: readonly RouterRequest[];
 }
 
 /**
@@ -231,11 +207,11 @@ export async function lastActivity(options: ActivityOptions = {}): Promise<Route
   // A router that is not running, or one docker will not talk about, is a fact
   // about the router. Reading it as "no sandbox has been used" would stop every
   // sandbox on the machine on the next pass.
-  if (result.code !== 0) return { containers: new Map(), sandboxes: new Map(), sessions: new Map() };
+  if (result.code !== 0) return { containers: new Map(), sandboxes: new Map(), requests: [] };
   // Traefik writes its own INF/WRN lines to stderr and the access log to
   // stdout, but both are read: the split is Traefik's choice, not a contract,
   // and a parse that skips anything it does not recognise costs nothing to feed.
-  return parseAccessLog(`${result.stdout}\n${result.stderr}`, options.now ?? new Date());
+  return parseAccessLog(`${result.stdout}\n${result.stderr}`, options.now ?? new Date(), options.frontends);
 }
 
 const MONTHS: Record<string, number> = {
@@ -271,7 +247,7 @@ const ACCESS_LINE =
   /\[(\d{2})\/([A-Za-z]{3})\/(\d{4}):(\d{2}):(\d{2}):(\d{2}) ([+-])(\d{2})(\d{2})\].*"([^"]*)"\s+"[^"]*"\s+[0-9.]+m?s\s*$/;
 
 /**
- * The request field, read separately and only for the dashboard's own lines.
+ * The request field, read separately and only for a front end's own lines.
  *
  * Separate rather than another group on `ACCESS_LINE`, so that a line whose
  * request field cannot be read still yields its container. Folding it in would
@@ -282,7 +258,11 @@ const ACCESS_LINE =
 const REQUEST_FIELD = /\]\s+"([^"]*)"/;
 
 /**
- * A dashboard route that names one sandbox (§7.1).
+ * A front-end route that names one sandbox (§7.1).
+ *
+ * The one route shape the engine owns, because `/p/:project/[sw]/:slug` is its
+ * own noun's address. Anything else a front end serves is that front end's
+ * business and reaches it through `RouterActivity.requests`.
  *
  * `s` and `w` are one view — the sandbox is something that comes and goes on
  * top of the worktree — and both the JSON routes and the HTML shell use the same
@@ -294,29 +274,15 @@ const REQUEST_FIELD = /\]\s+"([^"]*)"/;
  * otherwise clever is not a name either of them can have, and skipping it is
  * both safe and correct.
  */
-const DASHBOARD_ROUTE = /(?:^|\/)p\/([A-Za-z0-9][A-Za-z0-9_-]*)\/[sw]\/([A-Za-z0-9][A-Za-z0-9_-]*)(?:[/?#]|$)/;
+const SANDBOX_ROUTE = /(?:^|\/)p\/([A-Za-z0-9][A-Za-z0-9_-]*)\/[sw]\/([A-Za-z0-9][A-Za-z0-9_-]*)(?:[/?#]|$)/;
 
 /**
- * A dashboard route that names one session (§12.6).
+ * Keeps the newest time per key, clamping a stamp from the future to now.
  *
- * Top-level rather than under `/p/:project`, because a session belongs to no
- * project — so this is a second pattern rather than another arm of the one
- * above. It covers the session page, its actions, its terminal and agent
- * sockets and `…/r/:runtime`, all of which are below `/sessions/<session>/`.
- *
- * `/sessions` on its own is the list and names nobody, so it does not match:
- * the id segment is required. The character class is §12.2's id — `sanitizeSlug`
- * output, `[a-z0-9-]` — read as widely as the sandbox pattern beside it, because
- * a path that is not an id anybody could have is looked up and found to be
- * nobody's.
+ * Exported for ../session/activity.ts, which folds the same maps on the same
+ * terms. A second copy of the clamp is a second place for it to be wrong.
  */
-const SESSION_ROUTE = /(?:^|\/)sessions\/([A-Za-z0-9][A-Za-z0-9_-]*)(?:[/?#]|$)/;
-
-/** Container names that answer through the router but are not sandboxes. */
-const NOT_A_SANDBOX = new Set([DASHBOARD_CONTAINER, ROUTER_CONTAINER]);
-
-/** Keeps the newest time per key, clamping a stamp from the future to now. */
-function note(into: Map<string, Date>, key: string, when: Date | undefined, now: Date): void {
+export function note(into: Map<string, Date>, key: string, when: Date | undefined, now: Date): void {
   if (when === undefined) return;
   // Clamped rather than dropped. A stamp in the future means some other clock
   // and ours disagree, and of the two readings available — "this happened just
@@ -338,10 +304,15 @@ function note(into: Map<string, Date>, key: string, when: Date | undefined, now:
  * lines and Traefik's own coloured startup chatter, and a log that had gained
  * one new kind of line must not take the expiry clock down with it.
  */
-export function parseAccessLog(text: string, now: Date): RouterActivity {
+export function parseAccessLog(text: string, now: Date, frontends: readonly string[] = []): RouterActivity {
   const containers = new Map<string, Date>();
   const sandboxes = new Map<string, Date>();
-  const sessions = new Map<string, Date>();
+  const requests: RouterRequest[] = [];
+  // The router's own lines are never a sandbox's, and neither are a front end's
+  // (contracts §7.5). Which containers are front ends is the caller's to say:
+  // the engine starts none and has no name for one to compare against.
+  const notASandbox = new Set<string>([ROUTER_CONTAINER, ...frontends]);
+  const isFrontend = new Set<string>(frontends);
 
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
@@ -358,26 +329,26 @@ export function parseAccessLog(text: string, now: Date): RouterActivity {
     const when = parseStamp(match);
     if (when === undefined) continue;
 
-    // The dashboard is not a sandbox, but a request to it may be *about* one —
-    // or about a session, which is a different address for a different thing.
-    if (container === DASHBOARD_CONTAINER) {
+    // A front end is not a sandbox, but a request to it may be *about* one — or
+    // about something only the caller has a noun for, which is what `requests`
+    // is for.
+    if (isFrontend.has(container)) {
       const target = targetOf(trimmed);
       if (target === undefined) continue;
-      const sandbox = DASHBOARD_ROUTE.exec(target);
+      requests.push({ container, path: target, at: when > now ? now : when });
+      const sandbox = SANDBOX_ROUTE.exec(target);
       if (sandbox) note(sandboxes, `${sandbox[1]}/${sandbox[2]}`, when, now);
-      const session = SESSION_ROUTE.exec(target);
-      if (session?.[1] !== undefined) note(sessions, session[1], when, now);
       continue;
     }
-    if (NOT_A_SANDBOX.has(container)) continue;
+    if (notASandbox.has(container)) continue;
 
     note(containers, container, when, now);
   }
 
-  return { containers, sandboxes, sessions };
+  return { containers, sandboxes, requests };
 }
 
-/** The path one dashboard request asked for, if the request line can be read. */
+/** The path one front-end request asked for, if the request line can be read. */
 function targetOf(line: string): string | undefined {
   const request = REQUEST_FIELD.exec(line)?.[1];
   if (request === undefined) return undefined;
@@ -410,133 +381,19 @@ function parseStamp(match: RegExpExecArray): Date | undefined {
   return Number.isNaN(when.getTime()) ? undefined : when;
 }
 
-/** An ISO stamp from the agent index, or undefined for anything unreadable. */
-function stampOf(raw: string | null | undefined): Date | undefined {
-  if (typeof raw !== "string" || raw === "") return undefined;
-  const at = new Date(raw);
-  return Number.isNaN(at.getTime()) ? undefined : at;
-}
-
-/** When a file was last written, or undefined when it cannot be asked about. */
-async function mtimeOf(file: string): Promise<Date | undefined> {
+/**
+ * When a file was last written, or undefined when it cannot be asked about.
+ *
+ * Exported for ../session/activity.ts, which reads the same kind of marker on
+ * the same failure-is-an-absence terms.
+ */
+export async function mtimeOf(file: string): Promise<Date | undefined> {
   try {
     const info = await stat(file);
     return Number.isNaN(info.mtime.getTime()) ? undefined : info.mtime;
   } catch {
     return undefined;
   }
-}
-
-export interface AgentActivityOptions {
-  env?: NodeJS.ProcessEnv | undefined;
-  now?: Date | undefined;
-  /** `$SANDBOXR_HOME`, for a caller that already has it. Derived from `env` otherwise. */
-  home?: string | undefined;
-}
-
-/**
- * When an agent last did something in each sandbox, by `<project>/<slug>`.
- *
- * See the note at the top of the file for why this is read from the transcripts
- * and the index rather than asked of the server: the server's session map is
- * true and in the wrong process — `sandboxr expire` on the command line would
- * see none of it — while the files are written by the run itself and are the
- * same answer to both readers.
- *
- * Every failure is an absence. An unreadable index, a row missing its fields, a
- * transcript that cannot be stat'd: each one drops that run's contribution and
- * nothing else's. "No agent activity seen" is a safe answer because the router
- * log and the container's start time are still underneath it; "nobody used
- * anything" is the answer that must never be produced, and no path here does.
- */
-export async function agentActivity(options: AgentActivityOptions = {}): Promise<Map<string, Date>> {
-  return runActivity(options, (run) => {
-    if (typeof run.project !== "string" || typeof run.slug !== "string") return undefined;
-    if (run.project === "" || run.slug === "") return undefined;
-    return `${run.project}/${run.slug}`;
-  });
-}
-
-/**
- * When an agent last did something in each **session**, by session id
- * (contracts §12.7).
- *
- * The same rows, the same grace window and the same "every failure is an
- * absence" rule as `agentActivity`; only the join changes. A workstation
- * carries no project and no slug (§12.3), so the pair those runs are keyed on
- * cannot address one and `run.session` is what does.
- *
- * A row without a session contributes nothing here rather than being guessed
- * at. That is the direction of every other absence in this file: a workstation
- * with no agent signal falls back to the routes, the heartbeat and its own start
- * time, and the one answer that must never be produced — "this session is idle"
- * on the strength of a field nobody filled in — is not reachable from here.
- *
- * Read separately from `agentActivity` rather than returned beside it, because
- * the two are asked for by different callers on different passes: a page of
- * sandboxes never wants the session join and a page of sessions never wants the
- * `project/slug` one, and one read of a few hundred rows is what either costs.
- */
-export async function agentSessionActivity(options: AgentActivityOptions = {}): Promise<Map<string, Date>> {
-  return runActivity(options, (run) => (typeof run.session === "string" && run.session !== "" ? run.session : undefined));
-}
-
-/**
- * The agent index, folded onto whatever key the caller joins a run by.
- *
- * One body for both joins, so the grace window, the transcript stat and the
- * failure-is-an-absence rule cannot come to be spelled two ways — which is the
- * drift a second copy of this loop would be.
- */
-async function runActivity(
-  options: AgentActivityOptions,
-  keyOf: (run: AgentRun) => string | undefined,
-): Promise<Map<string, Date>> {
-  const now = options.now ?? new Date();
-  const store = agentPaths(options.home ?? paths(options.env).home);
-
-  let runs: AgentRun[];
-  try {
-    const parsed = JSON.parse(await readFile(store.indexFile, "utf8")) as { runs?: unknown };
-    if (!parsed || !Array.isArray(parsed.runs)) return new Map();
-    runs = parsed.runs as AgentRun[];
-    // A missing index is the ordinary state of a machine nobody has run an agent
-    // on. A corrupt one is a cache that can be rebuilt from the transcripts, and
-    // neither is a reason to tell the reaper that every sandbox is idle.
-  } catch {
-    return new Map();
-  }
-
-  const seen = new Map<string, Date>();
-
-  await Promise.all(
-    runs.map(async (run) => {
-      if (!run) return;
-      const key = keyOf(run);
-      if (key === undefined) return;
-
-      // What the run did, whether or not it is still going. `endedAt` is the
-      // moment the agent stopped, which is where the countdown is meant to
-      // start from; `updatedAt` covers a row that never got one.
-      note(seen, key, stampOf(run.endedAt) ?? stampOf(run.updatedAt), now);
-
-      if (!AGENT_LIVE_STATES.has(run.state)) return;
-      if (typeof run.sessionId !== "string" || run.sessionId === "") return;
-
-      // Only live rows are stat'd. An ended run's `endedAt` already says when it
-      // stopped, and one syscall per finished session on every dashboard render
-      // would buy nothing — the index is append-only and outlives the sandboxes
-      // it names.
-      const wrote = await mtimeOf(store.logFile(run.sessionId));
-      note(seen, key, wrote, now);
-      // The row says live and the transcript agrees, so the sandbox is in use
-      // right now and must not expire under it. Checked against the file rather
-      // than taken on trust: see AGENT_LIVE_GRACE_MS.
-      if (wrote !== undefined && now.getTime() - wrote.getTime() <= AGENT_LIVE_GRACE_MS) note(seen, key, now, now);
-    }),
-  );
-
-  return seen;
 }
 
 export interface AttachedActivityOptions {
@@ -592,72 +449,40 @@ export async function attachedActivity(
   return seen;
 }
 
-/**
- * When a socket was last held open on each of these sessions (contracts §12.6).
- *
- * `attachedActivity`'s twin, reading `state/session/<session>/attach` instead of
- * `state/attach/<project>/<slug>`, and believed on exactly the same terms: a
- * heartbeat inside `ATTACH_LIVE_GRACE_MS` yields *now*, an older one yields its
- * own mtime. The argument for each of those is in ./attach.ts and is not
- * restated — the file moved, the reasoning did not.
- *
- * The path comes from `sessionAttachFileFor` rather than being rebuilt here.
- * A second spelling of `state/session/<session>/attach` is how the writer and
- * the reader come to disagree about which file the heartbeat is in, and the
- * symptom of that is a workstation reaped under a live terminal — which is the
- * failure this signal exists to prevent.
- */
-export async function sessionAttachedActivity(
-  sessions: readonly Pick<Session, "id">[],
-  options: AttachedActivityOptions = {},
-): Promise<Map<string, Date>> {
-  const now = options.now ?? new Date();
-  const env = homeEnv(options);
-  const seen = new Map<string, Date>();
-
-  await Promise.all(
-    sessions.map(async (session) => {
-      if (session.id === "") return;
-      const held = await mtimeOf(sessionAttachFileFor(session.id, env));
-      if (held === undefined) return;
-      note(seen, session.id, held, now);
-      if (now.getTime() - held.getTime() <= ATTACH_LIVE_GRACE_MS) note(seen, session.id, now, now);
-    }),
-  );
-
-  return seen;
-}
-
-/**
- * The environment a `home` override implies.
- *
- * `sessionAttachFileFor` takes an environment and derives the home from it, the
- * way every other path in core does, so a caller that already has the home
- * resolved says so by putting it back into a copy of the environment rather
- * than by having a second path builder that takes one.
- */
-function homeEnv(options: AttachedActivityOptions): NodeJS.ProcessEnv | undefined {
-  if (options.home === undefined) return options.env;
-  return { ...(options.env ?? process.env), SANDBOXR_HOME: options.home };
-}
-
 export interface SandboxActivityOptions {
   docker?: Docker | undefined;
   env?: NodeJS.ProcessEnv | undefined;
   now?: Date | undefined;
+  /** Containers that answer through the router but are not sandboxes (§7.5). */
+  frontends?: readonly string[] | undefined;
+  /**
+   * Activity somebody else knows about, keyed `<project>/<slug>`.
+   *
+   * A parameter and not a hook, because the engine cannot see a running agent:
+   * it does not know what an agent is, and the index and transcripts that record
+   * one belong to the embedder (contracts §3.4). Folded in the same loop as the
+   * router and attach maps, on the same "newest wins" terms.
+   *
+   * A caller that passes nothing loses only what it alone could see. The run
+   * itself still holds its sandbox open, through the attach marker — see the
+   * note at the top of this file, and do not remove that heartbeat on the
+   * strength of this parameter existing.
+   */
+  extra?: readonly ReadonlyMap<string, Date>[] | undefined;
 }
 
 /**
  * When each of these sandboxes was last used, by container name.
  *
- * One read of the router log and one read of the agent index for the whole set,
- * because both are per-machine files and a page of a dozen cards asking
- * separately would run them a dozen times.
+ * One read of the router log for the whole set, because it is a per-machine
+ * `docker logs` and a page of a dozen cards asking separately would run it a
+ * dozen times. Whatever the caller passes in `extra` is read once by the caller
+ * for the same reason.
  *
  * The window is the longest lifetime in play plus an hour: a sandbox whose last
  * request predates its own ttl is idle by definition, so reading further back
  * could not change the answer, and the margin covers the gap between the log
- * line and this pass. A set with no readable lifetime at all skips both reads —
+ * line and this pass. A set with no readable lifetime at all skips every read —
  * nothing in it can expire, so the answer would be thrown away.
  */
 export async function sandboxActivity(
@@ -674,9 +499,13 @@ export async function sandboxActivity(
   const now = options.now ?? new Date();
   // Together rather than in sequence: they are a `docker logs` and a file read,
   // both on the path of every dashboard render, and neither needs the other.
-  const [router, agents, attached] = await Promise.all([
-    lastActivity({ docker: options.docker, since: `${Math.ceil(longest / 3600) + 1}h`, now }),
-    agentActivity({ env: options.env, now }),
+  const [router, attached] = await Promise.all([
+    lastActivity({
+      docker: options.docker,
+      since: `${Math.ceil(longest / 3600) + 1}h`,
+      now,
+      ...(options.frontends === undefined ? {} : { frontends: options.frontends }),
+    }),
     attachedActivity(sandboxes, { env: options.env, now }),
   ]);
 
@@ -685,55 +514,8 @@ export async function sandboxActivity(
     if (sandbox.container === "") continue;
     const key = `${sandbox.project}/${sandbox.slug}`;
     note(seen, sandbox.container, router.sandboxes.get(key), now);
-    note(seen, sandbox.container, agents.get(key), now);
     note(seen, sandbox.container, attached.get(key), now);
-  }
-  return seen;
-}
-
-/** The same three inputs `sandboxActivity` takes; an alias so the name reads. */
-export type SessionActivityOptions = SandboxActivityOptions;
-
-/**
- * When each of these sessions was last used, by session id (contracts §12.7).
- *
- * `sandboxActivity` with one signal missing and one re-keyed, and nothing else
- * different: one read of the router log and one of the agent index for the whole
- * set, the same window arithmetic, and every failure an absence.
- *
- * **There is no `router.containers` line here, and that is the point.** A
- * workstation has no hostname, so it never appears in the log under a router
- * name of its own. Its absence is *not* written down as a zero: a session with
- * nothing in any of these maps has no entry at all, and the planner then runs
- * its clock from `startedAt` — the floor that already covers a sandbox whose
- * lines have scrolled out of the window. A `lastActive` of the epoch, or of
- * `created`, would stop every workstation on the machine on the first pass.
- */
-export async function sessionActivity(
-  sessions: readonly Pick<Session, "id" | "ttl">[],
-  options: SessionActivityOptions = {},
-): Promise<Map<string, Date>> {
-  let longest = 0;
-  for (const session of sessions) {
-    const ttl = parseTtl(session.ttl);
-    if (typeof ttl === "number" && ttl > longest) longest = ttl;
-  }
-  // Nothing in the set can expire, so every read below would be thrown away.
-  if (longest === 0) return new Map();
-
-  const now = options.now ?? new Date();
-  const [router, agents, attached] = await Promise.all([
-    lastActivity({ docker: options.docker, since: `${Math.ceil(longest / 3600) + 1}h`, now }),
-    agentSessionActivity({ env: options.env, now }),
-    sessionAttachedActivity(sessions, { env: options.env, now }),
-  ]);
-
-  const seen = new Map<string, Date>();
-  for (const session of sessions) {
-    if (session.id === "") continue;
-    note(seen, session.id, router.sessions.get(session.id), now);
-    note(seen, session.id, agents.get(session.id), now);
-    note(seen, session.id, attached.get(session.id), now);
+    for (const given of options.extra ?? []) note(seen, sandbox.container, given.get(key), now);
   }
   return seen;
 }
