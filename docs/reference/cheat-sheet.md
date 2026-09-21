@@ -47,7 +47,7 @@ you found. Do not start, stop or remove anything. Stop and tell me if Docker is 
 | Clean up after deleted worktrees | `sandboxr gc` |
 | Get disk back | `sandboxr prune` then `sandboxr prune --yes` |
 | See what a config resolved to | `sandboxr config --json` |
-| Stop the router and dashboard | `sandboxr teardown` |
+| Stop the router, and whatever is on the bare domain | `sandboxr teardown` |
 
 Full surface, with every flag: [CLI commands](cli.md).
 
@@ -68,7 +68,7 @@ Full surface, with every flag: [CLI commands](cli.md).
 
 ```
 <slug>--<label>--<project>.<domain>     one app or api inside a sandbox
-<domain>                              the dashboard, and nothing else
+<domain>                              the bare domain — never a sandbox
 ```
 
 `tkt-4821--app--acme.sbx.localhost`
@@ -84,11 +84,10 @@ Full surface, with every flag: [CLI commands](cli.md).
 | Binaries volume | `sandboxr-bin-<project>-<slug>` | |
 | Built sites volume | `sandboxr-www-<project>-<slug>` | |
 | Dependencies volume | `sandboxr-deps-<16 hex of the lockfile hash>` | |
-| Machine-wide volumes | `sandboxr-gocache`, `sandboxr-gomod`, `sandboxr-claude` | |
+| Machine-wide volumes | `sandboxr-gocache`, `sandboxr-gomod` | |
 | Project image | `sandboxr/<project>:<12 hex of the build inputs>` | |
-| Machine images | `sandboxr/base`, `sandboxr/dashboard` | |
+| Machine image | `sandboxr/base` — the only one the engine builds | |
 | Router container | `sandboxr-router` | |
-| Dashboard container | `sandboxr-dashboard` | |
 
 Slug order of preference: an explicit argument, a slug recorded for the worktree, a ticket id
 (`/[a-z]+-[0-9]+/i`) in the worktree directory name, that pattern in the branch name, the branch
@@ -133,17 +132,16 @@ Everything under `SANDBOXR_HOME`, default `~/.sandboxr`.
 cache/                            seed artifacts, content-addressed
 logs/<project>/<slug>/            per-sandbox logs — survive `down`
 tls/                              certificate and key
-state/                            router config, dashboard session secret
+state/                            router config, and the dynamic config directory
 state/keep/<project>/<slug>       keep-alive marker
 state/name/<project>/<slug>       what to call one worktree on screen
 state/slug/<project>/<wt dir>     the slug a worktree was given on a collision
+state/attach/<project>/<slug>     when a socket was last held open on one sandbox
 secrets/<project>.env             third-party credentials, mode 0600 — you edit this
 build/<project>/<slug>.env        the generated per-sandbox environment
 build/<project>/<slug>.plan.json  the plan for one sandbox
 bin/                              host-built helper binaries
-agent/runs.json                   the agent-session index
-agent/grants.json                 standing agent permissions
-agent/log/<id>.jsonl              one agent-session transcript
+host.env                          what only this machine can look up, mode 0600
 config.yaml                       the machine's own settings — you edit this
 workspace/<project>/              a managed project: repo.git/ and wt/<branch>/
 ```
@@ -180,14 +178,12 @@ Answers on **every** hostname a sandbox serves, and is not gated on the database
 
 | Variable | Default | What |
 |---|---|---|
-| `SANDBOXR_PASSWORD` | — | The dashboard's password. Without one it admits nobody |
 | `SANDBOXR_DOMAIN` | `sbx.localhost` | Hostname suffix |
 | `SANDBOXR_HOME` | `~/.sandboxr` | Everything sandboxr keeps on the host |
 | `SANDBOXR_WORKSPACE` | `$SANDBOXR_HOME/workspace` | Where managed projects live |
 | `SANDBOXR_TTL_HOURS` | `12` | Idle limit. `config.yaml` beats it |
-| `SANDBOXR_REAP_MINUTES` | `5` | How often the dashboard expires sandboxes. `0` is off |
 | `SANDBOXR_HTTP_PORT` / `_HTTPS_PORT` | `80` / `443` | Where the router publishes |
-| `SANDBOXR_CLAUDE_TOKEN` | — | The credential agent sessions run with |
+| `SANDBOXR_CACHE_TTL_HOURS` | `24` | How long a cached seed is reused before it is taken again |
 
 Every variable, all three groups: [Environment variables](environment.md).
 
@@ -202,8 +198,8 @@ projects:
   acme-monorepo: { ttl: 3d, github: token }
 ```
 
-A `projects:` key is the project's **workspace directory** — the name in every dashboard URL — or
-the `project:` its `sandboxr.yaml` declares. Either works; the directory wins if both are keyed.
+A `projects:` key is the project's **workspace directory** — the name `sandboxr project ls` prints
+— or the `project:` its `sandboxr.yaml` declares. Either works; the directory wins if both are keyed.
 A key matching neither does nothing, and `sandboxr doctor` names it.
 
 ttl precedence, most specific first: `--ttl`, the project's entry, the file's top-level `ttl`,
@@ -299,8 +295,8 @@ obey: [The rules a config must obey](../configuration/rules.md).
 - **There is no hot reload.** Front-ends are built on demand and answer 503 until they are.
 - **A failed migration leaves the sandbox up and `degraded`.** That is deliberate.
 - **One writer per file-backed database.** `database.owner` names it.
-- **Nothing enforces a lifetime while the dashboard is not running.** The reaper lives in that
-  process.
+- **Nothing enforces a lifetime on its own.** `sandboxr expire` is the whole mechanism, and no
+  timer runs it for you.
 - **Remote deployment does not exist.** mkcert is the only certificate issuer.
   [What is built](status.md) is the honest inventory.
 

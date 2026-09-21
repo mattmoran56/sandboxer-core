@@ -3,9 +3,9 @@ title: Just the CLI, on my laptop
 description: The ordinary setup — the sandboxr command, Docker, and nothing to log in to — and the one job you have to give a timer.
 ---
 
-This is the whole of sandboxr: the `sandboxr` command, Docker, and nothing to log in to. There is
-no dashboard and no browser, so there is nothing to start, nothing to authenticate against and
-nothing to keep running.
+This is the whole of sandboxr: the `sandboxr` command, Docker, and nothing to log in to. The
+engine has no web interface of its own, so there is nothing to start besides the shared router,
+nothing to authenticate against and nothing else to keep running.
 
 ```prompt
 Set this machine up to run sandboxr, and start a sandbox from the repository in this directory.

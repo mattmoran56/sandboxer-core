@@ -153,13 +153,12 @@ a certificate, starts the container, waits for it, provisions the database and p
 Starting a sandbox that already exists replaces the container and **keeps its volumes**, so the
 database and the uploads survive.
 
-> [!NOTE] A sandbox started here has no agent in it
+> [!NOTE] A sandbox is a running project, and nothing else
 > `sandboxr up` builds the project layer on the engine's own base image, and that image carries no
-> `claude` — sandboxr runs a project and has no opinion about who edits the worktree. A sandbox
-> started from the dashboard is built on `jef/base` instead, which is the engine's base with the
-> agent on top, so it does. If you started a sandbox here and `claude` is not found inside it,
-> nothing is broken: use the dashboard, or run your own agent against the bind mount
-> ([your own agent in a sandbox](../guides/agents-in-a-sandbox.md)).
+> coding agent — sandboxr runs a project and has no opinion about who edits the worktree. If you
+> expected to find one inside and it is not there, nothing is broken. The worktree is bind-mounted
+> at `/workspace`, so edits from the host land in the sandbox immediately; an embedder that wants an
+> agent in the container builds its own image on `sandboxr/base` and passes it as the base image.
 
 `up` is the only command that enforces the rules a public sandbox has to obey. Everything else loads
 the config without them, so you can still inspect and clean up a project whose config would be
@@ -273,7 +272,7 @@ is missing or stopped.
 | Flag | What it rebuilds |
 |---|---|
 | `--migrate` | Re-runs this sandbox's migrations |
-| `--web` | Every front-end in the build-everything set |
+| `--web` | Every front-end in the build-everything set. `--web=all` is the explicit spelling |
 | `--web=<label>` | One front-end |
 | `--web=built` | Only what this sandbox has already built |
 | `--go` | Every backend |
@@ -296,11 +295,11 @@ Stops every sandbox that has sat unused past its limit. `--dry-run` prints the p
 nothing.
 
 The clock measures **idleness, not uptime**. The deadline is the later of the container's current
-start time and the last time anybody used it, plus the ttl. Four things count as use: a request
-through the router, opening the sandbox in the dashboard, an agent session on its worktree, and a
-terminal or agent panel somebody is holding open on it. A live agent session and an open socket both
-hold the sandbox open, and the countdown starts when they stop. So using a sandbox buys it a full
-lifetime, and so does pressing start.
+start time and the last time anybody used it, plus the ttl. Three things count as use: a request
+through the router to one of the sandbox's own hostnames, a request to whatever is on the bare
+domain whose path names the sandbox, and a socket somebody is holding open on it. An open socket
+holds the sandbox open, and the countdown starts when it closes. So using a sandbox buys it a full
+lifetime, and so does starting it again.
 
 ```
 KEEP  main      — no expiry set
@@ -314,15 +313,19 @@ left alone.
 <details class="agent">
 <summary><b>Details for an agent</b> — where last activity comes from, and what happens without a router</summary>
 
-Last activity is read from the shared router's access log at the moment it is asked for. Nothing is
-stored, so nothing can drift.
+Last activity is read from the shared router's access log at the moment it is asked for, and from
+the heartbeat files under `~/.sandboxr/state/attach/<project>/<slug>` — the one signal that is
+written rather than derived, because a websocket held open for hours produces no access-log line
+until it ends, and then produces one dated to when it started. Nothing else is stored, so nothing
+else can drift.
 
 With no router running, no sandbox has a last-activity time and every one of them falls back to its
 start time. A log that cannot be read must never be read as "nobody has used anything" — that would
 stop every sandbox on the machine at once.
 
-The per-sandbox log files are deliberately **not** an activity signal: the dashboard's health probes
-write to them every few seconds, so a timer keyed on them would never fire.
+The per-sandbox log files are deliberately **not** an activity signal. They record whatever the
+container's own services write, health probes dialling the container directly included — traffic
+that never passes the router at all — so a timer keyed on their mtime would never fire.
 
 `--dry-run` lists what would be stopped with the reason. `--json` adds what was kept, and why each
 survived.
@@ -333,8 +336,14 @@ survived.
 
 Reaps sandboxes whose recorded worktree no longer exists, then removes `sandboxr-` volumes nothing
 owns and nothing has mounted, then the project images a newer build of the same project replaced.
-The shared volumes, `sandboxr-deps-*`, `sandboxr/base`, `sandboxr/dashboard` and every project's
+The shared volumes, `sandboxr-deps-*`, the reserved `sandboxr/` machine images and every project's
 newest image are left alone, as is any image a container references, running or stopped.
+
+A **reserved** image is one under `sandboxr/` that is the machine's own rather than a project's
+layer. `sandboxr/base` is the only one the engine builds; the rest of that namespace is held open
+for an embedder's images, and the collector leaves them alone whether or not anything on this
+machine built one. They are tagged by tool version rather than by content, so the rule the collector
+applies to project images — an older tag means a newer one replaced it — does not hold for them.
 
 Such a sandbox is unreachable anyway: you cannot rebuild anything in it, because the source it would
 build from is gone. A superseded image is unreachable in the same sense — its tag is a hash of a
@@ -360,9 +369,9 @@ before it runs. `gc` and `prune` agree exactly about which images may go.
 
 | Offered | Never offered |
 |---|---|
-| `sandboxr-` volumes no surviving sandbox owns | `sandboxr-claude`, `sandboxr-gocache`, `sandboxr-gomod` |
+| `sandboxr-` volumes no surviving sandbox owns | `sandboxr-gocache`, `sandboxr-gomod`, and any volume an embedder reserved |
 | Project images older than that project's newest | Each project's newest image, so the next `up` starts rather than builds |
-| Docker's build cache, with `--build-cache` | `sandboxr/base`, `sandboxr/dashboard`, and any image a container holds |
+| Docker's build cache, with `--build-cache` | The reserved `sandboxr/` machine images, and any image a container holds |
 
 <details class="agent">
 <summary><b>Details for an agent</b> — how the sizes are computed, and what a refusal looks like</summary>
@@ -377,9 +386,6 @@ is usually the largest number on the page. It is removed only with `--build-cach
 With `--yes`, anything that could not be removed is named one by one rather than counted: a refusal
 is nearly always a container started against the image since the plan was made. The reclaimed total
 is summed over what actually went, not over the plan.
-
-There is no dashboard action for `prune`. It is a CLI command only — see
-[What is built](status.md).
 
 </details>
 
@@ -429,7 +435,7 @@ each spells the URL — ssh and https are one repository, not two.
 
 `project prs --json` carries a `state` on each pull request — `draft`, `open`, `closed` or `merged`
 — alongside the raw `draft` flag it composes with. The table stays as it is, listing what is open;
-the state is there because it is the same value the dashboard marks each worktree with, and one
+the state is there because it is the same value an embedder marks each worktree with, and one
 composition of it lives in core so the two cannot disagree (contracts §4.1.2).
 
 `worktree rm` looks the branch up in the listing rather than rebuilding a path from the name, so a
@@ -446,7 +452,7 @@ is named after the worktree (contracts §3.1) — so removing the directory firs
 you needed to find what to clean up, which is how `rm` leaves an orphan for `gc`. It refuses,
 removing nothing, when the worktree has uncommitted changes or commits that are on no remote; the
 message names them and `--force` overrides it. It resolves every worktree of the project through the
-same `slugFor` the dashboard and `up` use, so a worktree that was *given* a slug is compared under
+same `slugFor` that `up` uses, so a worktree that was *given* a slug is compared under
 the name it actually has — and where two worktrees still answer to one slug, which is possible for
 any cut before `worktree add` began guarding it, deleting either **keeps** the sandbox and says
 which other worktree is using it. A slug that names two worktrees is refused outright rather than
@@ -543,18 +549,23 @@ It checks, in order:
 1. Docker is running.
 2. The base image exists.
 3. The router is running.
-4. The dashboard is running.
+4. What, if anything, is serving the bare domain.
 5. Whether the router serves HTTP or HTTPS, and why.
-6. `SANDBOXR_PASSWORD` is set.
-7. A config was found.
-8. The config resolves.
-9. A file-backed database is pointed at the sandbox's own state directory.
-10. The project's credentials are present — the same check as `secrets check`.
-11. Every `projects:` entry in `~/.sandboxr/config.yaml` names a project this machine has.
-12. Where `SANDBOXR_HOME` is.
-13. How many sandboxes exist.
+6. A config was found.
+7. The config resolves.
+8. A file-backed database is pointed at the sandbox's own state directory.
+9. The project's credentials are present — the same check as `secrets check`.
+10. Every `projects:` entry in `~/.sandboxr/config.yaml` names a project this machine has.
+11. Where `SANDBOXR_HOME` is.
+12. How many sandboxes exist.
 
-Check 11 is the one that catches a setting that looks applied and is not. A `projects:` key may be
+> [!NOTE] An empty bare domain is not a fault
+> Check 4 reports and never fails. `nothing is serving <url> — sandboxr is a command-line tool` is
+> the ordinary state of a machine set up with `sandboxr init`, and calling it a problem whose fix
+> is `sandboxr init` would send somebody round a loop with no end. See
+> [Access and security](../access.md).
+
+Check 10 is the one that catches a setting that looks applied and is not. A `projects:` key may be
 a project's workspace directory or the `project:` its `sandboxr.yaml` declares; a key that is
 neither matches nothing and silently does nothing. `doctor` names it and lists the names that would
 have worked, rather than guessing which one was meant.

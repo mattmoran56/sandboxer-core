@@ -19,8 +19,9 @@ guides do that, and every page below links back to them.
 
 Start with the [Cheat sheet](cheat-sheet.md) if you know roughly what you want, and the
 [Glossary](glossary.md) if a word on another page did not mean what you expected.
-[The brand](../brand.md) is the same idea for what the product looks like: it sits at the root of
-the documentation rather than in this directory, because the dashboard is drawn from it too.
+[The brand](../brand.md) is the same idea for what sandboxr looks and sounds like: it sits at the
+root of the documentation rather than in this directory, because `@sandboxr/tokens` is what anything
+built on the engine draws from too.
 
 The configuration schema lives with the rest of the configuration documentation:
 [sandboxr.yaml, field by field](../configuration/sandboxr-yaml.md).

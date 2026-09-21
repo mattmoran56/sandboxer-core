@@ -31,7 +31,7 @@ If a term in the table is unfamiliar, [the glossary](../reference/glossary.md) h
 | Setup | What you get | What it costs | What it needs |
 |---|---|---|---|
 | [Just the CLI, on my laptop](cli-only.md) | **The default.** Every command. Real sandboxes on real hostnames. Nothing to log in to | Nothing enforces a lifetime, so `sandboxr expire` is yours to run. No private apps | Docker, Node 22, git. Give Docker about 8 GB |
-| [On a server, for a team](shared-server.md) | Branches your colleagues can open without a laptop of their own | **This does not exist yet.** The page is sizing arithmetic and a plan, not instructions | Somebody to build the missing pieces first |
+| [On a server, for a team](shared-server.md) | Branches your colleagues can open without a laptop of their own | `--bind` is the only part built. No certificate automation, no DNS, no service unit — and nothing in front of a public app | Somebody to build the missing pieces, and the security audit first |
 | [One repo, many branches](one-repo-many-worktrees.md) | Every branch of one project running at once, out of worktrees you already keep | Memory, mostly. Two worktrees on one ticket want one name, which sandboxr settles for the ones it cuts | One repository, with git worktrees cut from it |
 | [Several repositories at once](many-projects.md) | sandboxr keeps the repositories itself. Pick a branch, get a sandbox | A managed workspace to learn, and `--project NAME` on most commands | Disk for the clones. `gh` for the convenient parts |
 

@@ -3,14 +3,19 @@ title: On a server, for a team
 description: The sizing, DNS and certificate arithmetic for running sandboxr for a team — and a plain statement of which parts are not built.
 ---
 
-**Running sandboxr on a server for a team is not built.** No code in this repository requests a
-certificate over ACME, writes a DNS record, or installs a service unit. mkcert is the only
-certificate issuer sandboxr knows about. And `sandboxr init` sets up a local machine, with a router
-bound to `127.0.0.1`.
+**Deploying sandboxr to a server is not built.** No code in this repository requests a certificate
+over ACME, writes a DNS record, or installs a service unit. mkcert is the only certificate issuer
+sandboxr knows about, and it issues a certificate your own machine trusts and nobody else's.
 
-What this page is, then: the arithmetic. The sizing, the DNS shape and the certificate constraint
-are worked out and hard-won, and they are what somebody building the missing pieces needs. They are
-not steps you can follow today. [What is built](../reference/status.md) is the honest inventory.
+What *is* built is one flag. `sandboxr init --bind ADDR` publishes the router somewhere other than
+`127.0.0.1`, which is the whole of what the engine does differently on a server — and it is a
+security decision rather than a convenience, because the engine ships no control plane and there is
+nothing in front of a sandbox's apps.
+
+So this page is two things: the arithmetic — sizing, the DNS shape, the certificate constraint,
+worked out and hard-won — and a plain account of what binding beyond loopback actually exposes.
+The arithmetic is what somebody building the missing pieces needs.
+[What is built](../reference/status.md) is the honest inventory.
 
 ```prompt
 Assess whether this project could run on a shared server, and produce a sizing plan.
@@ -25,15 +30,19 @@ client, no DNS writer and no service unit. Stop and tell me if I ask you to inst
 ```
 
 > [!CAUTION] Read the security page before anything else
-> The dashboard holds the Docker socket, so an unprotected control endpoint is remote code
-> execution on the machine. [Access and security](../access.md). Ten minutes now.
+> A server is a machine where `public` stops meaning "public to this laptop". Every project
+> defaults to `access.apps: public`, and binding the router beyond loopback puts every one of
+> those apps on the network, over whatever data their sandboxes were seeded with. And anything
+> you later put on the bare domain holds the Docker socket, which makes an unprotected control
+> endpoint remote code execution on the machine. [Access and security](../access.md). Ten
+> minutes now.
 
 ## Sizing the machine
 
 | Resource | Guidance |
 |---|---|
-| **Memory** | A sandbox's cap is the largest limit any one of the project's apps declares, floor **4 GB**. Budget at least that per concurrently running sandbox, plus 2 GB for the host and the dashboard. Four sandboxes of a project whose heaviest build asks for 6 GB wants 26 GB, not 16 |
-| **Disk** | 40 GB floor. The base image is around 580 MB, and the agent layer on top of it another 234 MB. Each project's layer adds its toolchains and its dependency tree, and a large one measured 6 GB. Each sandbox adds a few hundred megabytes of volumes. Docker's build cache will take everything you leave it |
+| **Memory** | A sandbox's cap is the largest limit any one of the project's apps declares, floor **4 GB**. Budget at least that per concurrently running sandbox, plus 2 GB for the host itself and the router. Four sandboxes of a project whose heaviest build asks for 6 GB wants 26 GB, not 16 |
+| **Disk** | 40 GB floor. The base image is around 580 MB. Each project's layer adds its toolchains and its dependency tree, and a large one measured 6 GB. Each sandbox adds a few hundred megabytes of volumes. Docker's build cache will take everything you leave it |
 | **CPU** | Builds are the only bursty part. Four cores suits a small team. Two feels slow the moment two people rebuild at once |
 | **Swap** | Some. It turns a hard out-of-memory kill into slowness, which is a much better failure |
 
@@ -60,7 +69,7 @@ A sandbox hostname is **one label** above the domain — `tkt-4821--app--acme.sb
 one record covers every sandbox this server will ever run:
 
 ```
-sbx.example.com.        A   203.0.113.10   the dashboard
+sbx.example.com.        A   203.0.113.10   the bare domain — empty unless you fill it
 *.sbx.example.com.      A   203.0.113.10   every sandbox, every app, forever
 ```
 
@@ -107,18 +116,34 @@ Two things not to do:
 None of this is implemented. mkcert is the only issuer sandboxr knows about, and it is what issues
 the same single wildcard locally.
 
-## The password
+## Binding beyond loopback, which is the decision this page is really about
+
+`sandboxr init --bind 0.0.0.0` is the one thing the engine gives a shared server that it does not
+give a laptop, and it is the whole of it: the router publishes on an interface other people can
+reach, and every sandbox's apps become reachable at their own hostnames.
 
 ```bash
-export SANDBOXR_PASSWORD="$(openssl rand -base64 32)"
+sandboxr init --bind 0.0.0.0
 ```
 
-Treat it as a **root credential for this host**, because that is what it is. Whoever has it can run
-every action the dashboard offers, and the dashboard drives Docker. Put it in whatever secret
-manager the machine already uses, and set it in the **service definition**, not in a login shell.
+**There is nothing to log in to, because the engine ships no control plane.** `init` prepares the
+bare domain, starts the router and leaves the domain empty. So a sandbox whose project is `public`
+— the default — is now open to everyone who can route to that address, with no check of any kind in
+front of it.
 
-Per-project passwords let different people be given different projects.
-[How](../access.md).
+Two consequences, and they are the reason this section is not one line:
+
+- **`access.apps: private` needs something on the bare domain to answer.** The router adds a
+  forward-auth middleware to a private project's hostnames and asks whatever holds the
+  `sandboxr.frontend` label whether a request is allowed. With nothing there, nothing answers, and
+  the hostname refuses every request rather than falling open. That is the right direction to fail,
+  and it does mean `private` is unusable until you put a control plane there yourself.
+- **So `public` is the only tier that works on a bare engine, and it means public.** Audit every
+  project's `access.apps`, `access.credentials` and seed source before binding — one by one, not
+  as a class. [Access and security](../access.md) is that audit.
+
+`--http-port N` and `--https-port N` move the router off 80 and 443, which is what you use when
+something else on the host already holds them.
 
 ## Seeds: a dump, not a fork
 
@@ -147,14 +172,17 @@ The Docker socket must not be exposed to the network under any circumstances.
 ## The pre-flight checklist
 
 - [ ] `SANDBOXR_HOME` is set in the service definition, on a disk with room.
-- [ ] `SANDBOXR_PASSWORD` is long, random, and not in anyone's shell history.
-- [ ] Per-project passwords exist for anyone who should not have everything.
-- [ ] The router is publishing on the interface you meant, not on `127.0.0.1`.
-- [ ] Every project's `access.apps` is what you meant, checked one by one.
+- [ ] The router is publishing on the interface you meant, and you meant it.
+- [ ] Every project's `access.apps` is what you meant, checked one by one — and you know that
+      `private` refuses every request until something is on the bare domain to answer for it.
+- [ ] You know what, if anything, is answering on the bare domain. `sandboxr doctor` names it,
+      and names nothing unless you put something there.
 - [ ] No project seeds from `local`, and every `file` seed is genuinely anonymised.
 - [ ] `access.credentials` is `dummy` unless you have a reason.
+- [ ] `github:` is `none` for every project that does not need this machine's token.
 - [ ] The firewall opens 80 and 443 only.
 - [ ] `data-root` points at the disk with the room on it.
+- [ ] `sandboxr expire` is on a timer — nothing else stops an idle sandbox.
 - [ ] `sandboxr gc` and `sandboxr prune --build-cache --yes` are on a timer.
 - [ ] `sandboxr doctor` is clean.
 
@@ -166,8 +194,11 @@ The Docker socket must not be exposed to the network under any circumstances.
 - An ACME client. No code requests a certificate from a public authority. `packages/core/src/access/tls.ts` issues through mkcert and only mkcert.
 - A DNS writer. Nothing creates or updates a record anywhere.
 - A service unit. Nothing installs systemd units, launchd plists or any other supervisor definition.
-  The dashboard and the router are Docker containers with `--restart unless-stopped`, which is what
-  survives a reboot today.
+  The router is a Docker container with `--restart unless-stopped`, which is the whole of what
+  survives a reboot today. A sandbox is not restarted by anything: `sandboxr up` again is how one
+  comes back.
+- Anything on the bare domain. The engine prepares it and starts nothing there, so a server gets
+  no listing, no login and no buttons unless somebody builds them.
 
 **Present and usable on a server as-is:**
 
@@ -185,14 +216,16 @@ The Docker socket must not be exposed to the network under any circumstances.
   set months ago and forgotten.
 - The managed workspace: `sandboxr project clone`, `worktree add`, and `up --project NAME --branch
   NAME`. See [Several repositories at once](many-projects.md).
-- The reaper, which is the dashboard's own timer: `SANDBOXR_REAP_MINUTES`, default `5`. On a server
-  the dashboard is always up, so unlike a laptop the timer really runs.
+- `sandboxr expire`, which is the whole lifetime mechanism and runs only when something runs it.
+  A server is the case where that matters most, because nobody closes a laptop: put it on a
+  `systemd` timer or a cron entry, as [Just the CLI, on my laptop](cli-only.md) sets out. It only
+  ever stops a container, so a timer cannot lose work.
 
 **Certificate arithmetic, stated as constraints:**
 
 | Hostname | Labels above the domain | Covered by |
 |---|---|---|
-| `sbx.example.com` | 0 — the dashboard | the certificate naming the domain itself |
+| `sbx.example.com` | 0 — the bare domain | the certificate naming the domain itself |
 | `tkt-4821--app--acme.sbx.example.com` | 1 | `*.sbx.example.com` |
 | `a.tkt-4821--app--acme.sbx.example.com` | 2 | **nothing wildcard can express** — and nothing sandboxr serves is here |
 

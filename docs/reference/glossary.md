@@ -34,9 +34,10 @@ Declared under `backends:`. See [The three runtime kinds](../configuration/runti
 hostname. `sandboxr init` prepares it and serves nothing on it, so it is where a control plane of
 your own would go. See [Access and security](../access.md).
 
-**Base image** — the generic image every sandbox on the machine shares: the supervisor, the
-in-container router, the object store, `git`, `gh`, `claude` and the container scripts. Nothing
-project-specific. Built by `sandboxr init`. See [Install it](../getting-started/install.md).
+**Base image** — `sandboxr/base`, the generic image every sandbox on the machine shares: the
+supervisor, the in-container router, the object store, `git`, `gh` and the container scripts. No
+coding agent, and nothing project-specific. Built by `sandboxr init`. See
+[Install it](../getting-started/install.md).
 
 **Bind mount** — the mechanism that lets a container see a directory on your computer directly,
 rather than a copy of it. Your worktree is bind-mounted at `/workspace`. See [Paths](paths.md).
@@ -53,9 +54,11 @@ serves the status surface. See [How a request arrives](../architecture/request-p
 holding every service that worktree needs. See
 [How it works, in five steps](../how-it-works.md).
 
-**Controls** — everything that changes a sandbox: start, stop, rebuild, migrate, shell, terminal.
-**Controls are always behind a password and that cannot be turned off**, because whatever runs them
-holds the Docker socket. See [Access and security](../access.md).
+**Controls** — everything that changes a sandbox: start, stop, rebuild, migrate, shell. In a
+config, `access.controls` accepts exactly one value, `password`, and there is no setting that removes
+it — because whatever offers those over a network holds the Docker socket. The engine parses the
+field and enforces nothing: it is a statement for whatever is on the bare domain to keep. See
+[Access and security](../access.md).
 
 ## D
 
@@ -134,9 +137,6 @@ sandbox for two branches. It is recorded, because random characters cannot be de
 applies to worktrees sandboxr cut rather than ones you cut yourself. See
 [One repo, many branches](../setups/one-repo-many-worktrees.md).
 
-**Grant** — the set of projects one password may control. It is checked everywhere a project is
-named, not only at the login. See [Access and security](../access.md).
-
 ## H
 
 **Hostname** — `<slug>--<label>--<project>.<domain>`, for example
@@ -144,11 +144,11 @@ named, not only at the login. See [Access and security](../access.md).
 
 ## I
 
-**Idle clock** — the timer behind a [ttl](#t). It measures **idleness, not uptime**: the deadline is
-the later of the container's start time and the last time anybody used it, plus the ttl. Two things
-count as use — a request through the router, and a socket somebody is holding open on the sandbox,
-which keeps it open until it closes. See
-[Start, stop, list, clean up](../guides/lifecycle.md).
+**Idle clock** — the clock behind a [ttl](#t), read by `sandboxr expire`. It measures **idleness,
+not uptime**: the deadline is the later of the container's start time and the last time anybody used
+it, plus the ttl. Two things count as use — a request through the router, and a socket somebody is
+holding open on the sandbox, which keeps it open until it closes. Nothing runs the clock for you.
+See [Start, stop, list, clean up](../guides/lifecycle.md).
 
 ## K
 

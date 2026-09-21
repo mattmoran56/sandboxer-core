@@ -44,9 +44,10 @@ one thing wrong in the details.
 | **Toolchain resolution** | That a prefix such as `1.26` or `24` picks the release a project meant, on both processor architectures |
 | **The service graph under load** | It boots for a two-service plan. Five backends, a dev server and a first-boot restore have not been started together |
 | **`sqlite`** | The `d1` path has run. The plain `sqlite` driver has not |
+| **A `private` project** | The forward-auth middleware is written and unit-tested. The engine answers none of it, and nothing has been put on the bare domain here to answer it, so the handshake has never been watched running against a live private project. [Access and security](../access.md) says the same on the page it affects |
 | **A sandbox expiring on its own over a full lifetime** | See below |
 | **Removing an image** — `sandboxr prune --yes`, and the same images under `sandboxr gc` | See below |
-| **`gh` against a private repository** | Pull requests list against a public repo. Cloning and fetching a private one from inside the dashboard container, using the mounted `gh` credentials, has not been done |
+| **`gh` against a private repository** | Pull requests list against a public repo. Cloning and fetching a private one with the machine's own `gh` credentials has not been done |
 
 ### Removing an image: `sandboxr prune --yes` and `sandboxr gc`
 
@@ -92,10 +93,10 @@ recent, so here is precisely what has been done with it on a real machine.
 **Run for real:**
 
 - The parse against a live `docker logs sandboxr-router`, which reports one last-activity time per
-  sandbox and none for the dashboard or for an unrouted 404.
+  sandbox and none for the bare domain or for an unrouted 404.
 - A single `curl` at one sandbox moved *that* sandbox's time to the second the request arrived, and
-  left the other sandbox's untouched — over a period in which the dashboard was up and
-  health-probing both.
+  left the other sandbox's untouched — over a period in which both were being health-probed
+  directly, off the router.
 - `sandboxr expire --dry-run --json` then reported `1h 59m left, idle 21s` for the one that had been
   visited and `3h 25m left, idle 34m` for the one that had not. `--json` is where those two lines
   are: the human dry-run prints only what it would stop, and neither sandbox was due to stop.
@@ -111,13 +112,12 @@ sandbox would fall back to its start time — the old behaviour — rather than 
 
 </details>
 
-**A sandbox expiring on its own over a full lifetime has not been watched.** The reaper runs on a
-real machine on its timer, and `expire` has stopped and restarted a live sandbox against a clock
-moved forward by hand. Nothing has yet been stopped by the timer arriving on its own, hours later.
-Nor has a sandbox been watched going quiet for a whole ttl and being stopped for it, with no clock
-moved by hand.
+**A sandbox expiring on its own over a full lifetime has not been watched.** `expire` has stopped
+and restarted a live sandbox against a clock moved forward by hand. Nothing has yet been stopped by
+a timer arriving on its own, hours later. Nor has a sandbox been watched going quiet for a whole ttl
+and being stopped for it, with no clock moved by hand.
 
-Three limits are worth stating plainly rather than discovering later.
+Two limits are worth stating plainly rather than discovering later.
 
 **Expiry only ever stops a sandbox; it never removes one.** That reclaims memory and CPU and does
 nothing about disk. The container and its volumes remain, so a machine left alone still accumulates.
@@ -125,13 +125,11 @@ nothing about disk. The container and its volumes remain, so a machine left alon
 databases automatically, which is not a thing to switch on untested. `prune` is the safer of the two
 to put on a timer, because everything it removes is rebuildable.
 
-**`prune` has no dashboard action.** `gc` and `expire` are buttons; this is a CLI command only. The
-decision lives in core, so a dashboard action is a small addition. It has not been made.
-
-**Nothing enforces a lifetime while the dashboard is not running.** The reaper lives in the dashboard
-process, which is the only always-on component holding the Docker socket. On a laptop whose dashboard
-is usually stopped, sandboxes live until something stops them. `SANDBOXR_REAP_MINUTES=0` is the
-honest way to say so.
+**Nothing enforces a lifetime.** `sandboxr expire` is the whole mechanism, and the engine starts no
+daemon and has no reaper of its own — a CLI process exits the moment it has printed its answer, so
+there is nowhere for a timer to live. On a machine with no `cron` or `launchd` entry running it,
+sandboxes live until something stops them. [Just the CLI, on my laptop](../setups/cli-only.md) has
+the crontab line and the reasoning.
 
 ## git and `gh` in a sandbox
 
@@ -161,8 +159,9 @@ mounts and variables `runArgs` produces.
 </details>
 
 Worth knowing: before this, **no git command worked in any sandbox**. A linked worktree's `.git`
-names its repository by absolute path, and only the worktree was mounted. Agent sessions had been
-allowlisted for `git status`, `git diff`, `git add` and `git commit` the whole time.
+names its repository by absolute path, and only the worktree was mounted — so every git command
+failed with one `fatal: not a git repository` naming a host path, from inside a container where
+that path did not exist. The symptom named the cause and nobody read it that way for months.
 
 ## Fixed after running it against a real project
 
@@ -180,9 +179,10 @@ no verb that returns a database to a clean restore. Comparing before and after i
 does not.
 
 **Remote deployment.** No code requests a certificate over ACME, writes a DNS record, or installs a
-service unit. mkcert is the only certificate issuer.
-[On a server, for a team](../setups/shared-server.md) is a plan with the arithmetic worked out, not
-instructions.
+service unit. mkcert is the only certificate issuer, and it issues a certificate one machine trusts.
+`sandboxr init --bind ADDR` publishes the router beyond loopback and is the only part of running on
+a server that exists. [On a server, for a team](../setups/shared-server.md) has the arithmetic and
+names the missing pieces one by one.
 
 **Continuous integration.** Nothing runs the tests, the shell linting or the docs build
 automatically.
@@ -233,9 +233,8 @@ deliberately not one of these pages.
    mapping key as a sibling of the list items, which is invalid YAML. The schema accepts the mapping
    form the real examples use (`backends: { defaults, services }`) *and* a bare list, so this is an
    error in the contract's prose only. These docs follow the schema.
-2. **No CLI surface is pinned.** §3.4 names `ls` and `gc`; Jef's §6 says the dashboard's actions are
-   a closed table but does not enumerate it. The CLI is now much larger than either, and nothing
-   prevents it drifting.
+2. **No CLI surface is pinned.** §3.4 names `ls` and `gc`, and §8 lists the verbs without their
+   flags. The CLI is much larger than either, and nothing prevents it drifting.
 3. **`env:` and `deps:` are in the schema and not in the contract.** Both are load-bearing — `env` is
    the only thing joining the sandbox's computed addresses to the project's own variable names — and
    §5 does not mention either.

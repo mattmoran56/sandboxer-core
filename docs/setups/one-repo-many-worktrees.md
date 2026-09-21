@@ -110,9 +110,9 @@ first branch's database.
 
 **Which of these happens depends on who cut the worktree.**
 
-When sandboxr cut it — `sandboxr worktree add`, or a **Start** on the dashboard — it compares the
-slug the new worktree would take against the ones its siblings already answer to, and on a match
-gives it one of its own instead:
+When sandboxr cut it — `sandboxr worktree add`, or anything else that reaches `addWorktree` — it
+compares the slug the new worktree would take against the ones its siblings already answer to, and
+on a match gives it one of its own instead:
 
 ```
 another worktree of acme already answers to "tkt-4821", so this one is "tkt-4821-7k2f"
@@ -121,7 +121,7 @@ another worktree of acme already answers to "tkt-4821", so this one is "tkt-4821
 Four random characters on the end, so the name is still readable and still fits the ceiling — the
 project's own, which for a long project name and a long label is lower than 31. It is written down,
 because random characters cannot be worked out again, and everything from then on — the hostname,
-`sandboxr ls`, the dashboard — uses it.
+the container, `sandboxr ls` — uses it.
 
 When you cut the worktree yourself, in your own repository, sandboxr never saw it happen and
 cannot warn you.
@@ -154,7 +154,7 @@ the second sandbox of a project starts far faster than the first.
 | The **dependency volume** | Named after a hash of the lockfile. Branches with matching lockfiles share one install; a branch that changes its dependencies transparently gets its own |
 | The **seed cache** | Keyed on the source's content, so a database seed is produced once and every sandbox restores its own copy from it |
 | The **git repository** | See below. This is the one that surprises people |
-| The base image, the Go caches, the router, the dashboard, the Docker network | Shared by every sandbox on the machine, not just this project's |
+| The base image, the Go caches, the router, the Docker network | Shared by every sandbox on the machine, not just this project's |
 
 | Private to one sandbox | Name |
 |---|---|
@@ -193,8 +193,8 @@ that do not exist in a container, which would break the very operations it was m
 `git push` and `gh` only work if the machine has opted this project in with `github: token` in
 `~/.sandboxr/config.yaml`. That is off by default, and [Access and security](../access.md) explains
 what it widens. `up` says so on every start when it is off, and names the key to write — key it on
-the project's workspace directory, the name in its dashboard URL, or on the `project:` its
-`sandboxr.yaml` declares. A key that is neither matches nothing; `sandboxr doctor` says so.
+the project's workspace directory, which is the name `sandboxr project ls` prints, or on the
+`project:` its `sandboxr.yaml` declares. A key that is neither matches nothing; `sandboxr doctor` says so.
 
 ## How many fit on a machine
 
@@ -252,10 +252,10 @@ Rules 3 to 6 are the **derivation** (`deriveSlug` in `packages/core/src/naming.t
 With none of those available it throws `NamingError: cannot derive a slug: no explicit name,
 worktree or branch`.
 
-**Every read path calls `slugFor`, not `deriveSlug`** — `up` in `packages/core/src/sandbox/index.ts`,
-`worktreeView` in `packages/server/src/core/adapter.ts`, and `target`/`slugOf` in
-`packages/cli/src/main.ts`. One of them deriving while another read the record would show one slug
-on a page and start a container under a different one.
+**Every read path calls `slugFor`, not `deriveSlug`** — `up` in
+`packages/core/src/sandbox/index.ts`, `target`/`slugOf` in `packages/cli/src/main.ts`, and any
+embedder listing worktrees. One of them deriving while another read the record would show one slug
+in a listing and start a container under a different one.
 
 **The collision check** is in `addWorktree` (`packages/core/src/worktree.ts`), which already has the
 project's other worktrees in hand. After the worktree exists on disk it resolves every sibling's
