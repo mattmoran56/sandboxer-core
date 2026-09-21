@@ -326,7 +326,7 @@ Where to look when you need the source rather than the documentation.
 | What is in `~/.sandboxr/config.yaml`? | `packages/core/src/config/machine.ts` |
 | What does the container actually receive? | `packages/core/src/config/plan.ts`, and `container/README.md` |
 | What is a sandbox called? | `packages/core/src/naming.ts` |
-| Where does sandboxr write on my disk? | `packages/core/src/paths.ts` |
+| Where does sandboxr write on my disk? | `packages/core/src/paths.ts`, and `packages/sessions/src/paths.ts` for a session's own files |
 | Which paths does the container see? | `packages/core/src/sandbox/layout.ts` |
 | What does `docker run` get? | `packages/core/src/sandbox/run.ts` |
 | What does the host pass into a container? | `packages/core/src/sandbox/env.ts` |

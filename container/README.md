@@ -121,7 +121,7 @@ first time a session is created rather than during `init` — see contracts §3.
 why this one image is lazy where the base and the dashboard are not.
 
 > [!NOTE]
-> `createSession` in `packages/core/src/session/` builds this image, creates the
+> `createSession` in `packages/sessions/src/session/` builds this image, creates the
 > work volume and starts the container. **Nothing clones into the volume yet**, and
 > no agent runs in here: `/work` comes up empty, and filling it is a later step.
 

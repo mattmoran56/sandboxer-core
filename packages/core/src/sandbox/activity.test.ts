@@ -25,7 +25,8 @@
 // - sandboxActivity: docker failing is an absence, never "nobody used anything"
 //
 // The agent index, the session join and the session's own routes are
-// ../session/activity.test.ts's. They are what an embedder supplies, and the
+// the sessions package's `session/activity.test.ts`'s. They are what an embedder supplies,
+// and the
 // engine reads none of them.
 
 

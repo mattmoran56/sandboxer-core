@@ -92,7 +92,8 @@ export interface RunInput {
    * the engine has no checkout on the host to bind and cannot know what a
    * caller's workspace is made of. Jef's runtime mounts a work volume — `/work`
    * whole and `/work/<repo>/<branch>` by subpath at `/workspace` — through
-   * `runtimeWorkspaceArgs` in ../session/runtime.ts, and the note at the top of
+   * `runtimeWorkspaceArgs` in the sessions package's `session/runtime.ts`, and the note at
+   * the top of
    * that file is where the reasoning lives. Present means `worktree` and
    * `gitMounts` are not read at all; absent is the worktree sandbox, unchanged.
    */
@@ -152,7 +153,8 @@ export function lockHash(contents: string): string {
  * every sandbox of a project shares one object store and one set of refs with
  * the host: a sandbox can move a branch another worktree has checked out, and a
  * `git gc` inside one repacks what all of them read. See `gitMounts` in
- * ../git.ts for the rest, and ../session/runtime.ts for why a runtime built from
+ * ../git.ts for the rest, and the sessions package's `session/runtime.ts` for why a runtime
+ * built from
  * a work volume needs none of it.
  *
  * `path !== WORKSPACE` because a host checkout that happens to live at
@@ -184,7 +186,7 @@ export function runArgs(input: RunInput): string[] {
   // **A session's runtime** takes it from the work volume, and then neither the
   // bind below nor a single one of `gitMounts` is wanted: a clone on a volume is
   // self-contained, so its `.git` is a real directory inside the tree and names
-  // no host path at all. See ../session/runtime.ts.
+  // no host path at all. See the sessions package's `session/runtime.ts`.
   if (input.workspaceMounts && input.workspaceMounts.length > 0) {
     args.push(...input.workspaceMounts);
   } else {

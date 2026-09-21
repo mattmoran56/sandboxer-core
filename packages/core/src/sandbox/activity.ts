@@ -103,7 +103,8 @@
  * have been held, and is exactly where the countdown should start.
  *
  * The workstation half of all this — a subject with no hostname, and an agent
- * joined on a session id rather than a `project/slug` — is ../session/activity.ts.
+ * joined on a session id rather than a `project/slug` — is the sessions package's
+ * `session/activity.ts`.
  * It reads `RouterActivity.requests` for its own routes and `extra` for its own
  * agent join, which is the whole of what this file gives an embedder.
  */
@@ -140,7 +141,7 @@ export const DEFAULT_ACTIVITY_WINDOW = "48h";
  * worth setting.
  *
  * **It is one constant on purpose, and an embedder reuses it rather than
- * choosing its own.** ../session/activity.ts's `AGENT_LIVE_GRACE_MS` *is* this
+ * choosing its own.** The sessions package's `AGENT_LIVE_GRACE_MS` *is* this
  * number: both answer the same question, and two constants meaning one thing are
  * two things to tune and one of them to forget.
  */
@@ -279,7 +280,8 @@ const SANDBOX_ROUTE = /(?:^|\/)p\/([A-Za-z0-9][A-Za-z0-9_-]*)\/[sw]\/([A-Za-z0-9
 /**
  * Keeps the newest time per key, clamping a stamp from the future to now.
  *
- * Exported for ../session/activity.ts, which folds the same maps on the same
+ * Exported for the sessions package's `session/activity.ts`, which folds the same maps on
+ * the same
  * terms. A second copy of the clamp is a second place for it to be wrong.
  */
 export function note(into: Map<string, Date>, key: string, when: Date | undefined, now: Date): void {
@@ -384,7 +386,8 @@ function parseStamp(match: RegExpExecArray): Date | undefined {
 /**
  * When a file was last written, or undefined when it cannot be asked about.
  *
- * Exported for ../session/activity.ts, which reads the same kind of marker on
+ * Exported for the sessions package's `session/activity.ts`, which reads the same kind of
+ * marker on
  * the same failure-is-an-absence terms.
  */
 export async function mtimeOf(file: string): Promise<Date | undefined> {

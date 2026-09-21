@@ -126,7 +126,8 @@ async function loadProvidedConfig(
  * session's checkout itself, in a wrapper around this function whose `finally`
  * removed the copy. The staging moved out with the knowledge of what a session
  * is, and the dispose discipline went with it — `startRuntime` in
- * ../session/runtime.ts is where it lives now, which is where it belongs.
+ * The sessions package's `session/runtime.ts` is where it lives now, which is where it
+ * belongs.
  *
  * The order matters: the seed artifact is produced on the host *before* the
  * container starts, because a sandbox restores from the host cache rather than
@@ -394,7 +395,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // engine has no checkout to read to find out what is in it. Jef's clone on a
   // work volume is self-contained — its `.git` is a real directory inside
   // `/workspace` and git works with no help at all — and the whole argument is
-  // at the top of ../session/runtime.ts.
+  // at the top of the sessions package's `session/runtime.ts`.
   const gitPaths = provided ? [] : await gitMounts(projectRoot);
   const gitIdentity = await hostGitIdentity(env);
   // The machine's shared files (contracts §4.3), already filtered: a row whose

@@ -45,8 +45,11 @@ project's image layer. Working out the `docker run` arguments, the mounts and th
 The four database drivers. The shared router and the certificates. The git and GitHub plumbing.
 The lifecycle verbs. The agent-session machinery.
 
-**Not** the dashboard container, the orchestrator container or the images for either. Those are
-Jef's, in `packages/server/src/machine/`, and `jef init` is what starts them (contracts §7.5).
+**Not** a session. A session, its workstation and its work volume are Jef's, in
+`packages/sessions`, and the engine is handed a workspace rather than asked what a session is
+(contracts §12.4). **Not** the dashboard container, the orchestrator container or the images for
+either — those are Jef's too, in `packages/server/src/machine/`, and `jef init` is what starts
+them (contracts §7.5).
 
 **Its public surface** is one file: `packages/core/src/index.ts`. Nothing outside that file is
 a contract.
@@ -72,7 +75,7 @@ that file is a contract.
 | `config/plan.ts` | `plan.json`. `planFor`, `writePlan`, `planPorts` |
 | `config/version.ts` | The `sandboxr:` version range |
 | `naming.ts` | Slugs, hostnames, container and volume names, image repositories, the migration lock name. `DEFAULT_DOMAIN`, `SLUG_MAX`, `NETWORK`, `SHARED_VOLUMES`, `PROTECTED_IMAGES` |
-| `paths.ts` | Every host path under `SANDBOXR_HOME` |
+| `paths.ts` | Every host path under `SANDBOXR_HOME` that the engine owns. A session's own files are `packages/sessions/src/paths.ts` |
 | `docker.ts` | A typed wrapper over the `docker` CLI. Arguments are arrays, never shell strings, and the runner is injectable |
 | `image.ts` | Rendering the project Dockerfile template, staging manifests, and the content-addressed tag |
 | `install.ts` | Where this installation of sandboxr lives, so the dashboard can mount it |
@@ -139,8 +142,11 @@ Every command and flag is listed in [CLI commands](../reference/cli.md).
 
 **What it owns.** What the engine is not. A session, the agent that works in one, and reading
 the code that agent changed are Jef's subjects: sandboxr runs a worktree in a container and knows
-nothing about agents. Today that is the code reader's half that is not Docker — the argument
-arrays, the parsers, and the path rule that keeps a file explorer inside its workspace.
+nothing about agents. The session model in full — ids, labels, the workstation, the work volume,
+the clones on it, adoption, carrying uncommitted work across, a session's expiry and its activity
+signals, and the runtimes it starts through the engine — plus the code reader's half that is not
+Docker: the argument arrays, the parsers, and the path rule that keeps a file explorer inside its
+workspace.
 
 **Its public surface** is one file: `packages/sessions/src/index.ts`. As with core, nothing
 outside that file is a contract.
@@ -159,10 +165,27 @@ that is the whole reason this package exists.
 | `code/paths.ts` | Which file did the caller mean? `safePath`, `resolveInRoot`, `baseName`, `CODE_PATH_MAX` — a `.` or `..` segment is refused outright rather than resolved |
 | `code/listing.ts` | The `find` and `head` argument arrays, the parsers for what comes back, and the binary test. `LISTING_LIMIT`, `FILE_READ_LIMIT` |
 | `code/diff.ts` | The `git` argument arrays for a branch's changes, and the parsers for `--numstat`, `--name-status` and a unified patch. `DIFF_FILE_LIMIT`, `PATCH_LIMIT` |
+| `paths.ts` | A session's four files on the host, under `state/session/<session>/`, derived from the engine's `paths(env).home` |
+| `session/index.ts` | The session lifecycle: `createSession`, `listSessions`, `getSession`, `deleteSession`, `startWorkstation`, `stopWorkstation` |
+| `session/id.ts`, `session/labels.ts`, `session/types.ts` | What a session is called, the labels a workstation carries, and the shapes |
+| `session/state.ts` | A session's four files on the host: keep, name, attach, adopted |
+| `session/work.ts` | The work volume and the clones on it: `ensureWorkVolume`, `cloneIntoWork`, `listWork`, `workPath` |
+| `session/repos.ts` | Adding a repository to a session, through `freshenBranch` |
+| `session/adopt.ts`, `session/adopt-name.ts`, `session/carry.ts` | Adoption (§12.10.1): the clone at the worktree's own HEAD, the name derived from the branch, and the one patch that carries uncommitted work across |
+| `session/runtime.ts` | `stageRuntime` and `startRuntime`: staging a `ProvidedWorkspace` out of a work volume and handing it to the engine's `up` |
+| `session/image.ts` | The workstation image, built from **Jef's** `container/`, which the caller hands in |
+| `session/expiry.ts`, `session/expire.ts` | A workstation's deadline, on the engine's arithmetic, and the reaper that acts on it |
+| `session/activity.ts` | The activity signals the engine is handed: a live agent run, a held socket, and a front-end route that names a session |
 
 The split with `packages/server/src/code.ts` is deliberate and the same one `agent-commands.ts`
 uses: this package owns the argument arrays and the parsers, because they are the same whether a
 CLI or a dashboard asks; the server owns the Docker calls and the ordering.
+
+Everything here that needs an engine fact takes it from `@sandboxr/core`'s public surface. Where
+the engine would have needed a session, the dependency is inverted instead: `up` is handed a
+`ProvidedWorkspace`, `expire` is handed the activity somebody else knows about, and
+`ensureWorkstationImage` is handed Jef's `container/` rather than deriving it from the engine's
+install root — which after the split resolves to the submodule, where there is no `workstation/`.
 
 </details>
 

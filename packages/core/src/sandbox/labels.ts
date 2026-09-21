@@ -37,7 +37,8 @@ export const LABELS = {
   // deliberately *absent* rather than empty on a sandbox belonging to no group:
   // an empty string is a value something will one day compare against.
   //
-  // This is the one spelling of it. ../session/work.ts stamps the same name on a
+  // This is the one spelling of it. The sessions package's `session/work.ts` stamps the same
+  // name on a
   // work volume and spells it again rather than importing, because work.ts
   // imports ./run.ts and reaching the other way round would be a module cycle.
   session: "sandboxr.session",

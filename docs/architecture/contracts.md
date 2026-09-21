@@ -46,6 +46,7 @@ packages/cli       @sandboxr/cli      engine   The `sandboxr` command
 packages/docs      @sandboxr/docs     engine   The documentation site
 container/         (no package)       engine   What runs INSIDE a sandbox: Dockerfiles, s6, scripts — except jef-base/
 examples/          (no package)       engine   Example sandboxr.yaml files
+packages/sessions  @jef/sessions      product  Sessions, the agent that works in one, and reading the code it changed
 packages/server    @jef/server        product  The dashboard's server: auth, JSON API, terminal, actions
 packages/web       @jef/web           product  The dashboard's browser app: React, Tailwind, built by Vite
 container/jef-base (no package)       product  The agent layer on the base image: claude, and nothing else
@@ -2945,7 +2946,7 @@ Everything §§1–11 says about a **sandbox** is still true and still running. 
 superseded rule onto what replaces it, because the reasoning in those sections is what this one is
 built out of; none of it is deleted.
 
-**What is built, precisely.** `packages/core/src/session/` creates, lists, fetches and deletes a
+**What is built, precisely.** `packages/sessions/src/session/` creates, lists, fetches and deletes a
 session, and creates, starts and stops a workstation — so a container does now answer to
 `sandboxr-ws-`, a volume to `sandboxr-work-`, and `state/session/<session>/` holds §12.6's three
 files. Beside it, `session/work.ts` knows the `/work/<repo>/<branch>` layout, refuses a second
@@ -3118,7 +3119,7 @@ sandboxr-work-<session>     the work volume
 
 #### Where the id comes from
 
-`sessionId` in `packages/core/src/session/id.ts`, and it is a pure function like `deriveSlug`: the
+`sessionId` in `packages/sessions/src/session/id.ts`, and it is a pure function like `deriveSlug`: the
 caller works out what is taken and passes it in. Three inputs, in this order.
 
 - **An id somebody typed** is sanitised and nothing more. Taken is a **refusal**, naming the
@@ -3279,7 +3280,7 @@ schemes for one container is how the two drift.
 
 **The engine is handed a workspace, not a session** (§2). `up` takes a `ProvidedWorkspace` —
 mounts, git facts, a slug and a directory of manifests — and knows nothing about sessions, work
-volumes or staging. `startRuntime` in `packages/core/src/session/runtime.ts` is the product side:
+volumes or staging. `startRuntime` in `packages/sessions/src/session/runtime.ts` is the product side:
 it stages the checkout out of the work volume, builds the workspace, calls `up`, and disposes of
 the staging in a `finally`. **Whoever resolves a workspace disposes of it**, because the staged
 manifests are an input to one start and a stale copy would be a second opinion about what the
@@ -3375,7 +3376,7 @@ session. One volume per session, shared by its containers, never shared between 
 - **The control plane owns the layout.** Adding a repository or a branch to a session is a control
   plane operation, for the same reason creating a runtime is. It is
   `POST /api/sessions/:session/repos` (§12.6.2), over `addSessionRepo` in
-  `packages/core/src/session/repos.ts`, which resolves the three things the clone needs and that the
+  `packages/sessions/src/session/repos.ts`, which resolves the three things the clone needs and that the
   volume cannot know: the host's `repo.git` as the source (§12.9), the forge's URL as `origin`, and
   the commit `freshenBranch` chose after a fetch (§4.1.3), passed as a **full sha** because the
   mirror's ref namespace does not exist inside a clone of the mirror.
@@ -3864,7 +3865,7 @@ that gap** — one action, repeatable, that makes a session holding a worktree's
 person can read.
 
 `POST /api/p/:project/w/:slug/session` (§7.1, §12.6.2), `adoptWorktree` in
-`packages/core/src/session/adopt.ts`.
+`packages/sessions/src/session/adopt.ts`.
 
 **Adoption copies. It does not migrate.** The worktree is never modified, moved or removed — not by
 the operation and not afterwards. A worktree that has been adopted is still a worktree, its sandbox
@@ -3928,7 +3929,8 @@ it left, because then there really is something for a person to deal with.
 
 **The name is derived and the id is not.** §12.2 is unchanged: the id is `sanitizeSlug` of whatever
 name the session ends up with, bounded at 31, and is the address. The *name* is a label, and
-`sessionNameForWorktree` in `packages/core/src/session/adopt-name.ts` derives it — in core, because
+`sessionNameForWorktree` in `packages/sessions/src/session/adopt-name.ts` derives it — in a package
+both control planes call, because
 a name derived in the dashboard and a name derived by a future `sandboxr session adopt` would
 eventually differ, and what they would differ about is what a person picks a session out of a list
 by. The rule, in order:

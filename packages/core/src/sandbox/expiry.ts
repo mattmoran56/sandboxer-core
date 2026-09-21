@@ -40,7 +40,8 @@
  *
  * They are the arithmetic, and the subject they run on is a parameter. An
  * embedder with a second kind of container to put on this clock — Jef's
- * workstation, in ../session/expiry.ts — plans it by calling these rather than
+ * workstation, in the sessions package's `session/expiry.ts` — plans it by calling these
+ * rather than
  * by writing the sums again. **One clock, two subjects.** Two planners that each
  * did the arithmetic would eventually answer differently, and the one that was
  * wrong would be whichever one nobody was looking at.

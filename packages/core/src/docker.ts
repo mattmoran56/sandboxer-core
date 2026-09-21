@@ -98,8 +98,9 @@ export type Runner = (
      *
      * Here for one caller, and it is worth naming because an optional
      * environment is otherwise the kind of seam that grows for no reason.
-     * `session/carry.ts` has to read a worktree's uncommitted work **without
-     * writing a byte anywhere near it**, and the only two levers git offers for
+     * The sessions package's `session/carry.ts` has to read a worktree's
+     * uncommitted work **without writing a byte anywhere near it**, and the only
+     * two levers git offers for
      * that are `GIT_INDEX_FILE` and `GIT_OBJECT_DIRECTORY`. Neither has a
      * command-line form — there is no `git -c` for either — so a call that
      * cannot set an environment cannot ask git to keep its hands off somebody's

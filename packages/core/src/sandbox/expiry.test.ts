@@ -12,7 +12,8 @@
 // - planExpiry: reason strings name the limit and how long the sandbox has been idle
 // - the spans in a reason string: two units, so most of an hour is not rounded away
 //
-// The workstation half of this clock is ../session/expiry.test.ts. It is a
+// The workstation half of this clock is the sessions package's `session/expiry.test.ts`.
+// It is a
 // second subject on the same arithmetic, not a second timer, and the test that
 // holds the two to one wording lives there.
 

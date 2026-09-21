@@ -24,6 +24,7 @@ export { ConfigError, hostLabels, loadConfig, projectPath, resolveConfig, slugCe
 export type { LoadOptions, ResolveOptions } from "./config/load.js";
 export {
   CONFIG_FILENAME,
+  CONFIG_FILENAMES,
   findConfig,
   isWorkspaceProjectDir,
   locateConfig,
@@ -87,6 +88,7 @@ export {
   sanitizeSlug,
   slugCeiling,
   urlFor,
+  CLAUDE_VOLUME,
   WORK_VOLUME_PREFIX,
   isWorkVolume,
   volumeName,
@@ -97,8 +99,8 @@ export type { DeriveSlugInput, HostParts, VolumePurpose } from "./naming.js";
 
 export { WORKTREES_DIR, canonicalPath, directoriesOf, isInside, paths, samePath, type Paths } from "./paths.js";
 
-export { archBuildArgs, docker, createDocker, DockerError, type Docker, type ExecResult } from "./docker.js";
-export type { BuildCacheRow, DiskUsage, ImageRow, VolumeRow } from "./docker.js";
+export { archBuildArgs, docker, createDocker, DockerError, nodeRunner, type Docker, type ExecResult } from "./docker.js";
+export type { BuildCacheRow, ContainerRow, DiskUsage, ImageRow, Runner, VolumeRow } from "./docker.js";
 
 export type { DatabaseDriver, DriverContext, MigrateResult, SeedArtifact } from "./drivers/types.js";
 export { DriverError, driverContext, getDriver, driverNames } from "./drivers/index.js";
@@ -138,96 +140,12 @@ export type {
   SandboxState,
   SandboxStatus,
   UpOptions,
+  UpResult,
 } from "./sandbox/types.js";
 
-export {
-  DEFAULT_WORKSTATION_IMAGE,
-  SESSION_LABELS,
-  UNNAMED_SESSION_BASE,
-  WORKSTATION_FILTER,
-  SessionError,
-  createSession,
-  deleteSession,
-  getSession,
-  isSessionKeptAlive,
-  kindOf,
-  listSessions,
-  markSessionAttached,
-  readSessionKeep,
-  readSessionName,
-  parseAdopted,
-  readSessionAdopted,
-  removeSessionKeep,
-  removeSessionName,
-  removeSessionState,
-  sessionAttachFileFor,
-  sessionDirFor,
-  sessionFilter,
-  sessionFromLabels,
-  sessionId,
-  sessionIdBase,
-  startWorkstation,
-  stopWorkstation,
-  workVolumeArgs,
-  workVolumeLabels,
-  workstationArgs,
-  workstationLabels,
-  workstationState,
-  writeSessionAdopted,
-  writeSessionKeep,
-  writeSessionName,
-} from "./session/index.js";
-export type {
-  AdoptedFrom,
-  ContainerKind,
-  CreateSessionOptions,
-  DeleteSessionReport,
-  Session,
-  SessionIdInput,
-  SessionOptions,
-  SessionState,
-  WorkstationLabelInput,
-  WorkstationRunInput,
-} from "./session/index.js";
 
-export { deadlineOf, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
+export { deadlineFrom, deadlineOf, decide, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
 export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.js";
-export { planSessionExpiry, sessionDeadlineOf } from "./session/expiry.js";
-export type { SessionExpiryCandidate, SessionExpiryInput, SessionExpiryPlan } from "./session/expiry.js";
-export { expireSessions } from "./session/expire.js";
-export { WORKSTATION_IMAGE_NAME, ensureWorkstationImage } from "./session/image.js";
-export type { ExpireSessionsOptions } from "./session/expire.js";
-export {
-  CLONE_SCRIPT,
-  LIST_SCRIPT,
-  WORK_DIR,
-  SESSION_LABEL,
-  UNKNOWN_BRANCH,
-  WorkVolumeError,
-  branchDir,
-  cloneArgs,
-  cloneIntoWork,
-  ensureWorkVolume,
-  listArgs,
-  listWork,
-  parseWorkListing,
-  placeBranch,
-  removeWorkVolume,
-  workMountArgs,
-  workPath,
-  workspaceMountArgs,
-} from "./session/work.js";
-export type { CloneRequest, WorkEntry, WorkRunner } from "./session/work.js";
-export { addSessionRepo, SessionRepoError } from "./session/repos.js";
-export type { AddRepoRequest, AddedRepo, SessionRepoRefusal } from "./session/repos.js";
-export { adoptWorktree, AdoptError } from "./session/adopt.js";
-export type { AdoptWorktreeRequest, AdoptedWorktree, AdoptRefusal } from "./session/adopt.js";
-export { readableBranch, sessionNameForWorktree } from "./session/adopt-name.js";
-export type { WorktreeNameInput } from "./session/adopt-name.js";
-export { captureWorktreeChanges, carryIntoWork, CarryError } from "./session/carry.js";
-export type { WorktreeChanges } from "./session/carry.js";
-export { RuntimeError, runtimeSlug, runtimeWorkspaceArgs, stageRuntime, startRuntime } from "./session/runtime.js";
-export type { RuntimeRequest, StagedRuntime } from "./session/runtime.js";
 
 export { formatBytes, planPrune } from "./sandbox/prune.js";
 export type { PrunableImage, PrunableVolume, PruneInput, PrunePlan, PruneResult } from "./sandbox/prune.js";
@@ -235,11 +153,24 @@ export { isKeptAlive, readKeep, removeKeep, writeKeep } from "./sandbox/keep.js"
 export { ATTACH_HEARTBEAT_MS, attachFileFor, markAttached } from "./sandbox/attach.js";
 export type { AttachOptions } from "./sandbox/attach.js";
 export type { ProvidedWorkspace } from "./sandbox/provided.js";
+/**
+ * What a container gets and what it is built from, for an embedder that starts
+ * a container of its own beside the engine's.
+ *
+ * `sandbox/layout.ts` is the host side of the boundary with `container/`, and
+ * the point of it is that everything which mounts or reads one of these paths
+ * goes through the one spelling. An embedder rebuilding `/workspace` or
+ * `/root/.claude` as a string literal is the drift that file exists to prevent.
+ */
+export { CLAUDE_DIR, WORKSPACE } from "./sandbox/layout.js";
+export { DEFAULT_IMAGE } from "./sandbox/run.js";
 export {
   ATTACH_LIVE_GRACE_MS,
   DEFAULT_ACTIVITY_WINDOW,
   attachedActivity,
   lastActivity,
+  mtimeOf,
+  note,
   parseAccessLog,
   sandboxActivity,
 } from "./sandbox/activity.js";
@@ -250,16 +181,6 @@ export type {
   RouterRequest,
   SandboxActivityOptions,
 } from "./sandbox/activity.js";
-export {
-  AGENT_LIVE_GRACE_MS,
-  AGENT_LIVE_STATES,
-  agentActivity,
-  agentSessionActivity,
-  sessionActivity,
-  sessionAttachedActivity,
-  sessionRouteActivity,
-} from "./session/activity.js";
-export type { AgentActivityOptions, SessionActivityOptions } from "./session/activity.js";
 
 export {
   WorkspaceError,
@@ -345,7 +266,7 @@ export type {
   RemoteRepo,
   RemoteReposOptions,
 } from "./forge.js";
-export { LABELS, labelsFor, sandboxFromLabels, deriveState } from "./sandbox/labels.js";
+export { LABELS, labelArgs, labelsFor, sandboxFromLabels, deriveState } from "./sandbox/labels.js";
 
 export {
   BASE_IMAGE,
@@ -432,7 +353,15 @@ export type {
 } from "./secrets.js";
 export type { SecretsCheck, SecretsReport, SecretRules } from "./secrets.js";
 
-export { gitFacts, gitMounts, hostGitIdentity, type GitFacts, type GitIdentity } from "./git.js";
+export {
+  DEFAULT_DIRTY_IGNORE,
+  dirtyFiles,
+  gitFacts,
+  gitMounts,
+  hostGitIdentity,
+  type GitFacts,
+  type GitIdentity,
+} from "./git.js";
 export {
   CLAUDE_HOST_ENV_KEYS,
   CREDENTIALS_ENV,

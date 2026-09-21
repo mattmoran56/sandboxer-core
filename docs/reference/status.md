@@ -36,7 +36,7 @@ That is the only path proven end to end for a *project*.
 One more thing has been run against a real daemon, and it is worth stating separately because
 nothing a person can type reaches it yet.
 
-`packages/core/src/session/` was driven directly: the workstation image built, a session created,
+`packages/sessions/src/session/` was driven directly: the workstation image built, a session created,
 its work volume and container inspected, a repository initialised and committed inside `/work`, the
 workstation stopped and started again with the commit still there, a second session of the same
 name given an id of its own, a taken id refused by name, and both sessions deleted — leaving no
@@ -684,7 +684,7 @@ the one anybody actually uses.
 
 What has been run against a real daemon, rather than merely written:
 
-The **session and its workstation**. `packages/core/src/session/` makes a session, lists them,
+The **session and its workstation**. `packages/sessions/src/session/` makes a session, lists them,
 fetches one and deletes it, and starts and stops the workstation the agent runs in. A session was
 created, exec'd into, stopped, started again and deleted, and the stop removed nothing — §12.8's
 first rule, and the one the whole design rests on.

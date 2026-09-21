@@ -20,7 +20,8 @@ import { BASE_IMAGE, DEFAULT_FRONTEND_PORT, baseImageTag, initAccess } from "./i
  *
  * They belong to the product now — the dashboard's to
  * `packages/server/src/machine/images.ts`, the workstation's to
- * `../session/image.ts` — and these are names the engine must *not* build, so a
+ * the sessions package's `session/image.ts` — and these are names the engine must *not*
+ * build, so a
  * literal is the honest form of the assertion. `PROTECTED_IMAGES` in
  * ../naming.ts is where the same strings are reserved.
  */

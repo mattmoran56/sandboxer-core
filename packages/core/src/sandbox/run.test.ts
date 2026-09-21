@@ -118,7 +118,8 @@ describe("runArgs", () => {
   describe("a session's runtime", () => {
     // `/workspace` from the work volume instead of the host (contracts §12.5).
     // The mounts themselves are `runtimeWorkspaceArgs`' and are asserted in
-    // ../session/runtime.test.ts; what matters here is what they replace.
+    // the sessions package's `session/runtime.test.ts`; what matters here is what they
+    // replace.
     const mounts = [
       "-v",
       "sandboxr-work-eng-3941:/work",
