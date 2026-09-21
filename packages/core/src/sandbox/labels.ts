@@ -33,7 +33,7 @@ export const LABELS = {
   // default is the contract and not a convenience: every sandbox created before
   // the label existed has none.
   kind: "sandboxr.kind",
-  // A group id an embedder supplied — Jef puts a session there (§12.3). It is
+  // A group id an embedder supplied — Jef puts a session there (its §9.3). It is
   // deliberately *absent* rather than empty on a sandbox belonging to no group:
   // an empty string is a value something will one day compare against.
   //
@@ -87,7 +87,7 @@ export interface LabelInput {
    */
   env?: string | undefined;
   /**
-   * The session this container belongs to, when it belongs to one (§12.3).
+   * The session this container belongs to, when it belongs to one (Jef's §9.3).
    *
    * A worktree-backed sandbox has none and gets no label at all.
    */
@@ -117,7 +117,7 @@ export function labelsFor(input: LabelInput): Record<string, string> {
     // means the dashboard has to keep quiet.
     [LABELS.env]: input.env ?? "",
     // Every sandbox this function labels is a runtime: a worktree-backed one is
-    // what §12.10 maps onto the noun, and a workstation is labelled where it is
+    // what Jef's §9.10 maps onto the noun, and a workstation is labelled where it is
     // created rather than here, because it has no project, no slug and no
     // driver to describe.
     [LABELS.kind]: "runtime",
@@ -179,7 +179,7 @@ export function sandboxFromLabels(
     // cannot parse has to fail closed, and an unlabelled sandbox that came out
     // as "already expired" would be stopped the first time the reaper ran.
     ttl: labels[LABELS.ttl] ?? "never",
-    // A container with no `kind` is a pre-session sandbox, and §12.3 says it
+    // A container with no `kind` is a pre-session sandbox, and Jef's §9.3 says it
     // reads as a runtime. `workstation` is the only other reading, so anything
     // else — a hand-written label, a future kind this version does not know —
     // falls back rather than being passed through as a word nothing handles.

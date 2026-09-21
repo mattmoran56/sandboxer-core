@@ -8,7 +8,7 @@
 // - hostFor / urlFor: the flattened one-label hostname, the 63-character limit, `--` in a component, empty components
 // - parseHost: the round trip, the bare domain, a deeper host, a suffix match, and a component holding `--`
 // - containerName / volumeName / depsVolumeName: the shapes fixed by contracts §3.3
-// - workstationName / workVolumeName / SESSION_ID_MAX: the session shapes fixed by contracts §12.2
+// - workstationName / workVolumeName / SESSION_ID_MAX: the session shapes fixed by Jef's §9.2
 // - isWorkVolume: the reserved prefix the engine never reclaims (§3.3), and the
 //   near misses that are not under it
 // - SHARED_VOLUMES: the engine's own two, and only those; volumePrefix matches volumeName
@@ -352,7 +352,7 @@ describe("docker names", () => {
 
   // Not a project's `slugCeiling`: a session may hold repositories of projects
   // that do not exist yet when it is created, and a session id spends no part of
-  // the DNS-label budget because it is never in a hostname (contracts §12.2).
+  // the DNS-label budget because it is never in a hostname (Jef's §9.2).
   it("bounds a session id by the lock budget and nothing else", () => {
     expect(SESSION_ID_MAX).toBe(SLUG_MAX);
   });

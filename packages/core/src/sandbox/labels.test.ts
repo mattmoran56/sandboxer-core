@@ -60,7 +60,7 @@ describe("labelsFor", () => {
   });
 
   // Every sandbox this labels is a runtime — a worktree-backed one is what
-  // §12.10 maps onto the noun — and the session label is *absent* rather than
+  // Jef's §9.10 maps onto the noun — and the session label is *absent* rather than
   // empty for one that belongs to no session, because an empty string is a
   // value something will one day compare against.
   it("stamps the kind, and a session only when there is one", () => {
@@ -145,7 +145,7 @@ describe("sandboxFromLabels", () => {
     });
   });
 
-  // A container with no `sandboxr.kind` is a pre-session sandbox, which §12.3
+  // A container with no `sandboxr.kind` is a pre-session sandbox, which Jef's §9.3
   // says reads as a runtime — and an unknown word must fall back rather than be
   // passed through as something nothing downstream handles.
   it("reads a container with no kind as a runtime, and no session as none", () => {

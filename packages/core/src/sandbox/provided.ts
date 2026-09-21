@@ -4,7 +4,7 @@
  * `up` ordinarily finds a git worktree on the host, reads the project out of it
  * and bind-mounts it. That is the engine's own story and it is not going
  * anywhere. But some embedders keep the code somewhere the host has no checkout
- * of — Jef puts a session's clones on a Docker volume (contracts §12.5), and on
+ * of — Jef puts a session's clones on a Docker volume (its §9.5), and on
  * macOS that volume is inside a VM and is not a host path at all.
  *
  * **The inversion is the point.** The engine used to take a `RuntimeRequest`, a

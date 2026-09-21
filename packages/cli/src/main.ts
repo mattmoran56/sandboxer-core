@@ -1688,10 +1688,10 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
   const tls = args.flags.tls === undefined ? undefined : flagBoolean(args, "tls");
   const http = flagNumber(args, "http-port");
   const https = flagNumber(args, "https-port");
-  // No `--no-start`. `InitOptions.start` is still there and still used — by
-  // `jef init --no-start`, whose compose deployment needs everything `init` does
-  // *except* the containers — but that is a prerequisite of `docker compose up`,
-  // and the engine ships no compose file for it to be a prerequisite of.
+  // No `--no-start`. `InitOptions.start` is still there and still used — by an
+  // embedder whose compose deployment needs everything `init` does *except* the
+  // containers — but the engine ships no compose file for it to be a
+  // prerequisite of, so the flag has no meaning on this command.
   const report = await initAccess({
     env,
     tls,
@@ -1834,7 +1834,7 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
     );
     // **Not a failed check when it is empty**, and that is the whole reason this
     // is a list rather than a boolean. The engine serves no control plane
-    // (contracts §7.5), so "nothing is on the bare domain" is the ordinary state
+    // (contracts §7.2), so "nothing is on the bare domain" is the ordinary state
     // of a machine set up with `sandboxr init` — reporting it as a fault, with
     // `sandboxr init` as the fix, would send somebody round a loop that cannot
     // end.

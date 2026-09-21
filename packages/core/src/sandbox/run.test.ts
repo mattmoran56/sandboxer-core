@@ -116,7 +116,7 @@ describe("runArgs", () => {
   });
 
   describe("a session's runtime", () => {
-    // `/workspace` from the work volume instead of the host (contracts §12.5).
+    // `/workspace` from the work volume instead of the host (Jef's §9.5).
     // The mounts themselves are `runtimeWorkspaceArgs`' and are asserted in
     // the sessions package's `session/runtime.test.ts`; what matters here is what they
     // replace.
@@ -275,9 +275,9 @@ describe("runArgs", () => {
    * Both of these used to be two hard-coded lines here — a machine-wide
    * credential volume for one particular coding agent, and the variable that
    * agent reads — so `sandboxr up` on a machine with no such agent mounted a
-   * store for a program that was not in the image. Jef supplies them now
-   * (`packages/sessions/src/agent/layout.ts`), and what is asserted here is only
-   * that the engine passes on what it is handed and adds nothing of its own.
+   * store for a program that was not in the image. An embedder supplies them
+   * now, and what is asserted here is only that the engine passes on what it is
+   * handed and adds nothing of its own.
    */
   describe("the caller's own volumes and variables", () => {
     const embedded = runArgs({

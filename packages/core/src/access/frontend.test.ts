@@ -1,4 +1,4 @@
-// Tests for the front end: a container on the bare domain (contracts §7.5).
+// Tests for the front end: a container on the bare domain (contracts §7.2).
 // - frontendRouteLabels: the label set is exactly what dashboard.test.ts asserts
 //   today, for a container the engine has never heard of
 // - frontendRouteLabels: two routers onto one service, and the second one names it

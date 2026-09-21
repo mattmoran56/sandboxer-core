@@ -40,9 +40,9 @@
  * **A front end's request paths.** Opening a worktree, opening its terminal,
  * driving its agent: all of those are somebody using the sandbox, and none of
  * them reaches the sandbox's own hostname. They reach whatever container the
- * embedder put on the bare domain — a *front end* (contracts §7.5) — which is
+ * embedder put on the bare domain — a *front end* (contracts §7.2) — which is
  * behind the same router, so they are already in the log being read, with the
- * sandbox named in the request path (§7.1: every route that names one is
+ * sandbox named in the request path (Jef's §3: every route that names one is
  * `…/p/<project>/[sw]/<slug>/…`). One extra read of a string we already have,
  * and no route has to remember to call anything.
  *
@@ -155,7 +155,7 @@ export interface ActivityOptions {
   /**
    * Containers that answer through the router but are not sandboxes.
    *
-   * Resolved by the caller with one `listFrontends` (contracts §7.5). Their
+   * Resolved by the caller with one `listFrontends` (contracts §7.2). Their
    * lines are read as being *about* a sandbox rather than *to* one; every other
    * router name in the log is a sandbox's own container name.
    */
@@ -188,7 +188,7 @@ export interface RouterRequest {
 export interface RouterActivity {
   /** By container name: requests that reached a sandbox's own hostnames. */
   containers: Map<string, Date>;
-  /** By `<project>/<slug>`: front-end routes that name a sandbox (§7.1). */
+  /** By `<project>/<slug>`: front-end routes that name a sandbox (Jef's §3). */
   sandboxes: Map<string, Date>;
   /** Every readable front-end request, for a caller with routes of its own. */
   requests: readonly RouterRequest[];
@@ -259,7 +259,7 @@ const ACCESS_LINE =
 const REQUEST_FIELD = /\]\s+"([^"]*)"/;
 
 /**
- * A front-end route that names one sandbox (§7.1).
+ * A front-end route that names one sandbox (Jef's §3).
  *
  * The one route shape the engine owns, because `/p/:project/[sw]/:slug` is its
  * own noun's address. Anything else a front end serves is that front end's
@@ -311,7 +311,7 @@ export function parseAccessLog(text: string, now: Date, frontends: readonly stri
   const sandboxes = new Map<string, Date>();
   const requests: RouterRequest[] = [];
   // The router's own lines are never a sandbox's, and neither are a front end's
-  // (contracts §7.5). Which containers are front ends is the caller's to say:
+  // (contracts §7.2). Which containers are front ends is the caller's to say:
   // the engine starts none and has no name for one to compare against.
   const notASandbox = new Set<string>([ROUTER_CONTAINER, ...frontends]);
   const isFrontend = new Set<string>(frontends);
@@ -456,7 +456,7 @@ export interface SandboxActivityOptions {
   docker?: Docker | undefined;
   env?: NodeJS.ProcessEnv | undefined;
   now?: Date | undefined;
-  /** Containers that answer through the router but are not sandboxes (§7.5). */
+  /** Containers that answer through the router but are not sandboxes (§7.2). */
   frontends?: readonly string[] | undefined;
   /**
    * Activity somebody else knows about, keyed `<project>/<slug>`.

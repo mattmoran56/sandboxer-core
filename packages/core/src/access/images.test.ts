@@ -2,8 +2,8 @@
 // - baseImageTag is a function of container/base/ and container/scripts/, the two
 //   directories the base build reads, so editing either of them moves it
 // - baseImageTag ignores every other directory under container/ — the project
-//   template, the fixtures, and the three images that are a product's rather than
-//   the engine's (workstation, dashboard, orchestrator, jef-base)
+//   template, the fixtures, and any image a product adds beside them (a
+//   workstation, a dashboard, an orchestrator, an agent layer)
 // - the engine's base image carries no agent: container/base/Dockerfile matches
 //   neither agent vendor's name, anywhere
 // - initAccess builds the base image and no product's: it prepares the bare domain
@@ -24,12 +24,10 @@ import { BASE_IMAGE, DEFAULT_FRONTEND_PORT, baseImageTag, initAccess } from "./i
 /**
  * The product's image names, spelled here rather than imported.
  *
- * They belong to the product now — the dashboard's to
- * `packages/server/src/machine/images.ts`, the workstation's to
- * the sessions package's `session/image.ts` — and these are names the engine must *not*
- * build, so a
- * literal is the honest form of the assertion. `PROTECTED_IMAGES` in
- * ../naming.ts is where the same strings are reserved.
+ * They belong to the product, in another repository, and these are names the
+ * engine must *not* build — so a literal is the honest form of the assertion,
+ * and there is nothing here to import them from. `PROTECTED_IMAGES` in
+ * ../naming.ts is where the same strings are reserved against reclamation.
  */
 const DASHBOARD_IMAGE_NAME = "sandboxr/dashboard";
 const WORKSTATION_IMAGE_NAME = "sandboxr/workstation";
@@ -37,7 +35,7 @@ const WORKSTATION_IMAGE_NAME = "sandboxr/workstation";
 /** An installation whose `container/` holds one file in each directory that matters. */
 async function installation(): Promise<NodeJS.ProcessEnv> {
   const root = await mkdtemp(join(tmpdir(), "sandboxr-install-"));
-  for (const dir of ["base", "project", "examples", "workstation", "dashboard", "orchestrator", "jef-base", "scripts"]) {
+  for (const dir of ["base", "project", "examples", "workstation", "dashboard", "orchestrator", "agent-layer", "scripts"]) {
     await mkdir(join(root, "container", dir), { recursive: true });
     await writeFile(join(root, "container", dir, "Dockerfile"), `# ${dir}\n`, "utf8");
   }
@@ -70,12 +68,12 @@ describe("baseImageTag", () => {
   // would have forced a base rebuild, several minutes and several gigabytes, for
   // a change that cannot affect the base at all. It shares not one layer with it.
   //
-  // `jef-base/` is the case that turned the deny-list into an allowlist. It is
-  // the *product's* agent layer, built `FROM` the base, so its Dockerfile cannot
-  // be an input to the image it is built on top of — and after the repository
-  // split it is not in the engine's tree at all, which a deny-list naming it
-  // would have had to pretend otherwise about.
-  it.each(["workstation", "project", "examples", "dashboard", "orchestrator", "jef-base"])(
+  // An agent layer is the case that turned the deny-list into an allowlist. It
+  // is the *product's*, built `FROM` the base, so its Dockerfile cannot be an
+  // input to the image it is built on top of — and after the repository split it
+  // is not in the engine's tree at all, which a deny-list naming it would have
+  // had to pretend otherwise about.
+  it.each(["workstation", "project", "examples", "dashboard", "orchestrator", "agent-layer"])(
     "ignores container/%s/",
     async (dir) => {
       const env = await installation();
@@ -91,16 +89,15 @@ describe("baseImageTag", () => {
  * a detail of what it happens to install.
  *
  * sandboxr runs a project and has no opinion about who edits the worktree
- * (contracts §7.2); the agent lives one layer above in `container/jef-base/`,
- * which is Jef's. Asserted as "the file mentions neither name" rather than by
- * building the image, because a build takes minutes and the thing that would
- * reintroduce an agent here is somebody adding a line to this file.
+ * (contracts §7.2); an agent lives one layer above, in an image a product
+ * builds `FROM` this one. Asserted as "the file mentions neither name" rather
+ * than by building the image, because a build takes minutes and the thing that
+ * would reintroduce an agent here is somebody adding a line to this file.
  *
- * The product half of this pair — that `container/jef-base/Dockerfile` *does*
- * name it — is in `packages/server/src/machine/images.test.ts`. The two are
- * deliberately in different packages: after the split the two Dockerfiles are in
- * different repositories, and a single test asserting both could live in
- * neither.
+ * The other half of this pair — that the product's agent layer *does* name it —
+ * is a test in the product's repository. The two are deliberately apart: the two
+ * Dockerfiles are in different repositories, and a single test asserting both
+ * could live in neither.
  */
 describe("container/base/Dockerfile", () => {
   it("names no agent", async () => {
@@ -124,8 +121,8 @@ describe("container/base/Dockerfile", () => {
  * hundred megabytes of agent — an argument that carried its own expiry date.
  * The cost landed in the one place it must not: `POST /api/sessions` answers one
  * JSON body and has nowhere to stream a build log to, so the first **New
- * session** on a machine was several silent minutes. That assertion now lives on
- * `initJef` in packages/server; what is asserted here is that the engine does
+ * session** on a machine was several silent minutes. That assertion now lives
+ * with the product's own `init`; what is asserted here is that the engine does
  * *not* build it.
  *
  * Driven with `tls: false` and `start: false` so it is the images being asserted

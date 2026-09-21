@@ -140,7 +140,7 @@ export async function gitFacts(worktree: string, options: GitOptions = {}): Prom
  * what a sandbox did for as long as `git` was in the base image — including for
  * the `git status`/`git diff`/`git commit` an agent session is allowed to run.
  *
- * The fix is the one access/dashboard.ts already records at its workspace mount:
+ * The fix is the one every workspace mount here already applies:
  * mount the directory at the **identical path inside and out**, so the absolute
  * path git wrote down resolves to the thing it names. Two paths need it:
  *
@@ -201,8 +201,8 @@ export interface GitIdentity {
  * a container the hostname has no domain, so it gives up with "unable to
  * auto-detect email address" — a sentence about DNS in the middle of a commit.
  *
- * Read from the environment first so the dashboard, which has no gitconfig of
- * its own either, can be handed the answer at `init` (see access/dashboard.ts)
+ * Read from the environment first so a front end, which has no gitconfig of
+ * its own either, can be handed the answer at `init` (see access/host-env.ts)
  * rather than resolving one from inside its container. The host's `~/.gitconfig`
  * is deliberately **not** mounted into either: it carries a credential helper
  * naming a macOS keychain that is not there, and `commit.gpgsign` pointing at a

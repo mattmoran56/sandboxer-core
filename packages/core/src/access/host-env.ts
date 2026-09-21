@@ -2,11 +2,13 @@
  * The values only the *host* can resolve, written to a file a compose file can
  * read.
  *
- * `docker-compose.yml` at the top of this repository runs the same constellation
- * `init` does — the router, the dashboard, the orchestrator — and the division
- * between them is stated in contracts §11: **compose owns the shape, core owns
- * the values.** Everything in that file is either a constant core also names or a
- * `${…}` out of the operator's `.env`.
+ * A product deploying the constellation `init` prepares — the router, its own
+ * control plane, whatever else it runs — describes it in a compose file of its
+ * own, and the division between that file and this code is stated in Jef's §8:
+ * **compose owns the shape, core owns the values.** Everything in such a file is
+ * either a constant core also names or a `${…}` out of the operator's `.env`.
+ * **The engine ships no compose file**; it ships the half of the pair that a
+ * compose file cannot write for itself.
  *
  * That division has exactly one hole, and this module is it. Some of a
  * front end's variables are not settings anybody types; they are facts about the
@@ -18,10 +20,11 @@
  * - `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL`, because a front end's `$HOME` is
  *   not the person's and it has no gitconfig of its own to read.
  *
- * `startDashboard` already resolves all three at `docker run` time. This writes
- * the same ones, from the same functions, to `$SANDBOXR_HOME/host.env`, so the
- * compose deployment gets them from core rather than from a second lookup written
- * in YAML that could not do the lookup anyway.
+ * An embedder starting its front end with `docker run` resolves all three at
+ * that moment, from the functions below. This writes the same ones to
+ * `$SANDBOXR_HOME/host.env`, so a compose deployment gets them from core rather
+ * than from a second lookup written in YAML that could not do the lookup
+ * anyway.
  *
  * **The embedder owns its own values.** `hostEnvironment(facts, extra)` appends
  * whatever keys the caller names, sorted, and they go through the same quoting
@@ -31,7 +34,7 @@
  * *sandbox*, and the engine has no business naming either; what it owns is the
  * file and the rule that writing it is safe.
  *
- * So §11's division gains a clause: compose owns the shape, core owns the
+ * So that division gains a clause: compose owns the shape, core owns the
  * values, **and the embedder owns its own values**.
  *
  * **Mode 0600, because it holds a GitHub token**, like `secrets/<project>.env`.
@@ -102,7 +105,7 @@ export function formatHostEnv(values: Record<string, string>): string {
     "#",
     "# The values only the host can resolve — the keychain's GitHub token, this",
     "# machine's commit identity, and whatever else the tool that ran `init` had",
-    "# to look up here. docker-compose.yml reads it as an env_file.",
+    "# to look up here. A compose deployment reads it as an env_file.",
     "# See packages/core/src/access/host-env.ts.",
   ];
   // The engine's keys first, in their fixed order; then the embedder's, sorted.

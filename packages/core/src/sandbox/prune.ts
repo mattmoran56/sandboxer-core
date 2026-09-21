@@ -92,7 +92,7 @@ export interface PruneResult extends PrunePlan {
  *
  * Deliberately conservative in four places, each of which has a cost attached to
  * being wrong: a session's work volume is never touched, whatever its session is
- * doing (contracts §12.8 — `orphanVolumes` is where that is enforced, and losing
+ * doing (Jef's §9.8 — `orphanVolumes` is where that is enforced, and losing
  * one is losing somebody's uncommitted work); a volume the engine did not mint is
  * never offered at all, and one the caller reserved with `protectVolumes` never
  * either — a store shared by every sandbox looks reclaimable the moment they are

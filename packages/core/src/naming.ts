@@ -290,7 +290,7 @@ export function containerName(project: string, slug: string): string {
 }
 
 /**
- * The ceiling on a session id (contracts §12.2).
+ * The ceiling on a session id (Jef's §9.2).
  *
  * `SLUG_MAX` and not a project's `slugCeiling`, and the difference is the whole
  * point: a session may hold repositories of projects that do not exist yet when
@@ -301,11 +301,11 @@ export function containerName(project: string, slug: string): string {
  * identifier a session has.
  *
  * A runtime's slug is the thing that does spend the hostname budget, and it is
- * put through `slugCeiling` like every other slug — see §12.2.
+ * put through `slugCeiling` like every other slug — see Jef's §9.2.
  */
 export const SESSION_ID_MAX = SLUG_MAX;
 
-/** The workstation container for one session, from contracts §12.2. */
+/** The workstation container for one session, from Jef's §9.2. */
 export function workstationName(session: string): string {
   return `sandboxr-ws-${session}`;
 }
@@ -316,7 +316,7 @@ export function workstationName(session: string): string {
  * **A name under this prefix is never reclaimed by the engine.** The prefix is
  * reserved for the embedder: everything the collector owns is a name it can
  * reconstruct from a sandbox, and a name it cannot is one only the embedder
- * knows what is inside. Jef's work volumes live here (§12.2) — one per session,
+ * knows what is inside. Jef's work volumes live here (its §9.2) — one per session,
  * mounted at `/work` — and a work volume with no running container is the
  * ordinary state of a stopped session somebody comes back to next week.
  */
@@ -410,7 +410,7 @@ export function imageRepository(project: string): string {
  * minutes, and losing the base costs it on the next `up` rather than now, which
  * is the worst moment to discover it.
  *
- * The workstation image (§12.3) is on the list on the same terms. Losing it
+ * The workstation image (Jef's §9.3) is on the list on the same terms. Losing it
  * costs the rebuild at the moment somebody asks for a session, which is the one
  * moment the delay is least welcome.
  *

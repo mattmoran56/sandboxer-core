@@ -425,7 +425,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     // **Said here because here is the last moment it is cheap to act on.** The
     // token being off has no symptom until `git push`, which is hours later and
     // inside an agent session: the repository is bind-mounted read-write and the
-    // identity crosses as `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (§7.3), so `git
+    // identity crosses as `GIT_AUTHOR_*`/`GIT_COMMITTER_*` (§7.1), so `git
     // commit` works perfectly and nothing suggests anything is missing.
     //
     // Both causes, because there are two and a message naming one misleads. A
@@ -680,7 +680,7 @@ export async function status(project: string, slug: string, options: StatusOptio
     migrations: markers.migrateFailed ? "failed" : markers.migrateOk ? "ok" : "pending",
     built: sandbox.state === "stopped" ? [] : await builtApps(docker, container),
     // Only ever asked of a worktree sandbox. A runtime's workspace is a path
-    // inside a work volume, and §12.5's rule is that nothing on the host may
+    // inside a work volume, and Jef's §9.5 rules that nothing on the host may
     // answer what is in one: `existsSync` of `/work/<repo>/<branch>` is false on
     // every machine, and reporting that as GONE would tell somebody their code
     // had disappeared when it is exactly where they left it.
@@ -901,7 +901,7 @@ export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
     // same held-socket and live-run heartbeats the dashboard's reaper does
     // rather than a subset.
     env,
-    // Which containers on the bare domain are front ends (contracts §7.5).
+    // Which containers on the bare domain are front ends (contracts §7.2).
     // Without it their own lines read as traffic to a sandbox of that name, and
     // — worse — their request paths, which are the only record of somebody
     // opening a sandbox in a browser, are not read at all.

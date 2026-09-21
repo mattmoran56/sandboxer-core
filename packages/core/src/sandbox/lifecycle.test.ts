@@ -239,7 +239,7 @@ describe("list", () => {
   });
 
   // A session's runtimes, joined on the `sandboxr.session` label rather than on
-  // a list the session keeps (contracts §12.4). `SANDBOX_FILTER` stays in front,
+  // a list the session keeps (Jef's §9.4). `SANDBOX_FILTER` stays in front,
   // so a workstation — which carries the session label and no slug — cannot
   // arrive here and be read as a sandbox of a project it belongs to none of.
   it("filters by session, and never lets a workstation through", async () => {
@@ -327,7 +327,7 @@ describe("down", () => {
     expect(existsSync(join(home, "logs", "acme", "tkt-1"))).toBe(false);
   });
 
-  // Contracts §12.8: deleting a runtime removes that runtime's own data, and the
+  // Jef's §9.8: deleting a runtime removes that runtime's own data, and the
   // work volume is the session's rather than the runtime's — every other runtime
   // of the session is running from the code in it. It cannot be named here by
   // construction, because `down` asks for four purposes and a work volume is not

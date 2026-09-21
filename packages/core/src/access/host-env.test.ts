@@ -43,8 +43,9 @@ describe("hostEnvironment", () => {
     expect(held.GIT_AUTHOR_NAME).toBe("Ada");
   });
 
-  // §11's third clause: compose owns the shape, core owns the values, and the
-  // embedder owns its own values. The engine writes these without naming them.
+  // The third clause of that division: compose owns the shape, core owns the
+  // values, and the embedder owns its own values. The engine writes these
+  // without naming them.
   it("appends the keys the embedder named", () => {
     const held = hostEnvironment(facts, extra);
     expect(held.SANDBOXR_AGENT_CREDENTIALS).toBe("/Users/ada/.agent/.credentials.json");

@@ -115,10 +115,10 @@ export function sandboxRule(slug: string, project: string, domain: string): stri
  *
  * A reserved prefix under every sandbox hostname on the machine, in the shape
  * `/.well-known/` established — which is why it is a name no project would pick
- * for a route of its own. `packages/server/src/auth/routes.ts` repeats this
- * literal as `HANDSHAKE_PATH`; the dashboard loads the server package
- * dynamically and core does not import it, so the two ends of this contract are
- * two constants that have to agree, exactly as `/auth/verify` already is.
+ * for a route of its own. A front end answering it repeats this literal as a
+ * constant of its own — core does not import the thing serving the bare domain,
+ * and after the repository split it could not — so the two ends of this contract
+ * are two constants that have to agree, exactly as `/auth/verify` already is.
  */
 export const HANDSHAKE_PATH = "/.sandboxr/auth";
 
@@ -233,7 +233,7 @@ export function sandboxRouteLabels(input: {
 export async function writeRouterConfig(options: {
   env?: NodeJS.ProcessEnv | undefined;
   cert?: Certificate | undefined;
-  /** The container the bare domain's front end runs in (contracts §7.5). */
+  /** The container the bare domain's front end runs in (contracts §7.2). */
   frontendContainer: string;
   /** The port it listens on inside that container. */
   frontendPort: number;
@@ -293,7 +293,7 @@ export async function writeRouterConfig(options: {
   // shared network — one mechanism for sessions, used twice (contracts §7).
   //
   // Named by the caller rather than looked up, because this file is written by
-  // `init` and a front end need not exist yet: the engine starts none (§7.5), so
+  // `init` and a front end need not exist yet: the engine starts none (§7.2), so
   // there is nothing to list at the moment the address has to be decided.
   await writeFile(
     join(dynamic, "middlewares.yml"),

@@ -16,7 +16,7 @@ import type { MountedVolume } from "./run.js";
 export type SandboxState = "stopped" | "starting" | "running" | "degraded";
 
 /**
- * Which of a session's containers something is (contracts §12.3).
+ * Which of a session's containers something is (Jef's §9.3).
  *
  * Here rather than beside the runtime code because it is what a *label* says,
  * and `Sandbox` is the shape the labels come back as.
@@ -51,7 +51,7 @@ export interface Sandbox {
    */
   env: string;
   /**
-   * Which of a session's containers this is (contracts §12.3).
+   * Which of a session's containers this is (Jef's §9.3).
    *
    * A container with no `sandboxr.kind` label is a pre-session sandbox and reads
    * as `runtime`, so this is never empty and a caller never has to handle a
@@ -181,7 +181,7 @@ export interface ListOptions extends CommonOptions {
   /** Only sandboxes of one project. */
   project?: string | undefined;
   /**
-   * Only the runtimes of one session (contracts §12.4).
+   * Only the runtimes of one session (Jef's §9.4).
    *
    * A runtime *is* a sandbox to everything downstream, so a session's runtimes
    * are listed here rather than by a second lister that would have to rebuild

@@ -9,7 +9,7 @@
 // - orphanVolumes: nothing outside the sandboxr prefix is ever considered
 // - orphanVolumes: a work volume is never an orphan — not with no container, not
 //   with every sandbox on the machine reaped, not with an empty mount list, and
-//   not when its own session's runtime is being reaped beside it (contracts §12.8)
+//   not when its own session's runtime is being reaped beside it (Jef's §9.8)
 // - supersededImages: an older image of a project is offered, and named by what replaced it
 // - supersededImages: the newest image of every project survives, so the next `up` is a start
 // - supersededImages: an image any container references is left alone, running or stopped
@@ -204,7 +204,7 @@ describe("orphan volumes", () => {
   });
 });
 
-// Contracts §12.8's fourth reclamation rule, and the one with the worst failure
+// Jef's §9.8, fourth reclamation rule, and the one with the worst failure
 // behind it: a work volume holds a session's clones and every uncommitted change
 // in them, and there is no second copy anywhere. Every case below is a shape in
 // which the rest of this file's reasoning says "reap it".

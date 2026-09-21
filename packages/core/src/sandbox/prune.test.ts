@@ -1,7 +1,7 @@
 // Tests for the reclamation plan:
 // - planPrune: an orphaned per-sandbox volume is offered, a live sandbox's volume is not
 // - planPrune: the shared volumes are never offered, nor one the caller reserved
-// - planPrune: a session's work volume is never offered, whatever its size (contracts §12.8)
+// - planPrune: a session's work volume is never offered, whatever its size (Jef's §9.8)
 // - planPrune: an older project image is superseded by the newest one of the same project
 // - planPrune: the newest image of every project survives, so the next `up` is a start
 // - planPrune: an image a container still holds is left alone, even when it is old

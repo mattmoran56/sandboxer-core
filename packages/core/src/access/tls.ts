@@ -51,9 +51,9 @@ export interface TlsOptions {
 /**
  * The names the one certificate carries.
  *
- * The domain itself, for the dashboard, and one wildcard under it — which since
- * hostnames were flattened to a single label is every sandbox hostname on the
- * machine as well. Nothing sandboxr serves is deeper than this, and nothing may
+ * The domain itself, for whatever a product puts on the bare domain, and one
+ * wildcard under it — which since hostnames were flattened to a single label is
+ * every sandbox hostname on the machine as well. Nothing sandboxr serves is deeper than this, and nothing may
  * become deeper without bringing back a certificate per sandbox.
  */
 export function baseCertificateNames(domain: string): string[] {

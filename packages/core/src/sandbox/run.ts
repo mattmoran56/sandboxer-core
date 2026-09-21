@@ -119,7 +119,7 @@ export interface RunInput {
    * The machine's GitHub token, when `config.yaml` says this project may have it.
    *
    * Absent unless the operator opted in (see `resolveGithub`), and passed as a
-   * *value* for the reason access/dashboard.ts records: on macOS `gh` keeps the
+   * *value* for the reason access/host-env.ts records: on macOS `gh` keeps the
    * token in the login keychain, so there is no file that could be mounted.
    */
   ghToken?: string | undefined;

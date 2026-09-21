@@ -55,9 +55,9 @@ export interface GcInput {
    *
    * Unioned with `PROTECTED_IMAGES`, never replacing it, and it exists so that
    * an embedder can add to the never-reclaimed list without the engine having to
-   * know the embedder's names. Jef passes `jef/base` (see
-   * `JEF_PROTECTED_IMAGES` in `packages/server/src/machine/images.ts`), and the
-   * engine keeps it on the caller's word rather than on a string spelt in here.
+   * know the embedder's names. Jef passes `jef/base`, out of a list of its own,
+   * and the engine keeps it on the caller's word rather than on a string spelt
+   * in here.
    *
    * It is a promise and not the only thing keeping `jef/base` today: it is also
    * outside the `sandboxr/` namespace, which `supersededImages` already refuses
@@ -75,8 +75,8 @@ export interface GcInput {
    * volume an embedder mounts into every sandbox (see `RunInput.volumes`) has to
    * be declared here or it is a volume with no sandbox behind it.
    *
-   * Jef passes the agent's credential store (`JEF_PROTECTED_VOLUMES` in
-   * `packages/sessions/src/agent/layout.ts`). A shared store is exactly the
+   * Jef passes the agent's credential store, out of a list of its own. A shared
+   * store is exactly the
    * shape that looks reclaimable and is not: every sandbox that mounts it may be
    * stopped at once, which is a machine at rest rather than a volume nobody
    * wants, and what goes with it is every login on the machine.
@@ -154,7 +154,7 @@ export function orphanVolumes(input: {
       // it" as "nothing wants it", and for a name the engine did not mint that
       // reading is exactly backwards: only the embedder knows what is inside.
       //
-      // The incident this rule came from is Jef's work volume (§12.8). A session
+      // The incident this rule came from is Jef's work volume (its §9.8). A session
       // whose workstation is stopped has no container at all — the ordinary
       // state of a session somebody comes back to next week — and what would go
       // is every clone and every uncommitted change in it. It is also invisible

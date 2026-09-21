@@ -1,5 +1,5 @@
 /**
- * A front end: the container that answers on the bare domain (contracts §7.5).
+ * A front end: the container that answers on the bare domain (contracts §7.2).
  *
  * The engine starts none. `sandboxr init` prepares the domain — the router, the
  * certificate, the base image, `host.env` — and then says that nothing is
@@ -72,10 +72,11 @@ export interface FrontendRoute {
  * request that exists to obtain a credential would need that credential first.
  *
  * **Its own function rather than an expression inside an argument list**,
- * because the top-level `docker-compose.yml` starts the same container and
- * therefore has to spell the same labels in YAML. `access/compose.test.ts`
- * compares that file against this, so a rule edited here fails there rather than
- * drifting.
+ * because an embedder that starts the same container from a compose file has to
+ * spell the same labels in YAML, and one shared function is what keeps the two
+ * from drifting. The engine ships no compose file, so the test comparing the two
+ * is the product's — which is exactly why this stays a function somebody else
+ * can call rather than an object literal inlined here.
  */
 export function frontendRouteLabels(route: FrontendRoute): Record<string, string> {
   return {

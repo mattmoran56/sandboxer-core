@@ -307,8 +307,8 @@ export type MachineProjectEntry = NonNullable<MachineConfig["projects"]>[string]
  * commands in saying it could not push. The cause did not resemble the symptom
  * at all.
  *
- * So **either name is a key**, directory first. `projectFor` in
- * packages/web/src/lib/group.ts already resolves a project by either name, so
+ * So **either name is a key**, directory first. A dashboard built on this
+ * already resolves a project by either name when it groups worktrees, so
  * matching on one here made the product disagree with itself.
  */
 export interface ProjectKey {

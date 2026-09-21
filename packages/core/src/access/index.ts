@@ -79,27 +79,27 @@ export interface InitOptions {
   bind?: string | undefined;
   ports?: Partial<RouterPorts> | undefined;
   /**
-   * Whether to start the router, the dashboard and the orchestrator. Default on.
+   * Whether to start the router. Default on.
    *
-   * Off is "prepare this machine but run nothing", which is what the compose
-   * deployment wants: everything here except those three — the directories, the
-   * images, the certificate, the router's own configuration files and
-   * `host.env` — is a *prerequisite* of `docker compose up`, and no compose file
-   * can build an image or ask mkcert for a certificate. Left on, `init` would
-   * start containers under the names compose then wants, and the up fails with
+   * Off is "prepare this machine but run nothing", which is what a compose
+   * deployment wants: everything else here — the directories, the images, the
+   * certificate, the router's own configuration files and `host.env` — is a
+   * *prerequisite* of bringing that deployment up, and no compose file can build
+   * an image or ask mkcert for a certificate. Left on, `init` would start a
+   * container under the name compose then wants, and the up fails with
    * "container name is already in use" rather than with anything that names the
    * cause.
    *
    * **Reachable through this option and not through the `sandboxr` command.**
-   * The engine ships no compose file, so the one caller is `jef init
-   * --no-start`, and a flag on the engine's CLI whose whole justification is a
-   * file the engine does not have is a flag that reads as broken.
+   * The engine ships no compose file, so the only caller is an embedder that
+   * does, and a flag on the engine's CLI whose whole justification is a file the
+   * engine does not have is a flag that reads as broken.
    */
   start?: boolean | undefined;
   /**
    * Extra keys for `host.env`, for facts only the embedder can name.
    *
-   * §11's division with its third clause: compose owns the shape, core owns the
+   * That division with its third clause: compose owns the shape, core owns the
    * values, and the embedder owns its own values. Written after the engine's,
    * sorted, through the same quoting and the same newline refusal.
    */
@@ -107,7 +107,7 @@ export interface InitOptions {
   /** The port the router forwards the bare domain to. Default 8080. */
   frontendPort?: number | undefined;
   /**
-   * The container the forward-auth middleware asks (§7.5).
+   * The container the forward-auth middleware asks (§7.2).
    *
    * Named here because `init` writes the router's configuration before any
    * front end exists to be listed — the engine starts none of its own.
@@ -122,7 +122,7 @@ export interface AccessReport {
   certificate?: Certificate | undefined;
   baseImage: string;
   /**
-   * Where a front end must listen, and what the router will send it (§7.5).
+   * Where a front end must listen, and what the router will send it (§7.2).
    *
    * `init` prepares the bare domain and does not fill it. This is the whole of
    * what a control plane needs to know to be the thing on it.
@@ -201,17 +201,17 @@ export async function baseImageTag(env: NodeJS.ProcessEnv = process.env): Promis
  * was written silently joined the base image's digest — so editing a file that
  * cannot affect the base forced a rebuild of it, several minutes and several
  * gigabytes on the next `init`, for nothing. `workstation/` had to be noticed
- * that way; `dashboard/`, `orchestrator/` and `jef-base/` would each have had to
- * be noticed the same way. An allowlist has the opposite failure: a new input
+ * that way; the dashboard's, the orchestrator's and the agent layer's would
+ * each have had to be noticed the same way. An allowlist has the opposite failure: a new input
  * the base really does read is *not* hashed until it is named here, which shows
  * up as an image that did not rebuild — annoying, and fixed by editing one line,
  * rather than as a rebuild nobody can explain.
  *
- * It matters more than tidiness after the repository split. `container/base/`
- * and `container/scripts/` are the engine's and leave with it; `jef-base/`,
- * `dashboard/`, `orchestrator/` and `workstation/` are a product's and stay
- * behind. A deny-list in the engine would have to name directories that are not
- * in its own tree. This one names only what it owns.
+ * It matters more than tidiness now the repository has been split.
+ * `container/base/` and `container/scripts/` are the engine's and came with it;
+ * the agent layer, the dashboard, the orchestrator and the workstation are a
+ * product's and stayed behind. A deny-list in the engine would have to name
+ * directories that are not in its own tree. This one names only what it owns.
  */
 const BASE_INPUTS = ["base", "scripts"] as const;
 
@@ -273,23 +273,10 @@ export async function ensureBaseImage(options: {
 }
 
 /**
- * Builds the dashboard image if it is not already here.
- *
- * Separate from the base image because the two have opposite needs: a sandbox
- * runs a project and must never be able to reach the daemon, while the
- * dashboard does nothing else. Keeping the Docker client out of the base is
- * what stops a sandboxed project — or an agent inside one — driving Docker.
- */
-
-
-
-
-
-/**
  * Sets the machine up: directories, network, base image, certificate, router,
  * `host.env`.
  *
- * **It prepares the bare domain and does not fill it** (contracts §7.5). The
+ * **It prepares the bare domain and does not fill it** (contracts §7.2). The
  * engine serves no control plane — `sandboxr` is a command-line tool — so
  * nothing answers `https://<domain>` after this unless an embedder puts a front
  * end there. `AccessReport.frontend` is where one must listen. `jef init` is
@@ -331,11 +318,12 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
 
   // --- the certificate ---------------------------------------------------------
   //
-  // One certificate for the machine: the domain, for the dashboard, and one
-  // wildcard under it, which since contracts §3.2 flattened a sandbox hostname
-  // into a single label is every sandbox as well. This used to be "the base one
-  // only", with a second certificate issued per sandbox on `up`, because a TLS
-  // wildcard covers exactly one label and a sandbox was three deep.
+  // One certificate for the machine: the domain, for whatever a product puts
+  // on it, and one wildcard under it, which since contracts §3.2 flattened a
+  // sandbox hostname into a single label is every sandbox as well. This used to
+  // be "the base one only", with a second certificate issued per sandbox on
+  // `up`, because a TLS wildcard covers exactly one label and a sandbox was
+  // three deep.
   let cert: Certificate | undefined;
   if (options.tls !== false) {
     if (!(await mkcertAvailable())) {
@@ -358,7 +346,7 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
     env,
     cert,
     // The front end an embedder will start. The engine starts none of its own
-    // (contracts §7.5); this names the address the middleware has to carry
+    // (contracts §7.2); this names the address the middleware has to carry
     // before one exists to be listed.
     frontendContainer: options.frontendContainer ?? DEFAULT_FRONTEND_CONTAINER,
     frontendPort,
@@ -384,7 +372,7 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
     env,
     facts: { ghToken, gitIdentity },
     // Whatever the caller had to look up here and the engine has no name for
-    // (contracts §11). `jef init` passes two: a path on the host filesystem its
+    // (Jef's §8). `jef init` passes two: a path on the host filesystem its
     // dashboard container cannot see, and a setup token under the name the tool
     // that reads it expects.
     extra: options.hostEnvExtra ?? {},
@@ -403,7 +391,7 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   // Said once, because a bare domain nobody is serving looks like a broken
   // install rather than a finished one. `sandboxr` is a command-line tool: it
   // prepares the domain, and whether anything answers on it is an embedder's
-  // decision (contracts §7.5).
+  // decision (contracts §7.2).
   if ((await listFrontends(docker)).length === 0) {
     notes.push(
       `Nothing is serving ${scheme}://${domain}${portSuffix(scheme, ports)} — sandboxr is a command-line tool.\n` +
@@ -474,7 +462,7 @@ export async function teardownAccess(options: TeardownOptions = {}): Promise<{ r
   const removed: string[] = [];
 
   // Whatever is on the bare domain, found by its label rather than by a name the
-  // engine would have to know (contracts §7.5). A machine with no front end has
+  // engine would have to know (contracts §7.2). A machine with no front end has
   // none of these and the loop does nothing.
   for (const container of await listFrontends(docker)) {
     await docker.raw(["rm", "-f", container]);
@@ -501,7 +489,7 @@ export interface AccessStatus {
   domain: string;
   routerRunning: boolean;
   /**
-   * Every container claiming the bare domain, by name (contracts §7.5).
+   * Every container claiming the bare domain, by name (contracts §7.2).
    *
    * A list rather than a boolean, and read from the label rather than from a
    * name the engine would have to know. **Empty is not a fault**: the engine
