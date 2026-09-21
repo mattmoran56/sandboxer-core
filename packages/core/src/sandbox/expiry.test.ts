@@ -11,26 +11,14 @@
 // - planExpiry: the clock runs from startedAt, not created (the Restart regression)
 // - planExpiry: reason strings name the limit and how long the sandbox has been idle
 // - the spans in a reason string: two units, so most of an hour is not rounded away
-// - sessionDeadlineOf: the same max(startedAt, lastActive) + ttl, off a session's ttl
-// - planSessionExpiry: a stopped workstation, `never` and a keep marker are all kept
-// - planSessionExpiry: an idle workstation is stopped, and one used a moment ago is not
-// - planSessionExpiry: no lastActive at all runs the clock from startedAt, not from the epoch
-// - planSessionExpiry: no start time from docker keeps the workstation — failing closed
-// - planSessionExpiry: a session and a sandbox in the same state get the same verdict and wording
+//
+// The workstation half of this clock is ../session/expiry.test.ts. It is a
+// second subject on the same arithmetic, not a second timer, and the test that
+// holds the two to one wording lives there.
 
 import { describe, expect, it } from "vitest";
 
-import type { Session } from "../session/types.js";
-import {
-  deadlineOf,
-  formatTtl,
-  parseTtl,
-  planExpiry,
-  planSessionExpiry,
-  sessionDeadlineOf,
-  type ExpiryCandidate,
-  type SessionExpiryCandidate,
-} from "./expiry.js";
+import { deadlineOf, formatTtl, parseTtl, planExpiry, type ExpiryCandidate } from "./expiry.js";
 import type { Sandbox } from "./types.js";
 
 function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
@@ -310,146 +298,5 @@ describe("the spans in a reason", () => {
 
   it("says how long an expired one actually sat unused", () => {
     expect(reasonFor("2h", 3 * 3600 + 30 * 60)).toContain("idle 3h 30m");
-  });
-});
-
-function session(overrides: Partial<Session> = {}): Session {
-  return {
-    id: "eng-3941",
-    name: null,
-    adopted: null,
-    created: "2026-08-25T09:00:00.000Z",
-    ttl: "8h",
-    state: "running",
-    runtimes: [],
-    ...overrides,
-  };
-}
-
-function sessionCandidate(overrides: Partial<SessionExpiryCandidate> = {}): SessionExpiryCandidate {
-  return {
-    session: session(),
-    startedAt: new Date("2026-08-25T09:00:00.000Z"),
-    lastActive: undefined,
-    keptAlive: false,
-    ...overrides,
-  };
-}
-
-describe("sessionDeadlineOf", () => {
-  it("is max(startedAt, lastActive) + ttl, off the session's own ttl", () => {
-    expect(
-      sessionDeadlineOf(
-        sessionCandidate({
-          startedAt: new Date("2026-08-25T09:00:00.000Z"),
-          lastActive: new Date("2026-08-25T11:00:00.000Z"),
-        }),
-      ),
-    ).toEqual(new Date("2026-08-25T19:00:00.000Z"));
-  });
-
-  it("has no deadline for `never`, for garbage, and with no start time", () => {
-    expect(sessionDeadlineOf(sessionCandidate({ session: session({ ttl: "never" }) }))).toBeUndefined();
-    expect(sessionDeadlineOf(sessionCandidate({ session: session({ ttl: "soon" }) }))).toBeUndefined();
-    expect(sessionDeadlineOf(sessionCandidate({ startedAt: undefined }))).toBeUndefined();
-  });
-});
-
-describe("planSessionExpiry", () => {
-  const now = new Date("2026-08-25T20:00:00.000Z");
-
-  it("never stops a workstation that is already stopped", () => {
-    const plan = planSessionExpiry({
-      candidates: [sessionCandidate({ session: session({ state: "stopped" }), startedAt: undefined })],
-      now,
-    });
-    expect(plan.stop).toEqual([]);
-    expect(plan.keep[0]?.reason).toBe("already stopped");
-  });
-
-  it("keeps a session whose ttl is `never` or unreadable", () => {
-    const plan = planSessionExpiry({
-      candidates: [
-        sessionCandidate({ session: session({ id: "a", ttl: "never" }) }),
-        sessionCandidate({ session: session({ id: "b", ttl: "whenever" }) }),
-      ],
-      now,
-    });
-    expect(plan.stop).toEqual([]);
-    expect(plan.keep.map((entry) => entry.reason)).toEqual(["no expiry set", "no expiry set"]);
-  });
-
-  // The keep marker is the "keep it up forever" toggle and the only exemption
-  // (§12.7). A live agent and a held socket reach this file as a `lastActive`,
-  // never as a second exemption beside it.
-  it("keeps a session that is kept alive, however long it has been idle", () => {
-    const plan = planSessionExpiry({
-      candidates: [sessionCandidate({ keptAlive: true, startedAt: new Date("2026-08-01T00:00:00.000Z") })],
-      now,
-    });
-    expect(plan.stop).toEqual([]);
-    expect(plan.keep[0]?.reason).toBe("kept alive");
-  });
-
-  it("stops one past its limit and keeps one that was used a moment ago", () => {
-    const plan = planSessionExpiry({
-      candidates: [
-        sessionCandidate({ session: session({ id: "quiet" }), startedAt: new Date("2026-08-25T09:00:00.000Z") }),
-        sessionCandidate({
-          session: session({ id: "busy" }),
-          startedAt: new Date("2026-08-25T09:00:00.000Z"),
-          lastActive: new Date("2026-08-25T19:59:00.000Z"),
-        }),
-      ],
-      now,
-    });
-    expect(plan.stop.map((entry) => entry.session.id)).toEqual(["quiet"]);
-    expect(plan.stop[0]?.reason).toBe("idle 11h, past its 8h limit");
-    expect(plan.keep.map((entry) => entry.session.id)).toEqual(["busy"]);
-    expect(plan.keep[0]?.reason).toBe("7h 59m left, idle 1m");
-  });
-
-  // §12.7's missing signal. A workstation has no hostname, so the router's log
-  // says nothing about one and `lastActive` is routinely undefined — which must
-  // read as "run the clock from the start time", never as "idle since the epoch".
-  // Read the other way this candidate would be 56 years past an 8h limit.
-  it("runs the clock from startedAt when no signal reached it at all", () => {
-    const plan = planSessionExpiry({
-      candidates: [sessionCandidate({ startedAt: new Date("2026-08-25T19:00:00.000Z"), lastActive: undefined })],
-      now,
-    });
-    expect(plan.stop).toEqual([]);
-    expect(plan.keep[0]?.reason).toBe("7h left, idle 1h");
-  });
-
-  // Docker not answering is a fact about docker, not about the session, and the
-  // cost of guessing wrong is stopping a workstation somebody is working in.
-  it("keeps a workstation docker gave no start time for", () => {
-    const plan = planSessionExpiry({
-      candidates: [sessionCandidate({ startedAt: undefined, lastActive: new Date("2026-08-01T00:00:00.000Z") })],
-      now,
-    });
-    expect(plan.stop).toEqual([]);
-    expect(plan.keep[0]?.reason).toBe("no start time from docker, so not expired");
-  });
-
-  // One clock, not two that agree today (§12.7). Both planners reach `decide`,
-  // so a sandbox and a session in the same state produce the same sentence — and
-  // if one of them were ever re-implemented, this is the test that would fail.
-  it("gives a session and a sandbox in the same state the same verdict and wording", () => {
-    const started = new Date("2026-08-25T09:00:00.000Z");
-    const used = new Date("2026-08-25T18:30:00.000Z");
-
-    const sandboxPlan = planExpiry({
-      candidates: [candidate({ sandbox: sandbox({ ttl: "8h" }), startedAt: started, lastActive: used })],
-      now,
-    });
-    const sessionPlan = planSessionExpiry({
-      candidates: [sessionCandidate({ session: session({ ttl: "8h" }), startedAt: started, lastActive: used })],
-      now,
-    });
-
-    expect(sessionPlan.keep[0]?.reason).toBe(sandboxPlan.keep[0]?.reason);
-    expect(sessionPlan.stop).toEqual([]);
   });
 });

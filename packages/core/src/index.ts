@@ -188,15 +188,10 @@ export type {
   WorkstationRunInput,
 } from "./session/index.js";
 
-export { deadlineOf, formatTtl, parseTtl, planExpiry, planSessionExpiry, sessionDeadlineOf } from "./sandbox/expiry.js";
-export type {
-  ExpiryCandidate,
-  ExpiryInput,
-  ExpiryPlan,
-  SessionExpiryCandidate,
-  SessionExpiryInput,
-  SessionExpiryPlan,
-} from "./sandbox/expiry.js";
+export { deadlineOf, formatTtl, parseTtl, planExpiry } from "./sandbox/expiry.js";
+export type { ExpiryCandidate, ExpiryInput, ExpiryPlan } from "./sandbox/expiry.js";
+export { planSessionExpiry, sessionDeadlineOf } from "./session/expiry.js";
+export type { SessionExpiryCandidate, SessionExpiryInput, SessionExpiryPlan } from "./session/expiry.js";
 export { expireSessions } from "./session/expire.js";
 export type { ExpireSessionsOptions } from "./session/expire.js";
 export {

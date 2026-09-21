@@ -2941,7 +2941,8 @@ collector did not know about is somebody's uncommitted work waiting for the next
 All of that has been run against a real daemon.
 
 **The idle clock reads a workstation (§12.7), and it is the clock in `sandbox/expiry.ts`.**
-`planSessionExpiry` is `planExpiry` over a session and both reach one `decide`; `sessionActivity`
+`planSessionExpiry` in `session/expiry.ts` is `planExpiry` over a session and both reach the
+engine's one `decide`, which `sandbox/expiry.ts` exports for exactly this; `sessionActivity`
 in `sandbox/activity.ts` reads the three signals a workstation has; `session/expire.ts` stops what
 has run out, through `stopWorkstation` and no other verb, so a session that goes quiet keeps its
 work volume and its host files. The dashboard's reaper drives it on the same pass it drives
