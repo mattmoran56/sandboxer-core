@@ -10,6 +10,16 @@ The short answer is almost always `packages/core`. Core holds every decision abo
 is. The command line and the dashboard are thin faces over it. If a change would let those two
 faces disagree, it belongs in core.
 
+**There is a second question underneath that one, and it is a repository boundary.** `core`,
+`cli`, `docs`, `container/` and `docs/` are the **engine**, sandboxr, which is moving to a
+repository of its own. `server`, `web`, `orchestrator`, `voice`, `telegram`,
+`orchestrator-daemon` and `sidecars/` are **Jef**, the product built on it. One rule holds the
+line: **the engine imports nothing from the product; the product imports the engine.** So a
+change that would have core reach for a session, an agent or the dashboard belongs on the other
+side of it — and the shape of the fix is always the same, a parameter the embedder supplies
+rather than a hook the engine reaches through. See
+[contracts §2](contracts.md).
+
 [The shape of it](index.md) is the one-screen version of this page. Read that first if you have
 not.
 

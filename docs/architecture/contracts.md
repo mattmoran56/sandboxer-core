@@ -21,25 +21,56 @@ Two audiences, and the split matters:
 - **The controls** — the dashboard, the terminal, start/stop/rebuild/migrate — are **behind
   a password**. Always.
 
-**The unit is becoming a session rather than a worktree, and §12 is where that is defined.**
-Everything in §§1–11 describes what runs today and stays true of it; §12 is written ahead of the
-code, says so at the top, and maps each rule it supersedes onto its replacement. Read it before
-building anything new.
+**The engine's unit is the worktree, full stop.** A *session* — a workstation, a work volume,
+several repositories checked out under one name a person typed — is not an engine noun. It is
+**Jef's**, and it is defined in the product's contract. §12 still holds that definition while the
+two contracts share one file; it is on its way out of here, and §12.10 is the map. An engine rule
+is never bent to suit a session: the engine is handed a workspace and starts a container on it.
 
-## 2. Repository layout
+## 2. Two repositories, and the one rule between them
+
+This tree is being split in two, and the boundary is the reason this file exists.
+
+- **The engine, `sandboxr`.** `packages/core`, `packages/cli`, `packages/docs`, `container/`,
+  `docs/`, `examples/`. It turns a git worktree into a running copy of a project on its own
+  hostname. It knows about worktrees, sandboxes, images, volumes, a router and a certificate. It
+  knows nothing about agents, sessions or Jef.
+- **The product, `Jef`.** `packages/server`, `packages/web`, `packages/sessions`,
+  `packages/orchestrator`, `packages/voice`, `packages/telegram`,
+  `packages/orchestrator-daemon`, `sidecars/`, and the dashboard, orchestrator and workstation
+  containers. It is an agent you talk to, built on the engine.
 
 ```
-packages/core      @sandboxr/core     Config, drivers, docker orchestration, lifecycle
-packages/cli       @sandboxr/cli      The `sandboxr` command
-packages/server    @jef/server   The dashboard's server: auth, JSON API, terminal, actions
-packages/web       @jef/web      The dashboard's browser app: React, Tailwind, built by Vite
-packages/docs      @sandboxr/docs     The documentation site (MDX)
-container/         (no package)       What runs INSIDE a sandbox: Dockerfiles, s6, scripts
-sidecars/          (no package)       The audio body: Python, by necessity — see §10
-examples/          (no package)       Example sandboxr.yaml files
-docker-compose.yml (no package)       The whole constellation, in one file — see §11
-.env.example       (no package)       The settings that file reads, keys only
+packages/core      @sandboxr/core     engine   Config, drivers, docker orchestration, lifecycle
+packages/cli       @sandboxr/cli      engine   The `sandboxr` command
+packages/docs      @sandboxr/docs     engine   The documentation site
+container/         (no package)       engine   What runs INSIDE a sandbox: Dockerfiles, s6, scripts
+examples/          (no package)       engine   Example sandboxr.yaml files
+packages/server    @jef/server        product  The dashboard's server: auth, JSON API, terminal, actions
+packages/web       @jef/web           product  The dashboard's browser app: React, Tailwind, built by Vite
+sidecars/          (no package)       product  The audio body: Python, by necessity — see §10
+docker-compose.yml (no package)       product  The whole constellation, in one file — see §11
+.env.example       (no package)       product  The settings that file reads, keys only
 ```
+
+**The rule, stated once: the engine imports nothing from the product; the product imports the
+engine.** Not "should not" — *cannot*, and a test says so. `@sandboxr/core` depends on `yaml` and
+`zod` and on nothing else; every import specifier in its source is relative, `node:`-prefixed, or
+one of those two. `packages/core/src/boundary.test.ts` walks `src/**/*.ts` and fails with the
+file, the line and the specifier, and `packages/cli/src/boundary.test.ts` does the cut-down
+version for the CLI. They run under the ordinary `npm test`; there is no linter in this repo and
+adding one for this would be disproportionate.
+
+The rule has a direction because dependencies do. A product may name an engine concept — a
+sandbox, a slug, a volume. An engine that names a product concept has stopped being an engine,
+and the symptom is always the same: a second product cannot use it without pretending to be the
+first.
+
+**Where a back-reference looks necessary, invert it.** The engine does not call out to ask what a
+session is; it takes a parameter. A workspace somebody else resolved (§12.4), activity somebody
+else knows about (§3.4), a file the machine says to share (§4.3), a front end somebody else runs
+(§7.5) — each of those is an argument the embedder supplies, never a hook the engine reaches
+through.
 
 Ownership rule: **only `container/` contains bash.** Everything host-side is TypeScript.
 The container scripts are deliberately shell because they run under s6 with no toolchain
@@ -298,10 +329,22 @@ Images are named under one namespace, and the split between them decides what ma
 
 **Reclamation is a contract, not a heuristic.** `gc` removes sandboxes, the volumes they owned, and
 the project images a newer build replaced. `prune` removes the same volumes and images with sizes
-against them, and Docker's build cache when it is asked. Both are bound by four rules:
+against them, and Docker's build cache when it is asked. Both are bound by five rules:
 
 - The shared volumes above are never removed, by either. Taking `sandboxr-claude` would sign the
   machine out of every MCP server it has been given.
+- **The engine reclaims only a volume name it can reconstruct, and never one under a reserved
+  prefix.** Everything else in the collector reads "no container references it" as "nothing wants
+  it". For a name the engine did not mint, that reading is exactly backwards — nothing on the
+  machine can say what is in it, so an unrecognised name must read as "something holds it". This
+  is §3.4's failure-is-an-absence rule applied where it costs the most.
+
+  **`sandboxr-work-` is the reserved prefix, and it belongs to the embedder.** Jef's work volumes
+  live under it (§12.5): a session whose workstation is stopped has no container at all, which is
+  the ordinary state of a session somebody comes back to next week, and what would go is every
+  clone and every uncommitted change in it. The engine promises never to reclaim one, without
+  knowing what a session is. `isWorkVolume` in `packages/core/src/naming.ts` is the test, beside
+  `WORK_VOLUME_PREFIX` which is the name it reserves.
 - `sandboxr/base` and `sandboxr/dashboard` are never removed as superseded: they are tagged by
   version rather than by content, so "older tag" does not mean "replaced".
 - Of each project's images, the newest survives. A content-addressed tag means the next `up` finds
@@ -393,6 +436,22 @@ about a sandbox is read from it.
 | `sandboxr.ttl` | seconds the sandbox may sit unused for, or `never` |
 | `sandboxr.env` | digest of the environment the sandbox was created with — see §5.2. A record, not a comparison; empty means *unknown* |
 
+Two more are **opaque group labels**, and that is the whole of what the engine knows about them:
+
+| Label | Meaning to the engine |
+|---|---|
+| `sandboxr.kind` | what sort of container this is. The engine stamps `runtime` on everything it starts, and **absent reads as `runtime`** — every sandbox created before the label existed has none, and reading one of those as anything else would put a container that mounts a host worktree into somebody's list of something it is not |
+| `sandboxr.session` | a group id an embedder supplied. The engine stamps it when a caller hands one over, filters on it in `list`, and never looks inside it |
+
+**The engine does not know what a session is, and these labels do not teach it.** They are how an
+embedder — Jef, or anything else built on this — puts several containers under one name and gets
+them back with one `docker ps`, without a manifest file the engine would have to keep. `gc` needs
+`sandboxr.session` for one thing only: a container carrying it is somebody's, so it is not a
+stray. Jef gives both labels a meaning in §12.3, and that meaning is Jef's.
+
+`sandboxr.session` is deliberately **absent** rather than empty on a container belonging to no
+group. An empty string is a value something will one day compare against.
+
 **Labels hold durable state only.** Everything above is fixed when the sandbox is created
 and does not change while it runs — and `sandboxr.env` is worth a note, because it is a label
 that deliberately records the *past* and must not be mistaken for a live answer.
@@ -429,15 +488,31 @@ The deadline is therefore derived at read time, as **`max(startedAt, lastActive)
   **idleness, not uptime**: using a sandbox resets its clock.
 
 **Four things count as use**, and `packages/core/src/sandbox/activity.ts` is the one file that
-reads them. Three are derived at read time — §4.2's rule applied to a timer — and the fourth is the
-one place that rule cannot hold, for the reason given underneath:
+folds them together. Two are derived at read time — §4.2's rule applied to a timer. The third is
+the engine admitting it cannot see everything and taking an argument. The fourth is the one place
+the derive-at-read-time rule cannot hold, for the reason given underneath:
 
 | Signal | Where it is read from | What it covers |
 |---|---|---|
 | A request to one of the sandbox's own hostnames | the shared router's access log (`accessLog: {}`, one common-log line per request, ending in the router name — which for a sandbox *is* its container name) | somebody using the apps |
-| A dashboard route that names the sandbox — `…/p/<project>/[sw]/<slug>/…` (§7.1) | the **same** access log, under `sandboxr-dashboard@docker`, from the request path | opening a worktree, its logs, opening its terminal socket, opening its agent socket |
-| An agent run on the sandbox's worktree | `agent/runs.json` for the `project/slug` join, and the transcript's mtime for when it last emitted anything (§7.2) | an agent working while nobody is watching |
-| A terminal or agent socket **held open** on the sandbox | the mtime of `state/attach/<project>/<slug>`, re-stamped by the dashboard holding the socket (§4.2.2) | a session somebody is sitting in, longer than the ttl |
+| A **front end's** request path that names the sandbox — `…/p/<project>/[sw]/<slug>/…` (§7.1) | the **same** access log, under each front end's own router name, from the request path | opening a worktree, its logs, opening its terminal socket, opening its agent socket |
+| Activity **somebody else knows about**, keyed `<project>/<slug>` | handed in by the caller — the engine reads nothing of its own for this | an agent working while nobody is watching (§7.2), or anything else an embedder can see and the engine cannot |
+| A terminal or agent socket **held open** on the sandbox | the mtime of `state/attach/<project>/<slug>`, re-stamped by whatever holds the socket or the run (§4.2.2) | a session somebody is sitting in, or an agent running in one, for longer than the ttl |
+
+**A front end is a container the embedder put on the bare domain, and the engine is told which
+they are.** It carries `sandboxr.frontend` (§7.5) and answers on the domain itself rather than on
+a sandbox hostname, so its lines in the access log are *about* sandboxes rather than *to* one:
+the router name is the front end's, and the sandbox is named in the request path. The engine has
+one route shape of its own here — `…/p/<project>/[sw]/<slug>/…`, which is §7.1's address of a
+sandbox, the engine's noun. Any other shape a front end serves is the front end's business, and
+`parseAccessLog` hands back every readable front-end request so a caller can apply its own.
+Nothing about this asks the engine what a dashboard is.
+
+**The second row is a parameter, not a hook.** The engine cannot see an agent run: it does not
+know what an agent is, and the index and transcripts that record one belong to the embedder. So
+the embedder passes the map in, keyed `<project>/<slug>`, and it is folded in the same loop as
+the router and attach maps. The rules underneath are the embedder's to keep, and they are stated
+here because getting them wrong loses work:
 
 **The fourth row exists because a websocket is invisible to the router's log until it ends.**
 Traefik writes a request's access line when the request *completes*, and stamps it with the moment
@@ -469,6 +544,16 @@ A dashboard killed while somebody had a terminal open therefore stops pinning th
 the quarter hour. A socket held open but **idle** does keep resetting the clock, deliberately: the
 evidence is that a live connection into the container exists, and stopping the container under one
 is the failure being fixed. It is bounded by the socket having to keep answering — see §4.2.2.
+
+**A live run re-stamps the same marker, and that is what keeps the engine's own reaper honest.**
+The third row is a parameter, so an embedder that forgets to pass it leaves `sandboxr expire`
+with no sight of a running agent at all — and the sandbox it would then stop is one with work in
+it nobody can get back. The marker closes that hole without teaching the engine anything: whoever
+holds a run re-stamps `state/attach/<project>/<slug>` on the same heartbeat and the same grace
+window as a held socket, so a live agent is activity in the engine's own signal whether or not
+anyone hands the engine a map. **Do not remove the run's heartbeat on the argument that the extra
+signal covers it.** The extra signal is the embedder's to pass and the marker is the engine's to
+read, and only one of those is still there when the embedder is a cron job somebody wrote.
 
 Three consequences are part of the contract:
 
@@ -942,6 +1027,9 @@ than of any project:
 ```yaml
 ttl: 12h
 github: none
+share:
+  - host: ~/.claude/.credentials.json
+    into: /root/.claude/.credentials.json
 projects:
   acme-monorepo: { ttl: 3d, github: token }
 ```
@@ -1008,6 +1096,32 @@ token is the operator's, not the project's, and a setting that lives in a reposi
 repository can ask for: clone something, start a sandbox, and its committed config would have
 helped itself to a credential reaching every repository you can push to. The machine decides which
 projects it trusts with its own credentials. A project never votes on that.
+
+#### `share:` — one host file, in every sandbox
+
+`share:` is a list of `{ host, into }` rows. Each names a file on the machine and where it is
+bind-mounted inside **every** sandbox this machine starts. `~` expands. It is how a login the
+operator already has — a Claude credential, an `.npmrc`, an ssh key — reaches the containers
+without being copied into an image or typed into a project's secrets.
+
+It lives here for §4.3's own reason, which is the same one `github:` has. These are the
+*operator's* credentials, and a setting that lives in a repository is a setting a repository can
+ask for. The machine decides what it shares. A project never votes on it.
+
+Two rules, and both are the engine failing closed:
+
+- **A source that does not exist is skipped, and so is a zero-byte one.** Docker answers a
+  missing bind source by creating a **directory** at that path on the host — so an unguarded row
+  would quietly scatter empty directories where the operator's files are meant to be, and mount
+  each one over the container's copy. The zero-byte case is the same failure one step later: on
+  macOS `~/.claude/.credentials.json` is usually an empty placeholder, because the real login is
+  in the keychain, and mounting that over a container's working credential store replaced a valid
+  login with nothing. Claude Code then reported `Not logged in`, which resembles its cause not at
+  all.
+- **A machine with no `share:` row shares nothing**, and that is a real upgrade note rather than a
+  footnote: before this key existed the Claude credential was mounted unconditionally, so a
+  machine upgraded without a row written for it loses that login in every sandbox at once. Jef's
+  `jef init` writes and repairs the row.
 
 A **missing** file is not an error: it means the defaults. A **malformed** one is, reported by name
 with the path, because silently falling back to a default lifetime after somebody has edited the
@@ -2229,6 +2343,68 @@ Four states are ordinary and answer a sentence rather than a `500`: a stopped sa
 (`409`), a container that has gone (`404`), a path that is not there (`404`), and a
 workspace that is not a git repository (`409`). A `path` that does not normalise is a
 `400` that does **not** repeat what was sent.
+
+### 7.5 Putting your own control plane on the bare domain
+
+Everything above §7.3 describes *Jef's* dashboard. The engine offers none, and the mechanism that
+puts one there is not Jef's — it is `access/router.ts`'s, and it needs only a name.
+
+**`sandboxr.frontend` is the label that says "this container answers on the bare domain".** One
+container, whatever it is; the engine starts none of them.
+
+```ts
+// packages/core/src/access/frontend.ts
+export const FRONTEND_LABEL = "sandboxr.frontend";
+
+export interface FrontendRoute {
+  container: string;
+  /** The port it listens on inside its container. */
+  port: number;
+  domain: string;
+  tls: boolean;
+}
+
+/** Traefik labels that route the bare domain here, behind the auth handshake. */
+export function frontendRouteLabels(route: FrontendRoute): Record<string, string>;
+
+/** Every container currently claiming the bare domain. One `docker ps`. */
+export function listFrontends(docker: Docker): Promise<string[]>;
+```
+
+The labels are the ones §7's handshake already describes and `routeLabels` already builds: the
+bare domain's router, the forward-auth middleware, and the port the router forwards to. A front
+end is what the middleware protects and what answers `GET /auth/verify`, so putting a container
+here is a claim to own the machine's authentication, not a routing convenience.
+
+**`sandboxr init` prepares the bare domain and does not fill it.** It makes the directories,
+builds the base image, issues the certificate, writes the router config, starts the router and
+writes `host.env` — and then says that nothing is serving `https://<domain>`, because `sandboxr`
+is a command-line tool. `AccessReport.frontend` is where a front end must listen and what the
+router will send it:
+
+```ts
+export interface AccessReport {
+  domain: string; scheme: "http" | "https"; ports: RouterPorts;
+  certificate?: Certificate; baseImage: string; notes: string[];
+  /** Where a front end must listen and what the router will send it. */
+  frontend: { port: number; domain: string; tls: boolean };
+}
+export interface InitOptions {
+  /* …existing… */
+  /** The port the router forwards the bare domain to. Default 8080. */
+  frontendPort?: number;
+  /** Extra keys for host.env, for facts only the embedder names. */
+  hostEnvExtra?: Record<string, string>;
+}
+```
+
+`jef init` is the product's verb: it calls `initAccess`, builds the dashboard, workstation and
+orchestrator images, and starts the dashboard and the orchestrator on the port the report named.
+Two commands, and the one that knows what a dashboard is belongs to the product.
+
+**The label rename is wire-visible.** A dashboard container started before this carries the old
+labels until it is recreated, and `init` recreates it — so an upgrade that runs `jef init` is
+whole and one that does not leaves a container the engine's front-end listing cannot see.
 
 ## 8. Actions
 
@@ -3614,10 +3790,17 @@ line of it.
 
 ### 12.10 What supersedes what
 
-A map, so that nothing below is read as deleted. Each left-hand entry still describes what runs
-today; each right-hand entry is what the session model replaces it with.
+**This is the map between two contracts, not between two halves of one file.** §§1–11 are the
+engine's and stay in `sandboxr`; §12 is Jef's and leaves with it (§2). While they share a file the
+table below reads as it always did; once they do not, it is the page a reader of the product's
+contract follows back to the engine's, and every right-hand entry is the product's own.
 
-| §§1–11 | Under §12 |
+Nothing below is deleted. Each left-hand entry is a rule the engine still enforces, for everyone;
+each right-hand entry is what Jef builds on top of it. **Where the two look like they disagree,
+the engine's rule is the one that binds** — the product cannot change a sandbox's slug ceiling or
+a volume's reclamation rule by describing it differently, it can only decline to use the thing.
+
+| The engine (§§1–11) | Jef (§12) |
 |---|---|
 | §1 "one container per git worktree" | One workstation per session, and zero or more runtimes beside it (§12.1) |
 | §3.1's slug, derived from a worktree or a branch | A runtime's slug, derived from the session and the runtime name (§12.2). The ceiling, the hash form and both budgets are unchanged and still bind |
@@ -3637,6 +3820,16 @@ today; each right-hand entry is what the session model replaces it with.
 | §7.2's "agent session" on a worktree | A Run in a workstation, keyed on the session (§12.1, §12.7). The Run / Thread / Event model is untouched |
 | The dashboard's sidebar of worktrees | The sidebar of sessions. The worktree list is the `/worktrees` pane at every width, and a project's own pane is where one is managed from — both still list exactly what §4.1.1 reports |
 | The dashboard's **New worktree**, and `/new` | Nothing. Code is added to a session instead, with `POST /api/sessions/:session/repos` (§12.5). Starting a sandbox on an existing branch is unchanged and is still a Start on a project's pane; **cutting a new branch from a base has no button any more** |
+
+Four rows the other way round — engine capabilities that exist *because* §12 needed them, and
+that any embedder may use:
+
+| The engine offers | Jef uses it for |
+|---|---|
+| A sandbox started on a workspace somebody else resolved: mounts, git facts and a slug handed in, rather than a worktree on the host (§12.4) | A runtime on a work volume, which the host has no checkout of. The staging, and the disposing of it, are the product's |
+| `sandboxr-work-` reserved, never reclaimed (§3.3) | The work volume (§12.5) |
+| `share:` in the machine's config (§4.3) | The host's Claude credential, into `/root/.claude/.credentials.json`. `jef init` writes the row |
+| `sandboxr.frontend` and `AccessReport.frontend` (§7.5) | The dashboard on the bare domain. `jef init` starts it; `sandboxr init` only prepares the domain |
 
 #### 12.10.1 Adopting a worktree
 
