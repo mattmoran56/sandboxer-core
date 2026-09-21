@@ -8,9 +8,15 @@
  */
 
 import type { ImageRow } from "../docker.js";
-import { IMAGE_NAMESPACE, PROTECTED_IMAGES, SHARED_VOLUMES, volumeName, type VolumePurpose } from "../naming.js";
+import {
+  IMAGE_NAMESPACE,
+  PROTECTED_IMAGES,
+  SHARED_VOLUMES,
+  isWorkVolume,
+  volumeName,
+  type VolumePurpose,
+} from "../naming.js";
 import { depsVolumeName } from "../naming.js";
-import { isWorkVolume } from "../session/work.js";
 import type { GcPlan, PrunableImage, Sandbox } from "./types.js";
 
 const PURPOSES: VolumePurpose[] = ["data", "blob", "bin", "www"];
@@ -91,15 +97,17 @@ export function orphanVolumes(input: {
   return (
     input.volumes
       .filter((volume) => volume.startsWith("sandboxr-"))
-      // **A work volume is never an orphan** (contracts §12.8), and this is the
-      // fourth reclamation rule beside §3.3's three. Everything else in this
-      // function reads "no container references it" as "nothing wants it", and
-      // for a work volume that reading is exactly backwards: a session whose
-      // workstation is stopped has no container at all, which is the ordinary
-      // state of a session somebody comes back to next week, and what would go
+      // **A name under the reserved prefix is never an orphan** (contracts
+      // §3.3). Everything else in this function reads "no container references
+      // it" as "nothing wants it", and for a name the engine did not mint that
+      // reading is exactly backwards: only the embedder knows what is inside.
+      //
+      // The incident this rule came from is Jef's work volume (§12.8). A session
+      // whose workstation is stopped has no container at all — the ordinary
+      // state of a session somebody comes back to next week — and what would go
       // is every clone and every uncommitted change in it. It is also invisible
       // to the mount list two lines down, which is built by inspecting the
-      // *sandboxes* — a workstation carries no `sandboxr.slug`, so `list` never
+      // *sandboxes*: a workstation carries no `sandboxr.slug`, so `list` never
       // sees it and nothing it holds ever reaches `mountedVolumes`.
       .filter((volume) => !isWorkVolume(volume))
       .filter((volume) => !owned.has(volume))

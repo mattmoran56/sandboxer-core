@@ -311,13 +311,14 @@ export function workstationName(session: string): string {
 }
 
 /**
- * The work volume for one session, from contracts §12.2.
+ * The reserved volume prefix, from contracts §3.3.
  *
- * One per session, mounted at `/work` in the workstation and in every runtime of
- * that session. It is never shared between sessions and never reclaimed — a work
- * volume with no running container is the ordinary state of a stopped session
- * (§12.8), which is exactly the case `gc`'s "no container references it" rule
- * was written to catch.
+ * **A name under this prefix is never reclaimed by the engine.** The prefix is
+ * reserved for the embedder: everything the collector owns is a name it can
+ * reconstruct from a sandbox, and a name it cannot is one only the embedder
+ * knows what is inside. Jef's work volumes live here (§12.2) — one per session,
+ * mounted at `/work` — and a work volume with no running container is the
+ * ordinary state of a stopped session somebody comes back to next week.
  */
 export const WORK_VOLUME_PREFIX = "sandboxr-work-";
 
@@ -327,6 +328,24 @@ export function workVolumeName(session: string): string {
   // session, which `gc` would then refuse to reclaim for ever.
   if (session.trim() === "") throw new Error("a session id is required to name a work volume");
   return `${WORK_VOLUME_PREFIX}${session}`;
+}
+
+/**
+ * Whether a volume name is under the reserved prefix.
+ *
+ * Asked by `orphanVolumes`, and the answer is always "leave it alone". It is a
+ * prefix test rather than a lookup against the sessions that exist on purpose: a
+ * work volume whose session record has been lost is *more* dangerous to remove
+ * than one whose has not, because nothing else on the machine can say what is in
+ * it. Reclamation is the one direction where an unrecognised name must read as
+ * "something holds it" — §3.4's rule, applied where it costs the most.
+ *
+ * It lives here, beside the prefix it tests, rather than with the session code
+ * that mints these names: the promise not to reclaim one is the engine's, and it
+ * has to hold whether or not anything that knows what a session is is installed.
+ */
+export function isWorkVolume(volume: string): boolean {
+  return volume.startsWith(WORK_VOLUME_PREFIX) && volume.length > WORK_VOLUME_PREFIX.length;
 }
 
 /** The per-sandbox volume purposes, from contracts §3.3. */

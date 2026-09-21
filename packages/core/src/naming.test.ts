@@ -9,6 +9,8 @@
 // - parseHost: the round trip, the bare domain, a deeper host, a suffix match, and a component holding `--`
 // - containerName / volumeName / depsVolumeName: the shapes fixed by contracts §3.3
 // - workstationName / workVolumeName / SESSION_ID_MAX: the session shapes fixed by contracts §12.2
+// - isWorkVolume: the reserved prefix the engine never reclaims (§3.3), and the
+//   near misses that are not under it
 // - SHARED_VOLUMES: the Claude credential volume is listed there, which is what keeps gc off it
 // - parseContainerName: round-trip with and without a known project, and the shapes it refuses to guess at
 // - lockName: identifier folding, determinism, and the 64-character GET_LOCK ceiling
@@ -24,6 +26,7 @@ import {
   SHARED_VOLUMES,
   SLUG_MAX,
   SLUG_MIN,
+  isWorkVolume,
   containerName,
   depsVolumeName,
   deriveSlug,
@@ -332,6 +335,19 @@ describe("docker names", () => {
   it("names a session's workstation and work volume", () => {
     expect(workstationName("eng-3941")).toBe("sandboxr-ws-eng-3941");
     expect(workVolumeName("eng-3941")).toBe("sandboxr-work-eng-3941");
+  });
+
+  // What `gc` asks before it deletes somebody's uncommitted work (contracts
+  // §3.3). The near misses matter as much as the hit: this is a prefix test, so
+  // anything that merely starts with the letters has to fall out.
+  it("recognises the reserved prefix, and nothing that merely looks like it", () => {
+    expect(isWorkVolume("sandboxr-work-eng-3941")).toBe(true);
+    // The prefix with nothing after it names no session, so it is not one of
+    // ours — and something has to be, for the reclaimers to leave it alone.
+    expect(isWorkVolume("sandboxr-work-")).toBe(false);
+    expect(isWorkVolume("sandboxr-data-acme-tkt-1")).toBe(false);
+    expect(isWorkVolume("sandboxr-workspace-acme")).toBe(false);
+    expect(isWorkVolume("work-eng-3941")).toBe(false);
   });
 
   // Not a project's `slugCeiling`: a session may hold repositories of projects
