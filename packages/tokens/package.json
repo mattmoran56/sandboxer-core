@@ -12,6 +12,14 @@
   "files": [
     "tokens.css"
   ],
+  "dependencies": {
+    "@fontsource-variable/inter-tight": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0"
+  },
+  "peerDependencies": {
+    "tailwindcss": "^4.3.0"
+  },
   "engines": {
     "node": ">=22"
   }

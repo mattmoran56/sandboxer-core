@@ -308,8 +308,10 @@ Jef's, and an engine package may not depend on a product one.
 themes, the fonts, the light/dark mechanism, the base layer and the named shapes. Its header
 comment is the document for it, and [the brand](../brand.md) is that header written for a reader.
 
-**Its public surface** is one export, `@sandboxr/tokens/tokens.css`. There is no build and no
-dependency.
+**Its public surface** is one export, `@sandboxr/tokens/tokens.css`. There is no build: the file
+is shipped as written, so it declares the three `@fontsource*` packages it imports, and Tailwind
+as a peer — the app's own `@tailwindcss/vite` is what resolves that import, and a second copy
+nested here would be a different Tailwind from the one the plugin runs.
 
 **Who calls it.** `packages/web` and `packages/docs`, and nothing else.
 
@@ -416,9 +418,9 @@ be invisible.
 | `@sandboxr/core` | `yaml`, `zod` |
 | `@sandboxr/cli` | `@sandboxr/core` |
 | `@jef/server` | `@sandboxr/core`, `@jef/web`, `ws` |
-| `@jef/web` | `@sandboxr/tokens`, React, xterm, `marked`, the bundled fonts |
+| `@jef/web` | `@sandboxr/tokens`, React, xterm, `marked` |
 | `@sandboxr/docs` | `@sandboxr/tokens`, `marked`, `mermaid`, React |
-| `@sandboxr/tokens` | Nothing |
+| `@sandboxr/tokens` | The three `@fontsource*` packages it imports; Tailwind, as a peer |
 | `container/` | Nothing in `packages/`. Only what the base image guarantees |
 
 **`@jef/server` depends on `@jef/web` and serves its `dist/`.** That is why a root

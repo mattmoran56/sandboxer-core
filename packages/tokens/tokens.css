@@ -15,8 +15,17 @@
  * will not be one repository for much longer: `packages/docs` publishes the
  * engine's documentation and leaves with the engine, and the dashboard stays
  * with the product, so that import was a dependency pointing the wrong way. A
- * package of its own is the only home both can depend on. It has no build, no
- * dependencies and one export, `@sandboxr/tokens/tokens.css`.
+ * package of its own is the only home both can depend on. It has no build and
+ * one export, `@sandboxr/tokens/tokens.css`.
+ *
+ * **What it imports, it depends on.** Nothing here is compiled, so the four
+ * `@import`s below are resolved from `node_modules` by whichever bundler is
+ * building the app — which means this package's own `package.json` has to
+ * declare them or a clone of the engine repository builds a site with no fonts
+ * in it. It worked while this file lived in the dashboard and npm hoisted the
+ * dashboard's dependencies over it; that is an accident of one repository's
+ * layout, not something to rely on after the split. Tailwind is a peer rather
+ * than a dependency, for the reason in the comment on its import.
  *
  * **`docs/brand.md` is this file written for a reader** — the name, the mark, the
  * lockup, the palette, the type, the material and the voice — and it is the page
@@ -66,6 +75,14 @@
  * `@custom-variant` below are Tailwind at-rules, and a file using them without
  * importing Tailwind is a file of dead CSS. An app importing this one therefore
  * gets Tailwind through it and must not import it again.
+ *
+ * It is a **peer** dependency and not an ordinary one. The thing that resolves
+ * this line is the app's own `@tailwindcss/vite`, so the Tailwind it reads has
+ * to be the app's copy. Declared as a dependency, npm would be free to nest a
+ * second Tailwind under this package at a different version from the one the
+ * plugin is running — a mismatch whose symptom is a missing utility rather than
+ * an error. Both apps already depend on Tailwind directly; the peer range only
+ * pins them to the major this file is written against.
  */
 @import "tailwindcss";
 
@@ -74,6 +91,11 @@
  * that is not a preference: the dashboard's Content-Security-Policy is
  * `font-src 'self'` (packages/server/src/http/respond.ts), so a stylesheet
  * pointing at fonts.gstatic.com would load nothing at all.
+ *
+ * All three are dependencies of *this* package, because this is the file that
+ * imports them. They were the dashboard's until the tokens moved out, and a
+ * documentation site built from a clone holding only the engine would have found
+ * nothing to resolve them from.
  */
 @import "@fontsource/instrument-serif/latin.css";
 @import "@fontsource/instrument-serif/latin-italic.css";
