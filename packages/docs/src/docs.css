@@ -3,7 +3,7 @@
  *
  * The palette, the three colour schemes, the fonts, the light/dark mechanism, the
  * page wash, the focus ring and the named utilities all come from
- * `@sandboxr/web/tokens.css`, imported below. **Nothing colour-shaped belongs in
+ * `@jef/web/tokens.css`, imported below. **Nothing colour-shaped belongs in
  * this file.** Somebody with the dashboard in one tab and the documentation in the
  * other has to see one product, and a hex written here would be invisible to the
  * dashboard — which is exactly how two halves of one product come apart.
@@ -20,7 +20,7 @@
  * belonging to what follows it rather than floating between two sections.
  */
 
-@import "@sandboxr/web/tokens.css";
+@import "@jef/web/tokens.css";
 
 /*
  * Tailwind scans the package that imports it, and the import above happens to live

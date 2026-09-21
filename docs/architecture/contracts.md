@@ -31,8 +31,8 @@ building anything new.
 ```
 packages/core      @sandboxr/core     Config, drivers, docker orchestration, lifecycle
 packages/cli       @sandboxr/cli      The `sandboxr` command
-packages/server    @sandboxr/server   The dashboard's server: auth, JSON API, terminal, actions
-packages/web       @sandboxr/web      The dashboard's browser app: React, Tailwind, built by Vite
+packages/server    @jef/server   The dashboard's server: auth, JSON API, terminal, actions
+packages/web       @jef/web      The dashboard's browser app: React, Tailwind, built by Vite
 packages/docs      @sandboxr/docs     The documentation site (MDX)
 container/         (no package)       What runs INSIDE a sandbox: Dockerfiles, s6, scripts
 sidecars/          (no package)       The audio body: Python, by necessity — see §10
@@ -51,7 +51,7 @@ sandbox, what makes one degraded, how a slug is derived — every one of those i
 core and reported by the server, and a copy of any of them in the browser is a second
 implementation that drifts.
 
-`@sandboxr/server` depends on `@sandboxr/web` and serves its `dist/`. A root
+`@jef/server` depends on `@jef/web` and serves its `dist/`. A root
 `npm run build` orders the two correctly because of that dependency; building the server
 alone leaves it serving an HTML shell with nothing behind it.
 
@@ -1483,8 +1483,8 @@ Non-negotiables:
 
 ### 7.1 The dashboard's HTTP surface
 
-The dashboard is a **single-page app**. `@sandboxr/server` answers JSON and serves one HTML
-shell; `@sandboxr/web` is the app that shell loads, and it routes in the browser from there.
+The dashboard is a **single-page app**. `@jef/server` answers JSON and serves one HTML
+shell; `@jef/web` is the app that shell loads, and it routes in the browser from there.
 
 **The governing rule: the server sends facts and the browser writes sentences.** No field of
 any API response is a rendered string. An expiry is an instant, never `"3h 20m left"`; a state
@@ -2308,11 +2308,11 @@ shows you one session, the orchestrator watches all of them and tells you only w
 needs you. It is its own process, and it never shows a conversation — it produces
 **escalations**, and voice and Telegram turn those into sound.
 
-**Packages, and the dependency direction is a DAG.** `@sandboxr/orchestrator` is the base:
+**Packages, and the dependency direction is a DAG.** `@jef/orchestrator` is the base:
 the model, the policy, the escalation types, the `Notifier`/`Forker`/`Summariser`/`Responder`
 interfaces, the hook ingest server, and the store feeder — core-only, pure where it can be.
-`@sandboxr/voice` and `@sandboxr/telegram` each depend on it and implement `Notifier`.
-`@sandboxr/orchestrator-daemon` sits on top of all three and is the only one that wires
+`@jef/voice` and `@jef/telegram` each depend on it and implement `Notifier`.
+`@jef/orchestrator-daemon` sits on top of all three and is the only one that wires
 sockets and reads the environment. Nothing depends back up the chain; voice must never import
 telegram, and the base must never import either.
 

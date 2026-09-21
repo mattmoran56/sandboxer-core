@@ -8,7 +8,7 @@
 // copies start to differ in ways nobody notices.
 //
 // The one rule that came across intact: **a component never names a colour.** It
-// uses the semantic tokens from `@sandboxr/web/tokens.css`, so anything assembled
+// uses the semantic tokens from `@jef/web/tokens.css`, so anything assembled
 // from these is already correct in light, in dark, and in all three colour
 // schemes without a single conditional.
 

@@ -716,8 +716,8 @@ Read docs/brand.md first, and then packages/web/src/tokens.css, which is where t
 actually live. Build the surface from the semantic tokens — surface, line, ink, ink-muted, brand,
 and the status hues — and never from a hex you typed yourself. Headings are the serif, body is the
 sans, anything a machine cares about is the mono. Draw a panel or a card as a hairline on a
-surface, not as a shadow. Write the wordmark as `sandboxr`, lowercase, with no letterspacing and
-no tagline.
+surface, not as a shadow. Write the wordmark as `Jef` in the dashboard and `sandboxr` on the
+documentation site, with no letterspacing and no tagline.
 
 Stop and ask me if the surface seems to need a colour the palette does not have, a second
 typeface, a gradient, or the mark redrawn rather than rescaled.

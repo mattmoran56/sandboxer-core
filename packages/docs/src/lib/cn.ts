@@ -2,7 +2,7 @@
  * Joins class names, dropping anything falsy.
  *
  * A copy of `packages/web/src/lib/cn.ts` rather than an import of it, and the
- * duplication is deliberate. `@sandboxr/web` exports exactly two things — its
+ * duplication is deliberate. `@jef/web` exports exactly two things — its
  * built `dist/` and `tokens.css` — because it is the dashboard's application
  * bundle, not a component library. Reaching into its `src/` from here would make
  * every file it happens to import part of this site's build graph, and the first
