@@ -30,8 +30,8 @@ export const SCRIPTS_DIR = "/opt/sandboxr/scripts";
  * never sees what the entrypoint exported — /init inherits those and
  * `S6_KEEP_ENV=1` passes them to every supervised service, but a process the host
  * reaches in and starts is not supervised. Each script under `SCRIPTS_DIR` sources
- * the library itself and so needs nothing; a command that is not one of them, and
- * `claude` above all, has no way to.
+ * the library itself and so needs nothing; a command that is not one of them —
+ * an agent an embedder execs in, above all — has no way to.
  *
  * It became necessary when the secrets file stopped being a `--env-file`: an
  * env-file *was* the container's configured environment, so it reached such a
@@ -113,21 +113,6 @@ export const GOMOD_DIR = "/go/pkg/mod";
 
 /** Built static sites, served by the sandbox's own file server. */
 export const WWW_DIR = "/srv/www";
-
-/**
- * Claude Code's state directory, on the machine-wide `sandboxr-claude` volume.
- *
- * `/root` because a sandbox runs as root, and Claude Code reads `$HOME`.
- *
- * The container is also told `CLAUDE_CONFIG_DIR=<this>`, and that second half is
- * load-bearing: Claude Code keeps the token, settings and session history under
- * `~/.claude`, but keeps the OAuth account, personal MCP servers and per-project
- * trust in `~/.claude.json` — a *file beside the directory*, not in it. Mounting
- * the directory alone persists the session history and loses the login, which
- * looks like the volume not working at all. `CLAUDE_CONFIG_DIR` moves that file
- * inside the volume so the two halves live and die together.
- */
-export const CLAUDE_DIR = "/root/.claude";
 
 /** Runtime state, on a tmpfs: gone when the container stops, as it should be. */
 export const RUN_DIR = "/run/sandboxr";

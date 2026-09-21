@@ -7,6 +7,7 @@
 //   no `@jef/*` anywhere in the file, dev dependencies included
 // - no file under src/ mentions `@jef/`, and none reaches for a `session/`, `agent/`
 //   or `code/` directory that used to be here
+// - no file under src/ names the agent, with one allowlisted line that has to
 //
 // Three assertions where one would do, and that is the point. The first
 // subsumes the other two and fails with the file, the line and the specifier;
@@ -36,6 +37,43 @@ const ALLOWED = new Set(["yaml", "zod", "vitest"]);
 
 /** The directories that left for `@jef/sessions`, spelled as an import would. */
 const MOVED = ['"../session/', '"../agent/', '"../code/', '"./session/', '"./agent/', '"./code/'];
+
+/**
+ * The engine names no agent, and this is what catches it coming back.
+ *
+ * `@jef/` catches the package. It does not catch a *value*, and a value is how
+ * this boundary actually broke: `CLAUDE_DIR` lived in `sandbox/layout.ts`,
+ * `CLAUDE_VOLUME` in `naming.ts`, and `sandbox/run.ts` mounted one at the other
+ * and set `CLAUDE_CONFIG_DIR` on every container — so `sandboxr up` on a machine
+ * with no such agent installed mounted a credential store for a program that was
+ * not in the image. None of it imported anything. Only a grep for the name would
+ * have said so, which is why this assertion is by name and not by specifier.
+ *
+ * The engine takes `UpOptions.volumes` and `UpOptions.containerEnv` now, and the
+ * product supplies all three — see `packages/sessions/src/agent/layout.ts`.
+ */
+const AGENT_NAME = /claude/i;
+
+/**
+ * Lines that may name the agent anyway, each with the reason it has to.
+ *
+ * Keyed on the line's own text rather than on a file and a number, because a
+ * number drifts with the next edit above it and an allowlist that drifts is an
+ * allowlist that silently stops applying. Keyed on one line and never a file,
+ * because exempting a file exempts everything somebody adds to it later.
+ *
+ * An incident comment that has to keep the word belongs here too. None does
+ * today: every one of them was rewritten to record the same incident without
+ * naming the vendor, because the rule each taught generalises and the name was
+ * doing no work in it.
+ */
+const AGENT_NAME_ALLOWED = new Map<string, string>([
+  [
+    "expect(source).not.toMatch(/claude|anthropic/i);",
+    "access/images.test.ts asserts that the engine's base image names no agent, " +
+      "and an assertion that forbids a name has to spell it.",
+  ],
+]);
 
 interface Specifier {
   file: string;
@@ -141,5 +179,30 @@ describe("the engine imports nothing from the product", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("names the agent nowhere, except on the one line allowed to", () => {
+    const offenders: string[] = [];
+    for (const file of sources) {
+      const name = relative(SRC, file);
+      const lines = (contents.get(file) as string).split("\n");
+      for (const [index, line] of lines.entries()) {
+        if (!AGENT_NAME.test(line)) continue;
+        if (AGENT_NAME_ALLOWED.has(line.trim())) continue;
+        offenders.push(`${name}:${index + 1} names the agent: ${line.trim()}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  // The allowlist is asserted from the other end too. An entry whose line has
+  // been edited or deleted stops exempting anything and starts being a claim
+  // about the codebase that is no longer true, which is how a list like this
+  // rots into a list nobody can safely shorten.
+  it("allows no line that is not there", () => {
+    const all = [...contents.values()].flatMap((text) => text.split("\n").map((line) => line.trim()));
+    for (const [line, why] of AGENT_NAME_ALLOWED) {
+      expect(all, `allowlisted but absent (${why}): ${line}`).toContain(line);
+    }
   });
 });

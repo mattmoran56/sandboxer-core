@@ -245,8 +245,9 @@ Contracts §5.2 states it; `env.sh` is where it happens. Weakest first:
    `packages/core/src/secrets.ts`, and if the two ever disagree every credential
    arrives with the quotes still around it and fails as an authentication error.
 2. **What the host passes in** — the generated `--env-file` and the `-e`
-   arguments below: the slug, the domain, the git identity, `GH_TOKEN`,
-   `CLAUDE_CONFIG_DIR`. The host's own statement about this sandbox, so a file
+   arguments below: the slug, the domain, the git identity, `GH_TOKEN`, and
+   whatever an embedder added with `UpOptions.containerEnv`. The host's own
+   statement about this sandbox, so a file
    the project supplies must not be able to replace one. Nothing on the host side
    guards this: its reserved-name list covers the names the *sandbox* derives and
    has no opinion on `GIT_AUTHOR_EMAIL`. Step 1 skipping a name that is set is
@@ -284,8 +285,9 @@ docker exec <container> /opt/sandboxr/scripts/with-env npm test
 ```
 
 An argv prefix and not a shell string, so an argument that is deliberately an
-empty string survives being wrapped. The host uses it for an agent session —
-whose process is a bare `claude` argv — and for the project's own build commands.
+empty string survives being wrapped. An embedder uses it for an agent session —
+whose process is a bare agent argv — and the host uses it for the project's own
+build commands.
 It was not needed for the credentials while they arrived as an `--env-file`,
 because an env-file *is* the configured environment; with the mount it is the
 only thing that carries them into a command the host reaches in and starts.
@@ -307,21 +309,20 @@ Mounts the host is expected to provide:
 | `/var/lib/sandboxr/bin` | the `bin` volume |
 | `/srv/www` | the `www` volume |
 | `/workspace/<deps.root>/node_modules` | the shared `deps-<hash>` volume |
-| `/root/.claude` | the machine-wide `sandboxr-claude` volume: Claude Code's state, shared by every sandbox so an MCP server is authorised once per machine rather than once per worktree |
-| `/root/.claude/.credentials.json` | the **host's** Claude Code login, one file, bind-mounted read-write over the volume's copy — and only when that file exists on the host |
+| `<whatever an embedder named>` | one bind per `UpOptions.volumes` row — see [`jef-base/README.md`](jef-base/README.md) for Jef's |
+| `<each `share:` row's `into:`>` | that row's host file, one file each, read-write (contracts §4.3) |
 | `<the worktree's own host path>` | the worktree a second time, at the path the host calls it |
 | `<the repository's own host path>` | the bare repo or `.git` the worktree points at, read-write |
 
-**The credential is one file, and the directory around it is deliberately not
-mounted.** Binding all of the host's `~/.claude` would give every sandbox write
-access to its `settings.json`, which can define hooks — commands the host's own
-Claude Code then executes — so a sandbox could put a command on the person's
-machine. It is shared rather than copied because an OAuth refresh token rotates
-and is single-use: two copies invalidate each other the first time either side
-refreshes, which is why the mount is read-write. A host without that file (every
-macOS one, where the credential is in the login keychain) gets no mount at all
-and the volume alone, exactly as before. The host decides, in
-`hostClaudeCredentials` (packages/sessions/src/agent/credentials.ts).
+**A `share:` row mounts one file, and the directory around it is deliberately not
+mounted.** The rule was learned from the row every machine that runs a coding
+agent has: binding the agent's whole state directory instead of the one
+credential in it would give every sandbox write access to the host's settings
+there, and those settings can define hooks — commands the host's own agent then
+executes — so a sandbox could put a command on the person's machine. Such a file
+is shared rather than copied because an OAuth refresh token rotates and is
+single-use: two copies invalidate each other the first time either side
+refreshes, which is why the mount is read-write.
 
 **The last two are what make `git` work in here, and they are mounted at the
 identical path inside and out on purpose.** A linked worktree's `.git` is a file
@@ -335,10 +336,8 @@ host decides, in `gitMounts` (packages/core/src/git.ts), which is which.
 Environment: `SANDBOXR_SLUG` is required. `SANDBOXR_DOMAIN` (default `sbx.lcl`),
 `SANDBOXR_PROJECT`, `SANDBOXR_WITH`, `SANDBOXR_SEED`, `SANDBOXR_DB_USER`,
 `SANDBOXR_DB_PASSWORD`, `SANDBOXR_S3_KEY` and `SANDBOXR_S3_SECRET` all have
-defaults. `CLAUDE_CONFIG_DIR` is set to `/root/.claude` — Claude Code keeps its
-OAuth account and personal MCP servers in `~/.claude.json`, a file *beside* that
-directory, so without this the volume persists the session history and loses the
-login.
+defaults. Anything an embedder passed as `UpOptions.containerEnv` arrives the
+same way and is the embedder's to document.
 
 `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and
 `GIT_COMMITTER_EMAIL` carry the host's commit identity. Both pairs, because git

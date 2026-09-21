@@ -484,6 +484,8 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
       gitIdentity,
       ghToken,
       shared,
+      volumes: options.volumes,
+      containerEnv: options.containerEnv,
       routerLabels: sandboxRouteLabels({
         container,
         slug,
@@ -967,6 +969,7 @@ export async function gc(options: GcOptions = {}): Promise<GcPlan> {
     mountedVolumes: await mountedVolumes(docker, sandboxes),
     images: await storedImages(docker),
     protectImages: options.protectImages,
+    protectVolumes: options.protectVolumes,
   });
 
   if (options.dryRun) return plan;
@@ -1037,6 +1040,7 @@ export async function prune(options: PruneOptions = {}): Promise<PruneResult> {
     mountedVolumes: await mountedVolumes(docker, sandboxes),
     includeBuildCache: options.buildCache,
     protectImages: options.protectImages,
+    protectVolumes: options.protectVolumes,
   });
 
   const removed = { volumes: [] as string[], images: [] as string[], buildCacheBytes: 0 };

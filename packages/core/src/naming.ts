@@ -352,7 +352,20 @@ export function isWorkVolume(volume: string): boolean {
 export type VolumePurpose = "data" | "blob" | "bin" | "www";
 
 export function volumeName(purpose: VolumePurpose, project: string, slug: string): string {
-  return `sandboxr-${purpose}-${project}-${slug}`;
+  return `${volumePrefix(purpose)}${project}-${slug}`;
+}
+
+/**
+ * The prefix every per-sandbox volume of one purpose shares.
+ *
+ * Spelt once and beside the name it prefixes, because `orphanVolumes` has to
+ * recognise a volume the engine minted without being able to split the name back
+ * into a project and a slug — both may contain dashes — and a second spelling of
+ * this is how something the engine did not mint would come to look like one it
+ * did.
+ */
+export function volumePrefix(purpose: VolumePurpose): string {
+  return `sandboxr-${purpose}-`;
 }
 
 /**
@@ -418,41 +431,6 @@ export const PROTECTED_IMAGES = [
 ] as const;
 
 /**
- * Claude Code's state directory, shared by every sandbox on the machine.
- *
- * A setup-token authenticates model requests and nothing else, so an MCP server
- * an agent session needs is authorised per server with `claude mcp login`. That
- * writes a credential, and with no mount on `/root` the credential died with the
- * container — every sandbox re-authorising every server, one worktree at a time.
- * One machine-wide volume makes it once per machine, which is the whole point.
- *
- * **The cost of sharing is worth stating plainly**: every sandbox on the machine
- * reads every credential in here, so one compromised sandbox reaches every
- * server that has ever been authorised. That is a decision, not an oversight —
- * the alternative was a full subscription credential in each container, which
- * carries `org:create_api_key` and reaches every connector on the account. If a
- * later change needs isolation between sandboxes, this is the line to revisit,
- * and the price of revisiting it is logging in once per sandbox again.
- *
- * One thing has changed under that paragraph and it is worth saying here rather
- * than leaving the sentence above to read as still-complete: when the *host* has
- * a `.credentials.json`, that one file is mounted over this volume's copy in
- * every sandbox, so a full subscription credential is exactly what a container
- * gets. It is the host's own file rather than a duplicate — one token, one
- * writer, because a copied refresh token rotates out from under itself — and it
- * is a deliberate arrangement, described in contracts §7.2 and resolved by
- * `hostClaudeCredentials` in the sessions package. The reach described above is
- * its reach.
- *
- * A second, quieter consequence: Claude Code keys its per-project state on the
- * working directory, and every sandbox's worktree is `/workspace`, so all of
- * them share one project entry. A locally-scoped MCP server added inside one
- * sandbox is therefore visible in all of them, which is convenient right up
- * until someone wonders where a server they never configured came from.
- */
-export const CLAUDE_VOLUME = "sandboxr-claude";
-
-/**
  * Go's build cache and module cache, shared by every sandbox on the machine.
  *
  * Both are content-addressed — the module cache on `module@version`, the build
@@ -465,8 +443,14 @@ export const CLAUDE_VOLUME = "sandboxr-claude";
 export const GOCACHE_VOLUME = "sandboxr-gocache";
 export const GOMOD_VOLUME = "sandboxr-gomod";
 
-/** Volumes shared by every sandbox on the machine, from contracts §3.3. */
-export const SHARED_VOLUMES = [GOCACHE_VOLUME, GOMOD_VOLUME, CLAUDE_VOLUME] as const;
+/**
+ * Volumes shared by every sandbox on the machine, from contracts §3.3.
+ *
+ * The engine's own, and only those. An embedder that mounts a volume of its own
+ * into every sandbox reserves it by passing `protectVolumes` (see `GcInput`),
+ * because the engine cannot be asked to keep a list of names it does not mint.
+ */
+export const SHARED_VOLUMES = [GOCACHE_VOLUME, GOMOD_VOLUME] as const;
 
 /** The one shared docker network, from contracts §3.3. */
 export const NETWORK = "sandboxr";

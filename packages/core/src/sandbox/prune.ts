@@ -52,6 +52,8 @@ export interface PruneInput {
   includeBuildCache?: boolean | undefined;
   /** Repositories the caller declares are its own — see `GcInput.protectImages`. */
   protectImages?: readonly string[] | undefined;
+  /** Volumes the caller declares are its own — see `GcInput.protectVolumes`. */
+  protectVolumes?: readonly string[] | undefined;
 }
 
 export interface PrunePlan {
@@ -91,8 +93,10 @@ export interface PruneResult extends PrunePlan {
  * Deliberately conservative in four places, each of which has a cost attached to
  * being wrong: a session's work volume is never touched, whatever its session is
  * doing (contracts §12.8 — `orphanVolumes` is where that is enforced, and losing
- * one is losing somebody's uncommitted work); the shared volumes are never
- * touched either (`sandboxr-claude` holds a credential); the newest image of
+ * one is losing somebody's uncommitted work); a volume the engine did not mint is
+ * never offered at all, and one the caller reserved with `protectVolumes` never
+ * either — a store shared by every sandbox looks reclaimable the moment they are
+ * all stopped, and is not; the newest image of
  * every project stays so the next `up` is a start rather than a build; and an
  * image whose creation time docker did not report is left alone rather than
  * guessed at.
@@ -108,6 +112,7 @@ export function planPrune(input: PruneInput): PrunePlan {
       volumes: input.volumes.map((volume) => volume.name),
       survivors: input.sandboxes,
       mountedVolumes: input.mountedVolumes,
+      protect: input.protectVolumes,
     }),
   );
   const volumes = input.volumes

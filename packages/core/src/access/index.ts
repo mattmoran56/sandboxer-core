@@ -379,9 +379,9 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
     env,
     facts: { ghToken, gitIdentity },
     // Whatever the caller had to look up here and the engine has no name for
-    // (contracts §11). `jef init` passes Claude's two: a path on the host
-    // filesystem the dashboard container cannot see, and the setup token under
-    // the name Claude Code itself reads.
+    // (contracts §11). `jef init` passes two: a path on the host filesystem its
+    // dashboard container cannot see, and a setup token under the name the tool
+    // that reads it expects.
     extra: options.hostEnvExtra ?? {},
   });
 

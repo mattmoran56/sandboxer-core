@@ -433,7 +433,7 @@ describe("up", () => {
    * no opinion about who edits the worktree — so a product that wants one layers
    * its own base `FROM sandboxr/base` and names it here. Jef does exactly that
    * with `jef/base`; `sandboxr up` from the engine's own CLI does not, and its
-   * sandboxes have no `claude` in them.
+   * sandboxes have no agent in them.
    *
    * Asserted in both places the value has to arrive, because they are two
    * different mechanisms and either could be wired without the other: the

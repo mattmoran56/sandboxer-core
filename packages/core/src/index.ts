@@ -88,10 +88,10 @@ export {
   sanitizeSlug,
   slugCeiling,
   urlFor,
-  CLAUDE_VOLUME,
   WORK_VOLUME_PREFIX,
   isWorkVolume,
   volumeName,
+  volumePrefix,
   workVolumeName,
   workstationName,
 } from "./naming.js";
@@ -159,11 +159,15 @@ export type { ProvidedWorkspace } from "./sandbox/provided.js";
  *
  * `sandbox/layout.ts` is the host side of the boundary with `container/`, and
  * the point of it is that everything which mounts or reads one of these paths
- * goes through the one spelling. An embedder rebuilding `/workspace` or
- * `/root/.claude` as a string literal is the drift that file exists to prevent.
+ * goes through the one spelling. An embedder rebuilding `/workspace` as a string
+ * literal is the drift that file exists to prevent.
+ *
+ * What an embedder mounts *of its own* is the other direction and is not here:
+ * it hands the engine `UpOptions.volumes` and `UpOptions.containerEnv` and keeps
+ * the spelling on its own side, because the engine has no name for it.
  */
-export { CLAUDE_DIR, WITH_ENV, WORKSPACE } from "./sandbox/layout.js";
-export { DEFAULT_IMAGE } from "./sandbox/run.js";
+export { WITH_ENV, WORKSPACE } from "./sandbox/layout.js";
+export { DEFAULT_IMAGE, type MountedVolume } from "./sandbox/run.js";
 export {
   ATTACH_LIVE_GRACE_MS,
   DEFAULT_ACTIVITY_WINDOW,

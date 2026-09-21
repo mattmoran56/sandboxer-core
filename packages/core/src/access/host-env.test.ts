@@ -21,10 +21,15 @@ const facts = {
   gitIdentity: { name: "Ada Lovelace", email: "ada@example.com" },
 };
 
-/** What Jef passes as `hostEnvExtra` — facts the engine has no business naming. */
+/**
+ * What an embedder passes as `hostEnvExtra` — facts the engine has no business
+ * naming, in the two shapes Jef's real pair have: a host path its dashboard
+ * container cannot resolve for itself, and a token under the name the tool that
+ * reads it expects. The names here are the test's, not the engine's.
+ */
 const extra = {
-  SANDBOXR_CLAUDE_CREDENTIALS: "/Users/ada/.claude/.credentials.json",
-  CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-example",
+  SANDBOXR_AGENT_CREDENTIALS: "/Users/ada/.agent/.credentials.json",
+  AGENT_OAUTH_TOKEN: "tok-example",
 };
 
 describe("hostEnvironment", () => {
@@ -42,8 +47,8 @@ describe("hostEnvironment", () => {
   // embedder owns its own values. The engine writes these without naming them.
   it("appends the keys the embedder named", () => {
     const held = hostEnvironment(facts, extra);
-    expect(held.SANDBOXR_CLAUDE_CREDENTIALS).toBe("/Users/ada/.claude/.credentials.json");
-    expect(held.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-example");
+    expect(held.SANDBOXR_AGENT_CREDENTIALS).toBe("/Users/ada/.agent/.credentials.json");
+    expect(held.AGENT_OAUTH_TOKEN).toBe("tok-example");
   });
 
   it("drops a blank extra on the same terms as a blank fact", () => {
@@ -82,7 +87,7 @@ describe("formatHostEnv", () => {
       .split("\n")
       .filter((line) => line !== "" && !line.startsWith("#"))
       .map((line) => line.slice(0, line.indexOf("=")));
-    expect(written).toEqual([...HOST_ENV_KEYS, "CLAUDE_CODE_OAUTH_TOKEN", "SANDBOXR_CLAUDE_CREDENTIALS"]);
+    expect(written).toEqual([...HOST_ENV_KEYS, "AGENT_OAUTH_TOKEN", "SANDBOXR_AGENT_CREDENTIALS"]);
   });
 
   // The same refusal, on a key the engine has never heard of.
@@ -115,7 +120,7 @@ describe("writeHostEnv", () => {
     expect(file).toBe(join(home, "host.env"));
     const text = await readFile(file, "utf8");
     expect(text).toContain('GH_TOKEN="gho_example"');
-    expect(text).not.toContain("SANDBOXR_CLAUDE_CREDENTIALS");
+    expect(text).not.toContain("SANDBOXR_AGENT_CREDENTIALS");
     // It holds a GitHub token, so it is `secrets/`-grade rather than `state/`-grade.
     expect((await stat(file)).mode & 0o777).toBe(0o600);
   });

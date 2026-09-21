@@ -4,10 +4,10 @@
 // - baseImageTag ignores every other directory under container/ — the project
 //   template, the fixtures, and the three images that are a product's rather than
 //   the engine's (workstation, dashboard, orchestrator, jef-base)
-// - the engine's base image carries no agent: container/base/Dockerfile names
-//   neither claude nor anthropic, anywhere
+// - the engine's base image carries no agent: container/base/Dockerfile matches
+//   neither agent vendor's name, anywhere
 // - initAccess builds the base image and no product's: it prepares the bare domain
-//   and does not fill it (contracts §7.5)
+//   and does not fill it (contracts §7.2)
 // - initAccess reports where a front end must listen, and says that nothing is
 //   serving the bare domain
 
@@ -91,7 +91,7 @@ describe("baseImageTag", () => {
  * a detail of what it happens to install.
  *
  * sandboxr runs a project and has no opinion about who edits the worktree
- * (contracts §7.5); `claude` lives one layer above in `container/jef-base/`,
+ * (contracts §7.2); the agent lives one layer above in `container/jef-base/`,
  * which is Jef's. Asserted as "the file mentions neither name" rather than by
  * building the image, because a build takes minutes and the thing that would
  * reintroduce an agent here is somebody adding a line to this file.
@@ -112,7 +112,7 @@ describe("container/base/Dockerfile", () => {
 /**
  * `init` builds the machine's base image and nothing else.
  *
- * **It prepares the bare domain and does not fill it** (contracts §7.5). The
+ * **It prepares the bare domain and does not fill it** (contracts §7.2). The
  * base is the prerequisite of the next thing anybody does — the first `up`
  * fails without it — which is the test for belonging in the engine's `init`. A
  * dashboard's image, a workstation's and an orchestrator's are a *product's*,
@@ -121,7 +121,7 @@ describe("container/base/Dockerfile", () => {
  * The workstation's build has to stay in a verb that sets a machine up, and the
  * reason has not changed: it used to be built by the first `createSession`, on
  * the argument that a machine which never makes a session never needs several
- * hundred megabytes of `claude` — an argument that carried its own expiry date.
+ * hundred megabytes of agent — an argument that carried its own expiry date.
  * The cost landed in the one place it must not: `POST /api/sessions` answers one
  * JSON body and has nowhere to stream a build log to, so the first **New
  * session** on a machine was several silent minutes. That assertion now lives on

@@ -13,8 +13,8 @@
  * ttl: 12h
  * github: none
  * share:
- *   - host: ~/.claude/.credentials.json
- *     into: /root/.claude/.credentials.json
+ *   - host: ~/.npmrc
+ *     into: /root/.npmrc
  * projects:
  *   acme-monorepo: { ttl: 3d, github: token }
  * ```
@@ -167,9 +167,9 @@ github: none
 
 # Files on this machine that every sandbox can read, bind-mounted one at a time.
 #
-# This is how a login you already have — a Claude credential, an .npmrc, a
-# read-only deploy key — reaches the containers without being copied into an
-# image or typed into a project's secrets. \`~\` expands.
+# This is how a login you already have — an .npmrc, a read-only deploy key, a
+# coding agent's stored credential — reaches the containers without being copied
+# into an image or typed into a project's secrets. \`~\` expands.
 #
 # One file per row, never a directory. Mounting a directory hands every sandbox
 # everything else in it, and for a tool's config directory that usually includes
@@ -180,8 +180,8 @@ github: none
 # the host, and an empty file mounted over a container's working copy replaces a
 # credential with nothing.
 #share:
-#  - host: ~/.claude/.credentials.json
-#    into: /root/.claude/.credentials.json
+#  - host: ~/.npmrc
+#    into: /root/.npmrc
 
 # Per project, for the ones that want a different answer. Optional — remove the
 # whole block if every project on this machine is the same.
@@ -204,7 +204,8 @@ github: none
  * `gitMounts` and `hostGitIdentity` in ../git.ts.
  *
  * **Two guards that look like belt-and-braces and are not.** Both were learned
- * from the Claude credential this key replaced, and both generalise:
+ * from the one credential this key replaced — a coding agent's stored login,
+ * which is why `jef init` writes a row for it — and both generalise:
  *
  * **The file has to be there.** Docker does not refuse a bind whose source is
  * missing — it silently creates a *directory* at that path on the host and
@@ -214,9 +215,9 @@ github: none
  *
  * **The file has to be non-empty.** A zero-byte file mounted over a container's
  * working copy replaces something with nothing, and the failure looks nothing
- * like its cause. The incident: on macOS `~/.claude/.credentials.json` is often
- * an empty placeholder, because the account login is in the keychain. Mounted,
- * it made Claude Code report `Not logged in` inside every sandbox on the
+ * like its cause. The incident: on macOS an agent's `.credentials.json` is often
+ * an empty placeholder, because the account login is in the login keychain.
+ * Mounted, it made the agent report `Not logged in` inside every sandbox on the
  * machine — with a valid credential sitting on the host the whole time.
  * Observed, not feared.
  *

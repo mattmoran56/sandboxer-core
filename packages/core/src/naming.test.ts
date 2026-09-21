@@ -11,14 +11,13 @@
 // - workstationName / workVolumeName / SESSION_ID_MAX: the session shapes fixed by contracts §12.2
 // - isWorkVolume: the reserved prefix the engine never reclaims (§3.3), and the
 //   near misses that are not under it
-// - SHARED_VOLUMES: the Claude credential volume is listed there, which is what keeps gc off it
+// - SHARED_VOLUMES: the engine's own two, and only those; volumePrefix matches volumeName
 // - parseContainerName: round-trip with and without a known project, and the shapes it refuses to guess at
 // - lockName: identifier folding, determinism, and the 64-character GET_LOCK ceiling
 
 import { describe, expect, it } from "vitest";
 
 import {
-  CLAUDE_VOLUME,
   DEFAULT_DOMAIN,
   NamingError,
   DNS_LABEL_MAX,
@@ -38,6 +37,7 @@ import {
   slugCeiling,
   urlFor,
   volumeName,
+  volumePrefix,
   workVolumeName,
   workstationName,
 } from "./naming.js";
@@ -357,12 +357,23 @@ describe("docker names", () => {
     expect(SESSION_ID_MAX).toBe(SLUG_MAX);
   });
 
-  // Membership of this list is the only thing standing between gc and every MCP
-  // credential on the machine, and the name carries no project or slug for gc to
-  // recognise it by.
-  it("counts the Claude credential volume among the machine-wide ones", () => {
-    expect(CLAUDE_VOLUME).toBe("sandboxr-claude");
-    expect(SHARED_VOLUMES).toContain(CLAUDE_VOLUME);
+  // The engine's own machine-wide volumes and nothing else. A volume an embedder
+  // mounts into every sandbox is not on this list — it cannot be, because the
+  // engine does not know the name — so it is reserved by being passed as
+  // `protectVolumes`, and `orphanVolumes` never proposes a name of a shape the
+  // engine does not mint. The list being short is the property under test.
+  it("counts only the engine's own volumes among the machine-wide ones", () => {
+    expect([...SHARED_VOLUMES]).toEqual(["sandboxr-gocache", "sandboxr-gomod"]);
+  });
+
+  // Spelt once, beside the name it prefixes: `orphanVolumes` recognises a volume
+  // the engine minted by this prefix, because a name cannot be split back into a
+  // project and a slug when either may contain a dash.
+  it("prefixes every per-sandbox volume with its purpose", () => {
+    expect(volumePrefix("data")).toBe("sandboxr-data-");
+    for (const purpose of ["data", "blob", "bin", "www"] as const) {
+      expect(volumeName(purpose, "acme-shop", "feat-a-b").startsWith(volumePrefix(purpose))).toBe(true);
+    }
   });
 
   it("round-trips a container name when the project is known", () => {

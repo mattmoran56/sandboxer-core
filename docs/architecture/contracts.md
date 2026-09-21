@@ -281,9 +281,12 @@ The paths under that one hostname are Jef's §3.
 - Network: `sandboxr` (one, shared)
 - Volumes: `sandboxr-<purpose>-<project>-<slug>` where purpose is one of
   `data` (database), `blob` (object storage), `bin` (built binaries), `www` (built sites).
-- Shared volumes: `sandboxr-deps-<hash>` (node_modules, keyed on lockfile),
-  `sandboxr-gocache`, `sandboxr-gomod`, `sandboxr-claude` (an agent session's credential
-  store, mounted at `/root/.claude` with `CLAUDE_CONFIG_DIR` pointing at it — see Jef's §4).
+- Shared volumes, the engine's own: `sandboxr-deps-<hash>` (node_modules, keyed on lockfile),
+  `sandboxr-gocache`, `sandboxr-gomod`. `SHARED_VOLUMES` names the last two and nothing else.
+- **An embedder's shared volume is the embedder's**, mounted by handing `up` a
+  `UpOptions.volumes` row and reserved by naming it in `protectVolumes`. Jef's is
+  `sandboxr-claude`, an agent's credential store at `/root/.claude` with `CLAUDE_CONFIG_DIR`
+  pointing at it — Jef's §4. The engine mounts what it is handed and has no name for any of it.
 
 **A shared volume is populated only when it says so itself.** `sandboxr-deps-<hash>` is
 filled in by the container on first boot, and *shared*: every sandbox on that lockfile
@@ -294,19 +297,22 @@ of packages. The container writes `node_modules/.sandboxr-deps` — the lockfile
 installed from — as the *last* step, by rename, and treats only that marker as done. Same
 shape as a seed artifact's `.partial`, and for the same reason.
 
-`sandboxr-claude` is shared by every sandbox on the machine **on purpose**, and the trade is
-part of the contract rather than an implementation detail: sharing it is what makes an MCP
-server something you sign into once rather than once per worktree, and it means every sandbox
-can read every credential in it. None of these shared volumes is ever reaped by the collector
-when a sandbox is deleted (§ garbage collection); reaping this one would silently sign the
-machine out of every server it had been given.
+**An embedder's shared volume is shared by every sandbox on the machine, and the trade goes
+with it rather than with the engine.** Jef's is the whole of that case: sharing the store is what
+makes signing into an MCP server something you do once per machine rather than once per worktree,
+and it means every sandbox can read every credential in it. That sentence is Jef's §4's to make,
+because only Jef knows what is in the volume.
 
-A path inside that volume may come from the host rather than from the volume, and that is not a
-special case any more: it is a `share:` row in the machine's `config.yaml` (§4.3), like any other
-host file the operator shares. Jef's `jef init` writes the row that puts
-`~/.claude/.credentials.json` over the volume's copy, so a login is shared with every sandbox
-rather than duplicated into each. On macOS that file is usually not a login at all, which has a
-consequence worth knowing. See Jef's §4.
+What the engine promises is narrower and holds whoever the embedder is. None of the shared volumes
+is ever reaped when a sandbox is deleted (§ garbage collection), and neither is a volume of a shape
+the engine did not mint — so an embedder's store is out of the collector's scope before any list is
+consulted, and `protectVolumes` is what makes that a promise rather than luck about a spelling.
+
+A path inside such a volume may come from the host rather than from the volume, and that is not a
+special case: it is a `share:` row in the machine's `config.yaml` (§4.3), like any other host file
+the operator shares. Jef's `jef init` writes the row that puts a stored login over the volume's
+copy, so it is shared with every sandbox rather than duplicated into each. On macOS that file is
+usually not a login at all, which has a consequence worth knowing. See Jef's §4.
 
 Images are named under one namespace, and the split between them decides what may be reclaimed:
 
@@ -347,8 +353,10 @@ Images are named under one namespace, and the split between them decides what ma
 the project images a newer build replaced. `prune` removes the same volumes and images with sizes
 against them, and Docker's build cache when it is asked. Both are bound by five rules:
 
-- The shared volumes above are never removed, by either. Taking `sandboxr-claude` would sign the
-  machine out of every MCP server it has been given.
+- The shared volumes above are never removed, by either — nor is any volume the caller reserved
+  with `protectVolumes`, nor any name the engine did not mint. A store shared by every sandbox is
+  referenced by none of them the moment they are all stopped, which is a machine at rest rather
+  than a volume nobody wants, and taking Jef's would sign it out of every MCP server it has.
 - **The engine reclaims only a volume name it can reconstruct, and never one under a reserved
   prefix.** Everything else in the collector reads "no container references it" as "nothing wants
   it". For a name the engine did not mint, that reading is exactly backwards — nothing on the

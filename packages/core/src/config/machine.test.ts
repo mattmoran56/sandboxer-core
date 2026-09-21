@@ -338,11 +338,12 @@ describe("share:", () => {
     expect(files).toEqual([]);
   });
 
-  // The incident this rule came from. On macOS `~/.claude/.credentials.json` is
-  // often an empty placeholder, because the account login is in the keychain.
-  // Mounted over the container's working copy it replaced a credential with
-  // nothing, and Claude Code reported `Not logged in` in every sandbox on the
-  // machine — with a valid credential on the host the whole time.
+  // The incident this rule came from. On macOS a coding agent's
+  // `.credentials.json` is often an empty placeholder, because the account login
+  // is in the login keychain. Mounted over the container's working copy it
+  // replaced a credential with nothing, and the agent reported `Not logged in`
+  // in every sandbox on the machine — with a valid credential on the host the
+  // whole time.
   it("skips a row whose source is zero bytes", async () => {
     const home = await mkdtemp(join(tmpdir(), "sandboxr-share-"));
     await writeFile(join(home, "empty"), "", "utf8");
@@ -358,9 +359,9 @@ describe("share:", () => {
     expect(sharedFiles({ share: [{ host: home, into: "/root/x" }] }, {})).toEqual([]);
   });
 
-  // The upgrade note §4.3 makes: before this key existed the Claude credential
-  // was mounted unconditionally, so a machine upgraded without a row written for
-  // it loses that login in every sandbox at once.
+  // The upgrade note §4.3 makes: before this key existed one credential — the
+  // agent's — was mounted unconditionally, so a machine upgraded without a row
+  // written for it loses that login in every sandbox at once.
   it("shares nothing on a machine with no rows", () => {
     expect(sharedFiles({}, {})).toEqual([]);
   });

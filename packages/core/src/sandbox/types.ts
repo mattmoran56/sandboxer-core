@@ -11,6 +11,7 @@ import type { ResolvedConfig } from "../config/types.js";
 import type { Docker } from "../docker.js";
 import type { SeedSource } from "../drivers/types.js";
 import type { ProvidedWorkspace } from "./provided.js";
+import type { MountedVolume } from "./run.js";
 
 export type SandboxState = "stopped" | "starting" | "running" | "degraded";
 
@@ -112,6 +113,21 @@ export interface UpOptions extends CommonOptions {
    * what a sandbox's base has to contain still holds.
    */
   baseImage?: string | undefined;
+  /**
+   * Named volumes to mount in this sandbox, on top of the ones the project needs.
+   *
+   * The other half of `baseImage`: an embedder whose base image carries a tool
+   * usually wants that tool's state to outlive the container, and the engine has
+   * no name for either. See `RunInput.volumes`.
+   */
+  volumes?: readonly MountedVolume[] | undefined;
+  /**
+   * Extra environment for the container, as `-e` arguments.
+   *
+   * The engine's own variables win a clash: a caller may add to what a sandbox
+   * is told and may not redefine it. See `RunInput.containerEnv`.
+   */
+  containerEnv?: Record<string, string> | undefined;
   /** The worktree to run. Defaults to the directory the config was found in. */
   worktree?: string | undefined;
   /**
@@ -223,6 +239,13 @@ export interface GcOptions extends CommonOptions {
    * even be installed. See `GcInput.protectImages` in ./gc.ts.
    */
   protectImages?: readonly string[] | undefined;
+  /**
+   * Volumes the caller declares are its own, never to be reclaimed.
+   *
+   * The same half of the same list, for the other kind of thing. See
+   * `GcInput.protectVolumes` in ./gc.ts.
+   */
+  protectVolumes?: readonly string[] | undefined;
 }
 
 export interface PruneOptions extends CommonOptions {
@@ -241,6 +264,8 @@ export interface PruneOptions extends CommonOptions {
   buildCache?: boolean | undefined;
   /** Image repositories the caller declares are its own — see `GcOptions`. */
   protectImages?: readonly string[] | undefined;
+  /** Volumes the caller declares are its own — see `GcOptions`. */
+  protectVolumes?: readonly string[] | undefined;
 }
 
 /**

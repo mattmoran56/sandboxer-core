@@ -4,7 +4,7 @@
 // - runArgs: the seed cache is read-only, the secrets file is layered under the generated environment
 // - runArgs: a seed that is not in the cache is mounted as one read-only file, and its directory is not
 // - runArgs: the machine-wide Go caches are mounted for a Go project and absent for one without the toolchain
-// - runArgs: the machine-wide Claude volume is mounted and CLAUDE_CONFIG_DIR points inside it
+// - runArgs: a caller's own volumes and variables are passed through, and nothing is added without them
 // - runArgs: the host's login is one file mounted read-write over the volume, never the directory, and absent without one
 // - runArgs: the git mounts land at the identical path inside and out, read-write, and none is /workspace
 // - runArgs: a session's runtime takes /workspace from the work volume, and then asks for no git mounts at all
@@ -268,67 +268,96 @@ describe("runArgs", () => {
     });
   });
 
-  // Deliberately not named after the project or the slug: an MCP server is
-  // authorised once per machine, and a per-sandbox volume would mean once per
-  // worktree instead.
-  it("mounts one machine-wide Claude volume, shared by every sandbox", () => {
-    expect(args).toContain("sandboxr-claude:/root/.claude");
+  /**
+   * What an embedder puts in every sandbox of its own, which the engine names
+   * none of.
+   *
+   * Both of these used to be two hard-coded lines here — a machine-wide
+   * credential volume for one particular coding agent, and the variable that
+   * agent reads — so `sandboxr up` on a machine with no such agent mounted a
+   * store for a program that was not in the image. Jef supplies them now
+   * (`packages/sessions/src/agent/layout.ts`), and what is asserted here is only
+   * that the engine passes on what it is handed and adds nothing of its own.
+   */
+  describe("the caller's own volumes and variables", () => {
+    const embedded = runArgs({
+      ...base,
+      volumes: [{ volume: "acme-agent-state", into: "/root/.agent" }],
+      containerEnv: { AGENT_CONFIG_DIR: "/root/.agent" },
+    });
 
-    const other = runArgs({ ...base, slug: "tkt-2", config: configOf({ project: "other" }) });
-    expect(other).toContain("sandboxr-claude:/root/.claude");
+    it("mounts each volume the caller named, machine-wide names included", () => {
+      expect(embedded).toContain("acme-agent-state:/root/.agent");
+
+      // Not derived from the project or the slug — the point of one of these is
+      // usually that it is shared by every sandbox on the machine — so the same
+      // mount appears for a different project.
+      const other = runArgs({
+        ...base,
+        slug: "tkt-2",
+        config: configOf({ project: "other" }),
+        volumes: [{ volume: "acme-agent-state", into: "/root/.agent" }],
+      });
+      expect(other).toContain("acme-agent-state:/root/.agent");
+    });
+
+    it("passes each variable as -e, before the image", () => {
+      const index = embedded.indexOf("AGENT_CONFIG_DIR=/root/.agent");
+      expect(index).toBeGreaterThan(-1);
+      expect(embedded[index - 1]).toBe("-e");
+      // Before the image, or docker reads it as an argument to the entrypoint.
+      expect(index).toBeLessThan(embedded.indexOf("--entrypoint"));
+    });
+
+    // The engine's own mounts and variables are what the plan means, and a
+    // caller may add to them and never redefine them. Asserted as an absence,
+    // because a sandbox nobody embedded is the ordinary case: with neither
+    // option there is no extra `-v` and no extra `-e` at all.
+    it("adds nothing when the caller hands in nothing", () => {
+      expect(args.filter((arg) => arg.startsWith("acme-agent-state"))).toHaveLength(0);
+      expect(args.join(" ")).not.toContain("AGENT_CONFIG_DIR");
+      expect(args.join(" ")).not.toContain("/root/.");
+    });
   });
 
-  // Mounting the directory alone persists the session history and loses the
-  // login, because the OAuth account and the personal MCP servers live in
-  // `~/.claude.json`, a file *beside* the directory. This variable is what puts
-  // that file on the volume too.
-  it("points CLAUDE_CONFIG_DIR at the volume, so ~/.claude.json lands inside it", () => {
-    const index = args.indexOf("CLAUDE_CONFIG_DIR=/root/.claude");
-    expect(index).toBeGreaterThan(-1);
-    expect(args[index - 1]).toBe("-e");
-    // Before the image, or docker reads it as an argument to the entrypoint.
-    expect(index).toBeLessThan(args.indexOf("--entrypoint"));
-  });
-
-  // `config.yaml`'s `share:` (contracts §4.3). The Claude login is the row every
-  // machine has, and the one this feature was generalised out of, so it is what
-  // these cases are written with.
+  // `config.yaml`'s `share:` (contracts §4.3). A coding agent's stored login is
+  // the row every machine that runs one has, and the row this feature was
+  // generalised out of, so it is the shape these cases are written with.
   describe("the machine's shared files", () => {
     const withShared = runArgs({
       ...base,
       shared: [
-        { host: "/Users/ada/.claude/.credentials.json", into: "/root/.claude/.credentials.json" },
+        { host: "/Users/ada/.agent/.credentials.json", into: "/root/.agent/.credentials.json" },
         { host: "/Users/ada/.npmrc", into: "/root/.npmrc" },
       ],
     });
 
     it("mounts each one over whatever the container had there", () => {
-      expect(withShared).toContain("/Users/ada/.claude/.credentials.json:/root/.claude/.credentials.json");
+      expect(withShared).toContain("/Users/ada/.agent/.credentials.json:/root/.agent/.credentials.json");
       expect(withShared).toContain("/Users/ada/.npmrc:/root/.npmrc");
     });
 
-    // The whole security argument for this feature, learned from the one row
-    // every machine has. Binding `~/.claude` itself would give every sandbox
-    // write access to the host's settings.json, which can define hooks —
-    // commands the host's own Claude Code then executes.
+    // The whole security argument for this feature, learned from the row every
+    // machine that runs an agent has. Binding the agent's state directory itself
+    // would give every sandbox write access to the host's settings there, and
+    // those settings can define hooks — commands the host's own agent then runs.
     it("never mounts the directory around a file", () => {
-      expect(withShared).not.toContain("/Users/ada/.claude:/root/.claude");
-      expect(withShared.filter((arg) => arg.startsWith("/Users/ada/.claude:"))).toHaveLength(0);
+      expect(withShared).not.toContain("/Users/ada/.agent:/root/.agent");
+      expect(withShared.filter((arg) => arg.startsWith("/Users/ada/.agent:"))).toHaveLength(0);
     });
 
     // A refresh token rotates and is single-use, so the sandbox has to be able
     // to write the rotated one back. `:ro` would work until the first refresh.
     it("mounts them read-write", () => {
-      expect(withShared.join(" ")).not.toContain(".credentials.json:/root/.claude/.credentials.json:ro");
+      expect(withShared.join(" ")).not.toContain(".credentials.json:/root/.agent/.credentials.json:ro");
     });
 
     // A machine with no `share:` row shares nothing. That is the upgrade note
-    // §4.3 makes: before this key existed the Claude credential was mounted
+    // §4.3 makes: before this key existed one credential was mounted
     // unconditionally, and a machine upgraded without a row loses that login in
     // every sandbox at once.
     it("adds nothing at all when the machine shares nothing", () => {
-      expect(args.join(" ")).not.toContain("/root/.claude/.credentials.json");
-      expect(args).toContain("sandboxr-claude:/root/.claude");
+      expect(args.join(" ")).not.toContain("/root/.agent/.credentials.json");
     });
   });
 

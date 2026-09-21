@@ -1,6 +1,6 @@
 // Tests for the reclamation plan:
 // - planPrune: an orphaned per-sandbox volume is offered, a live sandbox's volume is not
-// - planPrune: the shared volumes are never offered, the Claude credential volume least of all
+// - planPrune: the shared volumes are never offered, nor one the caller reserved
 // - planPrune: a session's work volume is never offered, whatever its size (contracts §12.8)
 // - planPrune: an older project image is superseded by the newest one of the same project
 // - planPrune: the newest image of every project survives, so the next `up` is a start
@@ -92,20 +92,21 @@ describe("planPrune volumes", () => {
   });
 
   // The same guarantee gc.test.ts pins, restated here because prune is a second
-  // caller of the same decision: this volume holds every MCP credential on the
-  // machine, and taking it signs the machine out of every server at once.
-  it("never offers a shared volume", () => {
+  // caller of the same decision — and prune is the command that puts a size
+  // beside each item, so it is the one somebody applies.
+  it("never offers a shared volume, or one the caller reserved", () => {
     const plan = planPrune({
       ...empty,
-      volumes: [volume("sandboxr-claude"), volume("sandboxr-gocache"), volume("sandboxr-gomod")],
+      volumes: [volume("sandboxr-jef-agent"), volume("sandboxr-gocache"), volume("sandboxr-gomod")],
       mountedVolumes: new Set(),
+      protectVolumes: ["sandboxr-jef-agent"],
     });
     expect(plan.volumes).toEqual([]);
   });
 
-  // Restated here for the same reason, and with a stronger one behind it: the
+  // Restated here for the same reason, and with a stronger one behind it: a
   // credential volume is recoverable by signing in again, and a work volume is
-  // not recoverable at all (contracts §12.8). Prune is the command that puts a
+  // not recoverable at all (Jef's contract, §9.8). Prune is the command that puts a
   // number beside each item, so a work volume appearing with several gigabytes
   // against it is precisely how somebody would be talked into applying it.
   it("never offers a session's work volume, however large it is", () => {

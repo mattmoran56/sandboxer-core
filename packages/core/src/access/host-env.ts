@@ -25,12 +25,11 @@
  *
  * **The embedder owns its own values.** `hostEnvironment(facts, extra)` appends
  * whatever keys the caller names, sorted, and they go through the same quoting
- * and the same newline refusal. Jef passes `SANDBOXR_CLAUDE_CREDENTIALS` — a
- * path on the host filesystem, which its dashboard cannot see to resolve — and
- * `CLAUDE_CODE_OAUTH_TOKEN`, which is `SANDBOXR_CLAUDE_TOKEN` under the name
- * Claude Code itself reads. Neither is a fact about a *sandbox*, and the engine
- * has no business naming either; what it owns is the file and the rule that
- * writing it is safe.
+ * and the same newline refusal. Jef passes two of its own: a path on the host
+ * filesystem that its dashboard container cannot see to resolve, and a setup
+ * token under the name the tool that reads it expects. Neither is a fact about a
+ * *sandbox*, and the engine has no business naming either; what it owns is the
+ * file and the rule that writing it is safe.
  *
  * So §11's division gains a clause: compose owns the shape, core owns the
  * values, **and the embedder owns its own values**.

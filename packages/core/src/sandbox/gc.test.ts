@@ -4,7 +4,7 @@
 // - planGc: a sandbox with no recorded worktree is never reaped for that reason
 // - orphanVolumes: volumes of a reaped sandbox are orphans, volumes of a survivor are not
 // - orphanVolumes: the shared volumes are never orphans, and a mounted volume is never an orphan
-// - orphanVolumes: reaping every sandbox on the machine still leaves the Claude credential volume
+// - orphanVolumes: reaping every sandbox still leaves a volume the caller reserved, and any name the engine did not mint
 // - orphanVolumes: a dependency volume is left alone unless a mount list proves it unused
 // - orphanVolumes: nothing outside the sandboxr prefix is ever considered
 // - orphanVolumes: a work volume is never an orphan — not with no container, not
@@ -108,7 +108,7 @@ describe("orphan volumes", () => {
     "sandboxr-blob-acme-tkt-1",
     "sandboxr-data-acme-tkt-2",
     "sandboxr-gocache",
-    "sandboxr-claude",
+    "sandboxr-jef-agent",
     "postgres-data",
   ];
 
@@ -130,19 +130,47 @@ describe("orphan volumes", () => {
     expect(plan.volumes).not.toContain("sandboxr-gocache");
   });
 
-  // The failure this guards against is silent and expensive: the Claude volume
-  // holds every MCP credential authorised on the machine, so reaping it logs the
-  // person out of every server at once, and nothing about deleting a sandbox
-  // would explain why.
-  it("keeps the Claude credential volume even when every sandbox is reaped", () => {
+  /**
+   * A volume an embedder mounts into every sandbox, when every sandbox is reaped.
+   *
+   * The failure this guards against is silent and expensive. Jef's is a coding
+   * agent's credential store, which holds every MCP server authorised on the
+   * machine: reaping it signs the person out of all of them at once, and nothing
+   * about deleting a sandbox would explain why. It is also exactly the shape
+   * that looks reclaimable — shared by every sandbox, and therefore referenced
+   * by none of them the moment they are all stopped.
+   *
+   * Two things keep it, and the test asserts both separately because the weaker
+   * one is the one that holds when nobody remembered to say anything. The name
+   * here is deliberately under `sandboxr-`, where a name-prefix test alone would
+   * not save it.
+   */
+  it("keeps a volume the caller reserved, even when every sandbox is reaped", () => {
+    const plan = planGc({
+      sandboxes: [sandbox({ slug: "tkt-1" }), sandbox({ slug: "tkt-2" })],
+      volumes,
+      worktreeExists: gone,
+      mountedVolumes: new Set(),
+      protectVolumes: ["sandboxr-jef-agent"],
+    });
+    expect(plan.keep).toEqual([]);
+    expect(plan.volumes).not.toContain("sandboxr-jef-agent");
+  });
+
+  // And the weaker guarantee, which holds with no `protectVolumes` at all: the
+  // engine proposes only names of the two shapes it mints — `sandboxr-<purpose>-…`
+  // and `sandboxr-deps-…` — so a name in somebody else's shape is out of scope
+  // before any list is consulted. `protectVolumes` is what makes that a promise
+  // rather than luck about a spelling.
+  it("proposes only a name it minted itself", () => {
     const plan = planGc({
       sandboxes: [sandbox({ slug: "tkt-1" }), sandbox({ slug: "tkt-2" })],
       volumes,
       worktreeExists: gone,
       mountedVolumes: new Set(),
     });
-    expect(plan.keep).toEqual([]);
-    expect(plan.volumes).not.toContain("sandboxr-claude");
+    expect(plan.volumes).not.toContain("sandboxr-jef-agent");
+    expect(plan.volumes).toContain("sandboxr-data-acme-tkt-1");
   });
 
   it("ignores anything that is not ours", () => {

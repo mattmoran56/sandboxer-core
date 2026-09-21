@@ -94,7 +94,8 @@ export interface Paths {
   /**
    * The values only the *host* can resolve, written by `init` for a compose file
    * to read: the GitHub token out of the keychain, the commit identity out of the
-   * host's gitconfig, the Claude login's path.
+   * host's gitconfig, and whatever else the embedder had to look up (see
+   * `hostEnvironment`'s `extra`).
    *
    * Beside `config.yaml` rather than under `state/` even though it is generated,
    * because it holds a credential and is therefore mode 0600 like `secrets/`.

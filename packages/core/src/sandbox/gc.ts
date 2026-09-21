@@ -14,6 +14,7 @@ import {
   SHARED_VOLUMES,
   isWorkVolume,
   volumeName,
+  volumePrefix,
   type VolumePurpose,
 } from "../naming.js";
 import { depsVolumeName } from "../naming.js";
@@ -65,6 +66,27 @@ export interface GcInput {
    * workstation and orchestrator all do — would have nothing but this.
    */
   protectImages?: readonly string[] | undefined;
+  /**
+   * Volumes the *caller* declares are its own, never to be reclaimed.
+   *
+   * The volume half of `protectImages`, and it exists for a sharper reason.
+   * `SHARED_VOLUMES` names the engine's two Go caches and nothing else, because
+   * the engine cannot keep a list of names it does not mint — so a machine-wide
+   * volume an embedder mounts into every sandbox (see `RunInput.volumes`) has to
+   * be declared here or it is a volume with no sandbox behind it.
+   *
+   * Jef passes the agent's credential store (`JEF_PROTECTED_VOLUMES` in
+   * `packages/sessions/src/agent/layout.ts`). A shared store is exactly the
+   * shape that looks reclaimable and is not: every sandbox that mounts it may be
+   * stopped at once, which is a machine at rest rather than a volume nobody
+   * wants, and what goes with it is every login on the machine.
+   *
+   * As with images, it is a promise rather than the only thing: `orphanVolumes`
+   * proposes only names of the shape the engine itself mints, so a name in
+   * somebody else's shape is already out of scope. The promise is what makes
+   * that true on purpose rather than by luck about a spelling.
+   */
+  protectVolumes?: readonly string[] | undefined;
 }
 
 export function planGc(input: GcInput): GcPlan {
@@ -85,10 +107,23 @@ export function planGc(input: GcInput): GcPlan {
 
   return {
     reap,
-    volumes: orphanVolumes({ ...input, survivors: keep }),
+    volumes: orphanVolumes({ ...input, survivors: keep, protect: input.protectVolumes }),
     images: input.images ? supersededImages(input.images, input.protectImages) : [],
     keep,
   };
+}
+
+/**
+ * Whether a volume name is one the engine mints.
+ *
+ * `volumeName` produces `sandboxr-<purpose>-<project>-<slug>` and
+ * `depsVolumeName` produces `sandboxr-deps-<hash>`; those are the only two
+ * shapes `up` ever creates. The name is not split back into its parts — both a
+ * project and a slug may contain dashes — only recognised by its purpose.
+ */
+function mintedHere(volume: string): boolean {
+  if (volume.startsWith(depsVolumeName(""))) return true;
+  return PURPOSES.some((purpose) => volume.startsWith(volumePrefix(purpose)));
 }
 
 /**
@@ -103,8 +138,9 @@ export function orphanVolumes(input: {
   volumes: string[];
   survivors: Sandbox[];
   mountedVolumes?: Set<string> | undefined;
+  protect?: readonly string[] | undefined;
 }): string[] {
-  const owned = new Set<string>(SHARED_VOLUMES);
+  const owned = new Set<string>([...SHARED_VOLUMES, ...(input.protect ?? [])]);
   for (const sandbox of input.survivors) {
     for (const purpose of PURPOSES) owned.add(volumeName(purpose, sandbox.project, sandbox.slug));
   }
@@ -126,6 +162,17 @@ export function orphanVolumes(input: {
       // *sandboxes*: a workstation carries no `sandboxr.slug`, so `list` never
       // sees it and nothing it holds ever reaches `mountedVolumes`.
       .filter((volume) => !isWorkVolume(volume))
+      // **Only a name the engine itself mints is a candidate** — a per-sandbox
+      // volume or a dependency volume. Everything else under the prefix belongs
+      // to whoever mounted it, and "no container references it" means nothing
+      // about a store that is shared by every sandbox on the machine and
+      // therefore unreferenced the moment they are all stopped.
+      //
+      // Written as a shape test rather than as a longer keep-list because a
+      // keep-list is a list the engine would have to be told about, and the day
+      // it is not told is the day something is removed. `protect` above is the
+      // embedder saying so out loud; this is what is true even when nobody did.
+      .filter((volume) => mintedHere(volume))
       .filter((volume) => !owned.has(volume))
       // A dependency volume is keyed on a lockfile rather than on a sandbox, so
       // it is shared and only an unmounted one is an orphan. Without a mount list

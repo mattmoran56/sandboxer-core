@@ -12,7 +12,6 @@ import { createHash } from "node:crypto";
 
 import type { BackendService, FrontendApp, ResolvedConfig } from "../config/types.js";
 import {
-  CLAUDE_VOLUME,
   GOCACHE_VOLUME,
   GOMOD_VOLUME,
   NETWORK,
@@ -26,7 +25,6 @@ import {
   BIN_DIR,
   BLOB_DIR,
   CACHE_DIR,
-  CLAUDE_DIR,
   DATA_DIR,
   GOCACHE_DIR,
   GOMOD_DIR,
@@ -39,6 +37,20 @@ import {
   binaryPath,
   siteDir,
 } from "./layout.js";
+
+/**
+ * A named volume, and where in the container it is mounted.
+ *
+ * A pair rather than a `"name:path"` string because both halves are checked and
+ * printed separately, and a colon inside a path is how one string silently
+ * becomes two mounts.
+ */
+export interface MountedVolume {
+  /** The Docker volume name. Created on first use if it is not there. */
+  volume: string;
+  /** The absolute path inside the container. */
+  into: string;
+}
 
 /** The image a sandbox runs. The container package builds it. */
 export const DEFAULT_IMAGE = "sandboxr/base:latest";
@@ -119,6 +131,32 @@ export interface RunInput {
    * where the argument for it lives. Nothing here touches disk.
    */
   shared?: readonly SharedFile[] | undefined;
+  /**
+   * Named volumes the caller wants in every sandbox it starts, one mount each.
+   *
+   * The engine mounts what a *project* needs and nothing else. An embedder that
+   * puts something of its own in every sandbox — a credential store, a cache
+   * belonging to a tool the engine has no name for — hands the mounts in here
+   * rather than having the engine spell the volume. Docker creates a named
+   * volume on first use, so nothing has to exist beforehand.
+   *
+   * These are the caller's to reserve as well as to mount: a volume the engine
+   * did not mint is not on `SHARED_VOLUMES`, so `gc` and `prune` are told about
+   * it with `protectVolumes` (see `GcInput`).
+   */
+  volumes?: readonly MountedVolume[] | undefined;
+  /**
+   * Extra environment for the container, from `UpOptions.containerEnv`.
+   *
+   * `-e` rather than a line in the generated env file, for the reason the commit
+   * identity below is: `docker exec` gets the container's *configured*
+   * environment and never sees what the entrypoint exported, so a variable a
+   * tool the host execs in has to read is only reliable as configuration.
+   *
+   * Applied before the identity and the token below, and the engine's own
+   * variables win a clash: a caller cannot redefine what the plan means.
+   */
+  containerEnv?: Record<string, string> | undefined;
   /**
    * The labels the shared router reconciles from.
    *
@@ -246,23 +284,26 @@ export function runArgs(input: RunInput): string[] {
   // a sandbox restores from a seed and never writes to one.
   if (input.seedFile) args.push("-v", `${input.seedFile.host}:${input.seedFile.inside}:ro`);
   args.push("-v", `${input.logDir}:${LOG_DIR}`);
-  // Not a per-sandbox volume: an MCP server is authorised once per machine with
-  // `claude mcp login`, and the whole point is that the next worktree does not
-  // have to do it again. See CLAUDE_VOLUME for what every sandbox sharing one
-  // credential store costs, and CLAUDE_DIR for why the environment variable
-  // below is not optional.
-  args.push("-v", `${CLAUDE_VOLUME}:${CLAUDE_DIR}`);
-  args.push("-e", `CLAUDE_CONFIG_DIR=${CLAUDE_DIR}`);
+  // The caller's own volumes and variables, before the machine's shared files
+  // and before the engine's own variables below.
+  //
+  // Machine-wide rather than per sandbox is the ordinary case for one of these,
+  // and the engine takes no view on the cost of that: a volume every sandbox
+  // reads is a store every sandbox reaches, and only the embedder that mounted
+  // it knows what is in it.
+  for (const mount of input.volumes ?? []) args.push("-v", `${mount.volume}:${mount.into}`);
+  for (const [key, value] of Object.entries(input.containerEnv ?? {})) args.push("-e", `${key}=${value}`);
   // The machine's shared files, one bind each (contracts §4.3).
   //
   // **A file at a time and never a directory**, and that is a security boundary
-  // rather than tidiness. The rule was learned from the one row every machine
-  // has: binding all of `~/.claude` instead of the single credential would give
-  // every sandbox write access to the host's settings.json, which can define
-  // hooks — commands the host's own Claude Code then executes. A sandbox writing
-  // one is a container-to-host escalation delivered by a convenience feature,
-  // and the same mount would hand it the person's history, plans and project
-  // state too. The schema takes a file path per row for exactly this reason.
+  // rather than tidiness. The rule was learned from the row every machine that
+  // runs a coding agent has: binding the agent's whole state directory instead
+  // of the single credential file in it would give every sandbox write access to
+  // the host's settings there, and those settings can define hooks — commands
+  // the host's own agent then executes. A sandbox writing one is a
+  // container-to-host escalation delivered by a convenience feature, and the
+  // same mount would hand it the person's history, plans and project state too.
+  // The schema takes a file path per row for exactly this reason.
   //
   // **Read-write, deliberately.** An OAuth refresh token rotates and is
   // single-use, so a *copy* dies the first time either side refreshes; sharing
