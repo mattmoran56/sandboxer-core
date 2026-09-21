@@ -712,7 +712,7 @@ Applies the product's identity to a new surface, and checks the result against t
 Apply the sandboxr brand to a surface I am about to describe, then check the result against the
 brand guide.
 
-Read docs/brand.md first, and then packages/web/src/tokens.css, which is where the values
+Read docs/brand.md first, and then packages/tokens/tokens.css, which is where the values
 actually live. Build the surface from the semantic tokens — surface, line, ink, ink-muted, brand,
 and the status hues — and never from a hex you typed yourself. Headings are the serif, body is the
 sans, anything a machine cares about is the mono. Draw a panel or a card as a hairline on a

@@ -3,8 +3,8 @@
 // A diagram on this site is drawn in the browser (see `Article.tsx`), and the
 // reason it is drawn there rather than at build time is that it has to follow the
 // reader's choices: light or dark, and one of three colour schemes. Six
-// combinations, one palette — `@jef/web/tokens.css`. So this file holds no
-// hexes. It reads the tokens that are already in force and hands mermaid a
+// combinations, one palette — `@sandboxr/tokens/tokens.css`. So this file holds
+// no hexes. It reads the tokens that are already in force and hands mermaid a
 // `themeVariables` map built from them.
 //
 // **mermaid's theme is `base`.** That is the one theme intended to be

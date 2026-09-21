@@ -11,7 +11,7 @@ screen, a new page or a new tool can be made to look like the rest of it without
 Apply the sandboxr brand to a surface I am about to describe, then check the result against the
 brand guide.
 
-Read docs/brand.md first, and then packages/web/src/tokens.css, which is where the values
+Read docs/brand.md first, and then packages/tokens/tokens.css, which is where the values
 actually live. Build the surface from the semantic tokens — surface, line, ink, ink-muted, brand,
 and the status hues — and never from a hex you typed yourself. Headings are the serif, body is the
 sans, anything a machine cares about is the mono. Draw a panel or a card as a hairline on a
@@ -23,8 +23,10 @@ typeface, a gradient, or the mark redrawn rather than rescaled.
 ```
 
 Two apps render this brand — the [dashboard](guides/dashboard.md) and this documentation site —
-and they share one stylesheet, `packages/web/src/tokens.css`. That file is the design system; this
-page is what it means. Where the two disagree, the file is right and this page is the bug.
+and they share one stylesheet, `packages/tokens/tokens.css`. It is a package of its own,
+`@sandboxr/tokens`, so that both can depend on it and neither owns it. That file is the design
+system; this page is what it means. Where the two disagree, the file is right and this page is
+the bug.
 
 ## The name
 
@@ -214,7 +216,7 @@ inside the second span changes — `Jef` in the dashboard, `sandboxr` on the doc
 - **The whole lockup is a link to `/`** and takes `focus-visible:outline-offset-4`, so the focus ring
   clears the plate instead of cutting its corner.
 
-`--font-serif` in `packages/web/src/tokens.css` is the stack:
+`--font-serif` in `packages/tokens/tokens.css` is the stack:
 `"Instrument Serif", ui-serif, Georgia, Cambria, "Times New Roman", serif`. `docs/assets/brand/lockup.svg`
 carries a shortened form of it — the fonts are self-hosted from npm because the dashboard's
 Content-Security-Policy is `font-src 'self'`, so an SVG that pointed at a font CDN would load
@@ -246,7 +248,7 @@ every surface it is put on, in both themes, and a test does the arithmetic rathe
 anybody's judgement.
 
 <details class="agent">
-<summary><b>Details for an agent</b> — every token, both halves, from packages/web/src/tokens.css</summary>
+<summary><b>Details for an agent</b> — every token, both halves, from packages/tokens/tokens.css</summary>
 
 Written `light / dark`. Each is a CSS custom property `--sb-<name>` and a Tailwind colour utility of
 the same name — `--sb-surface` is `bg-surface`, `--sb-ink-muted` is `text-ink-muted`.
@@ -333,7 +335,7 @@ somebody who cannot see the teal still gets the emphasis.
 <details class="agent">
 <summary><b>Details for an agent</b> — the stacks, the scale, and where each size is used</summary>
 
-The stacks, from `packages/web/src/tokens.css`:
+The stacks, from `packages/tokens/tokens.css`:
 
 | Token | Stack | Utility |
 |---|---|---|
@@ -481,8 +483,8 @@ a prompt at the top of every page somebody can arrive at cold. It is `packages/d
 - **No colour named in a component.** A component asks for `surface`, `line`, `ink` or `brand`; if
   what it needs has no token, the palette is what changes.
 - **No second palette in another app.** Anything sandboxr renders imports
-  `@jef/web/tokens.css`. A palette that exists twice drifts, and it drifts silently — nothing
-  about the dashboard looking right tells you the documentation site does.
+  `@sandboxr/tokens/tokens.css`. A palette that exists twice drifts, and it drifts silently —
+  nothing about the dashboard looking right tells you the documentation site does.
 - **No shadow under a card or a panel**, and no radius typed as a number where a named one exists.
 - **No status colour reused for decoration.** Green means running; a green that means "nice" costs
   the green its meaning.

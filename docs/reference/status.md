@@ -322,7 +322,7 @@ keyboard-inset arithmetic, the tab bar's current-section logic, the rule that de
 and the sheet's drag all have unit tests.
 
 **Checked, and worth naming separately because it is the part that fails invisibly: the contrast
-arithmetic.** Every ink in `packages/web/src/tokens.css` is a hex chosen against a ratio rather than
+arithmetic.** Every ink in `packages/tokens/tokens.css` is a hex chosen against a ratio rather than
 by eye, and `packages/web/src/app.css.test.ts` does the sums: the three inks against every neutral
 surface in both themes, each status colour against its own tint and against the surface, and each
 scheme's brand as link text and as the fill under a primary button's label. It pins one *failure* as

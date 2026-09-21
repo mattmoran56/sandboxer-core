@@ -296,9 +296,27 @@ with `shiki`.
 - `docs/architecture/contracts.md`, `packages/docs/AUTHORING.md` and any `README.md` are
   deliberately **not** site pages.
 
-This package depends on `@jef/web`, so the two share one design system rather than keeping two.
+This package depends on `@sandboxr/tokens`, so the two share one design system rather than
+keeping two. It does not depend on the dashboard: this site is the engine's and the dashboard is
+Jef's, and an engine package may not depend on a product one.
 
 </details>
+
+## `packages/tokens`
+
+**What it owns.** One stylesheet, `tokens.css`: the palette, the three colour schemes, the two
+themes, the fonts, the light/dark mechanism, the base layer and the named shapes. Its header
+comment is the document for it, and [the brand](../brand.md) is that header written for a reader.
+
+**Its public surface** is one export, `@sandboxr/tokens/tokens.css`. There is no build and no
+dependency.
+
+**Who calls it.** `packages/web` and `packages/docs`, and nothing else.
+
+**What it may never do.** Contain a component, a script, or anything specific to one of the two
+apps. It exists so that neither of them owns the palette — the dashboard is Jef's and the
+documentation site is the engine's, and a colour they disagreed about would be visible to anyone
+who opened both.
 
 ## The orchestrator, and `sidecars/`
 
@@ -398,8 +416,9 @@ be invisible.
 | `@sandboxr/core` | `yaml`, `zod` |
 | `@sandboxr/cli` | `@sandboxr/core` |
 | `@jef/server` | `@sandboxr/core`, `@jef/web`, `ws` |
-| `@jef/web` | React, xterm, `marked`, the bundled fonts |
-| `@sandboxr/docs` | `@jef/web`, `marked`, `mermaid`, React |
+| `@jef/web` | `@sandboxr/tokens`, React, xterm, `marked`, the bundled fonts |
+| `@sandboxr/docs` | `@sandboxr/tokens`, `marked`, `mermaid`, React |
+| `@sandboxr/tokens` | Nothing |
 | `container/` | Nothing in `packages/`. Only what the base image guarantees |
 
 **`@jef/server` depends on `@jef/web` and serves its `dist/`.** That is why a root

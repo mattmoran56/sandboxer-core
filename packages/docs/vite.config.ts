@@ -16,10 +16,13 @@
 //    then uses to write one static HTML file per route. That is what makes a deep
 //    link work on a plain static host — there is no server for this site — and
 //    what makes a page readable with JavaScript off.
-//  - **The design tokens come from `@jef/web`.** `src/docs.css` imports
-//    `@jef/web/tokens.css` rather than restating a palette, because somebody
-//    with the dashboard in one tab and the docs in the other has to see one
-//    product. Only the long-form prose layer belongs to this package.
+//  - **The design tokens come from `@sandboxr/tokens`.** `src/docs.css` imports
+//    `@sandboxr/tokens/tokens.css` rather than restating a palette, because
+//    somebody with the dashboard in one tab and the docs in the other has to see
+//    one product. Only the long-form prose layer belongs to this package. The
+//    tokens are a package of their own rather than the dashboard's because this
+//    site is the engine's and the dashboard is Jef's, and the engine cannot
+//    depend on the product.
 
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";

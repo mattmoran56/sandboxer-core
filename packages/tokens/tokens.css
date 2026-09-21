@@ -1,0 +1,658 @@
+/*
+ * Tide II — the design system, as tokens.
+ *
+ * This file is the whole of it — palette, schemes, fonts, the light/dark
+ * mechanism, the base layer and the named shapes — and it is deliberately
+ * separate from the app that renders on top of it. Two apps render this product:
+ * the dashboard (`packages/web`) and the documentation site (`packages/docs`).
+ * They import this file; neither of them holds a second copy of a hex. A palette
+ * that existed twice would drift, and it would drift silently, because nothing
+ * about the dashboard looking right tells you the docs site does.
+ *
+ * **It lives in `packages/tokens` — `@sandboxr/tokens` — and not in either of
+ * them.** It was the dashboard's while the two apps were one repository, and the
+ * docs site reached across for it with an import of `@jef/web/tokens.css`. They
+ * will not be one repository for much longer: `packages/docs` publishes the
+ * engine's documentation and leaves with the engine, and the dashboard stays
+ * with the product, so that import was a dependency pointing the wrong way. A
+ * package of its own is the only home both can depend on. It has no build, no
+ * dependencies and one export, `@sandboxr/tokens/tokens.css`.
+ *
+ * **`docs/brand.md` is this file written for a reader** — the name, the mark, the
+ * lockup, the palette, the type, the material and the voice — and it is the page
+ * to change alongside this one, and the one to hand anybody putting the brand on
+ * a surface that is not one of these two apps.
+ *
+ * **Tide II is the same DNA with the glass taken off and the serif given room.**
+ * Instrument Serif for display, Inter Tight for text, JetBrains Mono for data;
+ * cool neutrals; a teal brand; unchanged status hues. What went: the `glass`
+ * material and its specular lights, the radial brand wash behind the page, the
+ * brand gradient and the second brand hue it needed, and the shadows under a card
+ * and a panel. What arrived is an outline and more space.
+ *
+ * Five rules hold the whole thing together:
+ *
+ *  1. **Components never name a colour.** They use a semantic token — `surface`,
+ *     `line`, `ink-muted`, `brand` — and the token is what changes when the
+ *     theme or the colour scheme does. That is what makes a scheme switch one
+ *     attribute on <html> rather than a sweep through every component.
+ *  2. **Dark mode is the tokens, not a variant.** Every token is redefined under
+ *     `[data-theme="dark"]`, so almost nothing in the app needs a `dark:` class.
+ *     A component written against the tokens is already correct in both.
+ *  3. **Status colours do not belong to a scheme.** Running is green in every
+ *     scheme and needs-attention is rose in every scheme, because those two
+ *     carry meaning and a colour that changes meaning between schemes is a
+ *     colour nobody can learn.
+ *  4. **A hairline separates, not a shadow.** A panel and a card are `1px solid
+ *     line` on `surface`, and an interactive card goes `line-strong` on hover.
+ *     `shadow-card` and `shadow-panel` are `none`, and they are still declared so
+ *     the day somebody reaches for one they get nothing rather than a stray
+ *     elevation. Only two shadows survive, and both are for something that really
+ *     is off the page: `shadow-pop` under a popover and `shadow-modal` under a
+ *     dialog. The third is `shadow-raise`, one pixel under the selected segment
+ *     of a segmented control — that one is what makes the control read as a
+ *     control, and it is the exception that proves the rule.
+ *  5. **Attention is the primary signal.** `warn` is the colour of "this is
+ *     waiting on you" — a permission ask, an escalated question — and it outranks
+ *     every other thing a card can say about itself. It is a status hue rather
+ *     than a scheme's, for the same reason `ok` and `bad` are.
+ *
+ * The brand is ink, not a gradient: one `brand` hue, flat, under `brand-ink`
+ * text on a primary button and as an italic serif phrase in a heading.
+ */
+
+/*
+ * Tailwind comes first, and not only for the utilities: `@theme`, `@utility` and
+ * `@custom-variant` below are Tailwind at-rules, and a file using them without
+ * importing Tailwind is a file of dead CSS. An app importing this one therefore
+ * gets Tailwind through it and must not import it again.
+ */
+@import "tailwindcss";
+
+/*
+ * The fonts are self-hosted from npm rather than fetched from a font CDN, and
+ * that is not a preference: the dashboard's Content-Security-Policy is
+ * `font-src 'self'` (packages/server/src/http/respond.ts), so a stylesheet
+ * pointing at fonts.gstatic.com would load nothing at all.
+ */
+@import "@fontsource/instrument-serif/latin.css";
+@import "@fontsource/instrument-serif/latin-italic.css";
+@import "@fontsource-variable/inter-tight/wght.css";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+
+/*
+ * Dark mode is one `color-scheme` and a pile of `light-dark()`.
+ *
+ * Every token below is declared once, with both its values, and `light-dark()`
+ * picks between them from whatever `color-scheme` is in force. The theme switch
+ * therefore sets `color-scheme` and nothing else — there is no second copy of
+ * the palette to keep in step, and no token can end up defined in one theme and
+ * missing in the other.
+ *
+ * It also gets the login page right for free. That page is server-rendered with
+ * no script (it has to work with JavaScript off, and the browser's password
+ * manager has to recognise it), so nothing sets `data-theme` on it. With no
+ * attribute the root keeps `light dark`, which means "follow the machine" — and
+ * that is exactly the right answer for the one page that cannot ask.
+ */
+:root {
+  color-scheme: light dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* --- the palette -------------------------------------------------------- */
+
+/*
+ * **Every value below is chosen against a contrast ratio, not by eye.**
+ *
+ * The rule: any token that ends up as *text* clears WCAG AA — 4.5:1 — against
+ * every surface it is put on, in both themes. That is not decoration. This is a
+ * dashboard read all day, much of it in 11px and 12px secondary text, and the
+ * first version of this palette failed it almost everywhere: the subtle ink was
+ * 3.05:1, and every status badge sat between 3.2 and 4.05 against its own tinted
+ * background.
+ *
+ * Three consequences worth knowing before changing a hex here:
+ *
+ *  - A status colour is checked against **both** the surface and its `-soft`
+ *    partner, because a badge is coloured text on a tint of itself, which is the
+ *    tighter of the two.
+ *  - A brand hue is checked twice more: as link text on the surface, and as the
+ *    background under the **white** label of a primary button. The button is what
+ *    pinned the light-mode brands darker than they first were — a vivid teal that
+ *    looks confident as a fill is only 3.74:1 under white text. The primary
+ *    button is a flat fill now rather than a gradient, so it is one sum instead
+ *    of two, but it is the same sum and it still decides the hue.
+ *  - The dark half is mostly unconstrained by comparison, because light text on a
+ *    near-black surface starts around 15:1. Only the subtle ink needed moving.
+ *
+ * Four of Tide II's own values moved off the ones the redesign proposed, each by
+ * the smallest step that cleared AA, and each is noted where it sits.
+ *
+ * The arithmetic is not left to good intentions: `app.css.test.ts` reads this
+ * file and checks every one of those ratios.
+ */
+:root {
+  /* Neutrals. Cool-grey rather than pure grey: against a teal or blue brand a
+     neutral grey reads faintly brown. Tide II warms them a shade towards the
+     brand's own green so a hairline on white does not read as blue. */
+  --sb-bg: light-dark(#f3f5f4, #0c1213);
+  --sb-surface: light-dark(#ffffff, #121a1b);
+  --sb-surface-2: light-dark(#f8faf9, #161f20);
+  --sb-sunken: light-dark(#e9eeec, #0a0f10);
+  --sb-hover: light-dark(#eef2f0, #1a2526);
+  /*
+   * The hairline, and it is now the *only* thing separating a panel from the
+   * canvas — there is no shadow under one any more. `line-strong` is what an
+   * interactive card takes on hover, which is the whole of that card's hover
+   * state.
+   */
+  --sb-line: light-dark(#d9e1de, #22302f);
+  --sb-line-strong: light-dark(#b9c6c2, #35474a);
+  --sb-ink: light-dark(#0e1a1c, #e6eeec);
+  --sb-ink-muted: light-dark(#4f6366, #9db0ad);
+  /*
+   * 5.36:1 on the surface and 4.57:1 on the sunken inset, which is the tightest
+   * *neutral* surface it appears on.
+   *
+   * **Both halves are darker/lighter than Tide II first specified**, and by the
+   * smallest step that cleared AA: the proposed #7e9093 was 2.84:1 on the sunken
+   * inset and the proposed dark #6f8280 was 3.88:1 on the hover tint — the kind
+   * of miss nobody sees until they are reading a timestamp in a sidebar row.
+   *
+   * **It is for neutral surfaces only.** On a tinted `-soft` background it falls
+   * to about 4.36 and misses AA — a selected sidebar row is `brand-soft`, which
+   * is where that really bites. Secondary text that can land on a tint uses
+   * `ink-muted`, which clears 4.5 on every surface in this file. Darkening this
+   * token further instead would have collapsed the gap to `ink-muted` and left
+   * two indistinguishable greys.
+   */
+  --sb-ink-subtle: light-dark(#606d70, #7c8d8b);
+
+  /* Shadows are the ink's own hue in light and plain black in dark, where a
+     tinted shadow on a near-black surface reads as a smudge. Three weights, and
+     Tide II spends only two of them: a popover and a modal really are off the
+     page. The lightest is one pixel under a selected segment. */
+  --sb-shade-1: light-dark(rgb(14 26 28 / 0.08), rgb(0 0 0 / 0.4));
+  --sb-shade-2: light-dark(rgb(14 26 28 / 0.16), rgb(0 0 0 / 0.55));
+  --sb-shade-3: light-dark(rgb(14 26 28 / 0.34), rgb(0 0 0 / 0.7));
+
+  /*
+   * Status. Fixed across every scheme — see rule 3 at the top of this file.
+   * These carry meaning, and a colour that means something different depending
+   * on which scheme is selected is a colour nobody can learn.
+   */
+  /* #0f794c and not the proposed #0f7a4d: two points of green under, because
+     the brighter one is 4.49:1 on its own tint and misses AA by a hundredth. */
+  --sb-ok: light-dark(#0f794c, #34d399);
+  --sb-ok-soft: light-dark(#d6f1e3, #0c2f26);
+  --sb-busy: light-dark(#1d5fbf, #38bdf8);
+  --sb-busy-soft: light-dark(#dbe7f9, #0a2536);
+  --sb-bad: light-dark(#b3213f, #fb7185);
+  --sb-bad-soft: light-dark(#f8dde3, #35131f);
+  /* #5e6c6f and not the proposed #6b7b7e, which was 3.66:1 on its own tint and
+     4.41:1 on the surface — an idle badge is grey text on grey, which is the
+     tightest pairing in the file and the easiest one to pick by eye and get
+     wrong. */
+  --sb-idle: light-dark(#5e6c6f, #94a3b8);
+  --sb-idle-soft: light-dark(#e6ebea, #1a2334);
+  /*
+   * The amber one, and in Tide II it is promoted: **`warn` is "waiting on you"**
+   * — a permission ask, an escalated question, the stat tile that is only filled
+   * when it is not zero — which is the signal the whole dashboard is arranged
+   * around (rule 5). It is also still the documentation site's fifth callout
+   * colour, which is why it exists at all: GitHub alerts come in five kinds and
+   * this palette had four status hues, so `WARNING` and `CAUTION` both landed on
+   * rose and were distinguishable only by their icon.
+   *
+   * Pinned darker than an amber usually is: the obvious #b45309 is 4.43:1 on the
+   * sunken inset and 4.45:1 on its own tint, so it misses AA on both by a hair.
+   */
+  --sb-warn: light-dark(#8a5a00, #fbbf24);
+  --sb-warn-soft: light-dark(#f9ecd1, #2a1e05);
+  /*
+   * The purple one, and it is here rather than in a scheme for the same reason
+   * the others are: it carries a meaning. It means **merged** — a pull request
+   * that landed (contracts §4.1.2) — and that colour is not a choice this
+   * palette gets to make. Purple-for-merged is GitHub's, a reader arrives
+   * already knowing it, and the schemes deliberately contain no purple, so
+   * nothing else in the product can be mistaken for it.
+   *
+   * It is named for what it means and not for a hue, which is why a domain word
+   * appears in a palette of `ok` / `busy` / `bad`: there is exactly one thing
+   * this colour is allowed to say, and a name like `--sb-violet` would invite a
+   * second.
+   *
+   * Violet-700 rather than the brighter violet-600: the brighter one is 4.58:1
+   * on its own tint, which clears AA by four hundredths and would fail the
+   * moment the tint moved. This clears 5.71 in light and 6.37 in dark.
+   */
+  --sb-merged: light-dark(#6d28d9, #c084fc);
+  --sb-merged-soft: light-dark(#ece2fd, #241638);
+
+  /* Tide, repeated below, so a root with no `data-scheme` is still a scheme. */
+  --sb-brand: light-dark(#0b5f5a, #4fd1c5);
+  --sb-brand-ink: light-dark(#ffffff, #052a27);
+  --sb-brand-soft: light-dark(#d7ecea, #0f2f2d);
+  --sb-brand-line: light-dark(#9fcdc8, #1e4f4a);
+  --sb-accent: light-dark(#be123c, #fb7185);
+}
+
+/*
+ * The three schemes.
+ *
+ * **One hue each, since Tide II.** They used to be a pair — a hue and a second
+ * one for the gradient's far end — and the gradient is gone, so the second hue
+ * went with it rather than lingering as a colour with no job. Each scheme is now
+ * a brand, the ink that sits on it, its tint, its line, and the complementary
+ * accent: teal against rose, blue against rose, green against rose.
+ *
+ * The dark half of each brand is lighter than the light half, not darker: the
+ * same teal that reads confident on white reads muddy on near-black, and fails
+ * its contrast ratio against it. That is the "deep as ink in light, bright in
+ * dark" rule, and it is what every one of these is pinned to.
+ */
+[data-scheme="tide"] {
+  --sb-brand: light-dark(#0b5f5a, #4fd1c5);
+  --sb-brand-ink: light-dark(#ffffff, #052a27);
+  --sb-brand-soft: light-dark(#d7ecea, #0f2f2d);
+  --sb-brand-line: light-dark(#9fcdc8, #1e4f4a);
+  --sb-accent: light-dark(#be123c, #fb7185);
+}
+
+[data-scheme="cobalt"] {
+  --sb-brand: light-dark(#1d4ed8, #7ba6ff);
+  --sb-brand-ink: light-dark(#ffffff, #06152e);
+  --sb-brand-soft: light-dark(#e0e9fd, #101f3c);
+  --sb-brand-line: light-dark(#adc4f6, #26406e);
+  --sb-accent: light-dark(#be123c, #fb7185);
+}
+
+[data-scheme="fern"] {
+  --sb-brand: light-dark(#3f6a0b, #a3e635);
+  --sb-brand-ink: light-dark(#ffffff, #14210a);
+  --sb-brand-soft: light-dark(#e7f2d9, #1a2610);
+  --sb-brand-line: light-dark(#bcd99a, #35521a);
+  --sb-accent: light-dark(#be123c, #fb7185);
+}
+
+/* --- the edges of the screen -------------------------------------------- */
+
+/*
+ * What the hardware takes out of the viewport, and what the keyboard covers.
+ *
+ * Four of these are the phone's: the notch or dynamic island at the top, the
+ * home indicator at the bottom, and the rounded corners either side in
+ * landscape. **They are all zero until the document asks for the whole screen**
+ * — `env()` resolves to its fallback unless the page's viewport meta carries
+ * `viewport-fit=cover`. The dashboard sets it; a scrolling document like the
+ * docs site does not need to, because the browser already lays one out inside
+ * the safe area. A layout pinned to the viewport is the case that breaks: the
+ * header renders under the clock and the bottom bar under the home indicator,
+ * and neither is reachable.
+ *
+ * They are tokens rather than `env()` written at each use because nearly every
+ * use is `calc(<a real padding> + <the inset>)` — a bar wants its own padding
+ * *plus* whatever the hardware is taking — and because a token can be found by
+ * a test.
+ */
+:root {
+  --sb-safe-top: env(safe-area-inset-top, 0px);
+  --sb-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --sb-safe-left: env(safe-area-inset-left, 0px);
+  --sb-safe-right: env(safe-area-inset-right, 0px);
+
+  /*
+   * The fifth is not the hardware's — it is the on-screen keyboard, and nothing
+   * in CSS reports it.
+   *
+   * **On iOS the keyboard does not shrink the viewport**, and `dvh` does not
+   * move when it opens. So a composer pinned to the bottom of a `h-dvh` layout
+   * ends up underneath the keyboard, and somebody typing cannot see what they
+   * are typing — which is the state the agent pane and the terminal are in for
+   * their whole reason to exist. `visualViewport` is the only thing that knows,
+   * so the app measures it and writes the answer here (`lib/keyboard.ts`), and
+   * the layout subtracts it. Zero everywhere nothing sets it, including the docs
+   * site, so `h-app` is just `100dvh` there.
+   */
+  --sb-keyboard: 0px;
+}
+
+/* --- what Tailwind is allowed to see ------------------------------------ */
+
+/*
+ * Two blocks, and the difference matters.
+ *
+ * A plain `@theme` emits its variables into `:root`, so anything can reference
+ * them — which the base layer below does for the fonts, and the shadow scale
+ * does for the shades above.
+ *
+ * `@theme inline` does not emit them; it substitutes the declared value
+ * straight into the utility. That is what makes a colour utility emit
+ * `var(--sb-surface)` rather than a copy of today's hex, and it is the whole
+ * mechanism by which flipping one attribute on `<html>` restyles the page.
+ * Without `inline` the switch would still work through the extra hop, but the
+ * indirection would be pointless; with a plain value it would do nothing at all.
+ */
+@theme {
+  --font-sans:
+    "Inter Tight Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /*
+   * Named, so a component writes `rounded-card` and never a magic number.
+   *
+   * Tide II tightens the whole ladder — a card is 12px where it was 14, a panel
+   * 14 where it was 18 — because an outlined box at a large radius reads as a
+   * pill rather than as a sheet of paper, and the outline is now the only thing
+   * drawing the shape.
+   *
+   * `control` and `input` are two numbers rather than one because they are two
+   * shapes: a button is 9px (7 when it is small), an input 10px. A control that
+   * takes typing is a hair softer than one that takes a press, and that pair is
+   * lifted straight from the reference rendering.
+   *
+   * The three below the panel are **concentric**, which is Apple's rule and the
+   * reason nested rounded boxes look wrong when they are guessed: the inner
+   * radius is the outer one minus the padding between them, so the two curves
+   * share a centre. The outermost container in the chain is the hardware — a
+   * current iPhone's screen corner is about 55px — which is where `--radius-sheet`
+   * comes from, and each step in costs it one gutter.
+   */
+  --radius-card: 0.75rem;
+  --radius-panel: 0.875rem;
+  /* A panel large enough to be the whole pane: the agent transcript, and the
+     chat composer under it. */
+  --radius-chat: 1rem;
+  --radius-control: 0.5625rem;
+  --radius-control-sm: 0.4375rem;
+  --radius-input: 0.625rem;
+  /* The device corner, and the gutter every step inward is measured against. */
+  --radius-screen: 3.4375rem;
+  --gutter: 1rem;
+  /* A sheet is one gutter inside the screen; a card one gutter inside a sheet. */
+  --radius-sheet: calc(var(--radius-screen) - var(--gutter));
+  --radius-inset: calc(var(--radius-sheet) - var(--gutter));
+
+  /*
+   * **Two of these are `none`, and they are declared anyway.** A card and a
+   * panel are drawn with a hairline in Tide II (rule 4), and leaving the names
+   * defined means the call sites that still ask for one get nothing rather than
+   * an elevation nobody chose — and that a future change of mind has one place
+   * to happen.
+   */
+  --shadow-card: none;
+  --shadow-panel: none;
+  /* One pixel under the selected segment of a segmented control, and nowhere
+     else. Without it the control stops reading as a control. */
+  --shadow-raise: 0 1px 2px var(--sb-shade-1);
+  --shadow-pop: 0 18px 40px -18px var(--sb-shade-2);
+  --shadow-modal: 0 24px 60px -24px var(--sb-shade-3);
+}
+
+@theme inline {
+  --color-canvas: var(--sb-bg);
+  --color-surface: var(--sb-surface);
+  --color-surface-2: var(--sb-surface-2);
+  --color-sunken: var(--sb-sunken);
+  --color-hover: var(--sb-hover);
+  --color-line: var(--sb-line);
+  --color-line-strong: var(--sb-line-strong);
+  --color-ink: var(--sb-ink);
+  --color-ink-muted: var(--sb-ink-muted);
+  --color-ink-subtle: var(--sb-ink-subtle);
+
+  --color-brand: var(--sb-brand);
+  --color-brand-ink: var(--sb-brand-ink);
+  --color-brand-soft: var(--sb-brand-soft);
+  --color-brand-line: var(--sb-brand-line);
+  --color-accent: var(--sb-accent);
+
+  --color-ok: var(--sb-ok);
+  --color-ok-soft: var(--sb-ok-soft);
+  --color-busy: var(--sb-busy);
+  --color-busy-soft: var(--sb-busy-soft);
+  --color-bad: var(--sb-bad);
+  --color-bad-soft: var(--sb-bad-soft);
+  --color-idle: var(--sb-idle);
+  --color-idle-soft: var(--sb-idle-soft);
+  --color-warn: var(--sb-warn);
+  --color-warn-soft: var(--sb-warn-soft);
+  --color-merged: var(--sb-merged);
+  --color-merged-soft: var(--sb-merged-soft);
+}
+
+/* --- the page ----------------------------------------------------------- */
+
+/*
+ * Everything in this layer is true of both apps: the same canvas, the same focus
+ * ring, the same scrollbars. An app's own base layer goes in its own stylesheet,
+ * so that reading this one tells you what the product looks like and reading
+ * that one tells you what is peculiar to that app.
+ */
+@layer base {
+  * {
+    border-color: var(--sb-line);
+  }
+
+  /*
+   * Three things a browser does on a touch screen that no native app does.
+   *
+   * **`tap-highlight-color` is the grey box iOS paints over anything tappable**
+   * for a moment after the tap, and it is the single loudest tell that a page is
+   * a page. It ignores the shape of the control — a rounded row gets a square —
+   * and it fires on a scroll that happened to start on a link. The kit draws its
+   * own pressed states instead (`active:` on every control), which are the right
+   * shape and only fire on a real press.
+   *
+   * **`touch-action: manipulation` removes double-tap-to-zoom**, and with it the
+   * ~300ms the browser otherwise waits after *every* tap to find out whether a
+   * second one is coming. That delay is why a web page feels a beat behind a
+   * native one. Pinch-zoom and panning are untouched — only the double-tap
+   * gesture goes — so nothing about the page becomes harder to read or reach.
+   * Panning is then narrowed further, to one axis at a time, by the components
+   * that interpret a horizontal drag themselves.
+   *
+   * **`text-size-adjust` was already here** and belongs with the other two:
+   * without it iOS inflates the font of any block it decides is a column of body
+   * text, so one panel silently renders larger than the one beside it.
+   */
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  /*
+   * A flat canvas, and that is the change Tide II is. There used to be two very
+   * soft brand-hued radial washes fixed behind the page, on the reasoning that a
+   * flat neutral background reads as a spreadsheet. What it actually did was
+   * tint every hairline that crossed it, so an outlined card sat on a slightly
+   * different colour depending on where it was on the page — which is the one
+   * thing an outlined design cannot afford. The serif and the space do that work
+   * now.
+   */
+  body {
+    background-color: var(--sb-bg);
+    color: var(--sb-ink);
+    font-family: var(--font-sans);
+    /* Inter Tight is a tight face already; a hair of extra tracking at body
+       size stops it reading cramped, and the display serif sets its own. */
+    letter-spacing: 0.006em;
+    font-synthesis-weight: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /*
+     * No rubber-band, and no browser pull-to-refresh.
+     *
+     * Both are wrong for a layout that is pinned to the viewport rather than
+     * scrolled: dragging the page as a whole reveals the canvas above the header
+     * and below the bottom bar, which is a seam a native app does not have. The
+     * panes inside still scroll, and they say so themselves — see `overscroll`
+     * below, which is what stops a scroll that reaches the end of a pane from
+     * being handed up to the page and starting the bounce anyway.
+     */
+    overscroll-behavior-y: none;
+  }
+
+  /* One focus ring for everything, in the brand hue, and never removed. */
+  :focus-visible {
+    outline: 2px solid var(--sb-brand);
+    outline-offset: 2px;
+    border-radius: 0.35rem;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--sb-brand) 28%, transparent);
+  }
+
+  /* Scrollbars, because the sidebar and the log pane both have one on screen
+     all day and the platform default is a bright slab in dark mode. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sb-line-strong) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--sb-line-strong);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* --- the shapes a touch screen needs ------------------------------------ */
+
+/*
+ * The height of an app that is pinned to the viewport.
+ *
+ * `100dvh` minus whatever the keyboard is covering — see `--sb-keyboard`. On a
+ * desktop, and anywhere nothing measures a keyboard, the subtraction is zero and
+ * this is exactly `h-dvh`.
+ */
+@utility h-app {
+  height: calc(100dvh - var(--sb-keyboard));
+}
+
+/*
+ * The safe-area insets, as padding.
+ *
+ * The bare utilities are for an edge with no padding of its own. Anything that
+ * already has padding writes the `calc()` itself — `pb-[calc(0.5rem+var(--sb-safe-bottom))]`
+ * — because a bar wants its own breathing room *and* the home indicator's, and a
+ * utility that replaced the first with the second would collapse on a phone and
+ * look fine on every desktop it was checked on.
+ */
+@utility pt-safe {
+  padding-top: var(--sb-safe-top);
+}
+
+@utility pb-safe {
+  padding-bottom: var(--sb-safe-bottom);
+}
+
+@utility px-safe {
+  padding-left: var(--sb-safe-left);
+  padding-right: var(--sb-safe-right);
+}
+
+/*
+ * A scroller that keeps its scroll to itself.
+ *
+ * Without `contain`, a flick that reaches the end of a pane is handed to the
+ * page behind it, which is how a list bounces the whole app even though the app
+ * is not scrollable.
+ *
+ * **It deliberately sets no `touch-action`, and that is a correction.** It used
+ * to say `pan-y`, on the reasoning that a pane which scrolls only vertically
+ * should tell the browser so and leave horizontal drags for a gesture handler.
+ * That reasoning is wrong in a way with no symptom on a desktop: the effective
+ * `touch-action` is the *intersection* down the whole ancestor chain, and a
+ * descendant cannot widen it again. So `pan-y` here silently forbade horizontal
+ * panning in everything inside — the code blocks and tables in a rendered
+ * reply, the environment table, and the action sheet's log, where a long line
+ * is exactly the thing somebody needs to drag sideways to read. It also
+ * contradicted the reason the back gesture is edge-only, which is that those
+ * panes scroll sideways and the gesture must not take their first drag.
+ *
+ * Nothing is lost by dropping it. A browser only pans an element that actually
+ * overflows on that axis, and this one does not — its children do, and they
+ * have their own scrollers.
+ */
+@utility overscroll-pane {
+  overscroll-behavior: contain;
+}
+
+/*
+ * A control that must not be treated as content.
+ *
+ * A long press on a link or a label is a system gesture — iOS pops a preview and
+ * a share sheet, Android offers to select the text — and on a tab bar, a drag
+ * handle or a row being swiped, that gesture fires instead of the one the person
+ * meant. It is applied to app furniture only: a slug, a path and a commit sha are
+ * things people really do long-press to copy, and those keep the default.
+ */
+@utility no-callout {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/*
+ * Enough of a control to hit with a thumb, without changing what it looks like.
+ *
+ * The kit is full of 24 and 32 pixel controls, which are right for a pointer and
+ * under half the 44px Apple and Google both ask for. Growing them would rebuild
+ * every dense row on the desktop the app is mostly used on, so the *target*
+ * grows and the control does not: a transparent overlay, centred, at least 44px
+ * square, and only where the pointer is coarse. `position: relative` is set here
+ * rather than assumed, because a caller that forgot it would silently hang the
+ * overlay off whatever ancestor was positioned.
+ */
+@utility touch-target {
+  position: relative;
+
+  @media (pointer: coarse) {
+    &::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      translate: -50% -50%;
+      min-width: 44px;
+      min-height: 44px;
+      width: 100%;
+      height: 100%;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

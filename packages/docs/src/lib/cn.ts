@@ -2,12 +2,13 @@
  * Joins class names, dropping anything falsy.
  *
  * A copy of `packages/web/src/lib/cn.ts` rather than an import of it, and the
- * duplication is deliberate. `@jef/web` exports exactly two things — its
- * built `dist/` and `tokens.css` — because it is the dashboard's application
- * bundle, not a component library. Reaching into its `src/` from here would make
- * every file it happens to import part of this site's build graph, and the first
- * one to pull in `@xterm/xterm` would put a terminal emulator in the
- * documentation bundle.
+ * duplication is deliberate. This site does not depend on `@jef/web` at all —
+ * it is the engine's documentation and the dashboard is Jef's, so the only
+ * thing the two share is `@sandboxr/tokens`, a package that is one stylesheet.
+ * Even if the dependency were allowed, reaching into the dashboard's `src/` from
+ * here would make every file it happens to import part of this site's build
+ * graph, and the first one to pull in `@xterm/xterm` would put a terminal
+ * emulator in the documentation bundle.
  *
  * **The design system is shared, the code is not.** That is the whole boundary:
  * `tokens.css` is imported so the two apps cannot drift on a colour, and eleven
