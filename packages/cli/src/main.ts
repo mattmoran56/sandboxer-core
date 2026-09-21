@@ -1855,14 +1855,6 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
         fix: "mkcert -install",
       });
     }
-    // Only worth saying when something is actually there to admit nobody.
-    if (access.frontends.length > 0 && !env.SANDBOXR_PASSWORD) {
-      findings.push({
-        ok: false,
-        text: "SANDBOXR_PASSWORD is not set, so the dashboard admits nobody",
-        fix: "export SANDBOXR_PASSWORD=… && jef init",
-      });
-    }
   }
 
   const location = await locateConfig(from, { env });
