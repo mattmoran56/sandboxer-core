@@ -221,7 +221,11 @@ describe("staging a build context", () => {
 // shipped, because the failure they guard against — an empty TARGETARCH under
 // the legacy builder — is invisible to any test that renders a fake template.
 describe("the architecture switches in the shipped Dockerfiles", () => {
-  const sources = ["base/Dockerfile", "dashboard/Dockerfile", "project/Dockerfile.template"];
+  // Every Dockerfile this repository ships. The dashboard's was on this list
+  // until it left with the product, and the rule it was here for travelled with
+  // it: an image built from a Dockerfile that reads TARGETARCH needs the same
+  // fallback, wherever that Dockerfile lives.
+  const sources = ["base/Dockerfile", "project/Dockerfile.template"];
 
   it.each(sources)("resolves the architecture for itself in %s", async (name) => {
     const text = await readFile(join(containerDir(), name), "utf8");
