@@ -102,7 +102,10 @@ frontends:
   apps:
     - label: app
       package: .
-      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXR_D1_DIR"
+      serve: >-
+        npx wrangler dev --port 8787 --ip 127.0.0.1
+        --persist-to "$SANDBOXR_D1_DIR"
+        --var SANDBOXR_SLUG:"$SANDBOXR_SLUG"
       port: 8787
       health: /health
 
@@ -117,7 +120,6 @@ access:
   controls: password
 
 env:
-  SANDBOXR_SLUG: "${SANDBOXR_SLUG}"
   WRANGLER_SEND_METRICS: "false"
 ```
 
@@ -317,7 +319,6 @@ for it on this machine.
 
 ```yaml
 env:
-  SANDBOXR_SLUG: "${SANDBOXR_SLUG}"
   WRANGLER_SEND_METRICS: "false"
 ```
 
@@ -326,11 +327,18 @@ database, its object storage, each app's own URL — and exports those under a `
 Your project reads its own names for the same things. Only your project knows its own spelling, so
 it says so here.
 
-The demo needs almost none of that, so it uses the block for two small things: passing the slug
-through so the page can say which sandbox served it, and turning wrangler's telemetry off.
+The demo reads the engine's own names, so it needs no renaming at all and the block is left with
+one plain setting: wrangler's telemetry, off.
 
 Values are expanded by **substitution, never by a shell**, so a value is data and cannot become a
 command.
+
+> [!NOTE] A Worker's `env` is wrangler's, not the process environment
+> `src/index.js` reads `env.SANDBOXR_SLUG`, and that `env` is the bindings wrangler was given —
+> never the variables the process was started with. So the slug travels on the serve command as
+> `--var SANDBOXR_SLUG:"$SANDBOXR_SLUG"`, expanded by the same shell that already expands
+> `$SANDBOXR_D1_DIR`. Mapping it in the block above instead looked like it was doing this job and
+> was not: every sandbox called itself `local`.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — every other file in the demo, and what each line is doing</summary>
