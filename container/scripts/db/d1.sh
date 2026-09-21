@@ -28,8 +28,26 @@ seed_artifact() {
 # by a fixed path because the object-store directory name is miniflare's to
 # choose; a missing match means "nothing has created the database yet", which is
 # a normal first-boot state.
+#
+# **Scoped to the D1 backend, and `metadata.sqlite` excluded.** miniflare puts
+# every backend it persists under the one directory -- D1, KV, R2, the cache --
+# and each is a `*.sqlite`. An unscoped `find | head -1` therefore returned
+# whichever the filesystem happened to list first, which on this machine was the
+# cache backend's `metadata.sqlite`. Everything then *worked*: the fixtures
+# applied cleanly, `snapshot` printed a schema, `db shell` opened a database.
+# They were just the wrong file. The symptom was an API answering `[]` for rows
+# the seed had definitely loaded, with nothing in any log, and the cause looked
+# nothing like it.
+#
+# The fallback keeps a future layout working: if nothing is under a `d1/`
+# directory, take any `*.sqlite` that is not miniflare's metadata. `sort` makes
+# the choice the same on two machines; `sed -n 1p` rather than `head -1` because
+# `head` closes the pipe and a writer still going dies of SIGPIPE.
 d1_file() {
-  find "$DIR" -name '*.sqlite' -type f 2>/dev/null | head -1
+  local found
+  found=$(find "$DIR" -type f -path '*/d1/*' -name '*.sqlite' ! -name 'metadata.sqlite' 2>/dev/null | sort | sed -n 1p)
+  [[ -n "$found" ]] || found=$(find "$DIR" -type f -name '*.sqlite' ! -name 'metadata.sqlite' 2>/dev/null | sort | sed -n 1p)
+  printf '%s\n' "$found"
 }
 
 provision() {
