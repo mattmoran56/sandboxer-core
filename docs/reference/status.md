@@ -360,6 +360,16 @@ handle being explained.
 - The agent layer's smoke check runs `claude --version` on the same PATH `docker exec` gets, so an
   image a session could not start in fails the build. That check moved out of the base image with
   the `claude` install it guards, into `container/jef-base/Dockerfile`.
+- **`jef/base` has been built by the host code that builds it**, on arm64, against a real daemon:
+  `ensureJefBaseImage` built `sandboxr/base` and then `jef/base` on top of it, and
+  `docker run --entrypoint claude jef/base:<tag> --version` answered `2.1.278 (Claude Code)` while
+  the same probe against the engine's base answered `No such file or directory`. A second run
+  rebuilt nothing. 580 MB for the base, 814 MB with the agent layer.
+- `jef doctor` has been run against that machine. It reports the tag sandboxes are built from and
+  exits non-zero when something is missing.
+- **Not run: a sandbox actually started from `jef/base`.** The image is built and probed; no `up`
+  has gone through the whole path on this machine, so the project layer being built `FROM` it is
+  asserted by tests and not by a running container.
 - The command that reads a worktree's slash commands has been run against a live sandbox. The list of
   built-ins was taken from the `claude` binary in the image, and checked against the commands a live
   session announces on start, rather than written from memory.
@@ -740,16 +750,10 @@ service unit. mkcert is the only certificate issuer.
 [On a server, for a team](../setups/shared-server.md) is a plan with the arithmetic worked out, not
 instructions.
 
-**The agent layer, wired to anything.** `container/jef-base/Dockerfile` exists and has been built by
-hand on top of the base image; `claude --version` answers inside it and does not inside the base. But
-nothing on the host builds it and nothing passes it as the base a project layer is built from, so a
-sandbox created today has **no `claude` in it at all**. `jef init` exists and builds the dashboard,
-workstation and orchestrator images; it does not build this one. The two pieces left are that build
-step and `UpOptions.baseImage`, the argument that would point a project layer at it.
-
 **A supervised coding-agent service.** No `sandboxr.yaml` block declares an agent, and nothing in a
-sandbox's service tree runs one. What does exist is `claude` in `container/jef-base/Dockerfile` — one
-layer on top of the agent-free base image — and a dashboard session that starts it with
+sandbox's service tree runs one. What does exist is `claude` in `container/jef-base/Dockerfile` — the
+layer `jef init` builds on top of the agent-free base image, and the one every sandbox Jef starts is
+built from — and a dashboard session that starts it with
 `docker exec` — see
 [Agent sessions in the dashboard](../guides/agent-sessions.md), and the entry for it above.
 [Your own agent in a sandbox](../guides/agents-in-a-sandbox.md) describes the other arrangement,

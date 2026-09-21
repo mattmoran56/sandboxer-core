@@ -95,7 +95,7 @@ flowchart TB
   f["Start the shared router on 127.0.0.1:80 and :443"]
   a --> b --> c --> e --> f
   f --> g["<b>jef init</b>"]
-  g --> h["Build sandboxr/dashboard and sandboxr/workstation"]
+  g --> h["Build jef/base, sandboxr/dashboard and sandboxr/workstation"]
   h --> i["Start the dashboard on the bare domain"]
 ```
 
@@ -113,15 +113,13 @@ object storage, `jq`, `git` and the GitHub CLI. Measured on arm64 it comes to ar
 
 It carries **no agent**. `claude` lives one layer above, in `container/jef-base/Dockerfile`, which
 adds about 234 MB and nothing else — sandboxr runs a project and has no opinion about who edits the
-worktree; Jef is the thing that puts an agent in there.
+worktree; Jef is the thing that puts an agent in there. `jef init` below builds that layer as
+`jef/base`, and every sandbox Jef starts is built on it, so a sandbox has `claude` in it. A sandbox
+started by the engine's own `sandboxr up` does not, which is the same boundary seen from the other
+side.
 
-> [!WARNING]
-> Nothing builds that layer or points a sandbox at it yet. `jef init` below builds the dashboard and
-> workstation images; this one is not among them. Until that wiring lands, a freshly built sandbox
-> has no `claude` in it.
-
-It is built once. Nothing rebuilds it unless you pass `--rebuild` or the tool's version changes.
-Every sandbox on the machine then starts from it.
+It is built once. Nothing rebuilds it unless you pass `--rebuild` or something it is built from
+changes. Every sandbox on the machine then starts from it.
 
 The dashboard image is `jef init`'s, and it is built separately on purpose: it carries a Docker
 client and the base image deliberately does not. That is what stops a project — or an agent

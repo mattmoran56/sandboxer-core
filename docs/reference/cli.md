@@ -153,6 +153,14 @@ a certificate, starts the container, waits for it, provisions the database and p
 Starting a sandbox that already exists replaces the container and **keeps its volumes**, so the
 database and the uploads survive.
 
+> [!NOTE] A sandbox started here has no agent in it
+> `sandboxr up` builds the project layer on the engine's own base image, and that image carries no
+> `claude` — sandboxr runs a project and has no opinion about who edits the worktree. A sandbox
+> started from the dashboard is built on `jef/base` instead, which is the engine's base with the
+> agent on top, so it does. If you started a sandbox here and `claude` is not found inside it,
+> nothing is broken: use the dashboard, or run your own agent against the bind mount
+> ([your own agent in a sandbox](../guides/agents-in-a-sandbox.md)).
+
 `up` is the only command that enforces the rules a public sandbox has to obey. Everything else loads
 the config without them, so you can still inspect and clean up a project whose config would be
 refused.

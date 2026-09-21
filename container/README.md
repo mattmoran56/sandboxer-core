@@ -60,12 +60,16 @@ sandboxr/base:<version>                generic, one per machine, no agent
                     └── one container per worktree
 ```
 
-> [!WARNING]
-> Nothing on the host builds `jef/base` or passes it as the project layer's base
-> yet. `jef init` exists — it builds the dashboard, workstation and orchestrator
-> images — but this one is not among them, and nothing sets `UpOptions.baseImage`.
-> Both halves are still to come. Until they do, a freshly built sandbox has no
-> `claude` in it.
+`jef init` builds `jef/base` — see `ensureJefBaseImage` in
+`packages/server/src/machine/images.ts` — and every `up` the dashboard makes
+passes it as `UpOptions.baseImage`, so the project layer is built `FROM` it. The
+tag is content-addressed on the engine base tag plus this Dockerfile's bytes, so
+a base rebuild moves it and the two can never drift.
+
+**A sandbox started by the engine's own `sandboxr up` has no agent in it**, and
+that is the boundary rather than an oversight: the engine's CLI does not pass
+`baseImage`, so it gets the engine's agent-free base. `jef doctor` is what says
+whether this machine has the agent layer at all.
 
 ### Building them
 
