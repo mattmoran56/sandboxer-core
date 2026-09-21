@@ -1,5 +1,5 @@
 {
-  // The same overrides `packages/web` makes, and for the same reason: the base
+  // The same overrides the dashboard makes, and for the same reason: the base
   // config is written for Node — `module: NodeNext`, no DOM, `composite` so the
   // Node packages can project-reference each other — and none of that suits a
   // bundled browser app. Nothing here is emitted by tsc; Vite does the building

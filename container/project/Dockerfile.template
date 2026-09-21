@@ -46,8 +46,8 @@ ARG BASE_IMAGE=sandboxr/base:latest
 FROM ${BASE_IMAGE}
 
 # Resolved, not trusted: `TARGETARCH` is a BuildKit built-in and the legacy
-# builder leaves it empty, which is what the dashboard's container builds with --
-# it ships no buildx. Every arch switch below therefore falls back to `uname -m`
+# builder leaves it empty, which is what a container driving Docker builds with
+# -- it ships the client alone and no buildx. Every arch switch below therefore falls back to `uname -m`
 # and accepts both spellings. The long version of why is above the s6 block in
 # base/Dockerfile; the short version is that without the fallback an image built
 # from the browser fails with a message about Go.

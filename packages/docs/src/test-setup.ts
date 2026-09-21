@@ -1,6 +1,6 @@
 // What the jsdom project needs before a component will render.
 //
-// The same idiom as `packages/web/src/test-setup.ts`: jsdom is a good DOM and not
+// The same idiom as the dashboard's test setup: jsdom is a good DOM and not
 // a browser, so several things this site uses are simply absent from it. Each is
 // filled in with the smallest thing that behaves like the real one — never with a
 // stub that always answers the same way, because a control tested against a fake
@@ -128,7 +128,7 @@ Element.prototype.scrollIntoView = () => undefined;
  * leaves a global that already exists alone rather than overwriting it. So on a
  * recent Node the site sees a `localStorage` that is neither jsdom's nor usable,
  * and every test that touches this reader's preferences dies in the teardown
- * below. The same gap `packages/web/src/test-setup.ts` fills, for the same reason.
+ * below. The same gap the dashboard's test setup fills, for the same reason.
  *
  * Guarded, so it is inert on a Node that supplies a working one. The methods sit
  * on a **prototype** and the `Storage` global is replaced with it, because a test

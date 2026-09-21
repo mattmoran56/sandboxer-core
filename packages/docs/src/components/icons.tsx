@@ -1,6 +1,6 @@
 // The icons this site needs, as inline SVG.
 //
-// The same idiom as `packages/web/src/components/icons.tsx`: a 24-unit box,
+// The same idiom as the dashboard's icon set: a 24-unit box,
 // `currentColor` strokes, `aria-hidden`, so an icon inherits the colour of the
 // text beside it and needs no variant per tone. Sixteen of them rather than the
 // dashboard's thirty, and only the ones something here actually renders — an icon

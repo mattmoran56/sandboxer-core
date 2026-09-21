@@ -1,7 +1,7 @@
 // What this covers:
 //  - every icon is one well-formed, self-closed <svg> element
 //  - all five alert kinds and all four detail kinds have one
-//  - the packages/web idiom: a 24-unit box, currentColor strokes, aria-hidden
+//  - the dashboard's idiom: a 24-unit box, currentColor strokes, aria-hidden
 //  - the class each icon carries is the one the stylesheet and the tests expect
 //  - nothing is a paint fill or a hard-coded colour, so an icon follows its text
 

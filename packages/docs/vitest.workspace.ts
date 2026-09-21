@@ -2,7 +2,7 @@ import { defineWorkspace } from "vitest/config";
 
 import { emptyContent } from "./vitest.config.js";
 
-// Split by extension, the same way `packages/web` splits: `.test.ts` is logic and
+// Split by extension, the same way the dashboard splits: `.test.ts` is logic and
 // runs in `node`, `.test.tsx` renders into jsdom. Which environment a file gets is
 // then visible in its name and never a configuration somebody has to look up.
 //

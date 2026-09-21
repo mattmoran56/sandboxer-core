@@ -3,7 +3,7 @@
 // Strings rather than React components because these are not rendered by React:
 // they are baked into the HTML at build time and arrive in the browser through
 // `dangerouslySetInnerHTML`, so there is no component to mount. They still follow
-// `packages/web/src/components/icons.tsx` exactly — a 24-unit box, `currentColor`
+// the dashboard's icon set exactly — a 24-unit box, `currentColor`
 // strokes and `aria-hidden`, so an icon takes the colour of the text beside it
 // and is invisible to a screen reader reading the title next to it.
 //

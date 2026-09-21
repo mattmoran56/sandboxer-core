@@ -1,6 +1,6 @@
 // The preferences, held in one place and written straight through to storage.
 //
-// This is `packages/web/src/state/prefs.tsx` with one difference, and the
+// This is the dashboard's `prefs.tsx` with one difference, and the
 // difference is the whole reason it is a separate file: **this site is
 // prerendered.** Every page is real HTML written at build time, so the first
 // render happens in Node with no `localStorage` at all, and the browser's first

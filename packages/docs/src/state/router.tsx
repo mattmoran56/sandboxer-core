@@ -1,6 +1,6 @@
 // Where the reader is, and how they get somewhere else.
 //
-// `packages/web/src/state/router.tsx`, ported, with three differences that all
+// The dashboard's `router.tsx`, ported, with three differences that all
 // come from this being a prerendered documentation site rather than an app.
 //
 //  - **The first path is a prop.** The prerender renders one page per URL in

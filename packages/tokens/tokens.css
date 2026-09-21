@@ -3,25 +3,26 @@
  *
  * This file is the whole of it — palette, schemes, fonts, the light/dark
  * mechanism, the base layer and the named shapes — and it is deliberately
- * separate from the app that renders on top of it. Two apps render this product:
- * the dashboard (`packages/web`) and the documentation site (`packages/docs`).
- * They import this file; neither of them holds a second copy of a hex. A palette
- * that existed twice would drift, and it would drift silently, because nothing
- * about the dashboard looking right tells you the docs site does.
+ * separate from the app that renders on top of it. Two apps render the same
+ * design: the documentation site (`packages/docs`) here, and the product's
+ * dashboard in the repository built on this one. They import this file; neither
+ * of them holds a second copy of a hex. A palette that existed twice would
+ * drift, and it would drift silently, because nothing about the dashboard
+ * looking right tells you the docs site does.
  *
  * **It lives in `packages/tokens` — `@sandboxr/tokens` — and not in either of
- * them.** It was the dashboard's while the two apps were one repository, and the
- * docs site reached across for it with an import of `@jef/web/tokens.css`. They
- * will not be one repository for much longer: `packages/docs` publishes the
- * engine's documentation and leaves with the engine, and the dashboard stays
- * with the product, so that import was a dependency pointing the wrong way. A
- * package of its own is the only home both can depend on. It has no build and
- * one export, `@sandboxr/tokens/tokens.css`.
+ * them.** It was the dashboard's while the two apps were one repository and the
+ * docs site reached across for it. They are not one repository any more:
+ * `packages/docs` publishes the engine's documentation and came here with the
+ * engine, the dashboard stayed with the product, and that import was a
+ * dependency pointing the wrong way. A package of its own is the only home both
+ * can depend on. It has no build and one export,
+ * `@sandboxr/tokens/tokens.css`.
  *
  * **What it imports, it depends on.** Nothing here is compiled, so the four
  * `@import`s below are resolved from `node_modules` by whichever bundler is
  * building the app — which means this package's own `package.json` has to
- * declare them or a clone of the engine repository builds a site with no fonts
+ * declare them or a clone of this repository builds a site with no fonts
  * in it. It worked while this file lived in the dashboard and npm hoisted the
  * dashboard's dependencies over it; that is an accident of one repository's
  * layout, not something to rely on after the split. Tailwind is a peer rather
@@ -88,9 +89,9 @@
 
 /*
  * The fonts are self-hosted from npm rather than fetched from a font CDN, and
- * that is not a preference: the dashboard's Content-Security-Policy is
- * `font-src 'self'` (packages/server/src/http/respond.ts), so a stylesheet
- * pointing at fonts.gstatic.com would load nothing at all.
+ * that is not a preference: the dashboard serves a `font-src 'self'`
+ * Content-Security-Policy, so a stylesheet pointing at fonts.gstatic.com would
+ * load nothing at all.
  *
  * All three are dependencies of *this* package, because this is the file that
  * imports them. They were the dashboard's until the tokens moved out, and a

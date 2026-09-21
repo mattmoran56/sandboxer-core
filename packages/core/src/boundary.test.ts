@@ -50,7 +50,7 @@ const MOVED = ['"../session/', '"../agent/', '"../code/', '"./session/', '"./age
  * have said so, which is why this assertion is by name and not by specifier.
  *
  * The engine takes `UpOptions.volumes` and `UpOptions.containerEnv` now, and the
- * product supplies all three — see `packages/sessions/src/agent/layout.ts`.
+ * product supplies all three, out of a package of its own.
  */
 const AGENT_NAME = /claude/i;
 

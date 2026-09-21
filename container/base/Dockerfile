@@ -70,11 +70,13 @@ FROM debian:bookworm-slim
 
 ARG TARGETARCH
 ARG S6_VERSION=3.2.1.0
-# The same pin as dashboard/Dockerfile, deliberately. Two images sandboxr builds
-# itself, both with a `gh` in them, is already one more than anybody wants to
-# reason about; two *versions* of it would mean a pull request that works from
-# the dashboard and not from a sandbox looks like a sandbox bug. Bump both or
-# neither.
+# Pinned, and this is now the only image in this repository that carries `gh`.
+# It used to be two: the dashboard's image had one as well, and the pin was
+# written here to keep them identical, because two *versions* of `gh` meant a
+# pull request that worked from the control plane and not from a sandbox looked
+# like a sandbox bug. The dashboard left with the product, so this pin has one
+# owner again — but an embedder that puts `gh` in an image of its own inherits
+# the same problem, and should match this line.
 ARG GH_VERSION=2.63.2
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -97,9 +99,9 @@ RUN apt-get update \
 #
 # `TARGETARCH` is a *BuildKit* built-in. The legacy builder never sets it, and
 # `docker build` falls back to the legacy builder wherever buildx is absent --
-# which is exactly the dashboard's container, since dashboard/Dockerfile ships
-# the docker client alone, on purpose. So every image build started from the
-# browser saw a `TARGETARCH` that was never declared, and the failure took
+# which is exactly what a control-plane container looks like, since one that
+# drives Docker ships the client alone, on purpose. So every image build started
+# from the browser saw a `TARGETARCH` that was never declared, and the failure took
 # whichever disguise the block wore: under `set -u` a hard `TARGETARCH: unbound
 # variable` from bash before the case was even reached; without it, a fall
 # through to the `*)` arm and "unsupported arch " with nothing after it; and
@@ -179,7 +181,7 @@ RUN set -eux; \
       "gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh"; \
     rm -f /tmp/gh.tgz
 
-# Send git's https credentials through gh, exactly as dashboard/Dockerfile does.
+# Send git's https credentials through gh.
 #
 # This is the half of "a sandbox can open a pull request" that is not `gh`: `gh pr
 # create` pushes the branch first, over https, and a `gh` that is logged in does
@@ -200,8 +202,8 @@ RUN git config --system credential.https://github.com.helper '!gh auth git-crede
 # bug. (On Docker Desktop's macOS VM the files already appear as root, so this is
 # the line that keeps a Linux host behaving like the laptop it was written on.)
 #
-# Blanket, and deliberately so, for the reason dashboard/Dockerfile gives: the
-# protection waived is against operating on a repository *another user* planted,
+# Blanket, and deliberately so: the protection waived is against operating on a
+# repository *another user* planted,
 # and the only repository here is the one worktree this sandbox was started for.
 # The container is the boundary, not this setting.
 RUN git config --system --add safe.directory '*'

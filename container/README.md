@@ -10,10 +10,10 @@ guarantees.
 Read [`docs/architecture/contracts.md`](../docs/architecture/contracts.md) first.
 Everything below implements it.
 
-**`jef-base/`, `workstation/`, `dashboard/` and `orchestrator/` are not the
-engine's** — they are Jef's, and they are documented in
-[`jef-base/README.md`](jef-base/README.md). Nothing in this file builds or names
-them.
+**Only the engine's images are here.** A product built on this engine adds
+images of its own — an agent layer, a control plane, whatever else it runs — in
+its own repository, and documents them there. Nothing in this directory builds
+or names one.
 
 ## Layout
 
@@ -26,7 +26,6 @@ them.
 | `scripts/with-env` | An argv prefix that gives any command the computed environment |
 | `scripts/db/<driver>.sh` | One file per database driver |
 | `examples/*.plan.json` | Two worked plans, used to exercise the generators |
-| `jef-base/`, `workstation/`, `dashboard/`, `orchestrator/` | Jef's — see [`jef-base/README.md`](jef-base/README.md) |
 
 ## Two images, not one
 
@@ -60,11 +59,12 @@ sandboxr/base:<version>                generic, one per machine, no agent
 **`UpOptions.baseImage` is where a third layer goes.** An embedder that wants
 something in every sandbox — an agent, a profiler, a company CA — builds its own
 image `FROM` the base and hands the tag in, and the project layer is rendered on
-top of that instead. Jef's is `jef-base/`, and it is the only one that exists.
+top of that instead. That image is the embedder's, and so is its Dockerfile: it
+is not in this repository and does not need to be.
 
 **A sandbox started by `sandboxr up` has no agent in it**, and that is the
 boundary rather than an oversight: the CLI passes no `baseImage`, so it gets the
-agent-free base. What Jef layers on it is [`jef-base/README.md`](jef-base/README.md).
+agent-free base.
 
 ### Building them
 
@@ -309,7 +309,7 @@ Mounts the host is expected to provide:
 | `/var/lib/sandboxr/bin` | the `bin` volume |
 | `/srv/www` | the `www` volume |
 | `/workspace/<deps.root>/node_modules` | the shared `deps-<hash>` volume |
-| `<whatever an embedder named>` | one bind per `UpOptions.volumes` row — see [`jef-base/README.md`](jef-base/README.md) for Jef's |
+| `<whatever an embedder named>` | one bind per `UpOptions.volumes` row; the engine mints none of these names |
 | `<each `share:` row's `into:`>` | that row's host file, one file each, read-write (contracts §4.3) |
 | `<the worktree's own host path>` | the worktree a second time, at the path the host calls it |
 | `<the repository's own host path>` | the bare repo or `.git` the worktree points at, read-write |

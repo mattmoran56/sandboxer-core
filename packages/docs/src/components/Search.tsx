@@ -1,7 +1,7 @@
 // Search: the one thing this site would be worse at than the one it replaced.
 //
 // Starlight shipped a search dialog. Nothing else here does, so this file is it,
-// and the shape of it is copied from `packages/web`'s Modal for the same reason
+// and the shape of it is copied from the dashboard's Modal for the same reason
 // that one gives: it is a native `<dialog>` opened with `showModal()`, so focus
 // trapping, an inert page behind it, Escape and the browser's top layer are all
 // the browser's. Every hand-rolled version of those gets one of them subtly wrong

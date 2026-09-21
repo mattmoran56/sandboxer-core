@@ -1,6 +1,6 @@
 // The kit: the four shapes this site's chrome is built from.
 //
-// A deliberate subset of `packages/web/src/components/ui.tsx`, copied rather than
+// A deliberate subset of the dashboard's `ui.tsx`, copied rather than
 // imported for the reason `lib/cn.ts` explains — the dashboard's `src/` is not a
 // component library and reaching into it would drag its dependencies here. Four
 // components and not twenty: a documentation site has no panels, no badges, no
