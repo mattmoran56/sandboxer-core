@@ -10,7 +10,9 @@
 //    including the handshake rule, which is a regular expression nobody should be
 //    editing in two places
 //  - every variable `FORWARDED_VARIABLES` names is passed through, and the only
-//    key compose adds is the one host.env deliberately renames
+//    key compose adds is the one host.env deliberately renames. host.env's keys
+//    are two sets now: the engine's three facts, and the ones Jef names as
+//    `hostEnvExtra` (contracts §11)
 //  - the orchestrator's mounts, command and environment
 //  - the names, the network and the role labels the rest of the tool looks for
 //  - the two boundaries the file has to state: it covers no sandbox, and it holds
@@ -26,7 +28,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 
-import { CREDENTIALS_ENV } from "../agent/credentials.js";
+import { CLAUDE_HOST_ENV_KEYS, CREDENTIALS_ENV } from "../agent/credentials.js";
 import { installRoot } from "../install.js";
 import { NETWORK } from "../naming.js";
 import {
@@ -195,7 +197,7 @@ describe("the dashboard", () => {
     const declared = (service("dashboard").environment as string[]).map((entry) => entry.split("=")[0] as string);
     // host.env is loaded as an env_file, so its keys are part of what this
     // container ends up with.
-    const reaching = new Set([...declared, ...HOST_ENV_KEYS]);
+    const reaching = new Set([...declared, ...HOST_ENV_KEYS, ...CLAUDE_HOST_ENV_KEYS]);
     // tls: false, so that SANDBOXR_INSECURE_COOKIES — which core sets only when
     // there is no certificate to carry a Secure cookie — is in the comparison.
     const wanted = runEnvKeys(
@@ -245,7 +247,7 @@ describe("the orchestrator", () => {
 
   it("gets every variable core gives it", () => {
     const declared = (service("orchestrator").environment as string[]).map((entry) => entry.split("=")[0] as string);
-    const reaching = new Set([...declared, ...HOST_ENV_KEYS]);
+    const reaching = new Set([...declared, ...HOST_ENV_KEYS, ...CLAUDE_HOST_ENV_KEYS]);
     for (const key of runEnvKeys(args)) expect([...reaching], `${key} never reaches the orchestrator`).toContain(key);
     // The credential path and the login it names are both core's, so they are
     // asserted rather than assumed.

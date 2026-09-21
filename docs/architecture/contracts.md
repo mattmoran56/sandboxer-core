@@ -2877,7 +2877,7 @@ that have to agree, held together by an assertion rather than by discipline.
 | File | Written by | Holds |
 |---|---|---|
 | `.env` | a person, from `.env.example` | paths, domain, password, ports, database credentials, `COMPOSE_PROFILES` |
-| `$SANDBOXR_HOME/host.env` | `sandboxr init` | `GH_TOKEN`, `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `SANDBOXR_CLAUDE_CREDENTIALS`, `CLAUDE_CODE_OAUTH_TOKEN` |
+| `$SANDBOXR_HOME/host.env` | `init` | The engine's three: `GH_TOKEN`, `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`. Then whatever the embedder named — for Jef, `SANDBOXR_CLAUDE_CREDENTIALS` and `CLAUDE_CODE_OAUTH_TOKEN` |
 
 `.env` is hand-edited and never generated, and that is the point of it: **a container's
 environment is fixed when the container is made**, so a credential added to a running dashboard
@@ -2889,11 +2889,20 @@ whole fix, and it must stay a file a person can edit for that to be true.
 the login keychain, the commit identity in a gitconfig the dashboard has not got, and the Claude
 login is a path on a filesystem it cannot see. It is loaded as an `env_file`, so it is container
 environment only and never interpolated. **Mode 0600**, like `secrets/<project>.env`, because it
-holds a token. `CLAUDE_CODE_OAUTH_TOKEN` in it is `SANDBOXR_CLAUDE_TOKEN` under the name Claude
-Code reads — the rename `orchestratorArgs` already performs, done once rather than in YAML. Both
-services load the file, so the dashboard sees that token under a second name; it is the same
-secret §7.2 already gives it, and the login kept out of the web server is the *credentials file*,
-which remains a path here and a mount there.
+holds a token.
+
+**Compose owns the shape, core owns the values, and the embedder owns its own values.** The
+engine writes three facts — the keychain's token and the machine's commit identity — because
+those are facts about a *sandbox's* host. Everything else in the file is `InitOptions.hostEnvExtra`,
+named by whoever ran `init`, written after the engine's own keys and sorted, through the same
+quoting and the same refusal of a value carrying a newline. The engine never learns what any of
+them is for.
+
+Jef names two. `SANDBOXR_CLAUDE_CREDENTIALS` is a path on the host filesystem. `CLAUDE_CODE_OAUTH_TOKEN`
+is `SANDBOXR_CLAUDE_TOKEN` under the name Claude Code reads — the rename `orchestratorArgs`
+already performs, done once rather than in YAML. Both services load the file, so the dashboard
+sees that token under a second name; it is the same secret §7.2 already gives it, and the login
+kept out of the web server is the *credentials file*, which remains a path here and a mount there.
 
 **`sandboxr init --no-start` is the prerequisite, and it is not optional.** The directories, the
 three images, the certificate, the router's own configuration under `state/` and `host.env` are

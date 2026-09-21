@@ -34,7 +34,7 @@ import { containerDir } from "../install.js";
 import { DEFAULT_DOMAIN, NETWORK } from "../naming.js";
 import { directoriesOf, paths } from "../paths.js";
 import { TOOL_VERSION } from "../tool-version.js";
-import { hostClaudeCredentials } from "../agent/credentials.js";
+import { claudeHostEnv, hostClaudeCredentials } from "../agent/credentials.js";
 import { hostGitIdentity } from "../git.js";
 import { DASHBOARD_CONTAINER, DASHBOARD_PORT, hostGhToken, startDashboard, stopDashboard } from "./dashboard.js";
 import { writeHostEnv } from "./host-env.js";
@@ -109,6 +109,14 @@ export interface InitOptions {
    * cause.
    */
   start?: boolean | undefined;
+  /**
+   * Extra keys for `host.env`, for facts only the embedder can name.
+   *
+   * §11's division with its third clause: compose owns the shape, core owns the
+   * values, and the embedder owns its own values. Written after the engine's,
+   * sorted, through the same quoting and the same newline refusal.
+   */
+  hostEnvExtra?: Record<string, string> | undefined;
 }
 
 export interface AccessReport {
@@ -505,12 +513,12 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   const claudeCredentials = hostClaudeCredentials(env);
   await writeHostEnv({
     env,
-    facts: {
-      ghToken,
-      gitIdentity,
-      claudeCredentials,
-      claudeToken: env.SANDBOXR_CLAUDE_TOKEN ?? env.CLAUDE_CODE_OAUTH_TOKEN,
-    },
+    facts: { ghToken, gitIdentity },
+    // The keys the *product* has to look up here, named by the product rather
+    // than by the engine (contracts §11). Both are Claude's: a path on the host
+    // filesystem the dashboard cannot see, and the setup token under the name
+    // Claude Code itself reads. They leave with `jef init`.
+    extra: { ...claudeHostEnv(env), ...(options.hostEnvExtra ?? {}) },
   });
 
   // --- the dashboard -----------------------------------------------------------

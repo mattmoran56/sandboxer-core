@@ -1,5 +1,7 @@
 // Tests for the host facts file the compose deployment reads:
 // - only the facts that are present are written, and a blank one is absent rather than empty
+// - the embedder's own keys are appended, sorted, and go through the same quoting
+// - an embedder's key that collides with one of the engine's wins, rather than being dropped
 // - the keys are written in a fixed order, so two runs on one machine produce the same file
 // - a value with spaces survives, because a commit identity is exactly that
 // - a quote and a backslash are escaped the way Compose's dotenv reader unescapes them
@@ -17,8 +19,12 @@ import { HOST_ENV_KEYS, HostEnvError, formatHostEnv, hostEnvironment, writeHostE
 const facts = {
   ghToken: "gho_example",
   gitIdentity: { name: "Ada Lovelace", email: "ada@example.com" },
-  claudeCredentials: "/Users/ada/.claude/.credentials.json",
-  claudeToken: "sk-ant-example",
+};
+
+/** What Jef passes as `hostEnvExtra` — facts the engine has no business naming. */
+const extra = {
+  SANDBOXR_CLAUDE_CREDENTIALS: "/Users/ada/.claude/.credentials.json",
+  CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-example",
 };
 
 describe("hostEnvironment", () => {
@@ -29,8 +35,26 @@ describe("hostEnvironment", () => {
   it("omits a fact this machine does not have", () => {
     const held = hostEnvironment({ gitIdentity: { name: "Ada", email: "ada@example.com" } });
     expect(held.GH_TOKEN).toBeUndefined();
-    expect(held.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
     expect(held.GIT_AUTHOR_NAME).toBe("Ada");
+  });
+
+  // §11's third clause: compose owns the shape, core owns the values, and the
+  // embedder owns its own values. The engine writes these without naming them.
+  it("appends the keys the embedder named", () => {
+    const held = hostEnvironment(facts, extra);
+    expect(held.SANDBOXR_CLAUDE_CREDENTIALS).toBe("/Users/ada/.claude/.credentials.json");
+    expect(held.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-example");
+  });
+
+  it("drops a blank extra on the same terms as a blank fact", () => {
+    expect(hostEnvironment(facts, { SOMETHING: "  " }).SOMETHING).toBeUndefined();
+  });
+
+  // An embedder naming one of the engine's keys knows something the engine's own
+  // lookup does not. Discarding it silently would leave a fact on the floor with
+  // no symptom until a push failed.
+  it("lets an extra beat the engine's own value for the same key", () => {
+    expect(hostEnvironment(facts, { GH_TOKEN: "gho_from_the_embedder" }).GH_TOKEN).toBe("gho_from_the_embedder");
   });
 
   it("treats a blank value as absent rather than as an empty credential", () => {
@@ -48,6 +72,22 @@ describe("formatHostEnv", () => {
       .filter((line) => line !== "" && !line.startsWith("#"))
       .map((line) => line.slice(0, line.indexOf("=")));
     expect(written).toEqual([...HOST_ENV_KEYS]);
+  });
+
+  // The engine's keys in their fixed order, then the embedder's sorted. Both
+  // stable, so two runs on one machine produce the same file and a diff of it
+  // means something.
+  it("writes the embedder's keys after its own, sorted", () => {
+    const written = formatHostEnv(hostEnvironment(facts, extra))
+      .split("\n")
+      .filter((line) => line !== "" && !line.startsWith("#"))
+      .map((line) => line.slice(0, line.indexOf("=")));
+    expect(written).toEqual([...HOST_ENV_KEYS, "CLAUDE_CODE_OAUTH_TOKEN", "SANDBOXR_CLAUDE_CREDENTIALS"]);
+  });
+
+  // The same refusal, on a key the engine has never heard of.
+  it("refuses a newline in an embedder's value too", () => {
+    expect(() => formatHostEnv(hostEnvironment(facts, { ODD: "a\nB=evil" }))).toThrow(HostEnvError);
   });
 
   it("keeps the spaces in a commit identity", () => {
@@ -73,7 +113,9 @@ describe("writeHostEnv", () => {
     const file = await writeHostEnv({ facts, env: { SANDBOXR_HOME: home } });
 
     expect(file).toBe(join(home, "host.env"));
-    expect(await readFile(file, "utf8")).toContain('GH_TOKEN="gho_example"');
+    const text = await readFile(file, "utf8");
+    expect(text).toContain('GH_TOKEN="gho_example"');
+    expect(text).not.toContain("SANDBOXR_CLAUDE_CREDENTIALS");
     // It holds a GitHub token, so it is `secrets/`-grade rather than `state/`-grade.
     expect((await stat(file)).mode & 0o777).toBe(0o600);
   });

@@ -8,38 +8,38 @@
  * the values.** Everything in that file is either a constant core also names or a
  * `${…}` out of the operator's `.env`.
  *
- * That division has exactly one hole, and this module is it. Four of the
- * dashboard's variables are not settings anybody types; they are facts about the
+ * That division has exactly one hole, and this module is it. Some of a
+ * front end's variables are not settings anybody types; they are facts about the
  * machine that something has to go and *look up*, and only a process on the host
- * can:
+ * can. The engine owns three of them:
  *
  * - `GH_TOKEN`, because on macOS `gh` keeps it in the login keychain and only
  *   `gh auth token` can read it out. A container cannot open a keychain.
- * - `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL`, because the dashboard's `$HOME` is
+ * - `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL`, because a front end's `$HOME` is
  *   not the person's and it has no gitconfig of its own to read.
- * - `SANDBOXR_CLAUDE_CREDENTIALS`, because it is a path on the host filesystem,
- *   which the dashboard cannot see to resolve.
  *
- * `startDashboard` already resolves all of them at `docker run` time. This writes
+ * `startDashboard` already resolves all three at `docker run` time. This writes
  * the same ones, from the same functions, to `$SANDBOXR_HOME/host.env`, so the
  * compose deployment gets them from core rather than from a second lookup written
  * in YAML that could not do the lookup anyway.
  *
- * **Mode 0600, because it holds a GitHub token**, like `secrets/<project>.env`.
+ * **The embedder owns its own values.** `hostEnvironment(facts, extra)` appends
+ * whatever keys the caller names, sorted, and they go through the same quoting
+ * and the same newline refusal. Jef passes `SANDBOXR_CLAUDE_CREDENTIALS` — a
+ * path on the host filesystem, which its dashboard cannot see to resolve — and
+ * `CLAUDE_CODE_OAUTH_TOKEN`, which is `SANDBOXR_CLAUDE_TOKEN` under the name
+ * Claude Code itself reads. Neither is a fact about a *sandbox*, and the engine
+ * has no business naming either; what it owns is the file and the rule that
+ * writing it is safe.
  *
- * **`CLAUDE_CODE_OAUTH_TOKEN` is in here and it is not a fifth fact.** It is
- * `SANDBOXR_CLAUDE_TOKEN` under the name Claude Code itself reads, which is the
- * rename `orchestratorArgs` already does in code; doing it here means the compose
- * file does not have to. Both services load this file, so the dashboard sees that
- * token under two names — the same secret it is already given as
- * `SANDBOXR_CLAUDE_TOKEN` (see `FORWARDED_VARIABLES`), not a new one. The login
- * this package is careful to keep out of the web server is the *credentials
- * file*, and that is still only ever a path here and a mount there.
+ * So §11's division gains a clause: compose owns the shape, core owns the
+ * values, **and the embedder owns its own values**.
+ *
+ * **Mode 0600, because it holds a GitHub token**, like `secrets/<project>.env`.
  */
 
 import { chmod, writeFile } from "node:fs/promises";
 
-import { CREDENTIALS_ENV } from "../agent/credentials.js";
 import type { GitIdentity } from "../git.js";
 import { paths } from "../paths.js";
 
@@ -52,35 +52,31 @@ export interface HostFacts {
   ghToken?: string | undefined;
   /** The identity a commit made in a sandbox is by. */
   gitIdentity?: GitIdentity | undefined;
-  /** The host path of the Claude login. */
-  claudeCredentials?: string | undefined;
-  /** The setup token, written under Claude Code's own name for it. */
-  claudeToken?: string | undefined;
 }
 
 /**
- * The file's keys, in the order they are written.
+ * The engine's own keys, in the order they are written.
  *
  * Fixed rather than derived from the object, so two runs on one machine produce
- * the same file and reading a diff of it means something.
+ * the same file and reading a diff of it means something. An embedder's keys
+ * follow these, sorted, for the same reason.
  */
-export const HOST_ENV_KEYS = [
-  "GH_TOKEN",
-  "GIT_AUTHOR_NAME",
-  "GIT_AUTHOR_EMAIL",
-  CREDENTIALS_ENV,
-  "CLAUDE_CODE_OAUTH_TOKEN",
-] as const;
+export const HOST_ENV_KEYS = ["GH_TOKEN", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL"] as const;
 
 /**
- * The facts as environment entries.
+ * The facts as environment entries, plus whatever the embedder named.
  *
  * Absent ones are left out rather than written empty, for the reason
  * `forwardedEnvironment` gives: the server's own default has to stay reachable,
  * and "this machine has no token" must not read as "the token is the empty
- * string".
+ * string". An `extra` value that is empty or blank is dropped on the same terms.
+ *
+ * An extra key that collides with one of the engine's wins, deliberately: an
+ * embedder that names `GH_TOKEN` knows something the engine's own lookup does
+ * not, and silently discarding it would leave a fact on the floor with no
+ * symptom until a push failed.
  */
-export function hostEnvironment(facts: HostFacts): Record<string, string> {
+export function hostEnvironment(facts: HostFacts, extra: Record<string, string | undefined> = {}): Record<string, string> {
   const held: Record<string, string> = {};
   const set = (key: string, value: string | undefined): void => {
     if (value !== undefined && value.trim() !== "") held[key] = value;
@@ -88,8 +84,7 @@ export function hostEnvironment(facts: HostFacts): Record<string, string> {
   set("GH_TOKEN", facts.ghToken);
   set("GIT_AUTHOR_NAME", facts.gitIdentity?.name);
   set("GIT_AUTHOR_EMAIL", facts.gitIdentity?.email);
-  set(CREDENTIALS_ENV, facts.claudeCredentials);
-  set("CLAUDE_CODE_OAUTH_TOKEN", facts.claudeToken);
+  for (const key of Object.keys(extra).sort()) set(key, extra[key]);
   return held;
 }
 
@@ -107,10 +102,16 @@ export function formatHostEnv(values: Record<string, string>): string {
     "# Written by `sandboxr init`. Edits are lost on the next run.",
     "#",
     "# The values only the host can resolve — the keychain's GitHub token, this",
-    "# machine's commit identity, the path of the Claude login. docker-compose.yml",
-    "# reads it as an env_file. See packages/core/src/access/host-env.ts.",
+    "# machine's commit identity, and whatever else the tool that ran `init` had",
+    "# to look up here. docker-compose.yml reads it as an env_file.",
+    "# See packages/core/src/access/host-env.ts.",
   ];
-  for (const key of HOST_ENV_KEYS) {
+  // The engine's keys first, in their fixed order; then the embedder's, sorted.
+  // Both are stable, so two runs on one machine produce the same file.
+  const rest = Object.keys(values)
+    .filter((key) => !(HOST_ENV_KEYS as readonly string[]).includes(key))
+    .sort();
+  for (const key of [...HOST_ENV_KEYS, ...rest]) {
     const value = values[key];
     if (value === undefined) continue;
     if (/[\r\n]/.test(value)) {
@@ -123,13 +124,15 @@ export function formatHostEnv(values: Record<string, string>): string {
 
 export interface WriteHostEnvOptions {
   facts: HostFacts;
+  /** Keys only the embedder can name — see the note at the top of this file. */
+  extra?: Record<string, string | undefined> | undefined;
   env?: NodeJS.ProcessEnv | undefined;
 }
 
 /** Writes `$SANDBOXR_HOME/host.env` and returns its path. */
 export async function writeHostEnv(options: WriteHostEnvOptions): Promise<string> {
   const file = paths(options.env ?? process.env).hostEnvFile;
-  await writeFile(file, formatHostEnv(hostEnvironment(options.facts)), "utf8");
+  await writeFile(file, formatHostEnv(hostEnvironment(options.facts, options.extra ?? {})), "utf8");
   await chmod(file, 0o600);
   return file;
 }
