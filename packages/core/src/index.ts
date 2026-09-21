@@ -162,7 +162,7 @@ export type { ProvidedWorkspace } from "./sandbox/provided.js";
  * goes through the one spelling. An embedder rebuilding `/workspace` or
  * `/root/.claude` as a string literal is the drift that file exists to prevent.
  */
-export { CLAUDE_DIR, WORKSPACE } from "./sandbox/layout.js";
+export { CLAUDE_DIR, WITH_ENV, WORKSPACE } from "./sandbox/layout.js";
 export { DEFAULT_IMAGE } from "./sandbox/run.js";
 export {
   ATTACH_LIVE_GRACE_MS,
@@ -362,85 +362,3 @@ export {
   type GitFacts,
   type GitIdentity,
 } from "./git.js";
-export {
-  CLAUDE_HOST_ENV_KEYS,
-  CREDENTIALS_ENV,
-  claudeConfigDir,
-  claudeHostEnv,
-  hostClaudeCredentials,
-} from "./agent/credentials.js";
-
-export { MAIN_THREAD } from "./agent/types.js";
-export type {
-  AgentEvent,
-  AgentRun,
-  AskEvent,
-  AskResultEvent,
-  CompactedEvent,
-  ErrorEvent,
-  ForkOrigin,
-  McpServerState,
-  ResultEvent,
-  RetryEvent,
-  RunState,
-  SessionEvent,
-  TextEvent,
-  ThinkingEvent,
-  TokenUsage,
-  ToolEvent,
-  ToolResultEvent,
-} from "./agent/types.js";
-export { lineReader, normalise, usageIn } from "./agent/stream.js";
-export type { NormaliseContext } from "./agent/stream.js";
-export { AgentStore, agentPaths } from "./agent/store.js";
-export type { AgentPaths } from "./agent/store.js";
-export { AgentGrants, grantText, grantsPath } from "./agent/grants.js";
-export type { AgentGrant } from "./agent/grants.js";
-export {
-  PERMISSION_MODES,
-  PERMISSION_PROMPT_TOOL,
-  controlErrorIn,
-  isPermissionMode,
-  permissionRequestIn,
-  permissionResponseFrame,
-  ruleText,
-  setPermissionModeFrame,
-  wireMode,
-} from "./agent/permissions.js";
-export type {
-  PermissionDecision,
-  PermissionGrantRule,
-  PermissionModeInfo,
-  PermissionRequest,
-} from "./agent/permissions.js";
-export {
-  AGENT_WORKDIR,
-  CREDENTIALS_FILE,
-  DEFAULT_ALLOWED_TOOLS,
-  DEFAULT_PERMISSION_MODE,
-  FORK_PERMISSION_MODE,
-  FORK_TOOLS,
-  agentArgv,
-  agentEnv,
-  agentName,
-  interruptArgv,
-  agentModelFrom,
-  agentPermissionModeFrom,
-  agentTokenFrom,
-  userMessageFrame,
-} from "./agent/launch.js";
-export type { AgentLaunch, PermissionMode } from "./agent/launch.js";
-export { SPOKEN_MARKER, SPOKEN_PROMPT } from "./agent/spoken.js";
-export { AGENT_MODELS, DEFAULT_AGENT_MODEL, isAgentModel } from "./agent/models.js";
-export type { AgentModel, AgentModelId } from "./agent/models.js";
-export {
-  BUILTIN_COMMANDS,
-  COMMAND_LISTING_ARGV,
-  leadingCommand,
-  nonSendableCommand,
-  parseCommandListing,
-  refusalFor,
-  slashCommandList,
-} from "./agent/commands.js";
-export type { SlashCommand, SlashCommandHandler, SlashCommandSource } from "./agent/commands.js";
-export { NOTHING_ASKED, SIDE_QUESTION, sideQuestion, sideQuestionPreamble } from "./agent/btw.js";

@@ -89,7 +89,8 @@ export type GithubMode = (typeof GITHUB_MODES)[number];
  * to every sandbox on the machine means anything running in one, including a
  * dependency's install script and an agent executing the branch's own code, can
  * push and open pull requests as them. `DEFAULT_ALLOWED_TOOLS` in
- * ../agent/launch.ts already draws this line for a session's commands: inside a
+ * the sessions package's `agent/launch.ts` already draws this line for a
+ * session's commands: inside a
  * sandbox everything is recoverable by deleting it, "and that stops being true
  * the moment a command reaches the network with the person's credentials".
  *

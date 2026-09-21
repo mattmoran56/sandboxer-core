@@ -431,8 +431,8 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
     // Both causes, because there are two and a message naming one misleads. A
     // session that has the token still cannot push until it is allowed to: `git
     // push` and `gh` are deliberately absent from `DEFAULT_ALLOWED_TOOLS` in
-    // ../agent/launch.ts, which allows `git add` and `git commit` and stops
-    // there.
+    // the sessions package's `agent/launch.ts`, which allows `git add` and
+    // `git commit` and stops there.
     //
     // The key is quoted with the *directory* name where there is one, because
     // that is the name the operator can see without opening a file — and writing

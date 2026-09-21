@@ -364,7 +364,7 @@ and is single-use: two copies invalidate each other the first time either side
 refreshes, which is why the mount is read-write. A host without that file (every
 macOS one, where the credential is in the login keychain) gets no mount at all
 and the volume alone, exactly as before. The host decides, in
-`hostClaudeCredentials` (packages/core/src/agent/credentials.ts).
+`hostClaudeCredentials` (packages/sessions/src/agent/credentials.ts).
 
 **The last two are what make `git` work in here, and they are mounted at the
 identical path inside and out on purpose.** A linked worktree's `.git` is a file

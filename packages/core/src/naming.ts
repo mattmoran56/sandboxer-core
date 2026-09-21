@@ -441,7 +441,8 @@ export const PROTECTED_IMAGES = [
  * gets. It is the host's own file rather than a duplicate — one token, one
  * writer, because a copied refresh token rotates out from under itself — and it
  * is a deliberate arrangement, described in contracts §7.2 and resolved by
- * `hostClaudeCredentials`. The reach described above is its reach.
+ * `hostClaudeCredentials` in the sessions package. The reach described above is
+ * its reach.
  *
  * A second, quieter consequence: Claude Code keys its per-project state on the
  * working directory, and every sandbox's worktree is `/workspace`, so all of

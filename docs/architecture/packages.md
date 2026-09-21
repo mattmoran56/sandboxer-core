@@ -43,11 +43,12 @@ commit message.
 container names, volume names and image tags. Emitting [`plan.json`](plan-json.md). Building the
 project's image layer. Working out the `docker run` arguments, the mounts and the memory limit.
 The four database drivers. The shared router and the certificates. The git and GitHub plumbing.
-The lifecycle verbs. The agent-session machinery.
+The lifecycle verbs.
 
-**Not** a session. A session, its workstation and its work volume are Jef's, in
-`packages/sessions`, and the engine is handed a workspace rather than asked what a session is
-(contracts §12.4). **Not** the dashboard container, the orchestrator container or the images for
+**Not** a session, and **not** an agent. A session, its workstation and its work volume are
+Jef's, in `packages/sessions`, and so is everything about the agent that works in one — the
+engine is handed a workspace rather than asked what a session is (contracts §12.4), and it has
+no name for Claude Code at all. **Not** the dashboard container, the orchestrator container or the images for
 either — those are Jef's too, in `packages/server/src/machine/`, and `jef init` is what starts
 them (contracts §7.5).
 
@@ -98,7 +99,6 @@ that file is a contract.
 | `access/tls.ts` | mkcert: `issueCertificate`, `caTrusted`, and `baseCertificateNames` — the machine's one certificate |
 | `access/frontend.ts` | The container on the bare domain: `FRONTEND_LABEL`, `frontendRouteLabels`, `listFrontends` |
 | `access/index.ts` | `initAccess`, `teardownAccess`, `accessStatus`, `ensureBaseImage`. It prepares the bare domain and does not fill it |
-| `agent/` | Claude Code sessions: the stream parser, the transcript store, the launch arguments, permissions and grants |
 
 Core depends on two runtime packages and nothing else: `yaml` and `zod`.
 
@@ -151,7 +151,7 @@ workspace.
 **Its public surface** is one file: `packages/sessions/src/index.ts`. As with core, nothing
 outside that file is a contract.
 
-**Who calls it.** `packages/server`.
+**Who calls it.** `packages/server`, `packages/orchestrator` and `packages/orchestrator-daemon`.
 
 **What it may never do.** Be imported by `@sandboxr/core` or `@sandboxr/cli`. The dependency runs
 one way — the product knows about the engine and the engine knows nothing about the product — and
@@ -176,6 +176,14 @@ that is the whole reason this package exists.
 | `session/image.ts` | The workstation image, built from **Jef's** `container/`, which the caller hands in |
 | `session/expiry.ts`, `session/expire.ts` | A workstation's deadline, on the engine's arithmetic, and the reaper that acts on it |
 | `session/activity.ts` | The activity signals the engine is handed: a live agent run, a held socket, and a front-end route that names a session |
+| `agent/launch.ts` | The `claude` argument list, its environment, the default tools and permission mode |
+| `agent/stream.ts` | `--output-format stream-json` turned into events, and the line reader under it |
+| `agent/store.ts` | Where a run is written down: the append-only transcript per session, and the index |
+| `agent/types.ts` | The Run / Thread / Event model (contracts §7.2) |
+| `agent/permissions.ts`, `agent/grants.ts` | The permission modes, the control frames, and the rules a person granted |
+| `agent/models.ts`, `agent/commands.ts` | The two closed tables: which models may be asked for, and which slash commands exist |
+| `agent/btw.ts`, `agent/spoken.ts` | The side question, and the `[spoken]` marker and prompt |
+| `agent/credentials.ts` | The host's Claude Code login: where it is, whether it is real, and the variables that carry it |
 
 The split with `packages/server/src/code.ts` is deliberate and the same one `agent-commands.ts`
 uses: this package owns the argument arrays and the parsers, because they are the same whether a
@@ -475,10 +483,19 @@ be invisible.
 | `@sandboxr/cli` | `@sandboxr/core` |
 | `@jef/sessions` | `@sandboxr/core` |
 | `@jef/server` | `@sandboxr/core`, `@jef/sessions`, `@jef/web`, `ws` |
+| `@jef/orchestrator` | `@sandboxr/core`, `@jef/sessions` |
+| `@jef/orchestrator-daemon` | `@sandboxr/core`, `@jef/sessions`, `@jef/orchestrator`, `@jef/voice`, `@jef/telegram` |
 | `@jef/web` | `@sandboxr/tokens`, React, xterm, `marked` |
 | `@sandboxr/docs` | `@sandboxr/tokens`, `marked`, `mermaid`, React |
 | `@sandboxr/tokens` | The three `@fontsource*` packages it imports; Tailwind, as a peer |
 | `container/` | Nothing in `packages/`. Only what the base image guarantees |
+
+**`packages/` is built in directory order, not dependency order.** `npm run build --workspaces`
+walks the directory listing, so `sessions` is reached after `orchestrator`, `orchestrator-daemon`
+and `server` — and on a cold clone its `dist/` does not exist when they compile. The failure is
+`Cannot find module '@jef/sessions'`, which reads like a missing install. Each of those three
+carries a TypeScript project reference to `../sessions`, the way `cli` references `core`, so
+`tsc -b` builds it first.
 
 **`@jef/server` depends on `@jef/web` and serves its `dist/`.** That is why a root
 `npm run build` gets the order right and building the server alone does not: without the bundle the

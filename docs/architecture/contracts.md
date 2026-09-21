@@ -1763,7 +1763,8 @@ is made or it cannot be recovered. **`forkedFrom` is that link**, and it is the 
 transcript opens with the conversation it inherited and says nothing about having been forked,
 and the parent's says nothing about the fork at all.
 
-**The wire format is Claude Code's, and exactly one file knows it.** `packages/core/src/agent/stream.ts`
+**The wire format is Claude Code's, and exactly one file knows it.**
+`packages/sessions/src/agent/stream.ts`
 turns `--output-format stream-json` into the event model above; nothing downstream sees a raw
 line. A Claude Code release that renames a field is a change there and nowhere else. A line this
 version does not understand is **dropped, never surfaced** — an unrecognised type is almost
@@ -1958,7 +1959,7 @@ three sources: Claude Code's built-ins, the worktree's own `.claude/commands/`, 
 by one exec inside the container — and a worktree with no `.claude` directory is the ordinary case,
 so a failure there answers the built-ins rather than an error.
 
-The built-ins are a **closed table** in core, on the same reasoning as the model table: a command
+The built-ins are a **closed table** in `@jef/sessions`, on the same reasoning as the model table: a command
 becomes the text of a message sent into a process in a container. Only commands that work without a
 terminal are in it — Claude Code's `-p` mode runs skills, custom commands and a documented subset of
 the built-ins, and a terminal-only one such as `/login` is not an error the person sees but a turn
@@ -2029,7 +2030,7 @@ a container whose job is executing project code, in a volume every sandbox on th
 bind-mounted read-write into every sandbox** at `/root/.claude/.credentials.json`, over the volume.
 It is a `share:` row (§4.3), which is the engine's general form of "bind this host file into every
 sandbox"; the engine mounts it without knowing what it is. Finding the file is
-`hostClaudeCredentials` (`packages/core/src/agent/credentials.ts`), which honours the host's own
+`hostClaudeCredentials` (`packages/sessions/src/agent/credentials.ts`), which honours the host's own
 `CLAUDE_CONFIG_DIR` and never assumes `$HOME` is `/root`, and `jef init` writes and repairs the row
 from it. **A machine with no such row shares no login** — see §4.3's upgrade note.
 
@@ -2109,7 +2110,8 @@ once with the refusal on stderr and nothing on the event stream. It stays in the
 type for the day a sandbox runs as somebody else, and `SANDBOXR_CLAUDE_PERMISSION_MODE` falls back
 to the default rather than honouring it.
 
-**The model is chosen from a closed table**, `AGENT_MODELS` in core, defaulting to Claude Opus 5.
+**The model is chosen from a closed table**, `AGENT_MODELS` in `@jef/sessions`, defaulting to
+Claude Opus 5.
 The browser asks for one with `?model=` on the upgrade and an id outside the table is refused
 before the handshake completes — the value becomes `--model` on a command line inside the
 container, so this is the same rule the action table follows in §8. `SANDBOXR_CLAUDE_MODEL` sets
@@ -2144,7 +2146,7 @@ is part of the contract:
 - **A pending question belongs to the run, not to the socket.** It is held in the registry,
   re-announced to whoever attaches, and answerable by any browser on the sandbox. A closed tab
   must not be able to strand a session mid-turn on a question only it could see.
-- **The run's state becomes `needs-input`** — the value in core's `RunState` that nothing could
+- **The run's state becomes `needs-input`** — the value in `@jef/sessions`' `RunState` that nothing could
   previously produce, because nothing could ask.
 - **The question travels twice**, and the two say different things. It is an ordinary `ask` event,
   so a replay draws the card the live stream drew; and the socket's `{"t":"asks","asks":[…]}`
@@ -2193,7 +2195,7 @@ now, and per-call consent is the right trade for servers whose scope, with a sub
 the volume, includes the person's mail and files. An "always" on an MCP call persists a rule of a
 shape Claude Code does match.
 
-**The modes are a closed table**, `PERMISSION_MODES` in core, on the same reasoning as the model
+**The modes are a closed table**, `PERMISSION_MODES` in `@jef/sessions`, on the same reasoning as the model
 table. `GET /api/agent/models` carries both, because the picker and the validator must be one
 table. Each was checked against a real headless run rather than inferred from its name:
 
@@ -2321,7 +2323,7 @@ host path would work today and stop working the first time the code is on a volu
 **Every command is an argument array, and the only value ever interpolated into one is a
 commit sha checked against `/^[0-9a-f]{40}$/`.** A filename is one element of an argv, so a
 path holding a space, a quote, a newline or a `$(…)` is a path and never code. Paths from a
-request go through `safePath` in core first, which refuses a `.` or `..` segment outright
+request go through `safePath` in `@jef/sessions` first, which refuses a `.` or `..` segment outright
 rather than resolving one: whether `a/../../etc` lands inside the root depends on whether
 `a` is a symlink, so the only rule that is true by reading it is the one that refuses. A
 symlink is reported as a symlink and is never followed.
@@ -2709,7 +2711,7 @@ Four consequences, each of which is a bug if it is missed:
   The `watch` is the claim; speech heard while nothing is claimed is dropped rather than
   delivered to whichever conversation was last, which would put a sentence into a session the
   person had stopped talking to and could not see.
-- **The `[spoken]` marker is one constant, `SPOKEN_MARKER` in core.** It prefixes a message
+- **The `[spoken]` marker is one constant, `SPOKEN_MARKER` in `@jef/sessions`.** It prefixes a message
   while somebody is listening, and `SPOKEN_PROMPT` — appended with `--append-system-prompt` to
   every session on a machine that has a voice — is what gives it meaning. Both are core's
   because the orchestrator and a sandbox session have to agree on them exactly. A machine with
