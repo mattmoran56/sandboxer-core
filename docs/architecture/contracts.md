@@ -23,18 +23,18 @@ Two audiences, and the split matters:
 
 **The engine's unit is the worktree, full stop.** A *session* — a workstation, a work volume,
 several repositories checked out under one name a person typed — is not an engine noun. It is
-**Jef's**, and it is defined in the product's contract. §12 still holds that definition while the
-two contracts share one file; it is on its way out of here, and §12.10 is the map. An engine rule
-is never bent to suit a session: the engine is handed a workspace and starts a container on it.
+**Jef's**, and it is defined in [Jef's contract](../jef/contracts.md) — §9 there, with §9.10 as
+the map from each rule here to what Jef builds on it. An engine rule is never bent to suit a
+session: the engine is handed a workspace and starts a container on it.
 
 ## 2. Two repositories, and the one rule between them
 
 This tree is being split in two, and the boundary is the reason this file exists.
 
-- **The engine, `sandboxr`.** `packages/core`, `packages/cli`, `packages/docs`, `container/`,
-  `docs/`, `examples/`. It turns a git worktree into a running copy of a project on its own
-  hostname. It knows about worktrees, sandboxes, images, volumes, a router and a certificate. It
-  knows nothing about agents, sessions or Jef.
+- **The engine, `sandboxr`.** `packages/core`, `packages/cli`, `packages/docs`, `packages/tokens`,
+  `container/`, `docs/`, `examples/`. It turns a git worktree into a running copy of a project on
+  its own hostname. It knows about worktrees, sandboxes, images, volumes, a router and a
+  certificate. It knows nothing about agents, sessions or Jef.
 - **The product, `Jef`.** `packages/server`, `packages/web`, `packages/sessions`,
   `packages/orchestrator`, `packages/voice`, `packages/telegram`,
   `packages/orchestrator-daemon`, `sidecars/`, `container/jef-base/`, and the dashboard,
@@ -43,6 +43,7 @@ This tree is being split in two, and the boundary is the reason this file exists
 ```
 packages/core      @sandboxr/core     engine   Config, drivers, docker orchestration, lifecycle
 packages/cli       @sandboxr/cli      engine   The `sandboxr` command
+packages/tokens    @sandboxr/tokens   engine   One stylesheet, tokens.css, and the fonts it imports
 packages/docs      @sandboxr/docs     engine   The documentation site
 container/         (no package)       engine   What runs INSIDE a sandbox: Dockerfiles, s6, scripts — except jef-base/
 examples/          (no package)       engine   Example sandboxr.yaml files
@@ -50,10 +51,19 @@ packages/sessions  @jef/sessions      product  Sessions, the agent that works in
 packages/server    @jef/server        product  The dashboard's server: auth, JSON API, terminal, actions
 packages/web       @jef/web           product  The dashboard's browser app: React, Tailwind, built by Vite
 container/jef-base (no package)       product  The agent layer on the base image: claude, and nothing else
-sidecars/          (no package)       product  The audio body: Python, by necessity — see §10
-docker-compose.yml (no package)       product  The whole constellation, in one file — see §11
-.env.example       (no package)       product  The settings that file reads, keys only
+sidecars/          (no package)       product  The audio body: Python, by necessity
+docker-compose.yml (no package)       product  The whole constellation, in one file
 ```
+
+**The engine ships no `docker-compose.yml` and no `.env.example` describing one.** It is a CLI
+and a router; a constellation of long-running services is what a product assembles out of it.
+
+**This file is the engine's contract. [Jef's is `docs/jef/contracts.md`](../jef/contracts.md)**,
+and it holds what used to be §§7.1, 7.2, 7.4, 10, 11 and 12 of this one: the dashboard's HTTP
+surface, agent sessions, reading code in a container, the orchestrator, the compose file and the
+session model. Where the two look like they disagree, **this one binds** — Jef cannot change a
+slug ceiling or a volume's reclamation rule by describing it differently, it can only decline to
+use the thing. Jef's §9.10 is the map from each rule here to what Jef builds on it.
 
 **The rule, stated once: the engine imports nothing from the product; the product imports the
 engine.** Not "should not" — *cannot*, and a test says so. `@sandboxr/core` depends on `yaml` and
@@ -69,31 +79,20 @@ and the symptom is always the same: a second product cannot use it without prete
 first.
 
 **Where a back-reference looks necessary, invert it.** The engine does not call out to ask what a
-session is; it takes a parameter. A workspace somebody else resolved (§12.4), activity somebody
-else knows about (§3.4), a file the machine says to share (§4.3), a front end somebody else runs
-(§7.5) — each of those is an argument the embedder supplies, never a hook the engine reaches
+session is; it takes a parameter. A workspace somebody else resolved, activity somebody else
+knows about (§3.4), a file the machine says to share (§4.3), a front end somebody else runs
+(§7.2) — each of those is an argument the embedder supplies, never a hook the engine reaches
 through.
 
 Ownership rule: **only `container/` contains bash.** Everything host-side is TypeScript.
 The container scripts are deliberately shell because they run under s6 with no toolchain
 guarantees, and because they are ported from a working implementation.
-
-The same rule, for the newest package: **`packages/web` holds no logic about what a sandbox
-is.** It renders what the API sends and posts actions back. Which actions apply to a stopped
-sandbox, what makes one degraded, how a slug is derived — every one of those is decided by
-core and reported by the server, and a copy of any of them in the browser is a second
-implementation that drifts.
-
-`@jef/server` depends on `@jef/web` and serves its `dist/`. A root
-`npm run build` orders the two correctly because of that dependency; building the server
-alone leaves it serving an HTML shell with nothing behind it.
-
 ## 3. Naming
 
 ### 3.1 Slug
 
 A slug identifies one sandbox. **A session's runtime is a sandbox and carries a slug like any
-other; where that slug comes from is §12.2, and every rule below — the ceiling, both budgets, the
+other; where that slug comes from is Jef's §9.2, and every rule below — the ceiling, both budgets, the
 hash form — binds it unchanged.** Resolved, in order of preference, from:
 
 1. an explicit argument
@@ -265,25 +264,25 @@ the bare domain, for a host under another domain, for anything more than one lab
 for a label that does not divide into exactly three parts.
 
 **Sessions change nothing here.** A session's runtime answers on exactly this shape, and a
-workstation has no hostname at all (§12.2). Nothing in §12 may be read as licence to relax the
+workstation has no hostname at all (Jef's §9.2). Nothing in Jef's §9 may be read as licence to relax the
 one-label rule or the `--` separator.
 
 The dashboard lives on the bare domain and **never** on a per-sandbox hostname. The
 terminal is a route *within* the dashboard (`/p/<project>/s/<slug>/terminal`), so it
 inherits the dashboard's session automatically. Do not give the terminal its own hostname.
 
-The paths under that one hostname are §7.1.
+The paths under that one hostname are Jef's §3.
 
 ### 3.3 Docker names
 
 - Container: `sandboxr-<project>-<slug>`
-- Session containers and volumes: `sandboxr-ws-<session>` and `sandboxr-work-<session>` — §12.2
+- Session containers and volumes: `sandboxr-ws-<session>` and `sandboxr-work-<session>` — Jef's §9.2
 - Network: `sandboxr` (one, shared)
 - Volumes: `sandboxr-<purpose>-<project>-<slug>` where purpose is one of
   `data` (database), `blob` (object storage), `bin` (built binaries), `www` (built sites).
 - Shared volumes: `sandboxr-deps-<hash>` (node_modules, keyed on lockfile),
   `sandboxr-gocache`, `sandboxr-gomod`, `sandboxr-claude` (an agent session's credential
-  store, mounted at `/root/.claude` with `CLAUDE_CONFIG_DIR` pointing at it — see §7.2).
+  store, mounted at `/root/.claude` with `CLAUDE_CONFIG_DIR` pointing at it — see Jef's §4).
 
 **A shared volume is populated only when it says so itself.** `sandboxr-deps-<hash>` is
 filled in by the container on first boot, and *shared*: every sandbox on that lockfile
@@ -306,14 +305,14 @@ special case any more: it is a `share:` row in the machine's `config.yaml` (§4.
 host file the operator shares. Jef's `jef init` writes the row that puts
 `~/.claude/.credentials.json` over the volume's copy, so a login is shared with every sandbox
 rather than duplicated into each. On macOS that file is usually not a login at all, which has a
-consequence worth knowing. See §7.2.
+consequence worth knowing. See Jef's §4.
 
 Images are named under one namespace, and the split between them decides what may be reclaimed:
 
 - Project layer: `sandboxr/<project>:<12 hex>`, the hash covering the tool version, the rendered
   Dockerfile and every staged manifest. Content-addressed, so every sandbox of a project shares one
   image and a rebuild is triggered by exactly the things the build reads.
-- The machine's own: `sandboxr/base`, `sandboxr/dashboard` and `sandboxr/workstation` (§12.3),
+- The machine's own: `sandboxr/base`, `sandboxr/dashboard` and `sandboxr/workstation` (Jef's §9.3),
   tagged by tool version and by `latest`. **All three are built by `init`**, and all three are on
   the never-reclaimed list. An embedder's own base is a fourth — Jef's is `jef/base`, the engine's
   base with an agent on it, built by `jef init` and named to `up` as `baseImage` — and it is
@@ -328,7 +327,7 @@ Images are named under one namespace, and the split between them decides what ma
   *is* the thing the dashboard is organised around. The cost of leaving it where it was is paid in
   the one place it must not be: the first **New session** on a machine took the several minutes of a
   `claude` install, in a request that answers one JSON body and has nowhere to stream a build log to
-  (§12.6.2). A build belongs in the verb that sets a machine up, beside the other two, where it is
+  (Jef's §9.6.2). A build belongs in the verb that sets a machine up, beside the other two, where it is
   expected to take a while and says so. `createSession` still calls `ensureWorkstationImage` and
   must keep doing so: `init` having built it is what makes a create fast, never what makes it
   correct, and the tag carries the tool version — so an upgrade invalidates it, and `init` is the
@@ -356,7 +355,7 @@ against them, and Docker's build cache when it is asked. Both are bound by five 
   is §3.4's failure-is-an-absence rule applied where it costs the most.
 
   **`sandboxr-work-` is the reserved prefix, and it belongs to the embedder.** Jef's work volumes
-  live under it (§12.5): a session whose workstation is stopped has no container at all, which is
+  live under it (Jef's §9.5): a session whose workstation is stopped has no container at all, which is
   the ordinary state of a session somebody comes back to next week, and what would go is every
   clone and every uncommitted change in it. The engine promises never to reclaim one, without
   knowing what a session is. `isWorkVolume` in `packages/core/src/naming.ts` is the test, beside
@@ -427,7 +426,7 @@ Two rules bound it, and both are refusals rather than best efforts:
 - **Work that exists nowhere else stops it.** Uncommitted changes are lost with the directory, and
   the refusal names the files. Commits on no remote are *not* lost — they are in the project's
   clone, which a worktree only borrows — and the refusal says so rather than overstating what it
-  protects. `--force` overrides both; a browser cannot (§8.1).
+  protects. `--force` overrides both; a browser cannot (Jef's §6.1).
 
 A worktree with no sandbox deletes cleanly, and so does one whose directory is already gone: that
 is the stale entry in git's admin files, and clearing it is the point.
@@ -464,7 +463,7 @@ Two more are **opaque group labels**, and that is the whole of what the engine k
 embedder — Jef, or anything else built on this — puts several containers under one name and gets
 them back with one `docker ps`, without a manifest file the engine would have to keep. `gc` needs
 `sandboxr.session` for one thing only: a container carrying it is somebody's, so it is not a
-stray. Jef gives both labels a meaning in §12.3, and that meaning is Jef's.
+stray. Jef gives both labels a meaning in its own §9.3, and that meaning is Jef's.
 
 `sandboxr.session` is deliberately **absent** rather than empty on a container belonging to no
 group. An empty string is a value something will one day compare against.
@@ -512,15 +511,15 @@ the derive-at-read-time rule cannot hold, for the reason given underneath:
 | Signal | Where it is read from | What it covers |
 |---|---|---|
 | A request to one of the sandbox's own hostnames | the shared router's access log (`accessLog: {}`, one common-log line per request, ending in the router name — which for a sandbox *is* its container name) | somebody using the apps |
-| A **front end's** request path that names the sandbox — `…/p/<project>/[sw]/<slug>/…` (§7.1) | the **same** access log, under each front end's own router name, from the request path | opening a worktree, its logs, opening its terminal socket, opening its agent socket |
-| Activity **somebody else knows about**, keyed `<project>/<slug>` | handed in by the caller — the engine reads nothing of its own for this | an agent working while nobody is watching (§7.2), or anything else an embedder can see and the engine cannot |
+| A **front end's** request path that names the sandbox — `…/p/<project>/[sw]/<slug>/…` (Jef's §3) | the **same** access log, under each front end's own router name, from the request path | opening a worktree, its logs, opening its terminal socket, opening its agent socket |
+| Activity **somebody else knows about**, keyed `<project>/<slug>` | handed in by the caller — the engine reads nothing of its own for this | an agent working while nobody is watching (Jef's §4), or anything else an embedder can see and the engine cannot |
 | A terminal or agent socket **held open** on the sandbox | the mtime of `state/attach/<project>/<slug>`, re-stamped by whatever holds the socket or the run (§4.2.2) | a session somebody is sitting in, or an agent running in one, for longer than the ttl |
 
 **A front end is a container the embedder put on the bare domain, and the engine is told which
-they are.** It carries `sandboxr.frontend` (§7.5) and answers on the domain itself rather than on
+they are.** It carries `sandboxr.frontend` (§7.2) and answers on the domain itself rather than on
 a sandbox hostname, so its lines in the access log are *about* sandboxes rather than *to* one:
 the router name is the front end's, and the sandbox is named in the request path. The engine has
-one route shape of its own here — `…/p/<project>/[sw]/<slug>/…`, which is §7.1's address of a
+one route shape of its own here — `…/p/<project>/[sw]/<slug>/…`, which is how Jef's §3 addresses a
 sandbox, the engine's noun. Any other shape a front end serves is the front end's business, and
 `parseAccessLog` hands back every readable front-end request so a caller can apply its own.
 Nothing about this asks the engine what a dashboard is.
@@ -604,15 +603,11 @@ Three consequences are part of the contract:
   secrets/<project>.env  third-party credentials, mode 0600 — edited, not generated (§5.2)
   build/<project>/<slug>.env  the generated per-sandbox environment
   bin/                   host-built helper binaries
-  run/                   the sidecars' unix sockets — see §10.3.1 and §11
   config.yaml            the machine's own settings — see §4.3
-  host.env               what only the host can look up, for compose — mode 0600, see §11
-  soul.md                the orchestrator agent's character, as prose — see §10.7
   state/keep/<project>/<slug>  keeps one sandbox alive past its idle limit — see §4.2
   state/name/<project>/<slug>  what to call one worktree on screen — see §4.2.1
   state/slug/<project>/<worktree dir>  the slug a worktree was given on a collision — see §4.2.3
   state/attach/<project>/<slug>  a socket is being held open on this sandbox — see §4.2.2
-  state/session/<session>/       one session's keep, name and attach files — see §12.6
   workspace/<project>/   a project the dashboard can start a sandbox for — see §4.1
   workspace/<project>/sandboxr.yaml  optional project-level config — see §5.6
 ```
@@ -629,8 +624,8 @@ are the one part of the tree worth putting on a different disk.
   wt/<branch>/         one worktree per branch, all peers
 ```
 
-**`repo.git` survives the move to sessions and `wt/` does not** — §12.9 argues both, and the
-rules in this section still govern the clone. A session's code lives in a Docker volume (§12.5)
+**`repo.git` survives the move to sessions and `wt/` does not** — Jef's §9.9 argues both, and the
+rules in this section still govern the clone. A session's code lives in a Docker volume (Jef's §9.5)
 and no host path is bind-mounted into a container any more, so the bare clone is kept as the
 machine's local source of objects and refs rather than as the place work happens.
 
@@ -663,7 +658,7 @@ it never becomes a sandbox's `/workspace` — see §5.6.
 `Worktree` in `packages/core/src/worktree.ts` is what a listing of `wt/` yields, and it is the
 unit the dashboard's `/worktrees` pane and every project's own pane are built from — a worktree
 is the thing that persists, and a sandbox is something that comes and goes on top of it. It was
-the unit the sidebar was built from until the column became the list of sessions (§12).
+the unit the sidebar was built from until the column became the list of sessions (Jef's §9).
 
 | Field | Meaning | When it cannot be read |
 |---|---|---|
@@ -712,7 +707,7 @@ open, so the two compose in one direction and only one:
 
 The colours are part of the contract rather than a stylistic choice, because they are GitHub's own
 and a reader arrives already knowing them. `packages/web` picks the colour from the state and
-decides nothing else about it: the state itself is the server's answer (§7.1).
+decides nothing else about it: the state itself is the server's answer (Jef's §3).
 
 `draft` is kept apart from `open` because it is the one distinction a reader acts on. Core owns the
 composition — `PullState` in `packages/core/src/forge.ts` — so the CLI and the dashboard cannot
@@ -729,7 +724,7 @@ That is the whole reason the field is nullable rather than defaulted.
 repository. `createPullIndex` reads `gh pr list --state all` once for a repository, indexes it by
 head ref, and every worktree is a map lookup — so a machine with thirty worktrees makes one
 subprocess call per project, not thirty, on a poll that repeats every thirty seconds
-(§7.1). Two workspace directories cloned from one repository share the call. Where several pull
+(Jef's §3). Two workspace directories cloned from one repository share the call. Where several pull
 requests share a head branch — a closed one and a replacement, or a reused branch — the live one
 wins, then the merged one, then the most recent.
 
@@ -843,8 +838,8 @@ at all here: `worktree pull` addresses the worktree by path.
 
 ### 4.2 Keep-alive, and where mutable state is allowed to live
 
-**A session keeps the same three files with the same arguments, under `state/session/<session>/`
-(§12.6).** The test below is what decides where any of them may live, and it is the test §12.6
+**A session keeps the same three files with the same arguments, under a directory of its own
+(Jef's §9.6).** The test below is what decides where any of them may live, and it is the test Jef
 applies rather than a second one.
 
 A keep-alive marker exempts one sandbox from its idle limit. It cannot be a label — a running
@@ -913,7 +908,7 @@ Two rules about the key and the value:
 The vocabulary is fixed: the file is `state/name/<project>/<slug>`, core's functions are
 `readDisplayName` / `writeDisplayName` / `removeDisplayName` with `normaliseDisplayName` as the
 validator, the CLI is `sandboxr worktree name`, the API field is `displayName` (`null` when there is
-none, never the branch name), and the route is `PUT /api/p/:project/w/:slug/name` (§7.1). It is
+none, never the branch name), and the route is `PUT /api/p/:project/w/:slug/name` (Jef's §3). It is
 **not** one of the §8 actions: it runs nothing, streams nothing and touches no container.
 
 Removing the worktree removes the name (§3.3.1) — and *only* then, which is the same argument the
@@ -1579,675 +1574,42 @@ The basename is preserved because the container decides how to decompress by ext
 
 ## 7. Access control
 
-One mechanism, used twice.
-
-- The dashboard owns sessions. `POST /auth/login` takes a password, sets a signed
-  `HttpOnly` `Secure` `SameSite=Lax` cookie. Password is `SANDBOXR_PASSWORD`, compared with
-  a **timing-safe** comparison, and stored as a hash — never logged, never echoed.
-- The router protects everything else by asking the dashboard. App hostnames belonging to a
-  `private` project get a forward-auth middleware pointing at `GET /auth/verify`, which
-  returns 200 or 401. `public` projects skip the middleware.
-- Per-project access: the session records which projects it may control. A password grants
-  the projects it is configured for, so different people get different projects.
-
-Non-negotiables:
-
-- **No action endpoint is reachable without a session.** Not one.
-- **Every route declares its auth.** There is no default, so a route added without a
-  decision does not compile rather than shipping open.
-- The dashboard talks to Docker; treat every request as untrusted input. Slugs, project
-  names and branch names are validated against the patterns in this file before they reach
-  a command, and commands are executed as argument arrays — never a shell string.
-- Rate-limit the login route.
-- **A content-security policy with no `unsafe-inline` for script, and no external origin.**
-  Nothing executable may be inlined into a page and nothing may be fetched from another host.
-  The browser app's build is configured for that — no inlined assets, one stylesheet, fonts
-  served from this machine rather than from a font CDN — and it is a constraint on the build,
-  not a preference about it.
-
-  There is **no relaxation**, including for the terminal. A dependency that cannot live inside
-  this policy is configured differently rather than let out of it: xterm's default renderer draws
-  by injecting `<style>` elements, so the browser app loads its canvas renderer instead, which
-  injects none. Widening either half of `style-src` needs a reason written down here, and a
-  browser's violation message is not one on its own — it names the directive that refused, not
-  the mechanism that tripped it.
-
-### 7.1 The dashboard's HTTP surface
-
-The dashboard is a **single-page app**. `@jef/server` answers JSON and serves one HTML
-shell; `@jef/web` is the app that shell loads, and it routes in the browser from there.
-
-**The governing rule: the server sends facts and the browser writes sentences.** No field of
-any API response is a rendered string. An expiry is an instant, never `"3h 20m left"`; a state
-is `degraded`, never `"degraded — something failed during boot"`. A page showing a countdown
-has to re-render it every second anyway, so a server-rendered copy of the same wording is only
-a second version to disagree with — which is exactly what it was: the words existed once in a
-template and once in the script that replaced them, each carrying a comment warning that the
-two had to be kept in step.
-
-The corollary is that the *decisions* still belong to the server. Which actions apply to a
-sandbox right now is a field on the response, not a filter the browser derives from the action
-table; so is the sentence a destructive action confirms with, because the table is where what
-is actually lost is known.
-
-**`issues` on a sandbox is that rule's other edge: it holds faults, and never a restatement of
-`state`.** A sandbox that is stopped or still coming up carries an empty list, and every reader
-spends red on whatever is in it without filtering. It once carried "container is not running"
-for every stopped sandbox and "still starting" for every one booting, which is `state` said a
-second time in the field that means "go and look": the dashboard painted the quiet half of a
-machine as broken, its own attention count counted sandboxes that were merely off, and
-auto-start refused every stopped sandbox there had ever been. The browser then learnt to drop
-those entries by state — the right colour, from the wrong place, and a second copy of a
-judgement out of a wording only the server owned. `issuesFor` in
-`packages/server/src/sandboxes/model.ts` is where it is made, once.
-
-The **worktree** is the one fault the browser adds, and it is allowed to because a worktree is
-not a sandbox: a directory git still lists that has been deleted has no sandbox and therefore
-no `issues`, and it is what explains "Start does nothing". So the sidebar's notion of a row
-needing attention is deliberately wider than `summary.needsAttention`, which counts sandboxes
-with a fault. The two answer different questions and neither is derived from the other.
-
-**The JSON API.** Every route below requires a session, and every one that names a `:project`
-is additionally checked against the session's grant.
-
-**The `/api/sessions/…` routes are the one family that names no project, and that is the contract
-rather than an omission** (§12.6.1): a session belongs to no project, so there is nothing to scope
-it to. Everything that reaches *into* a repository of a session — its files, its diff, a runtime of
-it — is still checked against that repository's project, which is why those routes spell the
-repository as `:project` and go through this same sweep.
-
-**Five of them are the other exception to "every route requires a session"**, and it is a narrowing
-rather than a loosening. `GET /api/sessions/:session`, `…/repos`, `POST …/runtimes`,
-`POST …/r/:runtime/stop` and `DELETE …/r/:runtime` additionally accept a **workstation token**: the
-credential an agent inside that session's own container holds instead of a Docker socket
-(§12.6.1.1). The token names one session and the router refuses it on any other path, so the list
-above is the entire surface an agent can reach — and it is pinned by a test, because a route added
-to it is a capability handed to the least supervised process on the machine.
-
-| Route | Answers |
-|---|---|
-| `GET /api/bootstrap` | The domain, the session, the closed action table (§8), and the default lifetime the new-sandbox form offers. What the app needs before it can draw anything |
-| `GET /api/workspace` | Every project, every worktree and every sandbox on the machine, plus a summary. The one call the home view, the `/worktrees` pane and every project's pane are drawn from — the sidebar is `GET /api/sessions` (§12.6.2). Each worktree carries the state of its pull request, from a cached per-repository index rather than a `gh` call per row (§4.1.2), and the agent session live on it, from the server's own registry (§7.2) |
-| `GET /api/projects/:project` | One project's worktrees, branches and open pull requests. The list is read live, so it is the authoritative one; the state on each worktree beside it comes from the index and may be up to five minutes behind |
-| `GET /api/p/:project/s/:slug` | One sandbox in full, with the apps and services its project's config declares |
-| `GET /api/repos` | The repositories this machine's `gh` can offer, each marked with whether it is already in the workspace |
-| `GET /api/p/:project/s/:slug/agent/runs` | The agent sessions recorded against one sandbox, newest first. The index only — never message content (§7.2) |
-| `GET /api/agent/models` | The models a session may run on **and the permission modes it may run in**, with the ones this machine defaults to. Two closed tables, one read, because the browser draws two controls that sit side by side (§7.2, §7.2.2) |
-| `GET /api/p/:project/agent/grants` | The standing permissions this project has been granted — the rule as Claude Code will match it, and where it was granted from (§7.2.2) |
-| `DELETE /api/p/:project/agent/grants/:id` | Withdraws one. The only `DELETE` in the API; `SameSite=Lax` on the session cookie is what protects it, as it protects every `POST` beside it. Takes effect on the next session (§7.2.2) |
-| `GET /api/p/:project/s/:slug/agent/commands` | The slash commands a session on that sandbox can be offered, each marked sendable or not, each refused one carrying the sentence it is refused with, and the one sandboxr answers itself marked `handledBy` (§7.2) |
-| `GET /api/p/:project/s/:slug/files` | One level of the tree inside the sandbox, or one file's text, at `?path=` — a path relative to the container's `/workspace`. Read-only. The answer's `kind` says which of a directory, a file, a symlink or something else was found, because the caller cannot know before it asks (§7.4) |
-| `GET /api/p/:project/s/:slug/diff` | Everything on the branch that is not on its upstream yet — committed, staged, unstaged and untracked — as a list of files with their counts. Never the patches (§7.4) |
-| `GET /api/p/:project/s/:slug/diff/file` | One changed file's patch, at `?path=`. Its own request, made when a row is opened (§7.4) |
-| `PUT /api/p/:project/w/:slug/name` | Sets what one **worktree** is called, from a body of `{ "name": string }`; an empty name clears it. Answers `{ project, slug, displayName }`. On the `w` form and never the `s` form: the name belongs to the worktree, which persists (§4.2.1). A name that is not one is a `400` that does not repeat what was sent |
-| `POST /api/p/:project/w/:slug/session` | Makes a session holding this **worktree's** code — its commits, and its uncommitted work carried across on top (§12.10.1). Takes no body: the branch, the commit and the name are read from the worktree. On the `w` form for the rename's reason, so it works with nothing running. **Takes the machine-wide bar of §12.6.1**, because it creates a session, and inherits the project sweep from `:project` besides. Answers `201` with `{ session, repo, carried }` |
-| `GET`, `POST /api/sessions` | Every session on the machine, and making one (§12.6.2) |
-| `GET`, `PATCH`, `DELETE /api/sessions/:session` | One session, naming it, and deleting it. The `PATCH` body is `{ "name": string }` and nothing else; an empty or whitespace name **clears** it, and the answer is the whole `SessionDto`. `PATCH` and not a `/name` sub-resource, which is where a *worktree's* rename lives: a worktree's name is filed against a directory that outlives every sandbox cut on it, and a session **is** the thing being named. A name reaches no container, no volume and no URL (§12.2). The delete takes no `force` (§8.1) |
-| `POST /api/sessions/:session/start`, `…/stop` | Its workstation. Stopping removes nothing (§12.8) |
-| `GET /api/sessions/:session/repos` | What is in its work volume. A read that failed says so rather than answering "none" (§12.5) |
-| `POST /api/sessions/:session/repos` | Clones one repository and branch into it — the only way code reaches a work volume. Checked against **that project's** grant, not the machine's (§12.5, §12.6.1) |
-| `GET /api/sessions/:session/r/:runtime` | The session's view of one runtime, which is the sandbox answer above reached by the other road (§12.4) |
-| `POST /api/sessions/:session/runtimes` | Runs one of that session's checkouts, and answers the URLs. Only a checkout already on the session's own work volume (§12.6.1.1) |
-| `POST /api/sessions/:session/r/:runtime/stop`, `DELETE …/r/:runtime` | Stops one, and removes one. The delete takes no `force` (§8.1) |
-| `GET /api/sessions/:session/repos/:project/:dir/files`, `…/diff`, `…/diff/file` | The same two read-only views as the three `s` routes above, against the workstation rooted at `/work/<repo>/<dir>` (§7.4, §12.5) |
-
-`GET /api/workspace` is polled every **thirty seconds**, and three rules about that polling are
-part of the contract because each was learnt from the version this replaced: nothing is fetched
-while the tab is hidden or while an action is running, a failed poll leaves the last good answer
-on screen and says it is stale rather than blanking the page, and returning to the tab refreshes
-at once.
-
-**The HTML shell** is served at `/`, `/worktrees`, `/sessions`, `/sessions/:session`, `/new`,
-`/settings`, `/repos`, `/p/:project`, `/p/:project/branches`, `/p/:project/w/:slug` and
-`/p/:project/s/:slug`. Every one of them returns the same document; the app decides what to
-draw. `/assets/*` serves the built bundle.
-
-`/worktrees` is the whole list of worktrees as a pane, at every width. It used to be the
-sidebar's list given a screen, and it is the only one of the two now: the column lists sessions
-(§12). So it is a route with a URL, reachable by bookmark, named in the manifest's shortcuts,
-given a tab of its own in the bottom bar and linked from the foot of the session column, rather
-than a panel the shell opens over itself. Being a route is what makes it a history entry, which
-is what the back gesture has to have.
-
-**`/new` is no longer one of these**, and the app answers it with the not-found pane (§12). The
-shell is still served at that path, so a stale bookmark gets a 200 and a page saying nothing
-lives there rather than the server's 404 — which is the right way round while the route is only
-recently gone.
-
-**Six files are served from the origin root**, and each is there because the name is
-referenced from somewhere that cannot be rebuilt with the bundle, so none of them can carry a
-content hash: `/manifest.webmanifest`, `/sw.js`, and the four `/icons/*.png`. They are public,
-for the same reason `/assets/*` is — build artefacts, no state, nothing that says whether a
-project exists — and they are served from a **closed table of six paths**, not a directory,
-which is the posture `/assets/*` takes with its filename pattern.
-
-`/sw.js` has to be at the root rather than under `/assets/`: a service worker may only control
-paths below the one it was served from, and the app it exists for is at `/`. It and the
-manifest are `no-cache`; a held worker script is a worker that cannot be replaced.
-
-`/p/<project>/w/<slug>` and `/p/<project>/s/<slug>` are one view — the sandbox is something
-that comes and goes on top of the worktree. The `s` form is kept because it is what an action's
-declared destination (§8) and every existing bookmark already use, and because the log and
-terminal endpoints hang off it.
-
-**Under `/api`, though, the two forms are not interchangeable, and the rename is the case that
-makes it matter.** `PUT /api/p/:project/w/:slug/name` is on the `w` form because what it writes
-outlives every sandbox cut on that worktree; the `s` routes beside it all address a container. A
-rename posted to an `s` route would read as a fact about an instance, which is precisely the
-mistake §4.2.1 exists to rule out.
-
-**Unchanged by the move to a single-page app**, and deliberately so: `/healthz`, `/login`,
-`/auth/*`, the three `POST` action routes (`/actions/:action`, `/p/:project/actions/:action`,
-`/p/:project/s/:slug/actions/:action`), `GET /p/:project/s/:slug/logs`, the terminal
-WebSocket at `/p/:project/s/:slug/terminal`, and the agent WebSocket at
-`/p/:project/s/:slug/agent` (§7.2).
-
-**The login page and the private-app handshake pages stay server-rendered.** Two reasons, both
-hard requirements rather than preferences. The login form must work with JavaScript off, because
-it is the only way back in and a dashboard that cannot be signed into cannot be fixed from
-itself. And it must be a real `<form>` with a real `POST` for the browser's password manager to
-recognise it as one — a form assembled by script after load frequently is not offered a saved
-password at all.
-
-### 7.2 Agent sessions
-
-A sandbox may have a **Claude Code session** running on its worktree. `claude` runs *inside*
-the container, on `/workspace`, started by the server over `docker exec`; the host holds no
-agent process of its own.
-
-**Under §12 this moves to the workstation and is keyed on the session**, and the three nouns
-below are unaffected by that. The phrase "agent session" is retired with the move, because
-"session" is now §12's noun: what this section describes is a **Run**.
-
-**Three nouns, and every screen and every stored file is one of them.**
-
-| Noun | What it is | Keyed by |
-|---|---|---|
-| Run | One `claude` session, in one sandbox | `sessionId`, assigned by Claude Code |
-| Thread | One conversation inside a run — the main one, or a subagent's | `parent_tool_use_id`; `main` for the one nothing spawned |
-| Event | One thing that happened, in order | `uuid`, plus its position in the transcript |
-
-**A run's tree is assembled from two different joins, and only one of them is free.** Inside a
-session, every message carries the id of the tool call that spawned it, so subagents nest at any
-depth with nothing for sandboxr to remember. Across a session boundary — a session that starts
-another session — there is no such field, and the link has to be written down at the moment it
-is made or it cannot be recovered. **`forkedFrom` is that link**, and it is the one exception to
-"every field in the index is derivable by replaying the transcripts": a forked session's
-transcript opens with the conversation it inherited and says nothing about having been forked,
-and the parent's says nothing about the fork at all.
-
-**The wire format is Claude Code's, and exactly one file knows it.**
-`packages/sessions/src/agent/stream.ts`
-turns `--output-format stream-json` into the event model above; nothing downstream sees a raw
-line. A Claude Code release that renames a field is a change there and nowhere else. A line this
-version does not understand is **dropped, never surfaced** — an unrecognised type is almost
-always a newer Claude Code, and rendering it raw would put JSON in the middle of a conversation.
-
-The event kinds are closed, and each one is a thing a reader acts on rather than a line of the
-protocol repeated:
-
-| Kind | What it says |
-|---|---|
-| `session` | The session opened: model, working directory, tools, and which MCP servers **failed**. `failed` only: `pending` is the ordinary state of a cached server, and `needs-auth` means somebody added a server and has not signed into it, which is a choice rather than a fault. Both were drawn in the red of a broken thing on every session, naming servers the reader had deliberately not authorised — which is how a warning stops meaning anything. `/mcp` reports the whole picture on demand |
-| `text` | Prose, from either side |
-| `thinking` | The model is reasoning. The text is often empty, and the marker is still worth drawing |
-| `tool` / `tool-result` | One tool call and its answer, rendered as one card. A call that spawned a subagent says so |
-| `result` | The turn ended. The only place cost and duration are stated |
-| `compacted` | History was summarised away, with how many tokens were in play and whether anyone asked |
-| `ask` / `ask-result` | A permission question and what was decided, rendered as one card — the same pairing `tool`/`tool-result` uses. The one event a reader has to *act* on: the turn is stopped until it is answered (§7.2.2) |
-| `retry` | A retryable API failure, on its way to resolving itself or becoming an error |
-| `error` | The session failed — not a tool that did |
-
-**A compaction is an event, not a gap.** Claude Code summarises a long conversation and carries on,
-and it says so on the stream. Dropping that line as unrecognised — which is what happens to
-everything else this version has no opinion about — loses the one fact that explains an agent which
-appears to have forgotten what it was told: the transcript would show the conversation continuing
-with no sign that most of it had been replaced by a summary. It is therefore the exception to the
-paragraph above, and it is read defensively: an unstated token count or trigger becomes null rather
-than a compaction this version declines to report.
-
-**Transcripts are files; the index is small.** The raw lines are appended to
-`$SANDBOXR_HOME/agent/log/<sessionId>.jsonl` *before* they are interpreted, so a later renderer
-can re-read a conversation an earlier one recorded. `$SANDBOXR_HOME/agent/runs.json` holds the
-index: which session belongs to which sandbox, its state, and where its transcript is. **Every
-field in the index is derivable by replaying the transcripts — except `forkedFrom`**, which is why
-that one field is written at the moment the fork is made and can be recovered no other way. What is
-left is a cache rather than a system of record — and what makes the storage choice a contained one. It is a JSON
-file written by temp-and-rename because the server process is the only writer; the day there are
-two, `store.ts` changes and nothing else does.
-
-`sessionId` is the load-bearing field. It is the only thing that makes `claude --resume` possible
-after a container restart, and it exists nowhere else.
-
-**A worktree carries the session live on it, so a list of worktrees can be sorted by who is
-waiting on a person.** `agent` on `WorktreeDto` is `{ state, asks }` or `null`:
-
-| Field | Meaning |
-|---|---|
-| `state` | The run's state — `running`, `idle`, `needs-input`, `done`, `failed` |
-| `asks` | How many permission questions the session is stopped on (§7.2.2). A count, not the questions |
-
-Three properties fix what it may and may not say:
-
-- **It is the live registry, never the run index.** A row's question is "is something happening
-  on this branch now", and a run that ended on Tuesday is not an answer to it. The registry is
-  in the server's memory, so a dashboard restart empties it and `null` is then the truth: the
-  process really is gone (§7.2's note on what does not survive a restart).
-- **It is keyed on the worktree's own `<project>/<slug>`** — the pair every agent route takes,
-  which is the workspace directory and not the `project:` out of a sandboxr.yaml. Keying it on
-  the sandbox would answer `null` for every project that renamed itself.
-- **`/btw` forks are not counted.** A side question is a second `claude` in the same container
-  with no tools at all (§7.2.1), so it is neither working on the worktree nor able to be waiting
-  on a person about it. The registry leaves them out by testing whether an entry *is* a fork,
-  not by its key: `activity()` re-keys every live session from its own project and slug, which a
-  fork shares with its parent.
-
-**`SandboxDto` carries the same field, keyed on the sandbox's own `<project>/<slug>`.** It is
-there for the one row that has no worktree behind it: a sandbox git no longer lists a worktree
-for still gets a row, synthesised from the sandbox so the container stays reachable, and without
-this it was the one row on which a live session went unreported. The sandbox's key is the
-`project:` out of its sandboxr.yaml rather than the workspace directory, so where a project's two
-names differ this answers `null` — which is already "no session", so a missed join costs a word
-on a row and can never mislabel one.
-
-Facts, like every other field: the browser turns `running` into "agent working" and a turn
-stopped on a question into "waiting on you", and it is the browser that groups a list by them.
-
-### 7.2.1 Side questions: `/btw`
-
-**`/btw` is a slash command sandboxr implements itself rather than one it sends or refuses.** In a
-terminal it draws a panel beside the conversation, so it is `local-jsx` and a headless session
-answers one with "isn't available in this environment". That is a fact about how Claude Code
-implements the command, not about what the command is for — which is a conversation that starts
-from everything said so far and whose answer never comes back. That is a session flag:
-
-```
-claude -p --resume <parent> --fork-session --session-id <fork> --tools "" --strict-mcp-config …
-```
-
-A forked session inherits the conversation up to the fork and then diverges. **Nothing is written
-to the parent**: its process is not spoken to, its transcript gains no line, and it stays usable
-while the fork works — the two are separate processes in the same container and both can be
-running at once.
-
-| Decision | What it is, and why |
-|---|---|
-| Where the process lives | The same registry, under a **suffixed key**: `project/slug` for the sandbox's session, `project/slug#btw:<forkSessionId>` for each fork. One map means one transcript queue, one idle wind-down, one `stopAll`; a second registry would be a second copy of all of it, and the copy that gets forgotten is the one that stops things at shutdown. "One session per worktree" survives as a property the key states: **at most one entry whose key has no fork suffix**, and `running()` only ever answers about that one |
-| The fork's id | Chosen by sandboxr and passed as `--session-id`, so it is a fact before the container is touched. One identity covers the browser's handle, the index row and the transcript filename, which is what lets a fork be found again after a reload. Claude Code's own error message documents the combination: `--session-id` may be used with `--resume` **only** when `--fork-session` is |
-| What it may do | **Nothing. A fork has no tools at all** — `FORK_TOOLS` is empty, which reaches the command line as `--tools ""`. A `/btw` answers out of the conversation it inherited; a fork that goes and greps the worktree is a second agent doing work on a question somebody asked in passing, and slow, on the one command whose appeal is that it is not. It also closes the older trap more completely than the read-only allowlist it replaces: there is nothing a fork can touch, rather than a list of things it may not |
-| How "no tools" is spelled, and why not the obvious way | `--tools` is the **base set**, not a permission rule, and Claude Code turns it into a deny rule for every built-in it does not name. A deny rule is the only thing that outranks a permission mode, so this holds however the session is otherwise configured — including under an operator's `SANDBOXR_CLAUDE_PERMISSION_MODE`, which a fork does not take in any case. An **empty `--allowedTools` would not work**: an allow list only decides what proceeds *without asking*, so an empty one narrows nothing. Two details are load-bearing in the argv. The empty string is an **argument, not an omission** — `--tools ""` narrows to nothing while a bare `--tools` is an empty list Claude Code skips — and because the flag is variadic, whatever follows the empty string must start with `-` or it is read as a tool name. `--strict-mcp-config` goes with it, because `--tools` narrows the *built-in* set and an MCP server configured on the branch would otherwise be the one route left back in |
-| The mode it still runs in | `--permission-mode dontAsk`, and it decides nothing today. The set of tools Claude Code ships is not sandboxr's to freeze: if a release adds one `--tools` does not narrow, `dontAsk` refuses it where `acceptEdits` would *perform* it — and on a fork that is a file written into a worktree somebody else is mid-refactor on |
-| Its model | The parent's, always. A fork inherits a conversation one model had, and answering on another would make its own transcript misleading — the same promise `/model` is refused to keep |
-| Its lifetime | It ends itself when its answer is finished, so a side question is not an idle `claude` left in the container. Dismissing the block does **not** stop it; stopping the parent does, and so does five minutes with nobody watching |
-| How many | Three at once per sandbox. The fourth is refused with a sentence rather than by making the conversation everybody is waiting on slower |
-
-**Interrupting is by tag, not by process name.** Every sandboxr-started session carries
-`--name sandboxr-<uuid>`, and an interrupt is `pkill -INT -f -- sandboxr-<uuid>` in a second exec.
-`pkill -x claude` was precise while a container held one session; with a fork beside it, "stop this
-turn" would have put both down at once.
-
-**The socket forks whichever way the text arrives.** `{"t":"send","text":"/btw …"}` is intercepted
-and never forwarded, so a client that knows nothing about `handledBy` still gets a fork rather than
-a `/btw` posted into a running session. A `/btw` with nothing after it, and one on a session that
-has not yet been assigned an id, are each answered with their own sentence and fork nothing.
-
-**Four more frames carry it**, and the design is that a fork's stream *is* a session's stream:
-
-| Direction | Frame | What it is |
-|---|---|---|
-| server → browser | `{"t":"forks","forks":[…]}` | Every side question of this run: id, parent, question, state, times. Re-sent whole whenever one changes, to **every** socket on the sandbox |
-| server → browser | `{"t":"fork","id":…,"message":<frame>}` | One fork's own output, wrapped. `message` is an ordinary server frame, so the browser unwraps it and draws the panel with the components that draw the conversation |
-| browser → server | `{"t":"fork-open","id":…}` | Read this one: replay its transcript and subscribe. Only a socket that asks is sent a fork's stream |
-| browser → server | `{"t":"fork-interrupt","id":…}` / `{"t":"fork-stop","id":…}` | End that fork's turn, or that fork |
-
-A fork's transcript is readable only through the sandbox it belongs to. A session id is a filename
-under `agent/log/`, and uuids being unguessable is not an access rule.
-
-**In the browser a side question replaces the composer, and must be dismissed.** It is a modal
-digression, not a second panel: asking one puts the conversation's composer aside and stands a block
-in its slot holding the question and the answer, and while that block is open **there is nowhere to
-type to the main session at all**. The composer is *removed* rather than disabled, because an
-affordance that is present and refuses is a worse answer than one that is not there. Dismissing it —
-a button, or Escape — gives the composer back and does **not** stop the fork.
-
-This is deliberately not the subagent idiom, which it was at first. A chip in the tray is something
-you come back to while you get on with something else, and that is what a subagent is; a side
-question is something you ask, read and are done with. The tray is therefore subagents only.
-
-Three consequences worth stating, because each is a thing that could be got wrong invisibly:
-
-- **The block survives a reconnect.** A fork is a real run with its own transcript, so a dropped
-  socket must not be able to lose one. The open fork's id is held across the socket's teardown, and
-  the `forks` list that arrives on the new attach is where it is put back — that frame is the first
-  moment a fresh socket can know the fork still exists. Its transcript is discarded and asked for
-  again with `fork-open`, because a replay appended to what is on screen would draw the answer twice.
-  A fork **absent** from that list — its conversation ended, or another browser stopped it — gives
-  the composer back instead.
-- **One at a time**, which follows from there being one composer. The cap of three concurrent forks
-  is still real and still enforced by the server: a fork keeps running after its block is dismissed,
-  and a second browser on the same sandbox can ask its own.
-- **The block knows which fork is its own without a frame for it.** The server subscribes exactly
-  one socket to a fork it did not ask about — the one that asked for it — so a `{"t":"fork","id":…}`
-  for an id the browser never opened is the side question somebody there just asked.
-
-The marker left in the conversation is unchanged and is now the only route back into a finished side
-question. It is positioned by **clock time and not by `seq`**: a replay and the live stream are
-counted by separate counters, so `seq` is not comparable across a reconnect. `forkedFrom.afterSeq`
-records the parent's offset anyway, because it is the number a later reader of the two files needs
-and it cannot be recovered afterwards.
-
-**A session is keyed by the sandbox, not by the connection watching it.** Sockets subscribe and
-unsubscribe; the process underneath carries on. That is the one place an agent session must differ
-from the terminal, and it is not a preference: a shell dying with its tab is expected, an agent
-dying because somebody looked at another worktree destroys work in progress. It follows that two
-browsers can watch one session, and that closing every browser leaves it running — bounded, because
-an unwatched session is stopped after thirty minutes rather than held open indefinitely against the
-sandbox's own idle reaper.
-
-**What a session does not survive is the dashboard restarting.** The process is a `docker exec`
-this server owns, so it dies with it. That is recoverable rather than fatal — the session id and
-the transcript are on disk, so the next connection continues the conversation with `--resume` — but
-it is a real limit. Removing it means running the agent detached *inside* the container and
-attaching to its output instead of owning its process.
-
-**The socket** is `/p/:project/s/:slug/agent`, authenticated before the upgrade completes like
-the terminal's (§3.2), with an optional `?resume=<sessionId>`, `?model=<id>` and `?mode=<id>`. A socket opened
-on a sandbox that already has a session joins it, and **the running session's model wins over the
-one asked for** — a conversation is a thing one model had, and switching mid-way would make its own
-transcript misleading. Unlike the terminal there are no binary frames at all — both directions are
-JSON text:
-
-| Direction | Frames |
-|---|---|
-| browser → server | `{"t":"send","text":…}`, `{"t":"interrupt"}` (end the turn), `{"t":"stop"}` (end the session), `{"t":"answer","id":…,"decision":"allow"\|"always"\|"deny"}` and `{"t":"mode","mode":…}` (§7.2.2), and the three fork frames of §7.2.1 |
-| server → browser | `{"t":"ready",…}`, `{"t":"session",…}`, `{"t":"event","event":…}`, `{"t":"state",…}`, `{"t":"usage","tokens":…}`, `{"t":"error",…}`, plus `{"t":"forks",…}` and `{"t":"fork",…}` (§7.2.1) and `{"t":"asks",…}` and `{"t":"mode",…}` (§7.2.2) |
-
-A reconnect replays the transcript from disk before the live stream starts, so the socket only
-ever carries what happens from now on.
-
-**Slash commands are a list the server owns, and half of it is per sandbox.**
-`GET /api/p/:project/s/:slug/agent/commands` answers every command the composer may offer, from
-three sources: Claude Code's built-ins, the worktree's own `.claude/commands/`, and its
-`.claude/skills/`. The last two belong to the branch rather than to the machine, so they are read
-by one exec inside the container — and a worktree with no `.claude` directory is the ordinary case,
-so a failure there answers the built-ins rather than an error.
-
-The built-ins are a **closed table** in `@jef/sessions`, on the same reasoning as the model table: a command
-becomes the text of a message sent into a process in a container. Only commands that work without a
-terminal are in it — Claude Code's `-p` mode runs skills, custom commands and a documented subset of
-the built-ins, and a terminal-only one such as `/login` is not an error the person sees but a turn
-spent on nothing. Two free sources say which is which and they agree: the shipped binary marks each
-command `supportsNonInteractive`, and a running session announces the resulting set as
-`slash_commands` on its `system`/`init` line. Neither costs a turn, and the table is worth
-re-checking against them whenever the image's `claude` is upgraded. What `init` does not carry is
-descriptions, which is why the table is written out rather than read off the session.
-
-**`sendable: false` marks a command that is listed and must not be sent, and the socket enforces it
-too.** A `{"t":"send"}` whose first token is one of them is answered with an error frame and never
-forwarded, because a rule enforced only in the browser is not a rule. Three are refused, each for
-its own reason: `/clear` starts a *new* Claude Code session while this run's transcript is still
-being written against the old id; `/login` only exists in a terminal; and `/model` would change a
-run's model after the index has recorded it, which is the same promise a joining socket keeps when
-the running session's model wins. Each refused row carries the sentence it is refused with, in
-`refusal`, and no other row carries one — the reason a command is stopped is a fact about what a
-session does, so the browser says it rather than composing one.
-
-**`handledBy` is a different question from `sendable`, and exactly one row answers it.** `sendable`
-asks whether this text may be posted to the session; `handledBy` asks who runs the command at all.
-`/btw` is `handledBy: "sandboxr"` — sendable from the composer, never sent to the session, forked
-by the socket (§7.2.1). The field is absent on every row the session runs, so an older browser
-reading a newer server's list is one that does not know sandboxr answers this one; it posts the
-text, and the socket forks anyway.
-
-**The table is a menu, not an allowlist.** Those three refusals and that one interception are the
-whole of what the socket does not forward. Every other message beginning with `/` is passed on
-verbatim — a command Claude Code gained after this table was written, one of the skills bundled in
-the binary, a worktree command added since the pane loaded, a pasted path, a sentence, a bare
-slash. A closed table decides what sandboxr *offers*, what it *stops* and what it *answers itself*;
-what a person may type is not sandboxr's to decide, and a table one release behind Claude Code has
-to degrade into "pass it on" rather than into "you may not type this".
-
-**The exec has no TTY, and that is not an optimisation.** A TTY echoes what is written to it, so
-a process exchanging newline-delimited JSON would receive its own input back interleaved with
-its output. The cost is that Docker frames the stream, which `demuxer()` already handles.
-
-**A session runs on one of two credentials, and which one decides what it can reach.**
-The default is a `claude setup-token` in `CLAUDE_CODE_OAUTH_TOKEN`: it makes model requests and
-nothing else, and loads no claude.ai connectors. A **subscription login** placed in the shared
-config volume (`sandboxr-claude`, §3.3) reaches every connector on the account instead — including
-the Google and Microsoft ones, which no per-server OAuth can authorise from a container, because
-this is the login that already authorised them rather than a fresh flow.
-
-**They do not compose, and the token wins.** Claude Code ranks an explicit
-`CLAUDE_CODE_OAUTH_TOKEN` above a stored login, so passing both leaves the connectors dark with
-nothing on the stream to say why. The server therefore probes for the login — existence only,
-never its contents — and withholds the token when one is there. A machine that never places a
-login is unaffected.
-
-**Either credential alone is sufficient, and the socket must ask about both before it refuses.**
-A sandbox that can read a login is authenticated with no token anywhere on the machine — that is
-the arrangement §7.2.1 exists to serve, and the only one that loads connectors — so "no
-`SANDBOXR_CLAUDE_TOKEN`" is not the same question as "no credential". The token is checked first
-because it costs nothing; the login is a probe inside the container, because `process.env` cannot
-see in there. Only the probe's **yes** may be cached: a *no* is the state a person is in the middle
-of fixing, and caching it would mean a credential placed by hand needed a dashboard restart rather
-than a new session.
-
-Placing one is **opt-in and deliberately not the default**: that credential can mint API keys
-against the organisation and reaches the person's mail, files and chat, from a root filesystem in
-a container whose job is executing project code, in a volume every sandbox on the machine shares.
-
-#### The host's login, shared rather than copied
-
-**When the machine's `config.yaml` shares `~/.claude/.credentials.json`, that one file is
-bind-mounted read-write into every sandbox** at `/root/.claude/.credentials.json`, over the volume.
-It is a `share:` row (§4.3), which is the engine's general form of "bind this host file into every
-sandbox"; the engine mounts it without knowing what it is. Finding the file is
-`hostClaudeCredentials` (`packages/sessions/src/agent/credentials.ts`), which honours the host's own
-`CLAUDE_CONFIG_DIR` and never assumes `$HOME` is `/root`, and `jef init` writes and repairs the row
-from it. **A machine with no such row shares no login** — see §4.3's upgrade note.
-
-**Shared, not copied, because an OAuth refresh token rotates and is single-use.** Two copies
-invalidate each other the first time either side refreshes: the host refreshes, the sandbox's copy
-is dead, and Claude Code blanks its own file rather than reporting a stale token. One file with one
-writer at a time has no such state — a refresh inside a sandbox updates the host's login and every
-other sandbox's at once. This is why the mount is **read-write**; read-only would work exactly until
-the first refresh and then fail the same way the copy did.
-
-**One file crosses the boundary, and the directory deliberately does not.** Binding all of
-`~/.claude` would give every sandbox write access to the host's `settings.json`, which can define
-**hooks — commands the host's own Claude Code then executes.** That turns a convenience into a
-container-to-host escalation: code running in a sandbox writes a hook, and the next thing the person
-does on their own machine runs it. The same mount would also expose their history, plans and
-per-project state to whatever is running in a sandbox. The credential is the only file that has a
-reason to cross, so it is the only one that does.
-
-Three consequences are part of the contract:
-
-- **No file, no mount.** Docker silently creates a *directory* where a bind source is missing, and
-  Claude Code then fails in a way that names neither Docker nor the mount. Absent — or present but
-  empty, which is what a rotation conflict leaves behind — the sandbox falls back to the volume.
-  An empty file is skipped rather than mounted because the login probe above tests existence: a
-  blank file would be read as a login, withhold the setup-token, and leave the session with no
-  credential at all.
-- **On Linux, a host login is therefore shared with every sandbox on the machine**, with all of the
-  reach described above. That is the supported arrangement, and it is a decision, not an oversight.
-- **On macOS the file is not the login, and may still exist.** The account credential is in the
-  login keychain (service `Claude Code-credentials`, account the username). The file at
-  `~/.claude/.credentials.json` is nonetheless commonly present there, because it is also where
-  Claude Code keeps the OAuth tokens for MCP servers signed into on the host. Existence and size
-  cannot tell those apart, and the contract is that sandboxr never reads the file to find out.
-
-**The macOS false positive is part of the contract, because it is the cost of not reading the
-file.** An MCP-only `~/.claude/.credentials.json` is mounted, `hasLogin`'s `test -s` answers yes,
-`agentEnv` therefore withholds `CLAUDE_CODE_OAUTH_TOKEN`, and the session runs with no credential
-at all. Claude Code reports `Not logged in · Please run /login`, which names neither the mount nor
-the withheld token, and adding a setup-token cannot fix it because the false positive is what
-suppresses the token. Observed on a real container with such a file mounted. The two resolutions
-are both a person's: put a real login in the file — exported from the keychain and **merged**, an
-overwrite destroying the MCP tokens — or take the file out of the mount's way and let the token be
-used. The guide carries both.
-
-An exported keychain credential is a **copy of a rotating credential**: rotation writes to the
-keychain and not to the file, so it goes stale and the symptom is `Not logged in` again.
-`claude setup-token` is the credential built for this; the export is a development-time
-compromise, and the two blob formats being identical is an observation rather than anything
-either side documents.
-
-**The dashboard is given the path at `init`, not left to resolve it.** It runs in a container whose
-`$HOME` is not the person's, so resolving from inside it would find nothing while the CLI found the
-file, and sandboxes started from the browser would silently differ from sandboxes started from the
-terminal — the failure the git-identity note in §7.3 already records. `init` resolves the path on
-the host and forwards it as `SANDBOXR_CLAUDE_CREDENTIALS`, which is also the override a deployment
-can set directly. A forwarded path is trusted rather than re-checked, because the container it is
-read in cannot see the host filesystem; a credential removed after `init` therefore needs another
-`init` to be noticed.
-
-**Credentials never reach the worktree.** A session authenticating with an OAuth token from
-`claude setup-token` gets it from the server's environment, passed to the exec as
-`CLAUDE_CODE_OAUTH_TOKEN`; it is written to no file inside the container. A session running on a
-login reads the file the mount or the volume already put at `/root/.claude/.credentials.json`, which
-is outside the worktree and stays there. One consequence is
-part of the contract because it is invisible otherwise: **a setup-token does not load claude.ai
-connectors**, so MCP servers are named to the machine (`SANDBOXR_CLAUDE_MCP`) and passed on the
-session's command line rather than inherited from the host's connector list.
-
-**The container is the permission boundary**, and what contains a session is the sandbox: the
-worktree, the project's own services, and nothing else. Inside that, §7.2.2 is how a session asks
-and how a person answers.
-
-`bypassPermissions` is impossible here rather than merely unwise, and it is therefore not in the
-table at all. It is a spelling of `--dangerously-skip-permissions`, Claude Code refuses that
-outright when running as root, and sandboxes run as root; a session configured that way exits at
-once with the refusal on stderr and nothing on the event stream. It stays in the `PermissionMode`
-type for the day a sandbox runs as somebody else, and `SANDBOXR_CLAUDE_PERMISSION_MODE` falls back
-to the default rather than honouring it.
-
-**The model is chosen from a closed table**, `AGENT_MODELS` in `@jef/sessions`, defaulting to
-Claude Opus 5.
-The browser asks for one with `?model=` on the upgrade and an id outside the table is refused
-before the handshake completes — the value becomes `--model` on a command line inside the
-container, so this is the same rule the action table follows in §8. `SANDBOXR_CLAUDE_MODEL` sets
-the machine's default, and `GET /api/agent/models` reports what this machine will actually do
-rather than a constant.
-
-### 7.2.2 Permission questions, and the modes that produce them
-
-**A session can ask a person for permission, and the person can answer.** That is a change to this
-file rather than an addition to it: the paragraph this replaces said the opposite, and everything
-built under it — the wildcard allowlist, `acceptEdits` as the only workable default — was working
-around a limit that turned out not to exist.
-
-**The mechanism is `--permission-prompt-tool stdio`, and its name is a trap.** Claude Code
-documents the flag as "MCP tool to use for permission prompts", which reads as an instruction to
-stand up a server. It is not. The flag takes one magic value, and with it the CLI asks over the
-stream it is already speaking on. The binary says so itself, in the sentence it prints when a
-cloud session is given anything else: *"--permission-prompt-tool (permission prompts reach the
-host over stdio; an MCP tool cannot answer them here)"*. sandboxr already owns both ends of that
-pipe, so nothing new runs in the container and nothing has to be reachable from it.
-
-| Direction | Frame |
-|---|---|
-| session → host | `{"type":"control_request","request_id":…,"request":{"subtype":"can_use_tool","tool_name":…,"input":{…},"tool_use_id":…,"permission_suggestions":[…],"suppress_always_allow_rule":…,"requires_user_interaction":…}}` |
-| host → session | `{"type":"control_response","response":{"subtype":"success","request_id":…,"response":{"behavior":"allow"\|"deny",…}}}` |
-
-**A request blocks the turn, indefinitely.** The tool does not run, the turn does not continue,
-and nothing times out at either end — an unanswered question sits until stdin closes and then
-fails with `Tool permission stream closed before response received`. Three things follow, and each
-is part of the contract:
-
-- **A pending question belongs to the run, not to the socket.** It is held in the registry,
-  re-announced to whoever attaches, and answerable by any browser on the sandbox. A closed tab
-  must not be able to strand a session mid-turn on a question only it could see.
-- **The run's state becomes `needs-input`** — the value in `@jef/sessions`' `RunState` that nothing could
-  previously produce, because nothing could ask.
-- **The question travels twice**, and the two say different things. It is an ordinary `ask` event,
-  so a replay draws the card the live stream drew; and the socket's `{"t":"asks","asks":[…]}`
-  frame — re-sent whole on attach and on every change, like `forks` — says which of those cards
-  still has a decision to make. An event cannot carry that: a transcript read next week is all
-  closed questions, and one another browser settled a second ago looks identical to an open one.
-
-**Three answers, and "always" is the one with consequences.** `allow` runs it once. `deny` refuses
-it with a message the model sees. `always` runs it *and* remembers, and where it remembers is the
-design:
-
-- **Not by writing what Claude Code suggests.** Its own `permission_suggestions` arrive with
-  `destination: "localSettings"`, and answering with that verbatim writes
-  `<cwd>/.claude/settings.local.json` — a file on somebody's branch, made by clicking a button in a
-  dashboard, outliving the sandbox that asked for it. Observed, not feared. sandboxr rewrites the
-  destination to `"session"`, which applies the rule for the rest of the run and touches no file.
-- **The grant itself is sandboxr's, and it is scoped to the project**, in
-  `$SANDBOXR_HOME/agent/grants.json`. Not the session, which ends in minutes. Not the sandbox,
-  which is deliberately disposable — a grant you remake on every branch about the same command in
-  the same codebase is one people click through without reading. Not the machine, because the same
-  command means different things in different repositories.
-- **It is applied by going back onto the next session's `--allowedTools`**, which is the mechanism
-  the default allowlist already uses. Claude Code proposed the rule and Claude Code matches it, so
-  there is no matcher of sandboxr's to drift.
-- **It is listed and revocable**, at `GET /api/p/:project/agent/grants` and
-  `DELETE /api/p/:project/agent/grants/:id`, drawn in the permission picker beside the composer. A
-  permission you cannot withdraw is one you should not have given. **Revoking applies to the next
-  session**, not the running one: the rule was handed to Claude Code for the length of that run and
-  there is no control request that takes it back. The answer says so rather than letting "revoked"
-  quietly mean "revoked in a minute".
-
-**Some tools cannot be pre-approved at all, and for those this is the only route.** An MCP tool
-carrying the `anthropic/requiresUserInteraction` annotation asks **even when it is explicitly on
-the allowlist** — verified against a stub server declaring it, with the tool named in
-`--allowedTools`, on every call. Two consequences: a request is authoritative regardless of what
-any rule says, so nothing may suppress a prompt on the grounds that the tool is allowed; and such a
-request arrives with `suppress_always_allow_rule: true` and an empty suggestion list, so **"always
-allow" is not offered on it** rather than offered and silently ineffective.
-
-**`mcp__*` is gone from `DEFAULT_ALLOWED_TOOLS`, because it never worked.** An allow rule matches
-an MCP tool by exact name (`mcp__notion__notion-search`), by server (`mcp__notion`), or by a
-trailing wildcard on the server (`mcp__notion__*`). `mcp__*` matches none of them — the name half
-of a rule is not glob-matched — so the line sat in every session's argv looking like a blanket
-approval that had been granted and granting nothing. Nothing replaces it: a prompt is answerable
-now, and per-call consent is the right trade for servers whose scope, with a subscription login in
-the volume, includes the person's mail and files. An "always" on an MCP call persists a rule of a
-shape Claude Code does match.
-
-**The modes are a closed table**, `PERMISSION_MODES` in `@jef/sessions`, on the same reasoning as the model
-table. `GET /api/agent/models` carries both, because the picker and the validator must be one
-table. Each was checked against a real headless run rather than inferred from its name:
-
-| Mode | What happens to a tool call no rule settles |
-|---|---|
-| `auto` | **The default.** A classifier reviews it and escalates what it will not vouch for. Costs a model call per unruled tool, and a classifier that cannot be reached *denies* rather than falling back to asking |
-| `acceptEdits` | File writes and the common filesystem commands proceed; everything else asks |
-| `manual` | Everything asks. Announced on the init line as `default` — see the spelling note below |
-| `plan` | Claude works out an approach and puts it up first. A real `--permission-mode` value in a `-p` run, which is why it is offered |
-| `dontAsk` | Refused outright, with `decision_reason_type: "mode"`. The only mode that never reaches a person |
-
-**One mode has two names.** The command line takes `manual`; the control protocol and the
-`system`/`init` line call the same mode `default`. `set_permission_mode` refuses `manual` with
-`Cannot set permission mode: must be one of acceptEdits, auto, bypassPermissions, default,
-dontAsk, plan`, and the session keeps the mode it had with nothing on the conversation to say so.
-`wireMode` is that mapping.
-
-**The mode can be changed on a running session**, which is the one way this picker differs from
-the model picker beside it: `{"t":"mode","mode":…}` on the socket becomes a `set_permission_mode`
-control request, and the very next unruled call is settled by the new mode. Nothing restarts and
-no conversation is lost, so the picker does not borrow "this starts a new session". A socket
-joining a run that is already up keeps *its* mode rather than imposing one, so that opening a
-second tab cannot quietly widen what an agent already working on somebody's branch may do.
-
-**Setting the flag is also a widening, and that is why it is opt-in per launch.** With
-`--permission-prompt-tool stdio` a session is additionally given `AskUserQuestion`, `EnterPlanMode`
-and `ExitPlanMode`, which are absent without it. A session gets it; **a side question never does**
-— `/btw` has no tools by construction, and three tools whose job is to talk to a person would be
-the one route back into a fork being able to do something.
-
-**Both halves of a permission exchange are on the transcript**, which is the one place the
-transcript is not purely "what Claude Code said". The request is a line the session wrote; the
-response is the line the server wrote back on the same pipe, appended at the moment it was
-written. A record holding only the questions replays as a conversation waiting for ever on
-somebody who already answered. A question nobody answered is left as a missing response rather
-than given a synthetic decision — "denied" is something a person did, "unanswered" is something
-that failed to happen, and only one of them was decided by anybody.
-
-### 7.3 Git in a sandbox, and the GitHub token
+**The engine builds the handshake and answers none of it.** It writes the router's labels and
+knows which hostnames must be protected; the thing that decides whether a given request is allowed
+is a front end on the bare domain, which is the embedder's (§7.2). So this section is a
+mechanism, not a login.
+
+- **An app hostname belonging to a `private` project gets a forward-auth middleware**, pointing at
+  `GET /auth/verify` on the bare domain. Traefik calls it before the request reaches the sandbox
+  and forwards it only on a 200. A `public` project's hostnames skip the middleware entirely, and
+  that is the whole of the difference (§5.3 is what a public project must prove first).
+- **The bare domain is the one address the middleware trusts**, and the container serving it
+  claims it with `sandboxr.frontend` (§7.2). A container that holds that label is claiming to own
+  the machine's authentication.
+- **The forwarded host is how a verifier knows what is being asked for.** The engine sends the
+  original hostname, so the front end can resolve which project the request is for and answer
+  per project rather than per machine. Nothing else is forwarded, and nothing about the answer
+  reaches the engine.
+
+Non-negotiables, and they bind the engine and any front end equally:
+
+- **Every request that reaches Docker is untrusted input.** Slugs, project names and branch names
+  are validated against the patterns in this file before they reach a command, and commands are
+  executed as argument arrays — never a shell string. `packages/core/src/naming.ts` holds the
+  patterns, and they are the same ones §3.1 defines.
+- **A private project is private on every hostname it has.** There is no per-app exception, and
+  `access.apps` is read once when the routes are written, so a project that changes to `private`
+  is protected on the next `up` and not before — which is why `sandboxr config` reports the
+  resolved value rather than the file's.
+- **No credential the engine handles is ever logged or echoed.** The secrets file (§5.2), the
+  GitHub token (§7.1) and anything a `share:` row mounts (§4.3) are read and passed on; none of
+  them appears in a log line, an error message or `plan.json`.
+
+**Everything a control plane must do beyond this is Jef's §3**: the session cookie, the password
+comparison, the rate limit on the login route, the content-security policy, and the rule that no
+action endpoint is reachable without a session.
+
+### 7.1 Git in a sandbox, and the GitHub token
 
 **Git works inside a sandbox, and making it work is a mount rather than a setting.** A linked
 worktree's `.git` is a *file* naming its repository by absolute path, so a container that has the
@@ -2259,7 +1621,7 @@ workspace mount follows: the worktree **and** the repository it points at are bi
 project that is a subdirectory of a larger repository gets neither and is told so once.
 
 **This whole section is about a worktree.** A session's runtime runs a self-contained clone on a work
-volume and asks for none of these mounts — see §12.4, which is where the reasoning for that lives.
+volume and asks for none of these mounts — see Jef's §9.4, which is where the reasoning for that lives.
 The two consequences below are consequences of the mounts, so they go with them.
 
 Three consequences are part of the contract:
@@ -2317,59 +1679,11 @@ session rather than the first. So:
   `projects:` key that decided it. `ProjectDto.github` carries it to the browser as a fact; the
   page writes the sentence.
 
-### 7.4 Reading the code in a container
+### 7.2 Putting your own control plane on the bare domain
 
-Two read-only views hang off the sandbox routes: a file explorer, and the branch's own diff.
-Both are strictly read-only, and that is a property of the endpoints rather than of the
-buttons in front of them: the only commands they run are `find`, `head`, `git diff`,
-`git ls-files`, `git rev-parse` and `git merge-base`. Nothing writes. In particular an
-untracked file's patch is taken with `git diff --no-index` and never with
-`git add --intent-to-add`, which would produce a nicer patch by changing the repository.
-
-**Everything is read from inside the container, over `docker exec`, and never from a host
-path.** A sandbox's worktree happens to be a bind mount the host can also see; a workstation's
-clone lives on a volume that is not a path on this machine at all. The reader
-(`packages/server/src/code.ts`) takes a container name and a root *inside* it — `/workspace`
-for a sandbox, §7.2 — so neither view knows which of the two it is talking to. Reaching for the
-host path would work today and stop working the first time the code is on a volume.
-
-**Every command is an argument array, and the only value ever interpolated into one is a
-commit sha checked against `/^[0-9a-f]{40}$/`.** A filename is one element of an argv, so a
-path holding a space, a quote, a newline or a `$(…)` is a path and never code. Paths from a
-request go through `safePath` in `@jef/sessions` first, which refuses a `.` or `..` segment outright
-rather than resolving one: whether `a/../../etc` lands inside the root depends on whether
-`a` is a symlink, so the only rule that is true by reading it is the one that refuses. A
-symlink is reported as a symlink and is never followed.
-
-**That path rule is containment, not the security boundary.** Both routes sit behind the same
-session and the same per-project grant as the terminal WebSocket, and that terminal is a root
-shell in the container being read. What the rule protects is the explorer staying an explorer
-of the workspace.
-
-**The diff's base is the merge base with the branch's upstream.** Diffing against the upstream
-*tip* would fold in whatever somebody else pushed and show their additions as this branch's
-deletions — a view that gets less accurate the longer the branch lives. From that base a single
-`git diff <commit>` covers commits, staged changes and unstaged changes, because it compares
-the commit to the working tree; untracked files are a second read, and carry no line counts,
-because a file git has never seen has no "before" and counting them in bulk costs one process
-per file. A branch with no upstream falls back to `HEAD`, and the answer says which base it
-used.
-
-Three things are capped, and every cap is reported rather than applied silently: a directory
-listing at 2,000 entries, a file read at 256 KB, a changed-file list at 2,000 files and one
-patch at 256 KB. A binary file is identified from `--numstat`'s `-`/`-` counts, or from a
-NUL in a file's opening bytes, and is answered as "binary" with no content at all rather than
-as mojibake.
-
-Four states are ordinary and answer a sentence rather than a `500`: a stopped sandbox
-(`409`), a container that has gone (`404`), a path that is not there (`404`), and a
-workspace that is not a git repository (`409`). A `path` that does not normalise is a
-`400` that does **not** repeat what was sent.
-
-### 7.5 Putting your own control plane on the bare domain
-
-Everything above §7.3 describes *Jef's* dashboard. The engine offers none, and the mechanism that
-puts one there is not Jef's — it is `access/router.ts`'s, and it needs only a name.
+The handshake of §7 needs something to answer it, and the engine offers nothing that does. **The
+mechanism that puts a control plane on the bare domain is not Jef's** — it is
+`access/router.ts`'s, and it needs only a name.
 
 **`sandboxr.frontend` is the label that says "this container answers on the bare domain".** One
 container, whatever it is; the engine starts none of them.
@@ -2428,63 +1742,56 @@ Two commands, and the one that knows what a dashboard is belongs to the product.
 labels until it is recreated, and `init` recreates it — so an upgrade that runs `jef init` is
 whole and one that does not leaves a container the engine's front-end listing cannot see.
 
-## 8. Actions
+## 8. The verbs
 
-Every action the dashboard offers is a **closed table** in the server package. There is no
-generic "run this command" endpoint. Each entry names the command, whether progress can be
-a real fraction, and how to parse a line into progress.
+What the engine can be asked to do, and the rules that hold whoever asks — the CLI, a cron job,
+or a product that calls core in process. **The verb is the engine's; the button, the stream and
+the confirmation dialog are not** ([Jef's §6](../jef/contracts.md)).
 
-Actions stream. The transport is Server-Sent Events for one-way output (a build, a
-migration) and a WebSocket for the terminal, which is bidirectional. Four event kinds:
-`start` (names the action, says whether the bar can be a fraction), `log` (one line),
-`step` (progress), `done` (the exit code, and optionally where to go next).
+| Verb | Scope | What it does |
+|---|---|---|
+| `up` | worktree | Resolves the config, builds what is missing, starts one container, registers its routes |
+| `down` | sandbox | Removes the container and its volumes, and the logs go with it (§3.3) |
+| `stop`, `start` | sandbox | The container, without touching what it holds |
+| `reload` | sandbox | Rebuilds what changed inside a running sandbox |
+| `ls`, `status`, `logs`, `shell` | sandbox | Reads. `ls` and `status` are pure functions of `docker ps` |
+| `keep`, `unkeep` | sandbox | Writes and clears `state/keep/…` (§4.2) |
+| `expire` | machine or project | Stops every sandbox past its idle limit (§4.2, §3.4) |
+| `gc`, `prune` | machine | Reclaims what the rules in §3.3 allow, and nothing else |
+| `project` | machine | Clones, lists and fetches — the workspace of §4.1 |
+| `worktree` | project | Cuts, names, pulls and deletes one. Every subcommand names a *branch* |
+| `db` | sandbox | `seed`, `migrate`, `snapshot`, `shell`, through the driver of §6 |
+| `secrets`, `config` | machine or project | The files of §5.2 and §4.3 |
+| `init`, `teardown`, `doctor` | machine | The router, the certificate and the domain of §3.2 |
 
-An action may declare how to read a **destination** out of its own output, the same way it
-declares how to read progress — so a clone can send the browser to the project it just made.
-Three rules, and all three are load-bearing:
+**A verb's scope is part of its identity**, and it answers "what does this act on", never "where
+is the button drawn". `worktree pull` is the case that makes it load-bearing. It brings one
+worktree up to its branch's head on the remote (§4.1.3), and it is scoped to the *worktree*
+because a worktree exists whether or not a container does — the sequence it exists for is pull,
+then restart, which starts from a sandbox that is stopped. Scope it to the sandbox and it is
+unavailable at exactly the moment it is wanted.
 
-- It is carried **only on a successful `done`**. A failure leaves the reader on the log,
-  which is the one place the error exists.
-- It is **read from the command's output**, never derived from the request. The names sandboxr
-  gives things are computed by core (§3.1), and a second derivation elsewhere would be wrong
-  for exactly the awkward inputs the hashing exists for.
-- It is **validated as a path on this origin** before it reaches the browser. It is built from
-  output that can contain names from a remote repository, and it ends in a navigation. A value
-  that does not qualify yields no destination at all rather than a fallback, because sending
-  the reader somewhere plausible is a false claim about where the thing is.
+**Every `worktree` subcommand names a branch, not a slug**, for a related reason: two worktrees
+cut before the collision guard existed can still answer to one slug (§3.1), and the branch is the
+name that cannot collide.
 
-**An action's scope is part of its identity**, and the route enforces it: a `sandbox` action
-must arrive on a route naming a sandbox, and the route refuses one whose slug is not a live
-container. So the scope answers "what does this act on", never "where is the button drawn".
+**Nothing has a lifetime unless something runs `expire`.** The engine has no reaper of its own and
+starts no daemon: `sandboxr expire` is the whole mechanism, it is a pure plan followed by stops,
+and it is meant to be run from cron. A machine that never runs it keeps every sandbox it ever
+started. See [the CLI-only setup](../setups/cli-only.md).
 
-`pull` is the case that makes the distinction load-bearing. It brings one worktree up to its
-branch's head on the remote (§4.1.3), and it is **project-scoped, taking the worktree's slug as
-an argument** — because a worktree exists whether or not a container does, and the sequence it
-exists for is pull, then restart, which starts from a sandbox that is stopped. Sandbox-scoped, it
-would be unavailable at exactly the moment it is wanted. `worktree-delete` is project-scoped for
-the same reason and names a *branch* rather than a slug, because two worktrees cut before the
-collision guard existed can still answer to one slug (§3.1).
+**A refusal is the last word, and `--force` is the only override.** Where core refuses a
+destructive operation because something would be lost — `worktree rm` or `worktree delete` on a
+worktree with uncommitted work — it refuses and reports what it found; it does not ask. The
+override is the CLI's `--force`, typed by somebody at the machine. A refusal carries whether it
+is forceable at all, so a caller can say which of the two it is looking at, and that is the whole
+of what a caller gets: **the engine offers no way to force a destructive operation without a
+person**, which is why `--force` lives on the command rather than on an option of the call.
 
-### 8.1 Destructive actions, and what a browser may not force
-
-A destructive entry carries a `confirm` sentence, and the sentence **names what is lost**
-rather than asking whether you are sure. The wording lives in the table because that is the
-only place that knows; a confirmation the browser wrote would be one the browser could get
-wrong about an action it does not implement.
-
-**A refusal is not a confirmation to be repeated.** Where core refuses a destructive
-operation because something would be lost — `worktree delete` on a dirty worktree — the
-action reports the refusal and stops. There is no `force` argument on the closed table, and
-adding one would make the confirmation the *second* dialog rather than the last word. The
-override is the CLI's `--force`, run by somebody at the machine.
-
-**An action that refuses rather than destroying is not destructive, and must not ask.** `pull`
-fast-forwards or it refuses, so there is nothing a confirmation could name as lost — and a
-confirmation on an action that cannot lose anything is what teaches people to click through the
-ones that can. Its refusal is reported the way any other is: a non-zero exit, and a
-`sandboxr-failed:` line so the verdict at the top of the sheet carries the reason rather than an
-exit code.
-
+**An operation that refuses rather than destroying is not destructive.** `worktree pull`
+fast-forwards or it refuses, so there is nothing a confirmation could name as lost — and
+confirming an operation that cannot lose anything is what teaches people to click through the
+ones that can.
 ## 9. Conventions
 
 - **Commits:** conventional (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`),
@@ -2499,1502 +1806,3 @@ exit code.
 - **Formatting:** two-space indent, double quotes, semicolons, trailing commas, 100-char
   lines.
 
-## 10. The orchestrator, voice, and Telegram
-
-The orchestrator is a second reader of sessions, opposite to the dashboard: the dashboard
-shows you one session, the orchestrator watches all of them and tells you only when one
-needs you. It is its own process, and it never shows a conversation — it produces
-**escalations**, and voice and Telegram turn those into sound.
-
-**Packages, and the dependency direction is a DAG.** `@jef/orchestrator` is the base:
-the model, the policy, the escalation types, the `Notifier`/`Forker`/`Summariser`/`Responder`
-interfaces, the hook ingest server, and the store feeder — core-only, pure where it can be.
-`@jef/voice` and `@jef/telegram` each depend on it and implement `Notifier`.
-`@jef/orchestrator-daemon` sits on top of all three and is the only one that wires
-sockets and reads the environment. Nothing depends back up the chain; voice must never import
-telegram, and the base must never import either.
-
-**Only `container/` is bash, and everything host-side is TypeScript — except the two audio
-sidecars, which are Python by necessity.** On-device speech recognition, neural
-text-to-speech and Telegram group-call media are Python ecosystems; the sidecars live under
-`sidecars/` (not `packages/`), each a `_sidecar` package with a testable stdlib core and heavy
-engines behind an optional extra. Their control planes are TypeScript. This is the one
-sanctioned exception to the language rule, and it is confined to `sidecars/`.
-
-### 10.1 What the orchestrator folds, and what it raises
-
-Three feeds, each seeing what the others cannot: the **index** (`runs.json`, §7.2.3) for state
-and titles; the **event** stream for the fine grain; and **hooks** (§10.4) for the push — a
-subagent's failure stated rather than inferred, and latency the transcript cannot match. The
-model is a pure reducer: `now` is an argument, so every signal — a stall, a blocked session, a
-failed subagent — is testable without a container or a timer. A fork of a session (a `/btw`) is
-never watched; it is only ever the mechanism by which the parent is summarised.
-
-Signals are a closed set: `needs-input`, `error`, `failed`, `finished`, `subagent-failed`,
-`stalled`, each with a fixed severity (`info` | `attention` | `urgent`). The **policy** is a
-pure function from one signal to an **escalation** or to silence, split on one line: a
-**question** is raised only where a person can still change the outcome (needs-input, error,
-stalled); everything else is an **update**. A severity floor is the one knob.
-
-The orchestrator never blocks ingestion on a person: delivery is dispatched, coalesced by
-`(signal, session)`, and held to one open question per session at a time.
-
-### 10.2 Summaries reuse `/btw`
-
-A session summary is a side question. The orchestrator depends only on a one-method `Forker`;
-the daemon's `DockerForker` builds the exact fork command core already defines (`agentArgv`
-with `--resume … --fork-session --tools "" --strict-mcp-config`, §7.2.1), opens it with
-`sideQuestionPreamble`, runs it over `docker exec` with stdin closed so the one-shot fork ends
-after one answer, and reads the answer through core's own `normalise`. No second way to talk to
-a session, and no reimplementation of the fork.
-
-### 10.3 The voice protocol, and the heard/unheard boundary
-
-Voice is split brain (TypeScript) and body (Python sidecar) across one newline-delimited-JSON
-socket. The body owns the microphone, the speech-to-text, the voice, and — the part that must
-be on-device and low-latency — the decision of when a person has started and stopped speaking.
-The `protocol` module is the single source of the wire shape; the Python side mirrors it.
-
-The whole protocol is shaped around **barge-in**. Two facts must survive a person talking over
-an announcement: how much of it they heard, and what they said. The first is knowable only in
-the body, where the audio clock is, so `speaking-interrupted` carries `spokenChars` — the
-boundary between heard and unheard, an estimate mapped from the audio clock and retreated to a
-whole word so a person is credited with slightly less, never more. An interruption is **two
-messages** (the cut, then the transcribed words that caused it) that the brain reassembles into
-one outcome.
-
-The brain keeps two records from that boundary. The **`AnnouncementLedger`** tracks, per
-announcement, how much was heard. The **`SessionHistory`** is the account of what the person
-actually knows, and an interruption **rewrites** it: the cut announcement is trimmed to the
-heard prefix, the unheard tail kept as a retraction, and the reply recorded — so the history
-matches what is in the person's head, not what was sent to the speaker. This is the one place
-"what was said" and "what was heard" are deliberately different, and every downstream decision
-uses the second.
-
-### 10.3.1 One voice, three bodies
-
-There is **one voice**, and it has three bodies. Each body is a `Backend` the same `Engine`
-drives, and each differs only in where the audio comes from and goes to:
-
-| Body | Where the audio is | File |
-|---|---|---|
-| `StreamedAudioBackend` | the browser is the microphone and the speaker | `sidecars/voice/voice_sidecar/stream.py` |
-| `AudioBackend` | a real microphone and speaker, at the desk | `sidecars/voice/voice_sidecar/audio.py` |
-| `CallAudioBackend` | a Telegram group voice call | `sidecars/telegram/telegram_sidecar/call_audio.py` |
-
-They share the **brain** (`packages/orchestrator`, `packages/voice`) and the **engines**
-(`engines/piper_tts.py`, `engines/whisper_stt.py`, `endpointer.py`, `engine.py`). The
-boundary between the two is a rule, not a habit:
-
-- **What is said, how fast it is said, what was heard, when a turn ends, and what counts as
-  speech at all — shared.** It belongs in an engine or in the brain, and there is exactly one
-  copy of it.
-- **How bytes reach a speaker and leave a microphone — the backend's own.** Opening a
-  `sounddevice` stream, draining `audio-out` frames to a socket, pushing PCM at pytgcalls,
-  and deriving "playback finished" from whichever signal that device actually has.
-
-**A fix made in one backend is a bug in the other two until it moves.** That is the whole of
-it, and every example below was found the hard way rather than reasoned about in advance:
-
-- **The speaking pace lives on `PiperTts`**, not on a backend. A pace held per backend is a
-  pace somebody implements for the dashboard and forgets to implement for a phone call. What
-  sharing buys is **one implementation**, not one value: the voice sidecar and the telegram
-  sidecar are separate processes with a synthesiser each, so a `configure` reaches the socket it
-  was sent on and no other (§10.3.2). Three docstrings used to say the value travelled; they were
-  wrong, and they say so now.
-- **Piper's output is resampled from its native rate (22050 Hz for most voices) to the 16 kHz
-  everything else assumes**, in `PiperTts` rather than at each device. Handing 22050 Hz to a
-  16 kHz player does not fail; it plays 1.38× too slow and too low, which reads as a deeper,
-  slower voice rather than as a bug, and it defeats the pace control on top.
-- **Whisper's confidence thresholds and its hallucination denylist are in `WhisperStt`.** A
-  breath transcribed as "Thank you." is a message the orchestrator acts on, and it is exactly
-  as wrong on a call as in a browser.
-- **What counts as speech is `SileroVad`'s — and so is the buffering that makes it possible.**
-  Silero decides on a fixed 512-sample window and carries LSTM state between windows; none of
-  the three bodies produces 512-sample frames, and the browser's are not even a constant
-  (2048 frames of 48 kHz resampled is about 683). So the re-chunking and the state live in the
-  engine, behind one `is_speech(frame_pcm)` that takes whatever a body has. A body that chunked
-  for itself would be three buffers, three LSTM states and three chances to zero one — and both
-  mistakes return plausible probabilities rather than an error, so nothing would ever say so.
-  The model is faster-whisper's own `silero_vad_v6.onnx`; the `silero-vad` package is not
-  installed and is not needed (§10.6).
-- **The end-of-turn silence window is `EndpointerConfig`'s**, and nothing else may hold a
-  number for it. Raised from 700 ms to 1200 ms because 700 ended a turn on an ordinary pause
-  for thought; the raise reached the voice sidecar and left the Telegram sidecar's own copy at
-  700, so calls went on cutting people off after the desk had stopped. Both entry points now
-  read the default from `EndpointerConfig`, and a test asserts it.
-- **A turn ends four ways, and all four are the engine's.** A run of silence is one
-  (`EndpointerConfig`); the recognised words ceasing to change is the other, and it exists
-  because in a car or on a train there is no silence to wait for — the VAD calls the noise
-  speech and the turn never ends. The second reads the partial transcripts, which are already
-  filtered hard enough that noise transcribes to nothing, and it is driven by the frame clock
-  rather than by partial completions: partials are throttled and skipped while one is running,
-  so a timer measured from them stalls exactly when the CPU is busiest, which is while somebody
-  is talking. It also requires `SETTLED_PARTIALS` passes to read the same, because a pass can
-  now be slower than the window it is judged against and one identical pass is evidence of
-  nothing. `finish` is a third, on demand — it *keeps* what was said, where `stop-listening`
-  discards it, and both say so in their docstrings because the names do not. The fourth is the
-  turn having gone on too long (`MAX_TURN_MS`, 30 s — Whisper's own window): the first two can
-  be defeated at once, by a room the VAD calls speech holding one open while somebody dictating
-  without a pause holds the other open, and the buffer then grows for the rest of the session
-  while every partial re-transcribes all of it. **At the cap nothing said is discarded.** A turn
-  with words ends exactly as `finish` ends one, so a long dictation arrives as several messages
-  rather than as the first thirty seconds and silence; a turn with nothing recognised drops its
-  audio and keeps listening, because ending it would put an empty message in front of the brain
-  and close the ear on somebody who has not started answering yet.
-
-- **A partial transcription never runs on the engine thread, and never more than one at a
-  time** (`partials.py`). A partial is a whole Whisper pass — there is no streaming partial from
-  Whisper — and it costs about **0.2 s of CPU per second of audio**, measured on the container.
-  Against a partial every 700 ms, a buffer past about **3.5 s** therefore costs more than the gap
-  between them, so running it on the engine thread put every later frame behind it: turns stopped
-  ending, the buffer grew, the next pass cost more, and live dictation degraded through a session
-  and then stopped. One worker runs the pass and **posts the result back to the engine's own
-  thread**, because the state machine has exactly one writer by design; a partial asked for while
-  one is running is **dropped, not queued**, since a queued one describes audio that has already
-  been superseded. Two more are never asked for at all, and both are about the *final* transcript
-  rather than the partial: one on a silent frame, and one that the measured cost of the last pass
-  says would still be running when the turn is capped. The final runs on the engine thread and
-  waits behind whatever is in the transcriber, so either would double the time the answer takes to
-  arrive in order to refresh a display with words that are about to be sent as a message anyway. A result that lands after its turn ended is dropped too, or it would show the
-  last utterance's words under the next one. `WhisperStt` serialises passes for the same reason —
-  the final transcript runs on the engine thread and would otherwise be inside the model at the
-  same time as a partial.
-
-- **A frame is timed from when it arrived, not from when it was handled.** The endpointer measures
-  runs of speech and silence against the stamp the backend gives each frame, so a body that stamps
-  frames where they are *processed* tells it that a queue's worth of audio arrived at once: a real
-  1.2-second pause measures as nothing and the turn does not end, while the first frame after a
-  slow pass appears to jump seconds into the future. `AudioBackend` and `CallAudioBackend` stamp on
-  a device or adapter thread and are honest by construction; `StreamedAudioBackend` is handled on
-  the engine thread, so the server stamps each `audio-in` as it comes off the socket and hands the
-  stamp down. A backlog may then delay a decision, but it cannot corrupt one.
-- **What was *heard* is never what was *sent*, wherever there is a consumer in between.** Both
-  the browser and a Telegram call buffer ahead of the speakers, so the position in the outgoing
-  buffer runs ahead of the ear — and that number is not only a progress indicator, it is the
-  heard/unheard boundary the session history is rewritten against at a barge-in. Each backend
-  therefore corrects it and errs low: the browser reports its own playback clock, the call
-  bounds it by the wall clock (a call plays at exactly 1×, so nobody can have heard more than
-  the seconds elapsed), and `AudioBackend` alone needs no correction because PortAudio pulls
-  each block just before it is due. That last one is recorded in its docstring so it is not
-  re-audited into a bug.
-- **Stopping playback has to abort the device, not drain it.** Emptying a buffer stops the
-  *next* sample being found; it does not recall what the consumer already holds. In the browser
-  that was up to a second of scheduled speech carrying on over somebody who had already
-  interrupted; at the desk it is PortAudio's output latency, and `stop()` there makes it worse
-  because `stop()` drains — `abort()` is the one that discards. On a call the residue inside
-  the encoder and the far end's jitter buffer cannot be recalled at all, which is a fixed
-  latency rather than a growing queue, and the code says so rather than pretending otherwise.
-
-The rule's weak point is the small amount of frame bookkeeping the three backends genuinely
-repeat — the pre-roll ring that keeps a barge-in's first word, and the per-frame VAD call that
-files a frame and judges it in the same breath. It sits against the frame source, which is why
-it is there three times; it is also the most likely place for the three to drift next, so a
-change to any of it is a change to all three.
-
-### 10.3.2 One voice, one conversation at a time
-
-There is one voice body on a machine — one microphone, one recogniser, one synthesiser, one
-`Engine` with one state machine — and the person in front of it has one mouth. **So "voice on
-every agent" means the voice can be *pointed at* any conversation, not that every conversation
-has one.** Two panes with a microphone each, feeding one recogniser, would be two agents
-answering out loud over each other.
-
-The voice is therefore the **machine's**, built from `SANDBOXR_VOICE_SOCKET` alone
-(`packages/server/src/voice.ts`, `ServerConfig.voiceSocket`). It used to be built inside
-`startOrchestrator`, so a machine with a sidecar had to turn the orchestrator on to get a
-microphone — even when what it wanted was to talk to a worktree's own session.
-
-| | |
-|---|---|
-| **Target** | A conversation, as three functions: `hear(text)`, `listening(on)`, `watch(say)`. The orchestrator's agent and a sandbox session are different objects with different lifetimes, and the voice is better for knowing about neither |
-| **Claim** | `MachineVoice.claim(target)`. At most one is held. A second socket on the *same* conversation shares it; a claim on a *different* one takes it |
-| **Address** | `/orchestrator/audio` for the machine's own session, `/p/:project/s/:slug/audio` for a worktree's, `/sessions/:session/audio` for the agent in a session's workstation (§12.6.0) — each beside that conversation's own socket, because they are two halves of one conversation |
-| **Key** | `orchestrator`, `<project>/<slug>`, and `#ws:<session>`. A key is parsed back into a conversation, and a worktree's is split on the first `/` — so a session's must be one that split can never be handed. A project, a slug and a session id are all `[a-z0-9-]`, so the `#` cannot appear in any of them, and the dispatch is a `switch` over a parsed subject rather than a ladder whose last branch is "whatever did not match" |
-| **Capability** | `GET /api/voice` answers `{ enabled, voices, voice }`. A route of its own, not a field on `/api/orchestrator`: every pane asks it, and a worktree page reading a different feature's status to decide whether it may draw a microphone is the right answer arrived at by luck |
-
-Four consequences, each of which is a bug if it is missed:
-
-- **Taking the voice stops the previous conversation mid-sentence and closes its relays.** The
-  sound has to stop, not just the bookkeeping: a sentence already playing is about a
-  conversation the person has turned away from. The losing tab is told `{"type":"taken","by":…}`
-  before its socket closes, because the close on its own arrives as a connection that failed for
-  no reason.
-- **A conversation the voice is not pointed at is never read aloud, and never spoken into.**
-  The `watch` is the claim; speech heard while nothing is claimed is dropped rather than
-  delivered to whichever conversation was last, which would put a sentence into a session the
-  person had stopped talking to and could not see.
-- **The `[spoken]` marker is one constant, `SPOKEN_MARKER` in `@jef/sessions`.** It prefixes a message
-  while somebody is listening, and `SPOKEN_PROMPT` — appended with `--append-system-prompt` to
-  every session on a machine that has a voice — is what gives it meaning. Both are core's
-  because the orchestrator and a sandbox session have to agree on them exactly. A machine with
-  no sidecar appends nothing, so its sessions get a byte-identical command line to the one they
-  got before any of this existed.
-- **Which voice speaks is a setting, not a deployment.** `PiperVoices` loads every `.onnx`
-  beside the mounted default, lazily, and switches on `configure`; the list travels in `ready`
-  and a change in a `voice` event. It is on the shared synthesiser for the reason §10.3.1 gives
-  about the pace. The dashboard remembers `ready` and replays it to each tab, because it is
-  sent once when the *dashboard* connects — long before any browser exists.
-
-**Telegram is the orchestrator's, and none of the above changes that.** The voice became the
-machine's; the phone did not. A worktree's session can be spoken to in the dashboard and can never
-place a call, for three reasons that are worth keeping separate because a change could break any
-one of them on its own:
-
-- **A different sidecar, on a different socket.** `SANDBOXR_VOICE_SOCKET` is the voice body the
-  dashboard relays to; `SANDBOXR_TELEGRAM_SOCKET` is a separate process reached only by the
-  orchestrator daemon (`packages/orchestrator-daemon/src/daemon.ts`). The relay in `voice.ts` holds
-  one transport and it is not that one, so there is no path from an audio socket to a call.
-- **The call is placed by the engine, about a session, not by a session.** `RoutingNotifier` sends
-  escalations at `urgent` to the Telegram notifier; the conversation held over the call is the
-  orchestrator's. A session is a *subject* of a call, never a party to one.
-- **The routes are orchestrator-gated.** `GET/PUT /api/orchestrator/telegram` answer 404 when
-  `SANDBOXR_ORCHESTRATOR` is unset, **even on a machine that has a voice** — which is now a
-  reachable state and was not before. A test pins it.
-
-A consequence worth stating because it reads like a bug otherwise: **the pace and the voice chosen
-in a browser do not reach a call.** The two sidecars share their code, so a fix to how either works
-reaches both; they do not share a process, so a `configure` reaches the socket it was sent on and
-no other. A call speaks at its own sidecar's `SANDBOXR_VOICE_RATE`, in its own mounted voice.
-
-### 10.4 Hooks
-
-Claude Code's hooks are pointed at `sandboxr-orchestrator-hook`, a bin whose one guarantee is
-that it is harmless: it forwards the payload and **exits 0 with empty stdout no matter what**,
-because a `PreToolUse` hook that is slow or errors can block a tool. The ingest server binds
-loopback, needs no auth (a local process handing a local process a local payload), and answers
-200 to everything but an unknown route — a hook must never be able to wedge a session with the
-orchestrator's opinion of its payload. `SubagentStop`, `Notification`, `Stop`, `PreToolUse` and
-`PostToolUse` are modelled; everything else parses to null.
-
-### 10.5 The Telegram control protocol, and the call
-
-Telegram is the notifier for when the person is away from the desk: a question rings them, an
-update leaves a text. A real one-to-one Telegram call is not programmable, so the userbot
-(Telethon) joins a **group voice chat** and brings the person in; pytgcalls carries the audio.
-The control protocol (`call`, `hangup`, `text`; `calling`, `joined`, `left`, `ended`, `error`)
-is signalling only — it is kept apart from the voice protocol, which carries the conversation
-once the person is on the call. `TelegramCall.call()` resolves on `joined` and rejects on
-ring-out or `ended`; nobody answering is a normal outcome, not an error. The conversation over
-the call is an ordinary `VoiceNotifier` reused whole — the same barge-in and history rewrite,
-with the call as the audio.
-
-### 10.6 The daemon, and what never leaves the machine
-
-**Everything the orchestrator adds is a host process, not a sandbox.** The daemon, the voice
-sidecar and the telegram sidecar run on the machine, beside Docker — they must, because voice
-owns the microphone, the telegram userbot owns the account login, and the daemon needs the Docker
-socket to fork a session. The sandboxes are the subjects, not part of it. Four links join them:
-the **run index** (a host file the daemon polls), **hooks** (an HTTP POST from a session to the
-daemon), **summaries** (`docker exec` from the daemon into a sandbox, §10.2), and **voice/calls**
-(local sockets to the sidecars). The **base package owns no side effects at all** — it opens no
-socket, spawns nothing, reads no environment — so the whole decision path is testable without any
-of the above; the daemon is the one place those edges live, which is also why it is a separate
-package from the base it cannot be depended on by.
-
-**One reachability boundary is left manual, not defaulted.** The index feed reaches the daemon
-whatever started a session, because it is a file. A hook runs where `claude` runs: for a session
-`claude` runs on the host it reaches the loopback ingest port, and for one the dashboard runs
-*inside a sandbox container* it does not, because the port binds loopback on the host. Wiring the
-in-container case — `SANDBOXR_ORCHESTRATOR_URL` in the sandbox pointing at the daemon on the
-docker-bridge gateway — is deliberately a manual step, because loopback-only is the safe default.
-
-`sandboxr-orchestrator` reads `SANDBOXR_HOME`, polls the index, serves the hook port
-(`SANDBOXR_ORCHESTRATOR_PORT`, default 4600, loopback), and routes escalations: voice
-(`SANDBOXR_VOICE_SOCKET`) takes everything, Telegram (`SANDBOXR_TELEGRAM_SOCKET`,
-`…_CHAT_ID`, `…_USER_ID`) takes the urgent, and a log notifier is the floor under both so a
-machine with neither still runs and stays observable. It degrades to logging when a sidecar is
-absent, so it is safe to start first.
-
-The whole point of the Python sidecars is that **speech never leaves the machine**: recognition
-(Whisper), synthesis (Piper), voice-activity detection (Silero) and the end-of-speech decision
-all run locally. The Telegram audio is the one exception, and it is the person's own call on
-their own account. Telegram credentials are read from the environment only, never a flag.
-
-### 10.7 In the dashboard, and audio over the browser
-
-The orchestrator owns no side effects, so it runs in two places from one engine. As a
-standalone **daemon** (§10.6), and — behind `SANDBOXR_ORCHESTRATOR` — **inside the dashboard
-server**, where the two edges it needs are already present: the live session registry, so a
-summary is a real `/btw` fork taken through `AgentSessions.fork` rather than a `docker exec`,
-and a websocket to the browser, so an escalation is a card and an answer is a click. When the
-variable is unset, `startOrchestrator` returns null and every route and gateway treats null as
-"the feature does not exist" — an un-opted-in dashboard is unchanged, which is the safety story.
-
-Two sockets and three routes, all gated on a password that covers **every** project (`*`), because
-the orchestrator watches across projects and an escalation about one names a sandbox another
-login may not see:
-
-- **`/orchestrator`** — the panel. `ready` (recent cards + open question ids) on attach, then
-  `escalation` and `answered` frames out; `answer` and `digest` in. A question is answered once,
-  by whoever answers first; the `answered` frame clears every other tab's card.
-- **`/orchestrator/audio`**, **`/p/:project/s/:slug/audio`** and **`/sessions/:session/audio`** —
-  the audio relay, only when a voice is configured. Three addresses, one relay: it is one body
-  being pointed at one of them (§10.3.2). Binary PCM both ways with the browser;
-  `audio-in`/`audio-out` on the sidecar transport. **`GET /api/voice`** answers
-  `{enabled, voices, voice}` — whether the machine has a voice at all, and which voices it can
-  speak in. The workstation address takes the same `*` bar `WS /sessions/:session/agent` takes and
-  for the same reason (§12.6.0); a conversation with nothing running behind it — a worktree with
-  no session, a workstation that is stopped — is a **409**, one refusal for one condition.
-- **`GET/PUT /api/orchestrator/telegram`** — the call targets and the enable switch. **Never the
-  api id, hash or session**: those are secrets, stay in the sidecar's environment, and have no
-  web field. **`GET /api/orchestrator`** answers `{enabled}` so the browser can decide whether to
-  draw the panel; it is the one route a disabled dashboard still answers.
-- **`GET/PUT /api/orchestrator/soul`** — `{text}`, the orchestrator agent's character, stored as
-  prose in `$SANDBOXR_HOME/soul.md` and capped at 8000 characters. **Only the orchestrator reads
-  it**; a sandbox session's prompt is core's and is untouched by it. It is appended **after** the
-  operational system prompt under a heading limiting it to manner, so it can never widen what the
-  agent may do — the allowlist and `--permission-prompt-tool` remain the only things that decide
-  that. Absent or empty means no section at all and a byte-identical prompt. It is read when a
-  conversation opens, never at construction: `--append-system-prompt` is fixed for the life of the
-  `claude` process, so an edit lands on the **next** conversation and every surface must say so.
-
-**Audio on the web streams to the sidecar; it does not use the browser's own speech.** Browser
-speech recognition ships audio to a vendor cloud, which would break "speech never leaves the
-machine". So the browser is only a microphone and a speaker: it streams PCM to the voice sidecar
-(running in **streamed mode** — the socket is its device), which recognises and synthesises
-locally and streams the spoken audio back. The `audio-in`/`audio-out` frames carry it, base64 so
-the protocol stays one JSON object per line, and the sidecar paces `audio-out` one tick at a time
-so the heard boundary stays honest at a barge-in.
-
-**Voice is never a second asker.** There is one conversation, and speech is a way into it, not a
-second channel beside it. What the sidecar hears becomes `agent.send(text)` — an ordinary message
-— and the agent's finished prose is spoken back; escalations reach the agent (`AgentNotifier`),
-which raises them in that same conversation. Talking is typing. The transcript used to be
-submitted as the answer to whatever question the panel had open, which was a second answer channel
-and could settle the wrong question when two were open at once.
-
-**Streamed audio is also what makes the sidecars containerisable.** With the browser doing the
-raw audio I/O, a sidecar needs no audio device, so it ships as an image that runs the same on any
-machine and reaches the dashboard over a Unix socket on a shared volume. The desk build (a real
-device, via sounddevice) and the streamed build (no device) are the same body with different ends.
-
-## 11. The master compose file
-
-`docker-compose.yml` at the top of the repository runs the machine's **constellation**: the
-router (§7), the dashboard, the orchestrator container (§10.7), and the two audio sidecars
-(§10.3.1). It is the second way to start those three core-defined containers — `sandboxr init`
-is the first — and the only way to start the sidecars alongside them.
-
-**Compose owns the shape; core owns the values.** Every value in that file is either a constant
-`packages/core` also names, or a `${…}` out of `.env`. Nothing in it is derived: not a hostname,
-not a rule, not an image digest. This is the rule that keeps the file from becoming a second
-implementation of `access/dashboard.ts`, which is what "logic belongs in core" forbids.
-
-**Where compose must spell a value core computes, a test pins the two together.**
-`packages/core/src/access/compose.test.ts` parses the file, emulates compose's own interpolation,
-and compares the result against `routerArgs`, `dashboardArgs`, `dashboardLabels` and
-`orchestratorArgs`. A mount, a label, a published port or a forwarded variable that exists on one
-side and not the other fails the suite. It is the same device `HANDSHAKE_PATH` uses across core
-and the server, and `PROTECTED_IMAGES` across `naming.ts` and `access/index.ts`: two constants
-that have to agree, held together by an assertion rather than by discipline.
-
-**Two files hold values, split on whether a person chooses it.**
-
-| File | Written by | Holds |
-|---|---|---|
-| `.env` | a person, from `.env.example` | paths, domain, password, ports, database credentials, `COMPOSE_PROFILES` |
-| `$SANDBOXR_HOME/host.env` | `init` | The engine's three: `GH_TOKEN`, `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`. Then whatever the embedder named — for Jef, `SANDBOXR_CLAUDE_CREDENTIALS` and `CLAUDE_CODE_OAUTH_TOKEN` |
-
-`.env` is hand-edited and never generated, and that is the point of it: **a container's
-environment is fixed when the container is made**, so a credential added to a running dashboard
-reaches nothing — which is how every database variable in §5.2 could be set on a machine and
-still be absent from the dashboard. One line in `.env` and one `docker compose up -d` is the
-whole fix, and it must stay a file a person can edit for that to be true.
-
-`host.env` is generated because nothing but a host process can produce it: `gh`'s token lives in
-the login keychain, the commit identity in a gitconfig the dashboard has not got, and the Claude
-login is a path on a filesystem it cannot see. It is loaded as an `env_file`, so it is container
-environment only and never interpolated. **Mode 0600**, like `secrets/<project>.env`, because it
-holds a token.
-
-**Compose owns the shape, core owns the values, and the embedder owns its own values.** The
-engine writes three facts — the keychain's token and the machine's commit identity — because
-those are facts about a *sandbox's* host. Everything else in the file is `InitOptions.hostEnvExtra`,
-named by whoever ran `init`, written after the engine's own keys and sorted, through the same
-quoting and the same refusal of a value carrying a newline. The engine never learns what any of
-them is for.
-
-Jef names two. `SANDBOXR_CLAUDE_CREDENTIALS` is a path on the host filesystem. `CLAUDE_CODE_OAUTH_TOKEN`
-is `SANDBOXR_CLAUDE_TOKEN` under the name Claude Code reads — the rename `orchestratorArgs`
-already performs, done once rather than in YAML. Both services load the file, so the dashboard
-sees that token under a second name; it is the same secret §7.2 already gives it, and the login
-kept out of the web server is the *credentials file*, which remains a path here and a mount there.
-
-**`jef init --no-start` is the prerequisite, and it is not optional.** The directories, the
-three images, the certificate, the router's own configuration under `state/` and `host.env` are
-all things no compose file can produce. `--no-start` exists because the alternative is `init`
-starting containers under the names compose then wants, which fails as "container name is already
-in use" and names nothing about the cause. The two ways to run the constellation are exclusive:
-`sandboxr teardown` is the handoff from one to the other.
-
-**The network is external.** `sandboxr init` creates `sandboxr` (§3.3) and every sandbox joins it;
-a compose-created `sandboxr_default` would put the router on a network no sandbox is on, and every
-app would answer 404 at the router rather than fail in a way that names this.
-
-**Sandboxes are not in it, and the file says so.** A sandbox is created per worktree at run time
-by core driving the Docker socket, and its name is derived from a branch that did not exist when
-the file was written. `docker compose down` therefore stops the plumbing and leaves every sandbox
-running; `sandboxr down` stops one and `sandboxr gc` reclaims what they left. The file states this
-at the top because the opposite is the reasonable assumption.
-
-**No Telegram credential appears in it, in `.env.example`, or in any documentation.** The api id,
-hash and session string are read from the environment of the shell that runs `docker compose`, as
-§10.6 requires, and the compose test asserts that every Telegram entry in the file is a bare name
-with no value.
-
-**The sidecars reach the dashboard over `$SANDBOXR_HOME/run`, not a named volume.** The dashboard
-already binds `SANDBOXR_HOME` at the identical path inside and out (§4), so one
-`SANDBOXR_VOICE_SOCKET` value is correct on the host, in the dashboard and in the sidecar at once.
-A named volume would have to be mounted by all three and would still mean a different path in each.
-
-What the file deliberately does not cover: sandboxes, the standalone orchestrator daemon (§10.6,
-a host process with no image), and building the three `sandboxr/` images — the base is
-content-addressed on everything under `container/` and that digest is core's to compute. The two
-sidecar images have ordinary Dockerfiles, so compose builds those.
-
-## 12. The session model
-
-**This section was written before any of it existed, which is what this file is for**: §§1–11
-describe a machine that runs today, and this section describes the one being built on top of it.
-Everything §§1–11 says about a **sandbox** is still true and still running. §12.10 maps each
-superseded rule onto what replaces it, because the reasoning in those sections is what this one is
-built out of; none of it is deleted.
-
-**What is built, precisely.** `packages/sessions/src/session/` creates, lists, fetches and deletes a
-session, and creates, starts and stops a workstation — so a container does now answer to
-`sandboxr-ws-`, a volume to `sandboxr-work-`, and `state/session/<session>/` holds §12.6's three
-files. Beside it, `session/work.ts` knows the `/work/<repo>/<branch>` layout, refuses a second
-branch that would share a directory with the first, clones into a work volume from a short-lived
-container, and is the only code that may remove one — and `gc` and `prune` leave a work volume
-alone under every rule they have, which had to land in the same change, because a work volume the
-collector did not know about is somebody's uncommitted work waiting for the next housekeeping run.
-All of that has been run against a real daemon.
-
-**The idle clock reads a workstation (§12.7), and it is the clock in `sandbox/expiry.ts`.**
-`planSessionExpiry` in `session/expiry.ts` is `planExpiry` over a session and both reach the
-engine's one `decide`, which `sandbox/expiry.ts` exports for exactly this; `sessionActivity`
-in `sandbox/activity.ts` reads the three signals a workstation has; `session/expire.ts` stops what
-has run out, through `stopWorkstation` and no other verb, so a session that goes quiet keeps its
-work volume and its host files. The dashboard's reaper drives it on the same pass it drives
-sandboxes. **Two things about it are true and worth saying here rather than being discovered:**
-nothing writes `AgentRun.session` yet, because no run happens in a workstation yet, so the agent
-signal is read and never supplied; and `sandboxr expire` still covers only sandboxes, because the
-CLI has no session surface at all. **None of it has been run against a real daemon** — the tests
-are unit tests against a fake one.
-
-**The dashboard's HTTP surface for a session is built** (§12.6.2): `/api/sessions/…` lists
-sessions, makes one, fetches one, deletes one, starts and stops a workstation, lists the
-repositories on a work volume, **clones one into it**, and serves §7.4's two read-only code views
-against a workstation rather than a sandbox. Every route is tested over real HTTP against a fake
-core and a fake daemon.
-
-**Six of those routes have now been driven against a real daemon**, end to end in one pass: a
-session created, `POST …/repos` cloning a 1&nbsp;GB repository's `main` onto its work volume in
-twenty-four seconds, `GET …/repos` listing the checkout, and `…/files` and `…/diff` reading it out
-of the workstation — then the session deleted, taking its container, its volume and its host
-directory with it. The clone was checked for the two traps §12.5 names: its `origin` is the forge's
-URL and not `/src`, and it has no `objects/info/alternates`, so it is self-contained. `…/diff`
-resolved an upstream of `origin/main`, which is true only if the fetch of the mirror's
-`refs/remotes/origin/*` landed — the half that a plain clone of a bare mirror gets wrong. The
-refusals were exercised the same way: a second clone of one branch, a branch that resolves nowhere,
-a project the workspace does not hold, a project a narrow password may not see, and two branch names
-that want one directory.
-
-**`POST …/runtimes` and the `…/r/:runtime` routes have still not been driven against a real
-daemon**, and neither has starting or stopping a workstation.
-
-**A runtime can be brought up from a work volume and has been** (§12.4): `up({ runtime })` starts a
-sandbox whose `/workspace` is a checkout on `sandboxr-work-<session>`, and the demo project was
-cloned into one, started, and served over HTTP.
-
-**Asking for one is built too, both halves** (§12.4, §12.6.1.1). `POST /api/sessions/:session/runtimes`
-starts a runtime and answers its URLs, `…/r/:runtime/stop` and `DELETE …/r/:runtime` take one away,
-and a session may only run a checkout that is already on its own work volume — enforced against the
-volume's own listing rather than against the request. Beside it, `packages/server/src/session-mcp.ts`
-is the `sandboxr` MCP server the agent's `claude` process runs, whose every tool is one of those
-calls with a per-run token. Both are tested — the routes over real HTTP against a fake core, the
-tool over a real stdio pipe against a real HTTP server.
-
-**An agent now runs in a workstation, and the socket into one is `WS /sessions/:session/agent`**
-(§12.6.0). Against a live daemon, a session was created, the socket opened, and `claude` started
-inside `sandboxr-ws-<session>`: it reported `cwd=/work`, forty tools, and the `sandboxr` MCP server
-**connected** — the first time the file of §12.4 has been copied in and started by a real agent.
-Two things were found by running it rather than by reading it: the `with-env` prefix is fatal in a
-workstation (§12.3), and the `.js`/`.mjs` distinction on the copied file is load-bearing (§12.4).
-
-**No tool call has been made by a model, and no model has answered.** The turn ended on
-`Failed to authenticate: OAuth session expired and could not be refreshed`: the machine it was run
-on shares its Claude login as `~/.claude/.credentials.json` (§3.3), which on macOS is a *copy* of a
-keychain credential, and the copy's refresh was rejected and the file blanked — the failure
-`hasLogin` is written about, reached from a workstation for the first time. That is a property of
-the machine rather than of this section, and it is the only thing between here and a session that
-shows you its work running.
-
-**The browser app is organised around a session now, sidebar included.** The column at every
-width above `md` is the list of sessions (`components/shell/SessionBrowser.tsx`), drawn row for
-row the way the worktree column was drawn: a state dot at the head, the name, the id or what the
-session holds under it, and one thing at the right-hand end. `/sessions` is that same list given
-a screen, which is what the phone's tab bar switches to. **New session** is the app's primary
-create action — in the header at every width, at the head of the session column, on the home page
-and on a project's pane; the header's copy is the one that makes it ambient. It is deliberately
-**not** in the phone's tab bar, which already carries one destination more than a tab bar is for.
-
-**`/sessions/<id>` opens on its agent**, filling the pane, with the checkouts, the runtimes and
-the three verbs over the workstation in a slide-out column beside it. It is the shape the worktree
-pane already had and it is literally the same two components — `AgentSession` given a third
-`endpoints`, and one shared `SidePanel`. The conversation is dialled at `/sessions/:session/agent`
-below, **which nothing answers yet**: see the closing paragraph of this preamble.
-
-**`New worktree` has gone as an action, and `/new` with it.** Code is something you add to a
-session, from inside the session — `POST /api/sessions/:session/repos` (§12.5) — so a second
-create making a different noun out of a form is the thing that went. Nothing running was taken
-away with it: every worktree-backed sandbox on this machine keeps its own pane at
-`/p/<project>/w/<slug>`, `/worktrees` is still the whole list as a pane, and **a project's own
-pane is where a worktree is managed from** — it lists every worktree in the project with its
-sandbox, its pull request and a Start beside each. The one thing `/new` could do that nothing else
-now can is **cut a new branch** (`up` with a `branch` and a `base`); starting a branch that already
-exists is unchanged.
-
-**The create asks for nothing and the id is never a field.** One click posts an empty body and
-lands on the session it made; `POST /api/sessions` invents the id, and the id is the *address*
-(§12.2) — the URL, `sandboxr-ws-<id>`, `sandboxr-work-<id>` — which is precisely why a person
-does not type one. The request is held for the whole app rather than by each button, so five
-copies of the control are one create; the wait, which is minutes on a machine with no
-workstation image, is a band under the header and not a modal — there is no form left for a
-modal to hold, and a dialog containing only a progress bar blocks the page for no reason.
-**The name is set after the fact**, on the session's own pane, through `PATCH
-/api/sessions/:session`: a session nobody has named shows its id as its title, because
-`SessionDto.name` is `null` until somebody sets one and is never the id. Adding code to a
-session is a project and a branch; §7.4's two read-only views are the same two components,
-pointed at a workstation rather than at a sandbox. Everything §12 says about an absence is drawn as one: an unreadable
-work volume is `unknown` and never `none` (§12.5), and `runtimesWithheld` and the repositories
-listing's `withheld` are rendered rather than dropped (§12.6.1). **Worktrees are unchanged in
-everything but where they are listed** — a session cannot yet do everything a worktree can
-(§12.10), and every sandbox on any real machine today is on a worktree, so all of §§3–8 still
-describes what runs. **None of the browser half has been opened in a browser**: it is tested in
-jsdom against the shapes above, and that is all.
-
-**The rest of §12 has not been built**: there is no CLI command and no session scope in §8's
-action table, so a session still has no actions and no terminal. It does have a conversation
-(§12.6.0): `/sessions/<id>` opens on a pane dialled at `WS /sessions/:session/agent`, and the
-server answers there.
-[`docs/reference/status.md`](../reference/status.md) carries the same division where a reader of
-the site will find it, and it is the only other place that has to.
-
-
-### 12.1 Four nouns
-
-| Noun | What it is | How many |
-|---|---|---|
-| **Session** | The unit of work. An agent with a container. It may hold zero or more repositories and may have started zero or more runtimes | the thing the product is organised around |
-| **Workstation** | The container the agent runs in | exactly one per session |
-| **Runtime** | A running copy of a project: its apps, its database, its hostnames. This is what §§3–8 call a sandbox | zero or more per session |
-| **Work volume** | A Docker named volume holding the session's clones | exactly one per session |
-
-**A session replaces the worktree as the thing the product is organised around, and it is not a
-worktree under a new name.** A worktree is a checkout of one branch of one repository, and
-everything keyed on `<project>/<slug>` inherits that shape: one repository, one branch, one
-sandbox. A session starts from the work instead. "Change the retry logic in the API and the copy
-on the marketing site" is one session and two repositories. **"Write me a document" is a session
-with no repository at all** — a session whose work volume is empty and which has started no
-runtime is an ordinary state, not a half-finished one. Nothing may treat it as an error, refuse
-to list it, or require a project before a session can exist.
-
-Two vocabulary collisions, both settled here rather than left for whoever hits them:
-
-- **"Runtime" alone always means the noun in that table.** §5.1's sense — a backend, a static
-  front-end, a served front-end — is **always spelled "runtime kind" and never shortened**, in
-  code, in the API and on every page. §5.1's own heading already spells it that way.
-- **§7.2's nouns are untouched.** A **Run** there is one `claude` invocation; it now happens in a
-  workstation rather than in a sandbox, and it is keyed on the session (§12.7). The phrase "agent
-  session" is retired: a *session* is §12's noun, a *run* is §7.2's, and a sentence using the old
-  phrase cannot be read as either.
-
-### 12.2 Identity and naming
-
-A session is identified by a **session id**. It is what every container name, volume name, host
-path and route below is built from.
-
-- **The id is sanitised by §3.1's `sanitizeSlug`** — lowercase, `[a-z0-9-]`, runs of `-`
-  collapsed, ends stripped. It therefore never contains `--`, which §3.2 depends on.
-- **It is bounded at 31 characters, the plain lock budget, and not by any project's ceiling.** A
-  session may hold repositories of projects that do not exist yet when it is created, so a
-  per-project ceiling cannot be computed at that moment. It does not need to be: a session id
-  names a container and a volume, and neither is a DNS label. This is exactly §3.1's reasoning
-  for a worktree's directory name.
-- **The namespace is flat and machine-wide.** A session is not filed under a project because it
-  may hold none, or several. Creating a session under an id something already holds is refused,
-  and the refusal names what holds it.
-
-```
-sandboxr-ws-<session>       the workstation container
-sandboxr-work-<session>     the work volume
-```
-
-#### Where the id comes from
-
-`sessionId` in `packages/sessions/src/session/id.ts`, and it is a pure function like `deriveSlug`: the
-caller works out what is taken and passes it in. Three inputs, in this order.
-
-- **An id somebody typed** is sanitised and nothing more. Taken is a **refusal**, naming the
-  holder — which is the workstation or, for a stopped session, the work volume. A leftover work
-  volume holds an id as firmly as a container does: Docker reuses a volume of that name rather
-  than refusing, so creating a session over one would silently hand it somebody else's clones.
-- **A name** derives the id, `sanitizeSlug(name)` bounded to 31. On collision it is **given** a
-  four-character token — `uniqueSlug`, the same device §3.1 uses for two branches on one ticket,
-  reused rather than rewritten. A name is a sentence and may repeat; an id is an address and may
-  not, and refusing the second session called "the checkout rewrite" would make naming one a trap.
-- **Neither** gives `session`, plus a token once that is taken. A session has no branch, no
-  directory and no ticket to read — those are exactly §3.1's inputs — so the base says what the
-  thing is and the token distinguishes it. **Not a generated adjective-and-noun pair**: a word
-  list is a maintenance surface and eventually produces a pairing nobody wants on a screen, and
-  what it buys is memorability that naming the session buys properly.
-
-A name that sanitises to nothing — "🎉" — falls through to the unnamed base and **keeps its name**.
-The name is presentation and may be any 60 code points somebody typed (§4.2.1); refusing to create
-a session over an id nobody asked to see would be a surprising place to discover that.
-
-#### A runtime's slug, and how it slots into §3.2
-
-**§3.2's hostname scheme is unchanged, and must stay unchanged.** One DNS label above the domain,
-`<slug>--<label>--<project>`, `--` as the separator, `parseHost` as the named reverse of `hostFor`.
-Every word of the TLS argument in §3.2 still holds, and a session changes none of it. What a
-session changes is where the slug comes from.
-
-**A runtime is named within its session by a runtime name**, sanitised the same way, unique within
-the session and chosen when the runtime is created. Its slug is then a pure function of the two:
-
-```
-slug = ceiling(sanitizeSlug("<session>-<runtime>"), project)
-```
-
-where `ceiling` is §3.1's rule in full — `min(31, 63 - len(longest label) - len(project) - 4)`,
-and over it the first `ceiling - 9` characters, `-`, and the first 8 hex of the SHA-256 of the raw
-input. **The raw input hashed is `<session>/<runtime>`, with the slash**, so two different pairs
-that sanitise to one string still hash apart. A ceiling below 12 is refused when the config is
-read, as it is today.
-
-Everything downstream of the slug is then untouched: container `sandboxr-<project>-<slug>`,
-volumes `sandboxr-<purpose>-<project>-<slug>`, host rule, migration advisory lock, `logs/`,
-`build/`. A runtime *is* a sandbox to every one of them.
-
-**The runtime name is always in the slug, even when a session has exactly one runtime.** A session
-with one runtime routinely grows a second, and a slug that changed shape when it did would move
-every hostname, orphan the first runtime's volumes and hand its database to a name nothing wrote —
-§3.1's collision story, caused deliberately this time. `eng-3941-web` rather than `eng-3941` is
-the price, and it is small.
-
-**Nothing about a runtime's slug is recorded, because nothing about it is random.** §4.2.3 exists
-because a collision token cannot be re-derived; a session id and a runtime name are both chosen
-and both stored in the thing they name. `state/session/<session>/` (§12.6) holds no slug, and
-`state/slug/` (§4.2.3) is worktree machinery that a session never reads or writes.
-
-Worked, project `acme` with a longest label of `app`: ceiling `min(31, 63-4-3-4) = 31`; session
-`eng-3941` with runtimes named `web` and `admin` gives slugs `eng-3941-web` and `eng-3941-admin`,
-and hostnames `eng-3941-web--app--acme.sbx.lcl` and `eng-3941-admin--app--acme.sbx.lcl`. Under
-§3.1's second worked project — `redeployable-platform-services`, longest label `admin-console`,
-ceiling 16 — the same session and runtime give a seven-character prefix and an eight-character
-hash, 16 in total, and a host label of `16 + 2 + 13 + 2 + 30 = 63`. The arithmetic has no slack,
-which is why the runtime name goes inside the hashed input rather than being appended after it.
-
-**A workstation has no hostname**, and that is not an omission. It serves no apps. The agent is
-reached through the dashboard's own routes, the way the terminal already is (§3.2), so it inherits
-the dashboard's auth and spends none of the DNS-label budget. Do not give a workstation a
-hostname.
-
-### 12.3 The workstation
-
-One container per session, `sandboxr-ws-<session>`, on the shared `sandboxr` network. It is where
-`claude` runs, and the host still holds no agent process of its own (§7.2).
-
-**It has no Docker socket. Ever.** This is the hard line of the whole model, not a default. A
-container holding the socket can create containers, mount any host path into one and read every
-other sandbox's volumes — it is root on the machine with extra steps, and the agent inside a
-workstation is the least supervised process sandboxr runs. It never needs the socket, because
-**runtimes are created only by the control plane** (§12.4): the agent asks, core acts. Anything
-proposing to mount `/var/run/docker.sock` into a workstation, to proxy it, or to hand it a socket
-with "only some" verbs, is proposing to delete this paragraph, and has to do that here first.
-
-**The asking half is built** (§12.4): an MCP server the agent's own `claude` process runs, whose
-every tool is one HTTP call to the dashboard with a token scoped to that session. It is what makes
-the no-socket rule liveable rather than merely strict — an agent that can neither run its own code
-nor ask anybody to is an agent somebody will eventually mount a socket for.
-
-**It has no bind mount from the host workspace.** The clones live in the work volume (§12.5), so
-there is no host path to mount and nothing inside the container can reach the host's checkouts,
-`SANDBOXR_HOME`, or another session's code. The bidirectional editing of §4.1 — a file changed on
-the host appearing instantly inside the container — is what is being given up, and §12.9 says what
-is kept in its place.
-
-**It has no `/opt/sandboxr/scripts`, so `claude` is exec'd directly.** A sandbox's session is
-prefixed with `with-env`, because a sandbox's environment is assembled by its entrypoint — the
-project's `env:` map and its mounted secrets file — and `docker exec` never sees what an entrypoint
-exported. A workstation runs no project and mounts no secrets, so every variable it has arrives as
-`docker run -e`, which *is* the container's configured environment and which an exec does get:
-there is nothing for the wrapper to restore, and the image does not ship it. Keeping the prefix
-made the exec fail before `claude` was reached, and the stream reported that as "Claude Code exited
-without starting a session" — a missing script that reads as a missing agent. `AgentLaunch.withEnv`
-is where the two cases part.
-
-What it mounts:
-
-| Mount | Why |
-|---|---|
-| `sandboxr-work-<session>` at `/work` | the session's clones — §12.5 |
-| `sandboxr-claude` at `/root/.claude` | §3.3's shared credential store, moved here from the sandbox. The trade in §3.3 is unchanged: signing into an MCP server once rather than once per session, and every workstation can read every credential in it |
-| `~/.claude/.credentials.json`, read-write, when it exists on the host | §3.3's one exception, for the same reason and with the same macOS caveat (§7.2) |
-| `secrets/<project>.env` | **not mounted.** A workstation runs no application, and a project's third-party credentials belong to the runtimes of that project (§5.2). A session may hold several projects, and mounting all of them into one container would hand every project's credentials to a session that asked for one |
-
-It carries the labels of §3.4 that mean anything without a project, plus two new ones, and it is
-read like every other container — `docker ps`, never a manifest:
-
-| Label | On | Meaning |
-|---|---|---|
-| `sandboxr.kind` | every container sandboxr creates | `workstation` or `runtime`. A container with no `sandboxr.kind` is a pre-session sandbox and reads as `runtime` |
-| `sandboxr.session` | workstations, runtimes, work volumes | the session id |
-
-`sandboxr.project` and `sandboxr.slug` are **absent** on a workstation rather than empty, because a
-workstation belongs to no project and an empty string is a value something will one day compare
-against. `sandboxr.slug`'s absence is what keeps a workstation out of every sandbox listing without
-a second exclusion anywhere: `sandboxFromLabels` already reads a missing slug as "not one of ours".
-
-**Exactly two of §3.4's labels mean anything without a project, and a workstation carries those and
-no others**: `sandboxr.created`, because the keep marker is stamped with it (§4.2), and
-`sandboxr.ttl`, because the idle clock reads it (§12.7). `branch`, `commit`, `dirty` and `worktree`
-describe a checkout a workstation does not have; `driver` and `env` describe a project it does not
-run; `access` describes hostnames it does not serve on (§12.2). Four labels in total, and a fifth
-would need an argument here first.
-
-**A workstation is running or it is stopped, and there is no third word.** `SessionState` is those
-two, against a sandbox's four, because `starting` and `degraded` are read from markers a sandbox's
-own service tree writes and a workstation supervises nothing that would write them — a `starting` it
-could never leave is a state nothing clears. The proposal that keeps arriving is a *creating*: let
-`POST /api/sessions` answer at once and bring the workstation up behind it, so the pane can draw a
-session that exists with a container that is still coming. **It is refused, and on grounds older
-than this section.** A session's existence is `docker ps` over §12.3's labels and nothing else — a
-session whose workstation is not there yet would have to be remembered somewhere on the host, which
-is the manifest §3.4 exists to not have; `getSession` already refuses to answer with a session built
-from host files alone, because that is "a row on the dashboard whose every action fails"; and a
-build that fails leaves the row behind with nothing holding the id and nothing to clear it. It also
-buys nothing: the minutes are an image build, and drawing a row while it runs does not shorten it.
-The fix for a slow create is to build the image in `init`, where the other two are built, which is
-what §3.3's image list now says.
-
-The work volume carries `sandboxr.session` alone. `sandboxr.kind` has no reading on a volume — the
-table above puts it on containers — and the name already says what the volume is for.
-
-### 12.4 The runtime
-
-A runtime is what §§3–8 call a sandbox, and every one of those sections applies to it unchanged:
-its container name, its four volumes, its hostnames, its plan, its driver, its migration verdict,
-its labels, its idle clock, its actions. **It is addressed as a sandbox everywhere a sandbox is
-addressed today** — `/p/:project/s/:slug`, and the action scopes of §8 need no new form — and
-`/sessions/:session` (§12.6) is the session's own view, which links to them. Two addressing
-schemes for one container is how the two drift.
-
-**The engine is handed a workspace, not a session** (§2). `up` takes a `ProvidedWorkspace` —
-mounts, git facts, a slug and a directory of manifests — and knows nothing about sessions, work
-volumes or staging. `startRuntime` in `packages/sessions/src/session/runtime.ts` is the product side:
-it stages the checkout out of the work volume, builds the workspace, calls `up`, and disposes of
-the staging in a `finally`. **Whoever resolves a workspace disposes of it**, because the staged
-manifests are an input to one start and a stale copy would be a second opinion about what the
-project is.
-
-Three things a session adds:
-
-- **A runtime is created only by the control plane.** Core, driven by the CLI or the dashboard.
-  Never from inside any container, which is the other half of §12.3's no-socket rule.
-
-  **How the agent asks.** `POST /api/sessions/:session/runtimes`, over HTTP on the shared Docker
-  network, with the per-run token of §12.6.1.1 — and an MCP server, `sandboxr`, that turns that
-  into tools the agent's own `claude` process can call (`start_runtime`, `list_runtimes`,
-  `list_repositories`, `stop_runtime`, `delete_runtime`). It is
-  `packages/server/dist/session-mcp.js`, spoken over stdio, shaped exactly like the orchestrator's
-  (§10): hand-rolled JSON-RPC, every tool one HTTP call, no state and no decisions — so what
-  starting a runtime *means*, and what it refuses, lives in the route and cannot drift.
-  Three variables, set by whatever execs the agent: `SANDBOXR_SESSION_API`,
-  `SANDBOXR_SESSION_TOKEN`, `SANDBOXR_SESSION`.
-
-  **The file is put into the workstation, never mounted.** A workstation's mount table is closed
-  (§12.3) and the installation is not in it: mounting the host's checkout of sandboxr into the
-  container an agent lives in would hand it the thing every other rule here exists to keep away.
-  One file is copied in at exec time instead, refreshed on every run so it cannot go stale. It
-  lands at **`/opt/sandboxr/session-mcp.mjs`**, and the extension is load-bearing: the compiled
-  server is an ES module by virtue of a `package.json` beside it in `dist/`, nothing beside it
-  crosses, and a `.js` there would be read by node as CommonJS and die on its first `import` —
-  which Claude Code reports only as a server that failed to start, with the tools simply absent.
-  It crosses as an argument to `sh -c` rather than on the exec's stdin: an argument array is what
-  keeps a file's contents from being able to become shell syntax, and a half-closed hijacked
-  socket fails by hanging rather than by erroring.
-
-  **`mcp__sandboxr` is on a workstation run's allowlist**, which is the one pre-approved MCP
-  server anywhere in sandboxr and is argued for rather than assumed. Core's
-  `DEFAULT_ALLOWED_TOOLS` pre-approves none, because the servers a *sandbox* picks up are the
-  operator's claude.ai connectors reached through a shared login, where per-call consent is the
-  only real consent. This one is the opposite: every tool is a route on this dashboard that is
-  already refused server-side unless it names a checkout on this session's own work volume, so a
-  person answering the question adds nothing the rule has not already decided. Leaving it off is
-  not neutral either — a workstation has no project, so an "always" cannot be recorded against
-  one (§7.2), and every listing of the session's own repositories would stop the turn on a
-  question nothing could remember.
-- **A runtime belongs to exactly one repository and branch of its session**, and that is what gives
-  it a `/workspace`. A runtime is a running copy of a project, a project is described by a
-  `sandboxr.yaml` in a checkout, so there is no such thing as a runtime with no code. A session
-  with no repository simply has no runtime.
-- **`/workspace` is `/work/<repo>/<branch>` (§12.5).** The path `/workspace` keeps its meaning to
-  `plan.json`, to §5 and to every container script; it is now a location inside the work volume
-  rather than a bind mount from the host. How the container arranges that — a subpath mount, a bind
-  inside the container — is the container layer's; `/workspace` being the project root is not.
-
-**A runtime needs none of §7.3's git mounts, and that is the one thing §§3–8 gets *smaller* here.**
-`gitMounts` exists because a linked worktree's `.git` is a file naming its repository by absolute
-host path, so the worktree and the repository have to be mounted at identical paths inside and out —
-which drags two more rules behind it: the repository mount is read-write and therefore shared with
-the host, and the base image pins `gc.worktreePruneExpire` to `never` because every sibling worktree
-looks prunable from inside. §12.5's clone is self-contained, so its `.git` is a real directory inside
-the checkout, there is no `worktrees/` administration anywhere, and there is no host path for git to
-resolve. A runtime therefore mounts the work volume and nothing else for git's sake, and a `git gc`
-inside one repacks only that session's objects. §7.3's other two rules are untouched: the commit
-identity still crosses as `GIT_AUTHOR_*`/`GIT_COMMITTER_*`, and the GitHub token is still off unless
-the operator opted the project in. **`gitMounts` is not removed** — it is the contract for every
-worktree-backed sandbox (§12.10), and both paths exist side by side.
-
-**The host reads a runtime's project by staging its manifests, never by keeping a checkout.** The
-host still has to resolve four things before a runtime can start, and each of them is a file: the
-project's `sandboxr.yaml`, the lockfile and `package.json`s that *are* the project image's build
-context, the Go module manifests, and which lockfile keys the shared dependency volume. They are
-copied out of the volume by a short-lived container that mounts it **read-only**, into a temporary
-directory that is deleted when `up` returns and is mounted into nothing. The source stays in the
-volume. §5.6's project-level config is deliberately **not** offered to a runtime: it exists because
-an uncommitted `sandboxr.yaml` in one worktree does not exist in any other, and a session clones the
-repository — so a checkout that does not describe itself is refused, naming its path inside the
-volume.
-
-### 12.5 The work volume
-
-`sandboxr-work-<session>`, mounted at `/work` in the workstation and in **every** runtime of that
-session. One volume per session, shared by its containers, never shared between sessions.
-
-```
-/work/<repo>/<branch>/
-```
-
-- **`<repo>` is the workspace directory name** — §4.1's key, the name the host's bare clone is
-  filed under, not the `project:` a `sandboxr.yaml` declares. The two are allowed to differ (§4.1)
-  and this names a directory.
-- **`<branch>` is `sanitizeSlug(branch)`**, the same shape `wt/<branch>` already uses, so the two
-  layouts read the same. Two branches that sanitise to one directory name are a collision:
-  **the second is refused, naming both branches**, rather than checked out over the first. A
-  directory silently holding a different branch than its name says is the failure that looks like
-  an editor eating somebody's work.
-- **The control plane owns the layout.** Adding a repository or a branch to a session is a control
-  plane operation, for the same reason creating a runtime is. It is
-  `POST /api/sessions/:session/repos` (§12.6.2), over `addSessionRepo` in
-  `packages/sessions/src/session/repos.ts`, which resolves the three things the clone needs and that the
-  volume cannot know: the host's `repo.git` as the source (§12.9), the forge's URL as `origin`, and
-  the commit `freshenBranch` chose after a fetch (§4.1.3), passed as a **full sha** because the
-  mirror's ref namespace does not exist inside a clone of the mirror.
-- **A clone is written by a short-lived container mounting the volume**, running git out of the
-  base image — never by the workstation, which may be stopped and must not have to be started to
-  add a repository, and never by the host writing into Docker's volume directory, which on macOS
-  is inside a VM and is not a path on the host at all.
-- **A clone in a work volume must be self-contained, and its `origin` must be the real remote.**
-  Both halves are traps. `git clone --reference <host bare clone>` leaves an `alternates` file
-  pointing at a host path no container can resolve, and the repository then breaks the first time
-  git needs an object the clone never copied — long after the clone and nowhere near it; use
-  `--dissociate`, or do not use `--reference`. And a plain `git clone /path/to/repo.git` sets
-  `origin` to that local path, so a push from inside the session would write into the host's bare
-  clone and reach no forge at all. The objects may come from the host (§12.9); `origin` is the
-  remote's URL, always, and §7.3's rules about the GitHub token govern what may be done with it.
-- **Nothing prunes inside the volume.** Whatever an agent writes under `/work` — a scratch
-  directory, a build output, a file outside any repository — is kept until the session is deleted.
-  The volume is the session's disk, not a managed checkout.
-
-**`/workspace` is a `volume-subpath` mount, and that was checked rather than assumed.** §12.4
-leaves the mechanism to the container layer; this is what the layer chose and why. On Docker 28.0.1
-(API 1.48) `--mount type=volume,…,volume-subpath=<repo>/<branch>` mounts the checkout at
-`/workspace` while the same volume is mounted whole at `/work` in the same container, and a write
-through either is visible through the other. The reason to prefer it over a bind inside the
-container is the failure case: a subpath that does not exist is refused by the daemon at create
-time, naming the path, where a symlink or a `cd` in the entrypoint leaves `/workspace` merely
-empty — which every script downstream reads as a project with no files in it. It needs a daemon
-with the option (Docker 25+); below that `docker run` fails naming `volume-subpath`, which is a
-refusal at start rather than a sandbox that comes up wrong.
-
-**Whether a session holds any code cannot be answered from the host while nothing is running, and
-the answer is then `unknown`, never `none`.** Reading it means running something that mounts the
-volume. An unreadable listing rendered as "no repositories" is a sentence somebody would act on by
-deleting the session, and deleting a session is the one irreversible verb in §12.8. This is §3.4's
-rule — every failure to read a signal is an absence, never an assertion — applied where it costs
-the most.
-
-### 12.6 A session's state on the host
-
-```
-~/.sandboxr/state/session/<session>/keep     keeps the workstation alive past its idle limit
-~/.sandboxr/state/session/<session>/name     what to call this session on screen
-~/.sandboxr/state/session/<session>/attach   a socket is being held open on the workstation
-~/.sandboxr/state/session/<session>/adopted  the worktree this session's code was copied from
-```
-
-**One directory per session rather than a parallel tree each, and `session/` is a namespace rather
-than decoration.** `state/keep/<project>/<slug>` puts a *project* directory at its first level, so
-a session id written there could collide with a project of the same name — and the two would then
-be one file, exempting a sandbox from its lifetime because somebody pinned a session. The nesting
-also makes §12.8's last step one `rm -r` rather than a deletion per file that can half-succeed —
-and it is what let `adopted` be added without a fourth tree and a fourth deletion to forget.
-
-Each file keeps the semantics argued for it where it was argued, and each argument carries over
-whole:
-
-- **`keep` carries the workstation's `sandboxr.created`** (§4.2). It is an exemption applying to
-  one container instance, and a session's workstation is recreated exactly as a sandbox is, so a
-  stale marker must fail closed.
-- **`name` carries no stamp** (§4.2.1). It names the session, which outlives every container in
-  it; stamping it would throw the name away the first time somebody pressed Rebuild. Same
-  validation, same 60 code points, same rule that it is presentation and reaches no identifier.
-  Written by `POST /api/sessions` when a name was given with the create, and by
-  `PATCH /api/sessions/:session` at any time after — which is the ordinary way a session gets one,
-  because the create takes no fields (§12.6.2).
-- **`attach` is an mtime and a heartbeat** (§4.2.2), written by the dashboard while it holds the
-  workstation's terminal or agent socket, believed for `ATTACH_LIVE_GRACE_MS`, stamped once more
-  on release.
-- **`adopted` holds `<project>/<slug>` and carries no stamp either.** It records the worktree the
-  session's code was copied out of (§12.10.1), written once by the adoption and never again. Both
-  halves are directory names — §4.1's workspace key and the worktree's own directory under `wt/`,
-  which is the pair every worktree route addresses one by — and deliberately **not the branch**,
-  because a branch moves between worktrees and is checked out in several at once. **It is a record
-  of where the code came from, not a link to a live thing**: the worktree may be deleted the next
-  day, nothing looks it up to check, and nothing is keyed on it. A file edited by hand into
-  anything that is not a pair of plain directory names reads as *no record*, which is visible,
-  harmless and undoable. Absent is the ordinary case — every session made by `POST /api/sessions`
-  has no worktree behind it at all.
-
-**What `adopted` is for, and why it is a file rather than a label.** The dashboard has to be able
-to say a worktree already has a session rather than offer to make a second, and the only join
-available for that is this pair read back the other way round (`GET /api/workspace` and
-`GET /api/projects/:project` both do it, and put the session ids on `WorktreeDto.sessions`). A
-label on the workstation would be the obvious alternative and is wrong for §4.2.1's reason: a
-workstation is recreated exactly as a sandbox is, so the record would be thrown away the first time
-somebody rebuilt one.
-
-A runtime's own state stays exactly where §4.2 puts it, under `state/keep/<project>/<slug>` and the
-rest. A runtime is a sandbox; its files are a sandbox's files.
-
-**The dashboard's routes for a session are `/sessions/:session` and below it** —
-`…/actions/:action`, `…/terminal`, `…/agent`, `…/audio`, and `…/r/:runtime` for the session's view
-of one runtime. **`WS /sessions/:session/agent` and `WS /sessions/:session/audio` are built**
-(§12.6.0, §12.6.3); `…/actions/:action` and `…/terminal` are not. They are top-level rather than under `/p/:project`, because a session belongs to no
-project. §3.4's second activity signal — a dashboard route naming the thing — reads
-`…/sessions/<session>/…` out of the same access log, alongside the `…/p/<project>/[sw]/<slug>/…`
-it already matches.
-
-#### 12.6.0 The agent socket
-
-`WS /sessions/:session/agent`, and it is **the worktree's `/p/:project/s/:slug/agent` in a
-different container**. Same frames in both directions, to the byte, because a session's
-conversation and a worktree's conversation are one thing and the browser draws them with one
-component; the wire format is the contract between the two files, and a second vocabulary for the
-same events is how they stop looking like one product.
-
-Four things differ, and every one of them is decided at the handshake rather than in the middle,
-which is why it is a second gateway rather than a branch in the first:
-
-- **What it is addressed by.** `:session`, not `:project`/`:slug`, so the router's grant sweep has
-  nothing to check on the path (§12.6.1).
-- **The bar.** A control session covering **every** project — the same bar `POST /api/sessions`
-  takes, for the stronger version of its reason: a workstation carries the machine's GitHub token
-  and the shared Claude credential store (§12.3), and what this route starts inside one can reach
-  both, plus every runtime of every project the session holds. A narrow password gets a **403**
-  and not a 404, unlike `…/r/:runtime`: the session list is open to any signed-in reader, so there
-  is nothing left to hide — what it may not do is start an agent.
-- **The credential the agent gets.** A per-run workstation token (§12.6.1.1), minted only when a
-  process is really started and handed back when it ends, plus the `sandboxr` MCP server copied in
-  beside it (§12.4).
-- **Side questions.** There are none. `/btw` forks a conversation about one worktree (§7.2.1) and
-  a session is not one, so a `/btw` here is answered with a sentence rather than silently turned
-  into something else.
-
-**The run starts at `/work`, and not inside a checkout even when the session holds exactly one.**
-A session's repositories come and go while it is alive, so an agent started inside the only one
-would silently be working somewhere else the moment a second was cloned, and the same session would
-answer "where am I" differently on Tuesday. Deriving the single checkout would also mean reading
-the work volume before the exec — a read §12.5 forbids anybody from treating as empty when it
-fails — so a start that fell back to `/work` on an unreadable listing would quietly be a *different*
-session from the one that succeeded. And Claude Code roots `CLAUDE.md` discovery, `.claude/`
-settings and project trust at its working directory, so `/work` is what lets one session see every
-repository it holds, which is the point of a session holding several. What it costs is that a
-one-repository session's agent says the path once.
-
-**The run is keyed on the session, everywhere the registry keys a sandbox's on `<project>/<slug>`.**
-A workstation has neither label, so the pair cannot address one: two sessions would share the key
-`/` and the second socket would join the first session's process, in another container. The index
-row (§7.2) carries `session` and leaves `project` and `slug` **empty**, which is the join the idle
-clock makes — `agentActivity` drops a row with either half of the pair empty and
-`agentSessionActivity` keys on `session`, so filling the pair in with anything at all would put a
-workstation run on the clock of a sandbox that does not exist.
-
-**It can be spoken to, at `WS /sessions/:session/audio`.** The address sits beside the agent
-socket for the reason the worktree's does: they are two halves of one conversation. The machine
-has one voice and it is *pointed at* a conversation (§10.3.2), so turning the microphone on in a
-session takes it from whatever held it — including a worktree, which is the person turning to talk
-to something else rather than a fault. Three things about it are decided here rather than guessed:
-
-- **The grant is checked against `*`.** A session belongs to no project (§12.6.1), so there is no
-  project to name, and something had to be chosen. It is the bar the agent socket already sets, for
-  the stronger version of that reason: a workstation carries the machine's GitHub token and the
-  shared Claude credential store, and this relay puts what a person says *into* the agent running
-  in it. A narrower answer would be a microphone that could reach a conversation the same password
-  is refused when it tries to type into.
-- **The claim key is `#ws:<session>`** — see §10.3.2's Key row for why it cannot be read as a
-  worktree's.
-- **A session with no run in it is a 409**, the same answer a worktree with no session gets. A
-  stopped workstation cannot have a run in it, so it reaches the same refusal by the same route
-  rather than through a second one the browser would have to learn.
-
-The **registry's machine-wide watcher carries the session**, not only the project and the slug. A
-workstation run leaves both of those empty, so a watcher handed the pair alone would see every
-session on the machine as `("", "")` — the same collision `activity()` leaves workstation runs out
-to avoid, and here it would read one session's reply aloud into a microphone pointed at another.
-
-**An "always" on a permission question is answered as an "allow".** A standing grant is held per
-project (§7.2) and a session belongs to none, so there is no key to write one under: recording it
-against the empty project would make a rule granted in one session apply to every session on the
-machine, and refusing the call outright would stop a tool the person just said yes to. The tool
-runs, it will ask again, and the downgrade is logged rather than silent.
-
-#### 12.6.1 How a session route is authorised
-
-§7's grants are **per project**, and a session may hold several projects or none. The rule, and it
-is the one thing that has to be got right before any of these routes exist:
-
-- **A session route is authenticated the way every dashboard route is, and is not project-scoped**,
-  because a session does not belong to a project. `/api/sessions/:session` carries no `:project`,
-  so the router's grant sweep has nothing to check on it, and that is the answer rather than a gap.
-- **Anything that reaches *into* a repository is checked against that repository's project grant,
-  exactly as it is today.** The project comes from the repository the operation names, never from
-  the session it was reached through. A session's checkout is `/work/<repo>/<branch>` and `<repo>`
-  is the workspace directory name (§12.5), which is precisely the key a grant is held against — so
-  the code routes spell it as `:project` and inherit the sweep and the grant check unchanged.
-- **No session route widens a grant.** A session's runtimes and its repositories are narrowed to
-  what the reader could reach anyway, and **what is withheld is counted rather than dropped**: a
-  narrow password is told "two runtimes you may not see", never "no runtimes". That is §12.5's rule
-  — an absence is never rendered as an assertion — applied to authorisation rather than to a
-  failed read.
-
-Four readings were closed rather than left open, each because the rule above does not settle it:
-
-- **Creating, deleting, starting and stopping a session need a password that covers every
-  project.** A workstation carries the machine's GitHub token and the shared Claude credential
-  store (§12.3), neither of which belongs to a project; and deleting a session deletes its
-  runtimes, which are sandboxes of projects the caller may hold no grant over (§12.8). That is the
-  same bar the global `clone` action takes, for the same reason. **Reading** a session — the list,
-  one session, its repositories — needs only a session, and is filtered.
-- **Adopting a worktree takes that same bar, even though it is addressed as a worktree**
-  (§12.10.1). It is worth saying because the address argues the other way: `POST
-  /api/p/:project/w/:slug/session` names a project, so it goes through the router's grant sweep
-  like every other `/p/:project/…` route, and a reading that stopped there would let a
-  project-scoped password make sessions. It creates a session, so the create's bar governs and
-  being scoped to one worktree does not lower it. The sweep is then redundant in practice — a
-  machine-wide password covers every project — and is kept because it is structural, and because it
-  is the check that would still be right if the bar were ever loosened. This is the list closing at
-  "every session write that is not scoped to a repository" doing its job: the new write inherited
-  an answer instead of guessing one.
-- **Renaming a session takes that same bar, and the reason is not the one above.** A name reaches
-  no container, no credential and no project: it is one host file, presentation only (§4.2.1). The
-  reason is what a name is *for*. A session belongs to no project, so a narrow password has no
-  claim over one to be measured against — which leaves exactly two answers, machine-wide or any
-  signed-in reader, and the second is the dangerous one. Every session on the machine is already
-  readable by any password (the list is not filtered, for the reason above it); making every
-  session's name **writable** by any password would let one rewrite the labels a person picks a
-  session out by, and the verb they then press is `DELETE`. §8.1 puts the wording of a destructive
-  confirmation on the server precisely so a browser cannot be wrong about what it is destroying; a
-  name anybody can edit reintroduces that by the back door, with a person rather than a browser as
-  the thing misled. The bar is therefore the one every non-repository session write already takes,
-  and that is the second reason: the list is closed at "every session write that is not scoped to a
-  repository", so the next write added inherits an answer instead of guessing one.
-- **A runtime the reader's password does not cover answers 404, not 403**, on
-  `…/r/:runtime`. It is already absent from that session's runtime list, so a 403 would confirm
-  that a sandbox exists inside a project the reader may not see.
-- **`:runtime` carries the runtime's slug**, and it is resolved by looking it up among the
-  session's own runtimes rather than by deriving it from a runtime name. Nothing records a runtime
-  name (§12.2), so a lookup against what is running is the only answer that cannot be wrong about a
-  container.
-
-#### 12.6.1.1 The workstation token, and what an agent may ask for
-
-A session's **agent** has to be able to ask the control plane for a runtime (§12.4), because a
-workstation has no Docker socket and never may (§12.3). It is a different caller from the person at
-the dashboard and is authorised differently, and this is the whole of the difference.
-
-- **Its credential is a per-run token the dashboard minted for one session**, handed to the
-  `claude` process in its exec environment and released when that process ends. It is never written
-  to disk. **It is not the person's password**, which authorises every Docker-socket-backed action
-  on the machine — the same reasoning, and the same shape, as the orchestrator's token (§10).
-- **The token names one session, and the router refuses it on a path naming any other.** That is
-  where "a session may only address its own runtimes" is enforced: in the route table, not in a
-  handler. A token presented against another session's path is a **404**, for §12.6.1's reason — a
-  refusal that said "not yours" would confirm that a session of that id exists on the machine.
-- **A session may only start a runtime for a repository and branch already on its own work
-  volume.** This is the closed rule, and it is enforced *server-side against the volume's own
-  listing* (§12.5) rather than by trusting the request. So an agent can run code it already has and
-  nothing else — and the only way code reaches a work volume is a clone the control plane made.
-  The match is on the **directory** `sanitizeSlug(branch)` produces, because that is what `up`
-  mounts at `/workspace`; a checkout whose recorded branch could not be read still matches, since an
-  unreadable field is not an absent directory. A listing that could not be read at all **refuses**
-  and starts nothing: "no repositories" is never an answer (§12.5), and reading one as such would
-  tell an agent its own code does not exist.
-- **An agent is not filtered by any project grant within its own session**, and that is not a
-  widening. Every runtime it can see is one it asked the control plane to start out of its own
-  volume, and the token reaches no other session's routes at all. Filtering would report its own
-  work as withheld.
-- **The routes an agent may reach are a closed list**, pinned by a test, because a route added to
-  it is a capability handed to the least supervised process sandboxr runs. They are the two reads it
-  needs to know what it may run — one session, and that session's repositories — and the three
-  writes: start, stop, delete. Everything else on the machine, including `/api/p/:project/…` and
-  every orchestrator route, refuses the token.
-- **`POST …/repos` is deliberately not on that list**, and it is the one write beside the volume's
-  own reads that an agent may not have. A workstation token covers every project of its session, so
-  opening the clone to one would let an agent pull *any* project on the machine onto its own volume
-  and then start a runtime of it — which is precisely the widening the rule above exists to prevent.
-  A session runs the code it already has, and **what it has is what a person put there**.
-- **A person reaches the same routes with a control session**, filtered by the ordinary project
-  grant. Starting a runtime is checked against **the repository's** project and not against every
-  project, which is §12.6.1's first rule — it reaches into a repository, and a runtime carries
-  neither the machine's GitHub token nor another project's credentials. A repository the password
-  does not cover answers 404, in the same words a checkout that is not there gets.
-
-#### 12.6.2 What the JSON API answers today
-
-Built, and listed in §7.1's table with every other route. `…/actions/:action`, `…/terminal` and
-`…/agent` **is** built and is §12.6.0's; `…/actions/:action` and `…/terminal` are not, because
-there is no session scope in §8's closed table and no terminal socket reaches a workstation.
-
-**The browser dials `…/agent` regardless**, and that is deliberate rather than an oversight. The
-session pane is the conversation pane every other agent surface uses (`AgentSession`, given an
-`endpoints`), pointed at `ws(s)://<host>/sessions/<session>/agent` with `?resume=` and `?model=`
-— the same query `/p/:project/s/:slug/agent` takes, since a session's conversation is that one
-noun along. The upgrade is refused with a 404 by `packages/server/src/agent.ts`, whose
-`AGENT_PATH` pins the sandbox shape, so what a reader sees is the pane's own **disconnected**
-state and a Reconnect. Nothing is stubbed to hide it. When the gateway learns this path, the
-browser needs no change; the one thing it will still lack is the slash-command listing, because
-there is no `GET /api/sessions/:session/agent/commands` to match
-`/api/p/:project/s/:slug/agent/commands`, and the pane is told `commands: null` — a real answer,
-meaning no menu and a composer that works, rather than a request to a route that 404s.
-
-| Route | Answers |
-|---|---|
-| `GET /api/sessions` | Every session on the machine, each with its runtimes narrowed to the grant and the count of what was withheld |
-| `POST /api/sessions` | Makes one, from an optional id, name and lifetime (§12.2). A taken **id** is a `409` carrying core's own sentence, which names the workstation or the work volume holding it. **Every field being optional is the point**: the ordinary create sends `{}` and gets a derived id (§12.2's third input), so making a session is one click with nothing to fill in and the name is settled afterwards by the `PATCH` below. It is a volume and a container — a second or two — on a machine whose workstation image `init` has built, which is every machine that has been set up. It still calls `ensureWorkstationImage`, so on one where the tag is missing it takes as long as that build, and there is nowhere on the wire for the build's output to go |
-| `PATCH /api/sessions/:session` | Names it, from a `name`. Writes `state/session/<session>/name` and touches nothing else — no container, no volume, no label. An **empty or whitespace-only name clears it**, which is one instruction from a person and not a second route: a cleared field means "go back to having no name". Answers the session, so `name` is `null` on a clear and **never the id** (§12.1) — the browser writes the sentence that shows an id where there is no name, and a route that substituted one would be indistinguishable from a name somebody typed. A name that is not one — a control character, more than 60 code points — is a `400` that does not echo it back. Takes the machine-wide bar of §12.6.1 |
-| `GET /api/sessions/:session` | One session in full, including the sentence a delete confirms with |
-| `DELETE /api/sessions/:session` | Deletes it (§12.8), and answers what went and what would not. **It takes no `force` and refuses one that is offered**: §8.1 says a browser may not force a destructive action, and ignoring the parameter would leave a browser believing it had one |
-| `POST /api/sessions/:session/start` | Starts a stopped workstation. A `404` when the container has gone, which pressing Start again would never fix |
-| `POST /api/sessions/:session/stop` | Stops it, removing nothing (§12.8). Already stopped is a `200` that says it changed nothing, not a failure |
-| `GET /api/sessions/:session/repos` | What is in the work volume, read by a container that mounts it. **A read that failed says so** — `readable: false` with the reason — and never answers with an empty list (§12.5) |
-| `POST /api/sessions/:session/repos` | Clones one repository and branch onto the work volume, from a `project`, a `branch` and an optional `start`. `project` is the workspace directory name, which §12.5 spells `<repo>` and §4.1 makes the key a grant is held against — one name for both, because a second would be a second thing to get wrong and the thing it would get wrong is an access check. Answers `201` with `{ repo, dir, branch, head }`, `head` being the full sha it landed on. **Checked against that project's grant and not the machine's**, and a project the password does not cover answers `404` **in the same words** a project that is not in the workspace gets — anything else would let a narrow password enumerate the machine by reading the difference. §12.5's collision is a `409` naming both branches; a project whose remote this machine has lost is a `409`; a branch nothing resolves is a `404`; a volume that could not be read is a `503`, never an empty one. It answers synchronously and can take tens of seconds: a fetch plus a clone that really copies objects (§12.9), with no action-table scope to stream through |
-| `POST /api/p/:project/w/:slug/session` | **Adopts a worktree** (§12.10.1): makes a session holding that worktree's code, its uncommitted work carried across on top, under a name derived from the branch. Takes **no body** — the branch, the commit and the name are read from the worktree, because a caller supplying any of them would be sending what it read on its last poll. Answers `201` with `{ session, repo, carried }`, `carried` being how many files of uncommitted work arrived. **The worktree is never modified, moved or removed**, which is what makes a failure safe to unwind: a clone or a carry that fails takes the session away again and reports the original reason. A project, worktree or directory that is not there is a `404`; a project with no remote, a worktree on no nameable branch and §12.5's collision are `409`; an unreadable volume is a `503`; a carry that failed is a `500` naming any session the rollback could not remove. It takes tens of seconds and answers one body, for `POST …/repos`'s reason |
-| `GET /api/sessions/:session/r/:runtime` | The session's view of one runtime, which is the body `GET /api/p/:project/s/:slug` answers. A runtime is a sandbox, and it has one description (§12.4) |
-| `POST /api/sessions/:session/runtimes` | Starts one, from a runtime `name`, a `repo`, a `branch` and an optional lifetime. Refused unless that checkout is on this session's work volume (§12.6.1.1). A taken runtime name is a `409` carrying core's own sentence. It can take as long as building the project's image. Answers the runtime **core really started** and its URLs — the route derives no slug, because the ceiling that shapes one is declared by a `sandboxr.yaml` the host has no copy of (§12.2) |
-| `POST /api/sessions/:session/r/:runtime/stop` | Stops it, removing nothing. Already stopped is a `200` that says it changed nothing |
-| `DELETE /api/sessions/:session/r/:runtime` | Removes its container and its volumes. **No `force`, and one that is offered is refused** (§8.1), exactly as on the session delete |
-| `GET /api/sessions/:session/repos/:project/:dir/files`, `…/diff`, `…/diff/file` | §7.4's two read-only views, against the **workstation** container rooted at `/work/<repo>/<dir>`. The reader is the same one the sandbox routes use and knows which of the two it is talking to only by the container and root it is handed |
-
-**The sentence a delete confirms with travels on the session** (§7.1: the server owns the wording of
-a destructive confirmation), because what is lost is a fact about that session — a session with
-three runtimes loses three databases. It is counted from **every** runtime, including the ones a
-narrow password cannot see, since a confirmation that understated what it destroys would be worse
-than none.
-
-**A runtime carries a second such sentence of its own**, and the two are not interchangeable:
-deleting a session takes the work volume with it and nothing in there has a copy anywhere, while
-deleting one runtime takes a container and a database and leaves every clone alone. One sentence
-for both would mean the browser wrote the other, which is the thing §8.1 rules out.
-
-### 12.7 Lifetime
-
-**The idle clock is the one in `packages/core/src/sandbox/expiry.ts` and it is not redesigned.**
-`max(startedAt, lastActive) + ttl`, the deadline derived at read time and never stored, `ttl`
-resolved by §4.3's ladder. Read that file before changing anything about lifetimes; the reasons
-the deadline is not `created + ttl`, and not a boolean, are written there and each has already
-cost somebody an afternoon.
-
-A workstation's `lastActive` reads §3.4's signals, with one absent and three present:
-
-| Signal | For a workstation |
-|---|---|
-| A request to its own hostnames | **none.** A workstation has no hostname (§12.2) |
-| A dashboard route naming it | `…/sessions/<session>/…` in the router's access log |
-| An agent run | `agent/runs.json`, joined on the **session** rather than on `project/slug` — `AgentRun.session`, which a run in a workstation fills in and a run in a sandbox leaves absent — and the transcript's mtime for when it last emitted |
-| A socket held open on it | the mtime of `state/session/<session>/attach` |
-
-**The keep marker is the "keep it up forever" toggle**, and it is the only exemption. A live agent
-run and a held socket reach the clock as a `lastActive` of now, never as a second exemption — the
-paragraph in `expiry.ts` explaining why is the same paragraph, for the same reason.
-
-**Stopping a workstation never touches the work volume.** Code and data are retained until an
-explicit delete, without exception and without a time limit. An idle session that comes back three
-weeks later comes back to its clones, its branches and its uncommitted changes.
-
-**A session's runtimes have their own clocks and are not stopped with it.** Each container answers
-for itself: traffic to a runtime's apps holds that runtime up, the agent working holds the
-workstation up, and a session whose workstation has been stopped may still be serving a runtime
-somebody is looking at. Coupling them would mean an agent going quiet takes down a preview a
-reviewer is reading, which is the failure the per-container clock exists to avoid.
-
-### 12.8 Deletion
-
-Three verbs, and each removes exactly its own list. Nothing removes more than it names.
-
-| Verb | Removes | Leaves |
-|---|---|---|
-| **Stop** a workstation or a runtime | nothing at all — the container is stopped | every volume, every file |
-| **Delete a runtime** | §3.3's list for that sandbox: the container, its `data`, `blob`, `bin` and `www` volumes, its `build/` files, its `logs/` directory, its attach and keep markers | **the work volume.** It is the session's, not the runtime's |
-| **Delete a session** | everything: each runtime by the row above, then the workstation, then `sandboxr-work-<session>`, then `state/session/<session>/` | nothing |
-
-**Deleting a runtime deletes that runtime's own data**, which is what a database volume is, and
-that is the whole of it. The work volume holds the code every other runtime of the session is also
-running from.
-
-**Deleting a session is ordered, and the order is forced twice over** — the same two reasons
-§3.3.1 gives: a volume cannot be removed while a container holds it, and the names of what has to
-go are resolved from the session, so destroying the session's record first leaves orphans nothing
-can find. Runtimes, then the workstation, then the volume, then the host files.
-
-**`deleteSession` refuses nothing, and that is deliberate.** `deleteWorktree` refuses over
-uncommitted changes (§3.3.1) because it can read them: the worktree is a directory on the host.
-A work volume cannot be read while nothing is running, and the answer is then `unknown` and never
-`none` (§12.5) — so a refusal built on it would fire or not fire depending on whether a container
-happened to be up, which is a coin toss wearing a safety feature's clothes. The confirmation
-belongs where the person is, which for a browser is §8.1's rule that it may not force a
-destructive action at all. What core does instead is **report**: what went, and separately what
-would not go, because a work volume docker will not release is the one failure here that leaves
-real data on the disk and must not read as a clean delete.
-
-**A session's host directory is created lazily**, the way `state/keep/` is: a session that is
-never named, never kept and never attached to has nothing to record, and an empty directory per
-session would be a set of paths that exist and mean nothing — the first thing a reader would take
-for a manifest. A delete removes the directory whether or not anything else of the session is
-left, because these three files are the part that can outlive every container without anything
-noticing.
-
-**Deactivating or idling a session keeps everything.** No timer anywhere deletes a work volume,
-and none may be added.
-
-**`gc` and `prune` never reclaim a work volume**, and this is a fourth rule beside the three in
-§3.3. Both are built to remove volumes no container references, and **a work volume with no
-container is the ordinary state of a stopped session** — the case their rule was written to catch
-is here the case that must survive. It joins `sandboxr-claude` and the other shared volumes on the
-never-reaped list, for a stronger reason: signing the machine out of an MCP server is recoverable.
-
-### 12.9 What becomes of the host workspace
-
-**`<workspace>/<project>/repo.git` is kept. `<workspace>/<project>/wt/` is not the model any
-more.** The two halves of §4.1 have different fates, and the reasoning is different for each.
-
-The bare clone stays, demoted from *where the work lives* to **the machine's local source of
-objects and refs**, and it earns that on four counts:
-
-- **A session starts by cloning, and cloning from a disk is not cloning from GitHub.** The saving
-  is the network and the forge's rate limits, not the disk: a clone into a Docker volume crosses a
-  filesystem boundary, so git's hardlink optimisation does not apply and the objects really are
-  copied. On a large repository that is still the difference between seconds and minutes, every
-  time a session is created — which is the operation the whole model exists to make cheap.
-- **One fetch serves every session.** `fetchProject` (§4.1.3) already updates
-  `refs/remotes/origin/*` in the one place, and `freshenBranch` already decides which commit a new
-  checkout lands on. A session cloning from the forge directly would talk to it once per session,
-  and would land on whatever refs it happened to get.
-- **The host already reads it for things a container cannot.** §4.1.2's pull-request index is one
-  `gh` call per *repository*, and the repository it is per is this one. Removing the clone would
-  leave the dashboard with no per-repository object on the host at all.
-- **It costs nothing to keep.** It is already there, already maintained, and already out of
-  `git clean`'s reach by living under `SANDBOXR_HOME`.
-
-Two of its rules are unchanged and one is reinforced. It stays **`--bare` with an explicit
-`+refs/heads/*:refs/remotes/origin/*`, never `--mirror`** — §4.1's reason is that a mirror's
-refspec force-updates `refs/heads/*` and would reset a branch a worktree has checked out, and
-while worktrees exist that hazard is live; past that, a clone people cut sessions from still must
-not have its local heads rewritten under it. The project list stays the **union** of the workspace
-and `docker ps`, never a filter. And the clone is now a *source*, so §12.5's rule governs
-everything cut from it: self-contained objects, `origin` pointing at the forge.
-
-`wt/` is superseded. A worktree is a checkout on the host, and **nothing bind-mounts a host path
-into a container any more**, so a host checkout has no reader. No worktree is cut for a session.
-What this does not do is delete anything: §3.3.1, §4.1.1, §4.1.2 and §4.1.3 remain the contract
-for the worktree-backed sandboxes on machines running today, and every one of them keeps working
-exactly as written. `packages/core/src/pull.ts` in particular is not reasoning that dies with
-`wt/` — fast-forward or refuse, divergence measured by patch and never by sha, a rewritten
-upstream moved onto rather than refused, never `reset --hard` — and a session's clones need every
-line of it.
-
-### 12.10 What supersedes what
-
-**This is the map between two contracts, not between two halves of one file.** §§1–11 are the
-engine's and stay in `sandboxr`; §12 is Jef's and leaves with it (§2). While they share a file the
-table below reads as it always did; once they do not, it is the page a reader of the product's
-contract follows back to the engine's, and every right-hand entry is the product's own.
-
-Nothing below is deleted. Each left-hand entry is a rule the engine still enforces, for everyone;
-each right-hand entry is what Jef builds on top of it. **Where the two look like they disagree,
-the engine's rule is the one that binds** — the product cannot change a sandbox's slug ceiling or
-a volume's reclamation rule by describing it differently, it can only decline to use the thing.
-
-| The engine (§§1–11) | Jef (§12) |
-|---|---|
-| §1 "one container per git worktree" | One workstation per session, and zero or more runtimes beside it (§12.1) |
-| §3.1's slug, derived from a worktree or a branch | A runtime's slug, derived from the session and the runtime name (§12.2). The ceiling, the hash form and both budgets are unchanged and still bind |
-| §3.1's collision token, and §4.2.3's record of it | Not used by a session. A session's slugs are deterministic, so there is nothing to write down (§12.2). Both remain the contract for worktrees |
-| §3.2's hostnames | **Unchanged in every respect** (§12.2). Only the slug's origin moves |
-| §3.3's container, volume and image names | Unchanged for a runtime. Two new names beside them: `sandboxr-ws-<session>` and `sandboxr-work-<session>` (§12.2) |
-| §3.3's reclamation rules | Unchanged, plus a fourth: a work volume is never reclaimed (§12.8) |
-| §3.3.1 deleting a worktree | Deleting a session (§12.8), ordered for the same two reasons |
-| §3.4's labels | Unchanged on a runtime, plus `sandboxr.kind` and `sandboxr.session` on everything (§12.3) |
-| §3.4's four activity signals | Three of the four for a workstation, re-keyed on the session (§12.7) |
-| §4.1's `repo.git` | Kept, as the local source of objects and refs (§12.9) |
-| §4.1's `wt/<branch>` | The work volume, `/work/<repo>/<branch>` (§12.5) |
-| §4.1.1's `Worktree` type | Not what a session lists. A session holds repositories and branches inside its volume, and may hold none (§12.1, §12.5) |
-| §4.2, §4.2.1, §4.2.2 | The same three files with the same arguments, under `state/session/<session>/`, plus a fourth of §12's own — `adopted` (§12.6) |
-| §5, §6, §7.1, §8 | Unchanged. They are about a runtime, and a runtime is a sandbox |
-| §7.3's git mounts | Not used by a runtime: a clone on a work volume is self-contained and needs no identical-path mount (§12.4). §7.3's other two rules — the commit identity, the GitHub token — are unchanged, and the mounts remain the contract for a worktree |
-| §7.2's "agent session" on a worktree | A Run in a workstation, keyed on the session (§12.1, §12.7). The Run / Thread / Event model is untouched |
-| The dashboard's sidebar of worktrees | The sidebar of sessions. The worktree list is the `/worktrees` pane at every width, and a project's own pane is where one is managed from — both still list exactly what §4.1.1 reports |
-| The dashboard's **New worktree**, and `/new` | Nothing. Code is added to a session instead, with `POST /api/sessions/:session/repos` (§12.5). Starting a sandbox on an existing branch is unchanged and is still a Start on a project's pane; **cutting a new branch from a base has no button any more** |
-
-Four rows the other way round — engine capabilities that exist *because* §12 needed them, and
-that any embedder may use:
-
-| The engine offers | Jef uses it for |
-|---|---|
-| A sandbox started on a workspace somebody else resolved: mounts, git facts and a slug handed in, rather than a worktree on the host (§12.4) | A runtime on a work volume, which the host has no checkout of. The staging, and the disposing of it, are the product's |
-| `sandboxr-work-` reserved, never reclaimed (§3.3) | The work volume (§12.5) |
-| `share:` in the machine's config (§4.3) | The host's Claude credential, into `/root/.claude/.credentials.json`. `jef init` writes the row |
-| `sandboxr.frontend` and `AccessReport.frontend` (§7.5) | The dashboard on the bare domain. `jef init` starts it; `sandboxr init` only prepares the domain |
-
-#### 12.10.1 Adopting a worktree
-
-The map above says what replaces what, and leaves one thing out: the worktrees that are already on
-the machine. Every sandbox on any real machine today runs on one, somebody has been working in them
-for a week, and the session model arrived afterwards. **Adoption is the one operation that crosses
-that gap** — one action, repeatable, that makes a session holding a worktree's code under a name a
-person can read.
-
-`POST /api/p/:project/w/:slug/session` (§7.1, §12.6.2), `adoptWorktree` in
-`packages/sessions/src/session/adopt.ts`.
-
-**Adoption copies. It does not migrate.** The worktree is never modified, moved or removed — not by
-the operation and not afterwards. A worktree that has been adopted is still a worktree, its sandbox
-still runs, and it can be adopted again. That is not politeness: a person presses this to *try* a
-session, and an operation that consumed the thing it was pointed at would make trying it the
-irreversible act. It is also what makes a failure safe to unwind — see the rollback below.
-
-**The commit is the worktree's own HEAD, and no fetch runs.** `POST …/repos` beside it goes through
-`freshenBranch` (§4.1.3) and lands the session on whatever origin holds; adoption must not. The
-request is "give me a session holding *this*", and moving the checkout to origin's head before
-applying a patch built against an older commit would either fail to apply or apply somewhere nobody
-asked for. The sha always resolves in the project's bare clone, because a worktree shares its object
-database (§12.9) — including for commits that exist nowhere else on earth.
-
-**The uncommitted work comes across, or the adoption fails.** This is the whole difficulty. A
-session's code is a clone (§12.5) and a clone carries committed state only, so a worktree with
-twenty modified files adopted naively becomes a session that looks right, is missing a week, and
-says nothing about it — on a branch whose author has no reason to go looking.
-
-It is carried as **one patch**, `git diff --binary HEAD`, applied by a second short-lived container
-to the clone that was just checked out at that same commit. Four things follow, and each was a
-decision:
-
-- **The patch cannot fail on context, by construction.** The destination is the exact tree the patch
-  was generated against. That is what makes this safe to do unattended.
-- **`--binary`, so a changed image or a lockfile git treats as binary survives.** A git binary patch
-  is base85, which is plain ASCII, so the patch is also safe to carry as a string on the way to the
-  daemon.
-- **A copy of the working tree was rejected**, and not on taste. A copy carries what git deliberately
-  does not — `node_modules`, `dist/`, a `target/`, gigabytes of it built for the host's architecture
-  — and excluding it means reimplementing `.gitignore`. A copy also **cannot express a deletion**: a
-  file removed but not committed is simply absent, and copying an absent file over a clone that still
-  has it loses the deletion silently. And a copy has to mount the worktree into a container, which is
-  a write path onto somebody's checkout for the life of that container. The patch means **the
-  worktree is never mounted anywhere at all**.
-- **Untracked files are in the patch, and reading them writes nothing.** `git diff HEAD` says nothing
-  about a file git has never been told about, and the usual way to make one visible is
-  `git add --intent-to-add`, which writes the index — and the index is part of the worktree. So the
-  index is copied first and git is pointed at the copy: `GIT_INDEX_FILE` takes every write,
-  `GIT_OBJECT_DIRECTORY` takes the one object `--intent-to-add` records, and
-  `GIT_ALTERNATE_OBJECT_DIRECTORIES` keeps the real object database readable. Without the object
-  redirection git writes the empty blob into the *project's shared bare clone* — harmless in itself,
-  and still a write into a repository three other worktrees share, made by an operation that said it
-  would copy. **`GIT_OBJECT_DIRECTORY` must name a directory that already exists**: `is_git_directory`
-  checks it, so pointing at one that does not yet exist makes every command answer
-  `fatal: not a git repository` about a worktree that plainly is one.
-
-**What does not come across is said out loud rather than discovered.** Ignored files — `.env`,
-`node_modules`, build output — are not carried: a runtime installs its own dependencies, §6 is where
-a project's secrets come from, and a session seeded with the host's `.env` would be a credential
-copied by a button nobody expected to copy one. The staged/unstaged split is flattened, because
-`git diff HEAD` is one comparison; everything arrives unstaged. Stashes and other branches are in the
-bare clone and the session can fetch them.
-
-**A failure after the session exists is rolled back.** If the clone or the carry fails, the session
-just made is deleted and the original refusal is reported. That is safe *only* because adoption
-copies: every byte it held is still in the worktree. A half-adopted session left on the machine
-would be worse than the refusal — a workstation whose volume holds a clone with a week missing,
-which is exactly the outcome this exists to prevent. A rollback that itself fails names the session
-it left, because then there really is something for a person to deal with.
-
-**The name is derived and the id is not.** §12.2 is unchanged: the id is `sanitizeSlug` of whatever
-name the session ends up with, bounded at 31, and is the address. The *name* is a label, and
-`sessionNameForWorktree` in `packages/sessions/src/session/adopt-name.ts` derives it — in a package
-both control planes call, because
-a name derived in the dashboard and a name derived by a future `sandboxr session adopt` would
-eventually differ, and what they would differ about is what a person picks a session out of a list
-by. The rule, in order:
-
-1. **A name somebody already gave the worktree wins, untouched** (§4.2.1). It is the only sentence
-   on the machine a person actually wrote about this work.
-2. **Otherwise the branch, read as words.** `claude/eng-3850-top-navbar-parity` is three facts stuck
-   together — a namespace, a ticket and a description — and only the third is a name. The leading
-   path segments go, a leading tracker key goes (`eng-3850`, `ENG4042`, either spelling), and what is
-   left is sentence-cased: **"Top navbar parity"**. A branch that is *only* a ticket keeps it — "Eng
-   4042" beats nothing.
-3. **Otherwise the slug**, which is at least the address on screen.
-
-It is bounded at §4.2.1's 60 code points, cut at a word boundary where one is late enough to use,
-because `normaliseDisplayName` **refuses** an over-long name rather than truncating it — so an
-unbounded derivation would be an adoption that failed on a branch somebody happened to name at
-length.
-
-**A worktree that already has a session says so rather than offering a second.** The join is
-`state/session/<session>/adopted` read the other way round (§12.6): `GET /api/workspace` and
-`GET /api/projects/:project` list every session, group the records by `<project>/<slug>`, and put
-the ids on `WorktreeDto.sessions`. Empty means nobody has adopted it. A second adoption is not
-forbidden — adoption copies — but the ordinary reason to press the button twice is not knowing the
-first one worked. A session deleted takes its record with it, because the record is in the session's
-state directory and §12.8's last step removes the lot, so the list can never name a session that is
-not there.
-
-**What has been run, and what has not.** The happy path has been driven end to end against a real
-daemon and a real project — a 1&nbsp;GB monorepo with three worktrees on it:
-
-- **A clean worktree**, adopted in eighteen seconds, `carried: 0`. Its session took its name from
-  the worktree's own display name, which is rule 1 above.
-- **A worktree with twenty uncommitted files** — eighteen modifications, a deletion and a
-  rename-with-modification — adopted in sixteen seconds, `carried: 20`. Its session was named
-  **"Top navbar parity"** from `claude/eng-3850-top-navbar-parity`, which is rule 2.
-- **The uncommitted work was checked rather than assumed.** The session's checkout and the worktree
-  were diffed against their common HEAD with the same normalisation on both sides
-  (`--binary --no-renames --full-index`, over a scratch index so untracked files appear in both):
-  **byte-identical**, one sha256 over 54,170 bytes and 21 paths. The clone was checked for §12.5's
-  two traps as well — `origin` is the forge's URL and there is no `objects/info/alternates` — and
-  its upstream resolved to `origin/claude/eng-3850-top-navbar-parity`, which is true only if the
-  fetch of the mirror's `refs/remotes/origin/*` landed.
-- **The join was checked from the other end**: `GET /api/workspace` named each adopted worktree's
-  session and left the third worktree's `sessions` empty.
-- **Two refusals**, a worktree that is not there and a project that is not there, both `404`.
-- Both sessions were then deleted, and all three worktrees were byte-identical to how they were
-  found — the dirty one still carrying its twenty files, and the named one still named.
-
-**Not run against a daemon**: the narrow-password refusal, the rollback, and the `409`, `503` and
-`500` answers. Those are tested against a fake core and a fake daemon. **The browser half has not
-been opened in a browser** — it is tested in jsdom, which is the same thing §12's preamble says of
-everything else there.

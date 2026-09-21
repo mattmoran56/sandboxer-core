@@ -28,8 +28,33 @@ export const OFF_SITE: Readonly<Record<string, string>> = {
   "architecture/contracts.md": `${REPO}/blob/main/docs/architecture/contracts.md`,
 };
 
-/** The files under `docs/` that are not pages, as glob patterns for the walk. */
-export const NOT_PAGES: readonly string[] = ["architecture/contracts.md", "**/README.md"];
+/**
+ * The files under `docs/` that are not pages, as glob patterns for the walk.
+ *
+ * Three shapes, and no more: an exact path, a globbed basename for a filename
+ * anywhere under `docs/`, and `<dir>/**` for a whole directory.
+ *
+ * **`jef/**` is the product's half of the documentation.** `docs/` is the engine's
+ * and leaves with it; `docs/jef/` holds the pages about Jef — the dashboard, the
+ * orchestrator, sessions — which this site does not publish because Jef gets a site
+ * of its own. They are excluded here rather than moved out of `docs/` so that the
+ * relative links between the two halves keep resolving on GitHub while they share a
+ * repository, and so that the one rule stays true: a page under `docs/` that this
+ * list does not name is a page the sidebar must name.
+ */
+export const NOT_PAGES: readonly string[] = [
+  "architecture/contracts.md",
+  "**/README.md",
+  "jef/**",
+];
+
+/** True for a path under `docs/` that `NOT_PAGES` excludes. */
+export const isNotPage = (rel: string): boolean =>
+  NOT_PAGES.some((pattern) => {
+    if (pattern.startsWith("**/")) return rel.split("/").pop() === pattern.slice(3);
+    if (pattern.endsWith("/**")) return rel.startsWith(pattern.slice(0, -2));
+    return rel === pattern;
+  });
 
 /**
  * The one directory under `docs/` that holds files rather than pages.

@@ -6,6 +6,10 @@
 //  - a page's `title` frontmatter equals its sidebar label, where the file exists
 //  - NAV_ORDER covers every page, and neighbours() agrees with it at both ends
 //
+// "Eligible to be a page" is `isNotPage` in src/lib/route.ts, the same rule the
+// content loader applies — which is how docs/jef/, the product's half of the
+// documentation, is absent from this site without being absent from the walk.
+//
 // **This is the test that makes a hand-maintained sidebar safe to keep.** Nothing
 // derives `NAV` — that is the point of it, because the order is editorial — so a
 // page added under docs/ and not named there renders at its URL and is reachable
@@ -19,16 +23,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { NAV, NAV_ORDER, neighbours, type NavPage } from "./nav.js";
-import { NOT_PAGES } from "./lib/route.js";
+import { isNotPage } from "./lib/route.js";
 
 /** The content is not in this package; see plugins/content.ts for why. */
 const DOCS = fileURLToPath(new URL("../../../docs/", import.meta.url));
-
-/** The same exclusions the content loader applies, and for the same reasons. */
-const excluded = (rel: string): boolean =>
-  NOT_PAGES.some((pattern) =>
-    pattern.startsWith("**/") ? path.posix.basename(rel) === pattern.slice(3) : rel === pattern,
-  );
 
 const walk = (dir: string, prefix = ""): string[] =>
   readdirSync(dir, { withFileTypes: true })
@@ -38,7 +36,7 @@ const walk = (dir: string, prefix = ""): string[] =>
       const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
       if (entry.isDirectory()) return walk(path.join(dir, entry.name), rel);
       if (!/\.mdx?$/.test(entry.name)) return [];
-      if (excluded(rel)) return [];
+      if (isNotPage(rel)) return [];
       return [rel];
     });
 

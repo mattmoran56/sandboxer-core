@@ -6,7 +6,7 @@
 // package is only the machinery that also publishes it as a site, so it reaches
 // back up for its content rather than owning it.
 //
-// Two things under `docs/` are deliberately not pages, and both come from
+// Three things under `docs/` are deliberately not pages, and all three come from
 // `NOT_PAGES` in `src/lib/route.ts` rather than being restated here:
 //
 //  - `architecture/contracts.md` is the engineering contract. It has no
@@ -15,6 +15,9 @@
 //    rather than rendered here.
 //  - `README.md` files are GitHub's own front door for a directory. The site uses
 //    each group's `index.md` for the same job.
+//  - `jef/` is the product's half of the documentation. This site is the engine's
+//    and leaves with it; Jef's pages stay readable on GitHub and get a site of
+//    their own later.
 //
 // A leading `_` on a basename is excluded too: it is the conventional mark for a
 // draft or a fragment, and it is what the Astro glob this replaced used.
@@ -29,7 +32,7 @@ import path from "node:path";
 
 import type { Plugin, ResolvedConfig } from "vite";
 
-import { NOT_PAGES, slugOfFile } from "../src/lib/route.js";
+import { isNotPage, slugOfFile } from "../src/lib/route.js";
 import { parseFrontmatter, render } from "../src/markdown/render.js";
 import { toPlainText } from "../src/markdown/text.js";
 import type { PageMeta, SearchDoc } from "../src/types.js";
@@ -89,7 +92,7 @@ export const docsContent = (): Plugin => {
         continue;
       }
       if (!/\.mdx?$/.test(entry.name)) continue;
-      if (isExcluded(rel)) continue;
+      if (isNotPage(rel)) continue;
       out.push(rel);
     }
     return out;
@@ -307,20 +310,6 @@ export const docsContent = (): Plugin => {
     },
   };
 };
-
-/**
- * A page under `docs/` that is deliberately not a page of the site.
- *
- * `NOT_PAGES` is written as glob patterns because that is what the collection
- * loader this replaced wanted. Only two shapes occur — an exact path and a
- * `**​/name` basename match — so they are matched here rather than by adding a
- * glob dependency for two strings.
- */
-const isExcluded = (rel: string): boolean =>
-  NOT_PAGES.some((pattern) => {
-    if (pattern.startsWith("**/")) return path.posix.basename(rel) === pattern.slice(3);
-    return rel === pattern;
-  });
 
 /** An unknown throw, as one line fit to print. */
 const describe = (error: unknown): string =>
