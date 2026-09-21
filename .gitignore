@@ -9,8 +9,8 @@ dist/
 secrets/*.env
 !secrets/.gitkeep
 
-# The compose deployment's settings: this machine's paths, its dashboard password
-# and its database credentials. `.env.example` is the committed half of the pair.
+# A shell environment sourced by hand. Nothing in this repository reads it;
+# `.env.example` is the committed half of the pair and explains what it is for.
 /.env
 
 # Wrangler's dev-server scratch, in any example that really runs.
@@ -19,9 +19,3 @@ secrets/*.env
 # Worktrees a Claude Code agent cuts for itself. Each is its own checkout, and
 # committing one embeds a repository inside this one.
 .claude/worktrees/
-__pycache__/
-.venv/
-
-# Piper voices are downloaded, not committed: ~60MB each, and which voice you
-# want is a preference. See docs/guides/orchestrator.md.
-sidecars/models/

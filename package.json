@@ -1,0 +1,27 @@
+{
+  "name": "sandboxr",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Turn any git worktree into a running copy of a whole project, on its own hostname.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "docs:dev": "npm --workspace @sandboxr/docs run dev",
+    "docs:build": "npm --workspace @sandboxr/docs run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
