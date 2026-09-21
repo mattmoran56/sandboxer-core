@@ -25,18 +25,21 @@ export const LABELS = {
   access: "sandboxr.access",
   ttl: "sandboxr.ttl",
   env: "sandboxr.env",
-  // The two a session adds (contracts §12.3). `kind` goes on every container
-  // sandboxr creates; a container carrying none is a pre-session sandbox and
-  // reads as `runtime`, which is what `sandboxFromLabels` does with it.
+  // The two **opaque group labels** (contracts §3.4). The engine stamps them and
+  // filters on them and never looks inside either.
   //
-  // `session` is deliberately *absent* rather than empty on a sandbox that
-  // belongs to no session, for the reason §12.3 gives for a workstation's
-  // missing `project` and `slug`: an empty string is a value something will one
-  // day compare against.
+  // `kind` goes on every container sandboxr creates; a container carrying none
+  // reads as `runtime`, which is what `sandboxFromLabels` does with it. That
+  // default is the contract and not a convenience: every sandbox created before
+  // the label existed has none.
   kind: "sandboxr.kind",
-  // The same label name ../session/work.ts stamps on a work volume, spelled
-  // again rather than imported: this is the container's label set, and work.ts
-  // imports ./run.ts, so reaching the other way round would be a module cycle.
+  // A group id an embedder supplied — Jef puts a session there (§12.3). It is
+  // deliberately *absent* rather than empty on a sandbox belonging to no group:
+  // an empty string is a value something will one day compare against.
+  //
+  // This is the one spelling of it. ../session/work.ts stamps the same name on a
+  // work volume and spells it again rather than importing, because work.ts
+  // imports ./run.ts and reaching the other way round would be a module cycle.
   session: "sandboxr.session",
 } as const;
 

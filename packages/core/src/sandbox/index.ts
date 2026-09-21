@@ -49,7 +49,6 @@ import { envDigest, readProjectSecrets } from "../secrets.js";
 import { planGc } from "./gc.js";
 import { planPrune, type PruneResult } from "./prune.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
-import { SESSION_LABELS } from "../session/labels.js";
 import { BUILT_MANIFEST, MIGRATE_STATE, WITH_ENV, WWW_DIR, seedMount } from "./layout.js";
 import { DEFAULT_IMAGE, backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
 import type {
@@ -644,11 +643,12 @@ export async function list(options: ListOptions = {}): Promise<Sandbox[]> {
   const docker = options.docker ?? defaultDocker;
   const filters = [SANDBOX_FILTER];
   if (options.project) filters.push(`label=${LABELS.project}=${options.project}`);
-  // A session's runtimes, joined on the label rather than on a list the session
-  // keeps (contracts §12.4). `SANDBOX_FILTER` stays in front of it, so a
-  // workstation — which carries `sandboxr.session` and no `sandboxr.slug` —
-  // cannot arrive here and be read as a sandbox of the project it has none of.
-  if (options.session) filters.push(`label=${SESSION_LABELS.session}=${options.session}`);
+  // A group of sandboxes, joined on the opaque `sandboxr.session` label the
+  // caller stamped (contracts §3.4). `SANDBOX_FILTER` stays in front of it, so a
+  // container carrying the group label and no `sandboxr.slug` — a workstation,
+  // say — cannot arrive here and be read as a sandbox of the project it has
+  // none of. The engine never looks inside the value.
+  if (options.session) filters.push(`label=${LABELS.session}=${options.session}`);
 
   const rows = await docker.ps(filters, { all: true });
   const sandboxes: Sandbox[] = [];
