@@ -51,7 +51,7 @@ Jef's, in `packages/server/src/machine/`, and `jef init` is what starts them (co
 **Its public surface** is one file: `packages/core/src/index.ts`. Nothing outside that file is
 a contract.
 
-**Who calls it.** `packages/cli` and `packages/server`, and nothing else.
+**Who calls it.** `packages/cli`, `packages/sessions` and `packages/server`, and nothing else.
 
 **What it may never do.** Format output for a human, know that a web server exists, or spawn a
 process except through its own Docker wrapper.
@@ -132,6 +132,37 @@ what makes a command pipeable without losing its narration.
 The package's only dependency is `@sandboxr/core`.
 
 Every command and flag is listed in [CLI commands](../reference/cli.md).
+
+</details>
+
+## `packages/sessions`
+
+**What it owns.** What the engine is not. A session, the agent that works in one, and reading
+the code that agent changed are Jef's subjects: sandboxr runs a worktree in a container and knows
+nothing about agents. Today that is the code reader's half that is not Docker — the argument
+arrays, the parsers, and the path rule that keeps a file explorer inside its workspace.
+
+**Its public surface** is one file: `packages/sessions/src/index.ts`. As with core, nothing
+outside that file is a contract.
+
+**Who calls it.** `packages/server`.
+
+**What it may never do.** Be imported by `@sandboxr/core` or `@sandboxr/cli`. The dependency runs
+one way — the product knows about the engine and the engine knows nothing about the product — and
+that is the whole reason this package exists.
+
+<details class="agent">
+<summary><b>Details for an agent</b> — what is in it, and which question each file answers</summary>
+
+| Module | Answers |
+|---|---|
+| `code/paths.ts` | Which file did the caller mean? `safePath`, `resolveInRoot`, `baseName`, `CODE_PATH_MAX` — a `.` or `..` segment is refused outright rather than resolved |
+| `code/listing.ts` | The `find` and `head` argument arrays, the parsers for what comes back, and the binary test. `LISTING_LIMIT`, `FILE_READ_LIMIT` |
+| `code/diff.ts` | The `git` argument arrays for a branch's changes, and the parsers for `--numstat`, `--name-status` and a unified patch. `DIFF_FILE_LIMIT`, `PATCH_LIMIT` |
+
+The split with `packages/server/src/code.ts` is deliberate and the same one `agent-commands.ts`
+uses: this package owns the argument arrays and the parsers, because they are the same whether a
+CLI or a dashboard asks; the server owns the Docker calls and the ordering.
 
 </details>
 
@@ -398,13 +429,14 @@ against a scratch directory without a container. `container/README.md` has the c
 
 ## The interfaces between them
 
-Six boundaries. Each one is narrow on purpose, and each one is the place a mistake would otherwise
+Seven boundaries. Each one is narrow on purpose, and each one is the place a mistake would otherwise
 be invisible.
 
 | Boundary | What crosses it | Rule |
 |---|---|---|
 | `cli` → `core` | Direct function calls, in process | The CLI passes arguments and prints results. It never computes a name, a path or a state |
 | `server` → `core` | Direct function calls, in process, through `src/core/adapter.ts` only | **Never shells out to the CLI.** A renamed core export is a compile error in that one file |
+| `sessions` → `core` | Direct function calls, in process | One way only. `@sandboxr/core` importing `@jef/sessions` is the boundary failing, not a shortcut |
 | `web` ↔ `server` | HTTP and JSON, plus two WebSockets | The server sends facts; the browser writes sentences. Actions are a closed table, never a command in the request |
 | `core` → `container` | `plan.json`, mounted read-only, plus the environment | The plan is fully resolved. The container never merges a default or infers a kind |
 | `core` → Docker | Container labels, mounts, image tags, and the shared network | State lives only in labels. `list`, and which sandboxes `gc` reaps, are pure functions of `docker ps` |
@@ -417,7 +449,8 @@ be invisible.
 |---|---|
 | `@sandboxr/core` | `yaml`, `zod` |
 | `@sandboxr/cli` | `@sandboxr/core` |
-| `@jef/server` | `@sandboxr/core`, `@jef/web`, `ws` |
+| `@jef/sessions` | `@sandboxr/core` |
+| `@jef/server` | `@sandboxr/core`, `@jef/sessions`, `@jef/web`, `ws` |
 | `@jef/web` | `@sandboxr/tokens`, React, xterm, `marked` |
 | `@sandboxr/docs` | `@sandboxr/tokens`, `marked`, `mermaid`, React |
 | `@sandboxr/tokens` | The three `@fontsource*` packages it imports; Tailwind, as a peer |
