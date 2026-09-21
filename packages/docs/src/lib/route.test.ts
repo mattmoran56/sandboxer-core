@@ -7,11 +7,22 @@
 //    that it round-trips with pathOfSlug
 //  - editHref and sourceHref
 //  - NOT_PAGES and OFF_SITE agreeing about contracts.md
-//  - isNotPage: an exact path, a basename glob, and a directory prefix
+//  - matchesNotPage: an exact path, a basename glob, and a directory prefix
 
 import { describe, expect, it } from "vitest";
 
-import { NOT_PAGES, OFF_SITE, REPO, editHref, isNotPage, pathOfSlug, slugOfFile, slugOfPath, sourceHref } from "./route.js";
+import {
+  NOT_PAGES,
+  OFF_SITE,
+  REPO,
+  editHref,
+  isNotPage,
+  matchesNotPage,
+  pathOfSlug,
+  slugOfFile,
+  slugOfPath,
+  sourceHref,
+} from "./route.js";
 
 describe("slugOfFile", () => {
   it.each([
@@ -95,26 +106,34 @@ describe("the two GitHub links", () => {
 });
 
 describe("the pages that are not pages", () => {
-  it("excludes contracts.md, every README and all of Jef's half", () => {
-    expect(NOT_PAGES).toContain("architecture/contracts.md");
-    expect(NOT_PAGES).toContain("**/README.md");
-    expect(NOT_PAGES).toContain("jef/**");
+  it("excludes contracts.md and every README, and nothing else", () => {
+    expect([...NOT_PAGES]).toEqual(["architecture/contracts.md", "**/README.md"]);
   });
 
-  it("matches all three shapes and nothing beside them", () => {
+  it("excludes exactly those and leaves every real page alone", () => {
     // The matcher is shared by the content loader and by nav.test.ts, which is
     // what keeps "a page under docs/ the sidebar does not name is a bug" true.
     expect(isNotPage("architecture/contracts.md")).toBe(true);
     expect(isNotPage("README.md")).toBe(true);
     expect(isNotPage("guides/README.md")).toBe(true);
-    expect(isNotPage("jef/contracts.md")).toBe(true);
-    expect(isNotPage("jef/guides/dashboard.md")).toBe(true);
 
     expect(isNotPage("architecture/state.md")).toBe(false);
     expect(isNotPage("guides/lifecycle.md")).toBe(false);
+  });
+
+  it("matches all three pattern shapes and nothing beside them", () => {
+    expect(matchesNotPage("architecture/contracts.md", "architecture/contracts.md")).toBe(true);
+    expect(matchesNotPage("architecture/state.md", "architecture/contracts.md")).toBe(false);
+
+    expect(matchesNotPage("guides/README.md", "**/README.md")).toBe(true);
+    expect(matchesNotPage("guides/readme.md", "**/README.md")).toBe(false);
+
+    expect(matchesNotPage("jef/contracts.md", "jef/**")).toBe(true);
+    expect(matchesNotPage("jef/guides/dashboard.md", "jef/**")).toBe(true);
     // A prefix pattern is a directory, not a string prefix: `jefferson.md` is a
     // page, and a matcher written with startsWith and no slash would eat it.
-    expect(isNotPage("jefferson.md")).toBe(false);
+    // No entry uses this shape today; the incident is why the shape is kept.
+    expect(matchesNotPage("jefferson.md", "jef/**")).toBe(false);
   });
 
   it("sends contracts.md off site rather than nowhere", () => {

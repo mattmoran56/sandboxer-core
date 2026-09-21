@@ -7,8 +7,8 @@
 //  - NAV_ORDER covers every page, and neighbours() agrees with it at both ends
 //
 // "Eligible to be a page" is `isNotPage` in src/lib/route.ts, the same rule the
-// content loader applies — which is how docs/jef/, the product's half of the
-// documentation, is absent from this site without being absent from the walk.
+// content loader applies, so the walk and the build cannot disagree about which
+// files are pages.
 //
 // **This is the test that makes a hand-maintained sidebar safe to keep.** Nothing
 // derives `NAV` — that is the point of it, because the order is editorial — so a

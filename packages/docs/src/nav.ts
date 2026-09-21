@@ -15,11 +15,7 @@
 // **A label must equal the page's `title` frontmatter** — see AUTHORING.md. The
 // sidebar and the page heading disagreeing is how a reader ends up unsure whether
 // they clicked the right thing.
-//
-// **`docs/jef/` is not in here and must not be.** Those pages are the product's,
-// this site is the engine's, and the two are about to be two repositories. They
-// are excluded from the walk by `NOT_PAGES`, so the rule above still holds for
-// everything this site publishes.
+
 
 /** One page in the sidebar. `slug` is the empty string for the front page. */
 export interface NavPage {

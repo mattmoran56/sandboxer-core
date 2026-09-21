@@ -31,30 +31,36 @@ export const OFF_SITE: Readonly<Record<string, string>> = {
 /**
  * The files under `docs/` that are not pages, as glob patterns for the walk.
  *
- * Three shapes, and no more: an exact path, a globbed basename for a filename
- * anywhere under `docs/`, and `<dir>/**` for a whole directory.
+ * Short on purpose: **a page under `docs/` that this list does not name is a page
+ * the sidebar must name**, and `nav.test.ts` fails when one is not. Every entry
+ * here is a page the site deliberately does not publish, and each needs a reason.
  *
- * **`jef/**` is the product's half of the documentation.** `docs/` is the engine's
- * and leaves with it; `docs/jef/` holds the pages about Jef — the dashboard, the
- * orchestrator, sessions — which this site does not publish because Jef gets a site
- * of its own. They are excluded here rather than moved out of `docs/` so that the
- * relative links between the two halves keep resolving on GitHub while they share a
- * repository, and so that the one rule stays true: a page under `docs/` that this
- * list does not name is a page the sidebar must name.
+ * The product's half of the documentation used to be here as `jef/**`, while the
+ * engine and the product shared a tree. They do not any more — there is no
+ * `docs/jef/` in this repository — so the entry is gone and the rule is back to
+ * being about two files.
  */
-export const NOT_PAGES: readonly string[] = [
-  "architecture/contracts.md",
-  "**/README.md",
-  "jef/**",
-];
+export const NOT_PAGES: readonly string[] = ["architecture/contracts.md", "**/README.md"];
+
+/**
+ * Whether one `NOT_PAGES` pattern matches one path under `docs/`.
+ *
+ * Three shapes, and no more: an exact path, `**\/<basename>` for a filename
+ * anywhere under `docs/`, and `<dir>/**` for a whole directory. The directory
+ * shape has no entry using it today and is kept because the incident that shaped
+ * it is worth keeping: **a prefix pattern is a directory, not a string prefix.**
+ * Written with a bare `startsWith`, `jef/**` also matched `jefferson.md` and
+ * silently unpublished a page whose name merely began the same way.
+ */
+export const matchesNotPage = (rel: string, pattern: string): boolean => {
+  if (pattern.startsWith("**/")) return rel.split("/").pop() === pattern.slice(3);
+  if (pattern.endsWith("/**")) return rel.startsWith(pattern.slice(0, -2));
+  return rel === pattern;
+};
 
 /** True for a path under `docs/` that `NOT_PAGES` excludes. */
 export const isNotPage = (rel: string): boolean =>
-  NOT_PAGES.some((pattern) => {
-    if (pattern.startsWith("**/")) return rel.split("/").pop() === pattern.slice(3);
-    if (pattern.endsWith("/**")) return rel.startsWith(pattern.slice(0, -2));
-    return rel === pattern;
-  });
+  NOT_PAGES.some((pattern) => matchesNotPage(rel, pattern));
 
 /**
  * The one directory under `docs/` that holds files rather than pages.
