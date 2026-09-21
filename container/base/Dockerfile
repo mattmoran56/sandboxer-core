@@ -254,8 +254,22 @@ RUN mkdir -p \
       /empty \
  && chmod 555 /empty
 
-RUN caddy version && minio --version | head -1 && jq --version \
- && git --version && gh --version | head -1 && ldd --version | head -1
+# One smoke test for everything this image promises, so a missing binary fails
+# the build rather than the first sandbox.
+#
+# `sed -n 1p` and not `head -1`, and that is not a style choice: this shell runs
+# with `pipefail` (see the SHELL line above), and `head` closes the pipe the
+# moment it has its line. A tool still writing then dies of SIGPIPE, the
+# pipeline exits 141, and the build fails on the one line whose whole job is to
+# prove the build worked -- naming no tool and no reason. `minio --version`
+# prints several lines and is where this was seen. `sed -n 1p` reads to EOF, so
+# the writer always finishes.
+RUN caddy version \
+ && minio --version | sed -n 1p \
+ && jq --version \
+ && git --version \
+ && gh --version | sed -n 1p \
+ && ldd --version | sed -n 1p
 
 # STAGE2_FAILS=0 keeps the container alive when a oneshot fails, because a sandbox
 # whose database or migrations broke is precisely the one worth opening a shell in.
