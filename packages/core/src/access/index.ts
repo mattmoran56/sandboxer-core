@@ -184,34 +184,45 @@ export async function baseImageTag(env: NodeJS.ProcessEnv = process.env): Promis
 }
 
 /**
- * Every file the base image build reads.
+ * The directories under `container/` the base image build actually reads.
  *
- * The whole of `container/` except the directories that are not inputs to it:
- * `project/` is the per-project layer's template, which has a digest of its own;
- * `examples/` is test fixtures; and `workstation/` builds a separate image
- * (§12.3) that shares not one layer with this one. Including any of them would
- * rebuild the base image for a change that cannot affect it — several minutes
- * and several gigabytes, on the next `init`, for nothing.
+ * `base/Dockerfile` is the build file and `base/s6/` and `scripts/` are the only
+ * two things it copies in — `COPY scripts/` and `COPY base/s6/`, and nothing
+ * else. Everything under those two is an input; everything outside them is not.
  *
- * `workstation/` is the one that had to be noticed rather than decided. It
- * arrived under `container/` after this function was written, so it silently
- * joined the base image's digest and would have forced exactly that rebuild the
- * first time anybody edited the agent's Dockerfile.
+ * **This is an allowlist and it used to be a deny-list**, and the difference is
+ * the whole of why it changed. The deny-list named `project/`, `examples/` and
+ * `workstation/`, and every directory that arrived under `container/` after it
+ * was written silently joined the base image's digest — so editing a file that
+ * cannot affect the base forced a rebuild of it, several minutes and several
+ * gigabytes on the next `init`, for nothing. `workstation/` had to be noticed
+ * that way; `dashboard/`, `orchestrator/` and `jef-base/` would each have had to
+ * be noticed the same way. An allowlist has the opposite failure: a new input
+ * the base really does read is *not* hashed until it is named here, which shows
+ * up as an image that did not rebuild — annoying, and fixed by editing one line,
+ * rather than as a rebuild nobody can explain.
+ *
+ * It matters more than tidiness after the repository split. `container/base/`
+ * and `container/scripts/` are the engine's and leave with it; `jef-base/`,
+ * `dashboard/`, `orchestrator/` and `workstation/` are a product's and stay
+ * behind. A deny-list in the engine would have to name directories that are not
+ * in its own tree. This one names only what it owns.
  */
+const BASE_INPUTS = ["base", "scripts"] as const;
+
+/** Every file the base image build reads. */
 async function inputsOf(context: string): Promise<string[]> {
-  const skip = new Set(["project", "examples", "workstation"]);
   const found: string[] = [];
 
-  const walk = async (dir: string, top: boolean): Promise<void> => {
+  const walk = async (dir: string): Promise<void> => {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
-      if (top && skip.has(entry.name)) continue;
       const path = join(dir, entry.name);
-      if (entry.isDirectory()) await walk(path, false);
+      if (entry.isDirectory()) await walk(path);
       else if (entry.isFile()) found.push(path);
     }
   };
 
-  await walk(context, true);
+  for (const dir of BASE_INPUTS) await walk(join(context, dir));
   return found;
 }
 

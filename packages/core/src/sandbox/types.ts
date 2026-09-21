@@ -214,6 +214,15 @@ export interface GcOptions extends CommonOptions {
   dryRun?: boolean | undefined;
   /** Branch names whose work is finished, so their sandboxes can be reaped. */
   mergedBranches?: string[] | undefined;
+  /**
+   * Image repositories the caller declares are its own, never to be reclaimed.
+   *
+   * The embedder's half of the never-reclaimed list (contracts §3.3). The engine
+   * reserves its own names in `PROTECTED_IMAGES`; a product adds its own here,
+   * so the engine never has to spell a name belonging to something that may not
+   * even be installed. See `GcInput.protectImages` in ./gc.ts.
+   */
+  protectImages?: readonly string[] | undefined;
 }
 
 export interface PruneOptions extends CommonOptions {
@@ -230,6 +239,8 @@ export interface PruneOptions extends CommonOptions {
   apply?: boolean | undefined;
   /** Include Docker's build cache, which sandboxr is not the only writer of. */
   buildCache?: boolean | undefined;
+  /** Image repositories the caller declares are its own — see `GcOptions`. */
+  protectImages?: readonly string[] | undefined;
 }
 
 /**

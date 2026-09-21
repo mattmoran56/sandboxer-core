@@ -15,6 +15,9 @@
 //   no gitMounts pair is added
 // - up on a provided workspace: the slug, the workspace name, the git facts, the
 //   extra labels and the "Starting … from" line all come from the caller
+// - up: `baseImage` is what the project layer is built FROM, and it reaches both
+//   the build argument and the container that runs — this is the seam an embedder
+//   puts an agent through, and the engine's own default is never an agent's image
 // - reload: a backend build failure leaves the running process alone; a success restarts it
 // - reload: `all` covers the build-everything set, `built` covers what the sandbox has built, a name covers one app
 // - reload: a served front-end is restarted rather than built
@@ -48,6 +51,14 @@ interface FakeOptions {
   usage?: DiskUsage;
   /** `docker system df` refusing to answer, which is not the same as an empty machine. */
   usageFails?: boolean;
+  /**
+   * Which images the daemon already has.
+   *
+   * Defaults to "all of them", which is what every test that is not about a
+   * build wants: a project image that already exists is not rebuilt, so the only
+   * `ok` call is the `docker run` those tests read.
+   */
+  images?: (reference: string) => boolean;
 }
 
 /** A docker whose every call is recorded and whose answers are declarative. */
@@ -145,7 +156,7 @@ function fakeDocker(options: FakeOptions = {}) {
     ensureNetwork: async (name) => {
       record("ensureNetwork", name);
     },
-    imageExists: async () => true,
+    imageExists: async (reference) => options.images?.(reference) ?? true,
     diskUsage: async () => {
       record("diskUsage");
       if (options.usageFails) throw new Error("docker system df -v exited 1");
@@ -413,6 +424,50 @@ describe("up", () => {
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
     expect(runArguments).toContain("traefik.http.routers.sandboxr-acme-tkt-1.entrypoints=websecure");
     expect(runArguments).toContain("traefik.http.routers.sandboxr-acme-tkt-1.tls=true");
+  });
+
+  /**
+   * The seam an embedder puts an agent through.
+   *
+   * The engine's base image has no agent in it — sandboxr runs a project and has
+   * no opinion about who edits the worktree — so a product that wants one layers
+   * its own base `FROM sandboxr/base` and names it here. Jef does exactly that
+   * with `jef/base`; `sandboxr up` from the engine's own CLI does not, and its
+   * sandboxes have no `claude` in them.
+   *
+   * Asserted in both places the value has to arrive, because they are two
+   * different mechanisms and either could be wired without the other: the
+   * `--build-arg` is what the project layer is built `FROM`, and the tag on
+   * `docker run` is the image that then actually starts.
+   */
+  it("builds the project layer FROM the base image it was given, and runs it", async () => {
+    const { dir, home } = await worktree();
+    const { docker, argsOf } = fakeDocker({
+      running: true,
+      exists: false,
+      // The project layer is not here, so it is built — which is the call this
+      // test reads. Everything else is, so nothing else builds.
+      images: (reference) => !reference.startsWith("sandboxr/acme:"),
+      exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
+    });
+
+    await up({
+      config: configOf(),
+      worktree: dir,
+      docker,
+      baseImage: "jef/base:0.1.0-abcdef123456",
+      env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
+    });
+
+    const calls = argsOf("ok").map((args) => args[0] as string[]);
+    const build = calls.find((args) => args[0] === "build") ?? [];
+    expect(build[build.indexOf("--build-arg") + 1]).toBe("BASE_IMAGE=jef/base:0.1.0-abcdef123456");
+    // Nothing built the engine's base: the caller had already resolved one, and
+    // an `up` that rebuilt it would spend half an hour proving it.
+    expect(calls.filter((args) => args[0] === "build")).toHaveLength(1);
+
+    const run = calls.find((args) => args[0] === "run") ?? [];
+    expect(run[run.length - 1]).toMatch(/^sandboxr\/acme:[0-9a-f]+$/);
   });
 
   // The router has to be told about a sandbox at the moment it starts, or the

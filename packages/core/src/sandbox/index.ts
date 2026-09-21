@@ -966,6 +966,7 @@ export async function gc(options: GcOptions = {}): Promise<GcPlan> {
     mergedBranches: options.mergedBranches ? new Set(options.mergedBranches) : undefined,
     mountedVolumes: await mountedVolumes(docker, sandboxes),
     images: await storedImages(docker),
+    protectImages: options.protectImages,
   });
 
   if (options.dryRun) return plan;
@@ -1035,6 +1036,7 @@ export async function prune(options: PruneOptions = {}): Promise<PruneResult> {
     buildCache: usage.buildCache,
     mountedVolumes: await mountedVolumes(docker, sandboxes),
     includeBuildCache: options.buildCache,
+    protectImages: options.protectImages,
   });
 
   const removed = { volumes: [] as string[], images: [] as string[], buildCacheBytes: 0 };

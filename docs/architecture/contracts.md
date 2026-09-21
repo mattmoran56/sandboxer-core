@@ -315,7 +315,13 @@ Images are named under one namespace, and the split between them decides what ma
   image and a rebuild is triggered by exactly the things the build reads.
 - The machine's own: `sandboxr/base`, `sandboxr/dashboard` and `sandboxr/workstation` (§12.3),
   tagged by tool version and by `latest`. **All three are built by `init`**, and all three are on
-  the never-reclaimed list.
+  the never-reclaimed list. An embedder's own base is a fourth — Jef's is `jef/base`, the engine's
+  base with an agent on it, built by `jef init` and named to `up` as `baseImage` — and it is
+  **content-addressed on the engine base tag plus its own Dockerfile**, not tagged by tool version:
+  it is one layer on a tag that is already a digest of everything below it, so a base rebuild has to
+  move it or the two drift. The engine does not know its name. It is kept because the caller passes
+  it as `protectImages`, which is unioned with the engine's own reservations and never replaces
+  them.
 - **`sandboxr/workstation` used to be built by the first `createSession` instead**, on the argument
   that a machine which never creates a session never needs it. That argument has expired on its own
   stated condition — "revisit when a session is the ordinary way to start work" — and a session now
@@ -327,9 +333,15 @@ Images are named under one namespace, and the split between them decides what ma
   must keep doing so: `init` having built it is what makes a create fast, never what makes it
   correct, and the tag carries the tool version — so an upgrade invalidates it, and `init` is the
   verb somebody runs after one.
-- `container/workstation/` is excluded from the base image's digest for the same reason the other
-  two excluded directories are: it shares not one layer with the base, so including it would
-  rebuild the base for a change that cannot affect it.
+- **The base image's digest covers `container/base/` and `container/scripts/`, and nothing else.**
+  Those are the two directories `base/Dockerfile` copies from, so they are exactly what the build
+  reads. This is an allowlist because it used to be a deny-list naming `project/`, `examples/` and
+  `workstation/`, and every directory that arrived under `container/` afterwards silently joined the
+  digest — `workstation/` had to be noticed that way, and `dashboard/`, `orchestrator/` and
+  `jef-base/` would each have had to be noticed again. Including any of them rebuilds the base for a
+  change that cannot affect it: several minutes and several gigabytes, on the next `init`, for
+  nothing. The allowlist also survives the repository split, where the engine's tree holds `base/`
+  and `scripts/` and no others — a deny-list would have to name directories that are not there.
 
 **Reclamation is a contract, not a heuristic.** `gc` removes sandboxes, the volumes they owned, and
 the project images a newer build replaced. `prune` removes the same volumes and images with sizes
@@ -350,7 +362,8 @@ against them, and Docker's build cache when it is asked. Both are bound by five 
   knowing what a session is. `isWorkVolume` in `packages/core/src/naming.ts` is the test, beside
   `WORK_VOLUME_PREFIX` which is the name it reserves.
 - `sandboxr/base` and `sandboxr/dashboard` are never removed as superseded: they are tagged by
-  version rather than by content, so "older tag" does not mean "replaced".
+  version rather than by content, so "older tag" does not mean "replaced". An embedder adds its own
+  names to that list by passing them, and `jef/base` is on it.
 - Of each project's images, the newest survives. A content-addressed tag means the next `up` finds
   it and starts rather than rebuilding, and that is the reason the image is kept at all.
 - An image any container references — running or stopped — is never removed, and neither is one

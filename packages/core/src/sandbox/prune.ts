@@ -50,6 +50,8 @@ export interface PruneInput {
    * leaving it out would make the report look like the whole answer.
    */
   includeBuildCache?: boolean | undefined;
+  /** Repositories the caller declares are its own — see `GcInput.protectImages`. */
+  protectImages?: readonly string[] | undefined;
 }
 
 export interface PrunePlan {
@@ -113,7 +115,7 @@ export function planPrune(input: PruneInput): PrunePlan {
     .map((volume) => ({ name: volume.name, size: volume.size }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const images = supersededImages(input.images);
+  const images = supersededImages(input.images, input.protectImages);
 
   const unused = input.buildCache.filter((record) => !record.inUse);
   const buildCache = {

@@ -14,6 +14,9 @@
 // - supersededImages: the newest image of every project survives, so the next `up` is a start
 // - supersededImages: an image any container references is left alone, running or stopped
 // - supersededImages: sandboxr/base and sandboxr/dashboard are never superseded
+// - supersededImages: a repository the CALLER reserves is never superseded either,
+//   which is how an embedder adds to the never-reclaimed list without the engine
+//   having to know the embedder's names
 // - supersededImages: an image outside the sandboxr namespace is not ours to remove
 // - supersededImages: a dangling image is left to `docker image prune`
 // - supersededImages: an image docker gave no creation time for is left alone
@@ -277,6 +280,39 @@ describe("superseded images", () => {
       image({ repository: DASHBOARD_IMAGE_NAME, tag: "latest" }),
       image({ repository: DASHBOARD_IMAGE_NAME, tag: "0.1.0", created: new Date("2026-08-27T00:00:00.000Z") }),
     ]);
+    expect(offered).toEqual([]);
+  });
+
+  /**
+   * The embedder's half of the never-reclaimed list (contracts §3.3).
+   *
+   * The engine reserves its own names in `PROTECTED_IMAGES`; a product hands its
+   * own in, and the engine keeps them on the caller's word. Asserted with a
+   * repository inside the `sandboxr/` namespace deliberately: Jef's real extra
+   * name, `jef/base`, is outside it and would be kept by the namespace test
+   * whatever this list said, so a test using it could not tell the mechanism from
+   * the coincidence. Jef's dashboard, workstation and orchestrator images *are*
+   * under `sandboxr/`, and this is what they would rely on.
+   */
+  it("never supersedes a repository the caller reserved", () => {
+    const rows = [
+      image({ repository: "sandboxr/embedder", tag: "0.1.0" }),
+      image({ repository: "sandboxr/embedder", tag: "latest", created: new Date("2026-08-27T00:00:00.000Z") }),
+    ];
+    expect(supersededImages(rows)).toHaveLength(1);
+    expect(supersededImages(rows, ["sandboxr/embedder"])).toEqual([]);
+  });
+
+  // The caller's list is added to the engine's, never substituted for it: a
+  // product that passed only its own names must not make the base image reapable.
+  it("adds to the engine's reservations rather than replacing them", () => {
+    const offered = supersededImages(
+      [
+        image({ repository: BASE_IMAGE, tag: "latest" }),
+        image({ repository: BASE_IMAGE, tag: "0.1.0", created: new Date("2026-08-27T00:00:00.000Z") }),
+      ],
+      ["jef/base"],
+    );
     expect(offered).toEqual([]);
   });
 

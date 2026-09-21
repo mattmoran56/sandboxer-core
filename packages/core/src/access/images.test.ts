@@ -1,18 +1,24 @@
 // Tests for the images `init` builds, and what each one's digest covers:
-// - baseImageTag is a function of container/, so editing a base input moves it
-// - baseImageTag ignores container/workstation/, container/project/ and container/examples/
+// - baseImageTag is a function of container/base/ and container/scripts/, the two
+//   directories the base build reads, so editing either of them moves it
+// - baseImageTag ignores every other directory under container/ — the project
+//   template, the fixtures, and the three images that are a product's rather than
+//   the engine's (workstation, dashboard, orchestrator, jef-base)
+// - the engine's base image carries no agent: container/base/Dockerfile names
+//   neither claude nor anthropic, anywhere
 // - initAccess builds the base image and no product's: it prepares the bare domain
 //   and does not fill it (contracts §7.5)
 // - initAccess reports where a front end must listen, and says that nothing is
 //   serving the bare domain
 
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import type { Docker } from "../docker.js";
+import { containerDir } from "../install.js";
 import { TOOL_VERSION } from "../tool-version.js";
 import { BASE_IMAGE, DEFAULT_FRONTEND_PORT, baseImageTag, initAccess } from "./index.js";
 /**
@@ -31,7 +37,7 @@ const WORKSTATION_IMAGE_NAME = "sandboxr/workstation";
 /** An installation whose `container/` holds one file in each directory that matters. */
 async function installation(): Promise<NodeJS.ProcessEnv> {
   const root = await mkdtemp(join(tmpdir(), "sandboxr-install-"));
-  for (const dir of ["base", "project", "examples", "workstation", "scripts"]) {
+  for (const dir of ["base", "project", "examples", "workstation", "dashboard", "orchestrator", "jef-base", "scripts"]) {
     await mkdir(join(root, "container", dir), { recursive: true });
     await writeFile(join(root, "container", dir, "Dockerfile"), `# ${dir}\n`, "utf8");
   }
@@ -52,10 +58,10 @@ function fakeDocker(present: string[] = []) {
 }
 
 describe("baseImageTag", () => {
-  it("moves when one of the base image's own inputs changes", async () => {
+  it.each(["base", "scripts"])("moves when container/%s/ changes, because the build reads it", async (dir) => {
     const env = await installation();
     const before = await baseImageTag(env);
-    await writeFile(join(env.SANDBOXR_INSTALL as string, "container", "base", "Dockerfile"), "# changed\n", "utf8");
+    await writeFile(join(env.SANDBOXR_INSTALL as string, "container", dir, "Dockerfile"), "# changed\n", "utf8");
     expect(await baseImageTag(env)).not.toBe(before);
   });
 
@@ -63,11 +69,43 @@ describe("baseImageTag", () => {
   // silently joined the base image's digest — so editing the agent's Dockerfile
   // would have forced a base rebuild, several minutes and several gigabytes, for
   // a change that cannot affect the base at all. It shares not one layer with it.
-  it.each(["workstation", "project", "examples"])("ignores container/%s/", async (dir) => {
-    const env = await installation();
-    const before = await baseImageTag(env);
-    await writeFile(join(env.SANDBOXR_INSTALL as string, "container", dir, "Dockerfile"), "# changed\n", "utf8");
-    expect(await baseImageTag(env)).toBe(before);
+  //
+  // `jef-base/` is the case that turned the deny-list into an allowlist. It is
+  // the *product's* agent layer, built `FROM` the base, so its Dockerfile cannot
+  // be an input to the image it is built on top of — and after the repository
+  // split it is not in the engine's tree at all, which a deny-list naming it
+  // would have had to pretend otherwise about.
+  it.each(["workstation", "project", "examples", "dashboard", "orchestrator", "jef-base"])(
+    "ignores container/%s/",
+    async (dir) => {
+      const env = await installation();
+      const before = await baseImageTag(env);
+      await writeFile(join(env.SANDBOXR_INSTALL as string, "container", dir, "Dockerfile"), "# changed\n", "utf8");
+      expect(await baseImageTag(env)).toBe(before);
+    },
+  );
+});
+
+/**
+ * The engine's base image has no agent in it, and that is a boundary rather than
+ * a detail of what it happens to install.
+ *
+ * sandboxr runs a project and has no opinion about who edits the worktree
+ * (contracts §7.5); `claude` lives one layer above in `container/jef-base/`,
+ * which is Jef's. Asserted as "the file mentions neither name" rather than by
+ * building the image, because a build takes minutes and the thing that would
+ * reintroduce an agent here is somebody adding a line to this file.
+ *
+ * The product half of this pair — that `container/jef-base/Dockerfile` *does*
+ * name it — is in `packages/server/src/machine/images.test.ts`. The two are
+ * deliberately in different packages: after the split the two Dockerfiles are in
+ * different repositories, and a single test asserting both could live in
+ * neither.
+ */
+describe("container/base/Dockerfile", () => {
+  it("names no agent", async () => {
+    const source = await readFile(join(containerDir(), "base", "Dockerfile"), "utf8");
+    expect(source).not.toMatch(/claude|anthropic/i);
   });
 });
 

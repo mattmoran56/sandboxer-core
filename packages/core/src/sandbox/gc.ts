@@ -49,6 +49,22 @@ export interface GcInput {
    * a dependency volume and a missing mount list below.
    */
   images?: ImageRow[] | undefined;
+  /**
+   * Repositories the *caller* declares are its own, never to be reclaimed.
+   *
+   * Unioned with `PROTECTED_IMAGES`, never replacing it, and it exists so that
+   * an embedder can add to the never-reclaimed list without the engine having to
+   * know the embedder's names. Jef passes `jef/base` (see
+   * `JEF_PROTECTED_IMAGES` in `packages/server/src/machine/images.ts`), and the
+   * engine keeps it on the caller's word rather than on a string spelt in here.
+   *
+   * It is a promise and not the only thing keeping `jef/base` today: it is also
+   * outside the `sandboxr/` namespace, which `supersededImages` already refuses
+   * to look past. That is a fact about the name Jef happened to choose, and a
+   * product that tagged its own image under `sandboxr/` — as Jef's dashboard,
+   * workstation and orchestrator all do — would have nothing but this.
+   */
+  protectImages?: readonly string[] | undefined;
 }
 
 export function planGc(input: GcInput): GcPlan {
@@ -70,7 +86,7 @@ export function planGc(input: GcInput): GcPlan {
   return {
     reap,
     volumes: orphanVolumes({ ...input, survivors: keep }),
-    images: input.images ? supersededImages(input.images) : [],
+    images: input.images ? supersededImages(input.images, input.protectImages) : [],
     keep,
   };
 }
@@ -139,17 +155,25 @@ export function orphanVolumes(input: {
  *
  * **The keep list is a union and never a filter**, exactly as `orphanVolumes` is.
  * An image survives if it is the newest of its repository, or its repository is
- * one of the machine's own, or it lies outside the `sandboxr/` namespace, or any
- * container references it, or docker declined to say when it was created. Every
- * one of those is a reason to keep, and nothing here reads a missing answer as a
- * licence to remove — a listing that can hide something still in use is the
- * staleness this whole design exists to avoid.
+ * one of the machine's own, or the caller named it in `protect`, or it lies
+ * outside the `sandboxr/` namespace, or any container references it, or docker
+ * declined to say when it was created. Every one of those is a reason to keep,
+ * and nothing here reads a missing answer as a licence to remove — a listing
+ * that can hide something still in use is the staleness this whole design exists
+ * to avoid.
+ *
+ * `protect` is the embedder's half of that union, and it is checked *before* the
+ * namespace test rather than after: a product that tags its images under
+ * `sandboxr/` — Jef's dashboard, workstation and orchestrator all do — gets the
+ * same promise as one that chose a namespace of its own, without the engine
+ * having to spell the product's names. See `GcInput.protectImages`.
  */
-export function supersededImages(images: ImageRow[]): PrunableImage[] {
+export function supersededImages(images: ImageRow[], protect: readonly string[] = []): PrunableImage[] {
+  const reserved = new Set<string>([...PROTECTED_IMAGES, ...protect]);
   const byRepository = new Map<string, ImageRow[]>();
   for (const image of images) {
+    if (reserved.has(image.repository)) continue;
     if (!image.repository.startsWith(IMAGE_NAMESPACE)) continue;
-    if ((PROTECTED_IMAGES as readonly string[]).includes(image.repository)) continue;
     // A dangling image is out of scope, and deliberately so rather than by
     // omission. It is an intermediate layer or a build whose tag has since moved
     // on; docker reports it as `<none>` — usually for the repository too, so the

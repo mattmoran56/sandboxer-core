@@ -293,6 +293,7 @@ export {
   domainOf,
   routerScheme,
   ensureBaseImage,
+  baseImageTag,
   issueCertificate,
   originFor,
   portSuffix,
