@@ -1,5 +1,5 @@
 /**
- * `~/.sandboxr/secrets/<project>.env` — a project's third-party credentials.
+ * `~/.sandboxer/secrets/<project>.env` — a project's third-party credentials.
  *
  * Two ways in, one file. **Importing** builds it from the `.env` files a
  * developer already has, under the project's own rules (contracts §5.2): `keep`
@@ -172,10 +172,10 @@ function quoteSecret(value: string): string {
 /** The comment at the top of a secrets file, which is now a file people edit. */
 function authoredHeader(project: string): string {
   return [
-    `# ${project}'s third-party credentials, for sandboxr. Do not commit.`,
+    `# ${project}'s third-party credentials, for sandboxer. Do not commit.`,
     "#",
-    "# Edited by hand, by `sandboxr secrets set` or from the dashboard, and merged",
-    "# into by `sandboxr secrets import`. Database, object storage and inter-service",
+    "# Edited by hand, by `sandboxer secrets set` or from the dashboard, and merged",
+    "# into by `sandboxer secrets import`. Database, object storage and inter-service",
     "# URLs are not here: a sandbox computes those for itself.",
   ].join("\n");
 }
@@ -185,13 +185,13 @@ function authoredHeader(project: string): string {
  *
  * **Rewritten in place, never renamed into place, and that is load-bearing.**
  * Docker bind-mounts an *inode*, not a path. Every running sandbox of this
- * project has this exact file mounted at `/sandboxr/secrets.env`, so the usual
+ * project has this exact file mounted at `/sandboxer/secrets.env`, so the usual
  * write-to-a-temporary-name-and-rename — which this function used to do, and
- * which is the right shape for every other file sandboxr writes — swaps the
+ * which is the right shape for every other file sandboxer writes — swaps the
  * inode out from under those mounts. The container is then pinned to the
  * unlinked old one: it reads stale credentials until it is restarted, and on
  * Docker Desktop it stops being able to read the file at all and the entrypoint
- * says `/sandboxr/secrets.env: No such file or directory`. Nothing about that
+ * says `/sandboxer/secrets.env: No such file or directory`. Nothing about that
  * message suggests the cause was an edit succeeding on the host.
  *
  * Crash-safety is kept by staging rather than by renaming: the full body is
@@ -350,33 +350,39 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * `--env-file` layered under the generated one, and Docker settled the argument;
  * nothing settles it now except this refusal.
  *
- * A project's own `SANDBOXR_`-prefixed names are fine and are not covered here —
+ * A project's own `SANDBOXER_`-prefixed names are fine and are not covered here —
  * `secrets.rename` in the example monorepo config deliberately renames a
- * browser-side Auth0 domain to `SANDBOXR_AUTH0_SPA_DOMAIN`, which is a value
+ * browser-side Auth0 domain to `SANDBOXER_AUTH0_SPA_DOMAIN`, which is a value
  * only the project can supply.
+ *
+ * **The old `SANDBOXR_` prefix is not read, here or in the container.** A
+ * secrets file still written against it supplies names nothing derives and
+ * nothing consumes, so the project sees no value rather than the wrong one —
+ * which is the failure that can be diagnosed. Rename the rows; contracts §3.3
+ * says the same thing for every other name the engine used to answer to.
  */
 export const RESERVED_ENV_NAMES = [
-  "SANDBOXR_SLUG",
-  "SANDBOXR_PROJECT",
-  "SANDBOXR_DOMAIN",
-  "SANDBOXR_ACCESS",
-  "SANDBOXR_SCHEME",
-  "SANDBOXR_PUBLIC_PORT",
-  "SANDBOXR_WITH",
-  "SANDBOXR_SEED",
-  "SANDBOXR_PLAN",
-  "SANDBOXR_SCRIPTS",
-  "SANDBOXR_SANDBOX",
-  "SANDBOXR_ENV_READY",
+  "SANDBOXER_SLUG",
+  "SANDBOXER_PROJECT",
+  "SANDBOXER_DOMAIN",
+  "SANDBOXER_ACCESS",
+  "SANDBOXER_SCHEME",
+  "SANDBOXER_PUBLIC_PORT",
+  "SANDBOXER_WITH",
+  "SANDBOXER_SEED",
+  "SANDBOXER_PLAN",
+  "SANDBOXER_SCRIPTS",
+  "SANDBOXER_SANDBOX",
+  "SANDBOXER_ENV_READY",
 ] as const;
 
 /** The families of derived name, which are open-ended and so matched by prefix. */
 export const RESERVED_ENV_PREFIXES = [
-  "SANDBOXR_DB_",
-  "SANDBOXR_S3_",
-  "SANDBOXR_D1_",
-  "SANDBOXR_URL_",
-  "SANDBOXR_PORT_",
+  "SANDBOXER_DB_",
+  "SANDBOXER_S3_",
+  "SANDBOXER_D1_",
+  "SANDBOXER_URL_",
+  "SANDBOXER_PORT_",
 ] as const;
 
 /** Whether the sandbox computes this name for itself. */
@@ -415,7 +421,7 @@ export function envNameRefusal(name: string, value: string, config?: ResolvedCon
   if (config) {
     const pattern = config.secrets.never.find((candidate) => matchesAny(name, [candidate]));
     if (pattern !== undefined) {
-      return `matches this project's never pattern "${pattern}", which is there so that nothing describing where a service runs reaches a sandbox. Put it in secrets.rename in sandboxr.yaml if the project really needs it`;
+      return `matches this project's never pattern "${pattern}", which is there so that nothing describing where a service runs reaches a sandbox. Put it in secrets.rename in sandboxer.yaml if the project really needs it`;
     }
   }
   return undefined;
@@ -466,7 +472,7 @@ export interface SecretsView {
    *
    * It is also the reassuring answer in the other direction. A name that *is*
    * shadowed cannot point the sandbox anywhere: whatever was typed, the map's
-   * `${SANDBOXR_...}` wins.
+   * `${SANDBOXER_...}` wins.
    */
   shadowed: string[];
 }
@@ -502,7 +508,7 @@ export async function readProjectSecrets(
  * What a project's environment looks like, without any of it.
  *
  * `config` may be null: the dashboard reads a project's config best-effort, and
- * a project whose `sandboxr.yaml` it cannot reach still has a secrets file worth
+ * a project whose `sandboxer.yaml` it cannot reach still has a secrets file worth
  * editing. `configKnown` says which of the two happened, so a caller can say so
  * rather than presenting a guess as an answer.
  */
@@ -655,7 +661,7 @@ export async function editProjectSecrets(
  * is true of a sandbox lives on the container, not in a file beside it.
  *
  * The plan's `env` map is folded in as well as the secrets, because the two
- * together are the environment: renaming `VITE_API_URL` in `sandboxr.yaml`
+ * together are the environment: renaming `VITE_API_URL` in `sandboxer.yaml`
  * changes what a sandbox would be built with just as surely as rotating a key.
  */
 export function envDigest(secrets: Map<string, string>, planEnv: Record<string, string> = {}): string {

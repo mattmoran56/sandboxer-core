@@ -1,7 +1,7 @@
 /**
  * `plan.json` — the container's entire view of a project (contracts §5.5).
  *
- * `sandboxr.yaml` is the human-facing file, and nothing inside a container ever
+ * `sandboxer.yaml` is the human-facing file, and nothing inside a container ever
  * reads it. The plan is a flattened, fully-resolved projection of it: every
  * default already merged, one `services` array carrying all three runtime kinds
  * with an explicit `kind`, and nothing left to infer. Resolution is the host's

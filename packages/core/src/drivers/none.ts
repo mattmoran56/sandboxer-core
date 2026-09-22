@@ -25,7 +25,7 @@ export const noneDriver: DatabaseDriver = {
     // `running` rather than sitting at `starting` for ever. Nothing else is
     // done, and nothing is logged: a sandbox with no database should not print
     // about the database it does not have.
-    await ctx.exec(["sh", "-lc", "mkdir -p /run/sandboxr && echo ok > /run/sandboxr/migrate.ok"]);
+    await ctx.exec(["sh", "-lc", "mkdir -p /run/sandboxer && echo ok > /run/sandboxer/migrate.ok"]);
   },
 
   async migrate(): Promise<MigrateResult> {

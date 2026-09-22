@@ -14,25 +14,25 @@ import { containerName } from "../naming.js";
 import type { Sandbox, SandboxState } from "./types.js";
 
 export const LABELS = {
-  project: "sandboxr.project",
-  slug: "sandboxr.slug",
-  branch: "sandboxr.branch",
-  commit: "sandboxr.commit",
-  dirty: "sandboxr.dirty",
-  worktree: "sandboxr.worktree",
-  driver: "sandboxr.driver",
-  created: "sandboxr.created",
-  access: "sandboxr.access",
-  ttl: "sandboxr.ttl",
-  env: "sandboxr.env",
+  project: "sandboxer.project",
+  slug: "sandboxer.slug",
+  branch: "sandboxer.branch",
+  commit: "sandboxer.commit",
+  dirty: "sandboxer.dirty",
+  worktree: "sandboxer.worktree",
+  driver: "sandboxer.driver",
+  created: "sandboxer.created",
+  access: "sandboxer.access",
+  ttl: "sandboxer.ttl",
+  env: "sandboxer.env",
   // The two **opaque group labels** (contracts §3.4). The engine stamps them and
   // filters on them and never looks inside either.
   //
-  // `kind` goes on every container sandboxr creates; a container carrying none
+  // `kind` goes on every container sandboxer creates; a container carrying none
   // reads as `runtime`, which is what `sandboxFromLabels` does with it. That
   // default is the contract and not a convenience: every sandbox created before
   // the label existed has none.
-  kind: "sandboxr.kind",
+  kind: "sandboxer.kind",
   // A group id an embedder supplied — Jef puts a session there (its §9.3). It is
   // deliberately *absent* rather than empty on a sandbox belonging to no group:
   // an empty string is a value something will one day compare against.
@@ -41,14 +41,14 @@ export const LABELS = {
   // name on a
   // work volume and spells it again rather than importing, because work.ts
   // imports ./run.ts and reaching the other way round would be a module cycle.
-  session: "sandboxr.session",
+  session: "sandboxer.session",
 } as const;
 
 /**
- * There is deliberately no `sandboxr.expires` label.
+ * There is deliberately no `sandboxer.expires` label.
  *
  * A deadline label is the obvious design and it is wrong. Labels hold durable
- * state (contracts §3.4): `sandboxr.created` is stamped once when the container
+ * state (contracts §3.4): `sandboxer.created` is stamped once when the container
  * is created and never moves, so `created + ttl` is a fixed instant. The moment
  * the reaper stops an expired sandbox that instant is already in the past — so
  * pressing Restart would hand the next pass a sandbox that is still expired and
@@ -113,7 +113,7 @@ export function labelsFor(input: LabelInput): Record<string, string> {
     [LABELS.ttl]: input.ttl === undefined || input.ttl === "" ? "never" : input.ttl,
     // Written even when it is the digest of nothing, because "this sandbox
     // started with no credentials and none are set" and "this sandbox is from
-    // before sandboxr stamped this" are different facts and only one of them
+    // before sandboxer stamped this" are different facts and only one of them
     // means the dashboard has to keep quiet.
     [LABELS.env]: input.env ?? "",
     // Every sandbox this function labels is a runtime: a worktree-backed one is

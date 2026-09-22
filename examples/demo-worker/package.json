@@ -2,7 +2,7 @@
   "name": "demo-worker",
   "version": "0.1.0",
   "private": true,
-  "description": "A Cloudflare Worker on D1: the smallest project sandboxr can run end to end.",
+  "description": "A Cloudflare Worker on D1: the smallest project sandboxer can run end to end.",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

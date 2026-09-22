@@ -359,7 +359,7 @@ export async function pullWorktree(input: PullInput): Promise<PullResult> {
       refusals.push({
         kind: "diverged",
         summary: `${plural(total, "local commit")} not on origin/${branch}`,
-        message: `${branch} has ${plural(total, "commit")} that origin/${branch} does not: ${nameThem(local, NAMED_COMMITS, total)}. That is not a fast-forward, and sandboxr will not merge or rebase for you — push or drop those commits, then pull again.`,
+        message: `${branch} has ${plural(total, "commit")} that origin/${branch} does not: ${nameThem(local, NAMED_COMMITS, total)}. That is not a fast-forward, and sandboxer will not merge or rebase for you — push or drop those commits, then pull again.`,
         files: local,
       });
     }

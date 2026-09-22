@@ -36,7 +36,7 @@ const SLOW = 60_000;
 const temporary: string[] = [];
 
 async function scratch(prefix: string): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), `sandboxr-${prefix}-`));
+  const dir = await mkdtemp(join(tmpdir(), `sandboxer-${prefix}-`));
   temporary.push(dir);
   return dir;
 }
@@ -61,7 +61,7 @@ async function g(cwd: string, ...args: string[]): Promise<string> {
     "-C",
     cwd,
     "-c",
-    "user.name=sandboxr test",
+    "user.name=sandboxer test",
     "-c",
     "user.email=test@example.test",
     "-c",
@@ -88,7 +88,7 @@ async function sourceRepo(name = "acme-api"): Promise<string> {
 
 async function workspaceEnv(): Promise<{ workspace: string; env: NodeJS.ProcessEnv }> {
   const workspace = await scratch("ws");
-  return { workspace, env: { ...process.env, SANDBOXR_WORKSPACE: workspace } };
+  return { workspace, env: { ...process.env, SANDBOXER_WORKSPACE: workspace } };
 }
 
 describe("projectNameFromUrl", () => {
@@ -155,7 +155,7 @@ describe("name validation", () => {
 describe("listProjects", () => {
   it("is empty when the workspace does not exist", async () => {
     const parent = await scratch("missing");
-    const env = { ...process.env, SANDBOXR_WORKSPACE: join(parent, "never-created") };
+    const env = { ...process.env, SANDBOXER_WORKSPACE: join(parent, "never-created") };
     expect(await listProjects({ env })).toEqual([]);
   });
 
@@ -335,7 +335,7 @@ describe("projectIdentities", () => {
     const workspace = await scratch("identities");
     await mkdir(join(workspace, "demo-managed", "repo.git"), { recursive: true });
 
-    expect(await projectIdentities({ env: { SANDBOXR_WORKSPACE: workspace } })).toEqual([
+    expect(await projectIdentities({ env: { SANDBOXER_WORKSPACE: workspace } })).toEqual([
       { directory: "demo-managed" },
     ]);
   });
@@ -343,9 +343,9 @@ describe("projectIdentities", () => {
   it("takes the project-level config's declared name", async () => {
     const workspace = await scratch("identities");
     await mkdir(join(workspace, "acme-monorepo", "repo.git"), { recursive: true });
-    await writeFile(join(workspace, "acme-monorepo", "sandboxr.yaml"), "project: acme\n");
+    await writeFile(join(workspace, "acme-monorepo", "sandboxer.yaml"), "project: acme\n");
 
-    expect(await projectIdentities({ env: { SANDBOXR_WORKSPACE: workspace } })).toEqual([
+    expect(await projectIdentities({ env: { SANDBOXER_WORKSPACE: workspace } })).toEqual([
       { directory: "acme-monorepo", project: "acme" },
     ]);
   });
@@ -355,9 +355,9 @@ describe("projectIdentities", () => {
     const worktree = join(workspace, "acme-monorepo", "wt", "main");
     await mkdir(join(workspace, "acme-monorepo", "repo.git"), { recursive: true });
     await mkdir(worktree, { recursive: true });
-    await writeFile(join(worktree, "sandboxr.yaml"), "project: acme\ndatabase: { driver: mysql }\n");
+    await writeFile(join(worktree, "sandboxer.yaml"), "project: acme\ndatabase: { driver: mysql }\n");
 
-    expect(await projectIdentities({ env: { SANDBOXR_WORKSPACE: workspace } })).toEqual([
+    expect(await projectIdentities({ env: { SANDBOXER_WORKSPACE: workspace } })).toEqual([
       { directory: "acme-monorepo", project: "acme" },
     ]);
   });
@@ -367,9 +367,9 @@ describe("projectIdentities", () => {
   it("survives a config it cannot parse", async () => {
     const workspace = await scratch("identities");
     await mkdir(join(workspace, "acme", "repo.git"), { recursive: true });
-    await writeFile(join(workspace, "acme", "sandboxr.yaml"), "project: [\n");
+    await writeFile(join(workspace, "acme", "sandboxer.yaml"), "project: [\n");
 
-    expect(await projectIdentities({ env: { SANDBOXR_WORKSPACE: workspace } })).toEqual([
+    expect(await projectIdentities({ env: { SANDBOXER_WORKSPACE: workspace } })).toEqual([
       { directory: "acme" },
     ]);
   });

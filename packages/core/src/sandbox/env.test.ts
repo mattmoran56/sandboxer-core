@@ -15,8 +15,8 @@ import { containerEnv, envKeyFor, hostsFor, renderEnvFile, urlsFor } from "./env
 
 function config(extra: Record<string, unknown>): ResolvedConfig {
   return resolveConfig(
-    { project: "acme", sandboxr: ">=0.1.0", access: { apps: "private" }, ...extra },
-    "/repo/sandboxr.yaml",
+    { project: "acme", sandboxer: ">=0.1.0", access: { apps: "private" }, ...extra },
+    "/repo/sandboxer.yaml",
   );
 }
 
@@ -41,17 +41,17 @@ describe("containerEnv", () => {
 
   it("identifies the sandbox, which is the one thing the container cannot derive", () => {
     expect(env).toMatchObject({
-      SANDBOXR_SLUG: "tkt-1",
-      SANDBOXR_PROJECT: "acme",
-      SANDBOXR_DOMAIN: "sbx.localhost",
-      SANDBOXR_ACCESS: "private",
+      SANDBOXER_SLUG: "tkt-1",
+      SANDBOXER_PROJECT: "acme",
+      SANDBOXER_DOMAIN: "sbx.localhost",
+      SANDBOXER_ACCESS: "private",
     });
   });
 
   it("passes the credentials the sandbox's own server is created with", () => {
-    expect(env.SANDBOXR_DB_USER).toBe("sandboxr");
-    expect(env.SANDBOXR_DB_PASSWORD).toBe("sandboxr");
-    expect(env.SANDBOXR_S3_KEY).toBe("sandboxr");
+    expect(env.SANDBOXER_DB_USER).toBe("sandboxer");
+    expect(env.SANDBOXER_DB_PASSWORD).toBe("sandboxer");
+    expect(env.SANDBOXER_S3_KEY).toBe("sandboxer");
   });
 
   it("takes credentials it is handed", () => {
@@ -61,23 +61,23 @@ describe("containerEnv", () => {
       database: { user: "u", password: "pw" },
       storage: { key: "k", secret: "s3" },
     });
-    expect(custom).toMatchObject({ SANDBOXR_DB_USER: "u", SANDBOXR_DB_PASSWORD: "pw", SANDBOXR_S3_KEY: "k" });
+    expect(custom).toMatchObject({ SANDBOXER_DB_USER: "u", SANDBOXER_DB_PASSWORD: "pw", SANDBOXER_S3_KEY: "k" });
   });
 
   it("says nothing about a database for a project with none", () => {
     const bare = containerEnv({ config: config({ database: { driver: "none" } }), slug: "s" });
-    expect(bare.SANDBOXR_DB_USER).toBeUndefined();
+    expect(bare.SANDBOXER_DB_USER).toBeUndefined();
   });
 
   it("says nothing about storage unless storage is declared", () => {
     const bare = containerEnv({ config: config({ database: { driver: "none" } }), slug: "s" });
-    expect(bare.SANDBOXR_S3_KEY).toBeUndefined();
+    expect(bare.SANDBOXER_S3_KEY).toBeUndefined();
   });
 
   it("passes optional runtimes and the chosen seed source when given", () => {
     const env2 = containerEnv({ config: withRuntimes, slug: "s", with: ["cms", "jobs"], seed: "fixtures" });
-    expect(env2.SANDBOXR_WITH).toBe("cms,jobs");
-    expect(env2.SANDBOXR_SEED).toBe("fixtures");
+    expect(env2.SANDBOXER_WITH).toBe("cms,jobs");
+    expect(env2.SANDBOXER_SEED).toBe("fixtures");
   });
 
   // The container derives every address itself, and the plan's `env` map joins
@@ -85,10 +85,10 @@ describe("containerEnv", () => {
   // second place the same fact is decided.
   it("exports nothing describing where a service or a database is", () => {
     for (const key of Object.keys(env)) {
-      expect(key.startsWith("SANDBOXR_")).toBe(true);
+      expect(key.startsWith("SANDBOXER_")).toBe(true);
     }
     expect(env.DB_HOST).toBeUndefined();
-    expect(env.SANDBOXR_URL_APP).toBeUndefined();
+    expect(env.SANDBOXER_URL_APP).toBeUndefined();
     expect(env.CORS_ALLOWED_ORIGINS).toBeUndefined();
   });
 });

@@ -10,14 +10,14 @@
  * drift, and it would drift silently, because nothing about the dashboard
  * looking right tells you the docs site does.
  *
- * **It lives in `packages/tokens` — `@sandboxr/tokens` — and not in either of
+ * **It lives in `packages/tokens` — `@sandboxer/tokens` — and not in either of
  * them.** It was the dashboard's while the two apps were one repository and the
  * docs site reached across for it. They are not one repository any more:
  * `packages/docs` publishes the engine's documentation and came here with the
  * engine, the dashboard stayed with the product, and that import was a
  * dependency pointing the wrong way. A package of its own is the only home both
  * can depend on. It has no build and one export,
- * `@sandboxr/tokens/tokens.css`.
+ * `@sandboxer/tokens/tokens.css`.
  *
  * **What it imports, it depends on.** Nothing here is compiled, so the four
  * `@import`s below are resolved from `node_modules` by whichever bundler is

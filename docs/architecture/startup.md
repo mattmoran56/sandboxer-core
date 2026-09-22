@@ -16,8 +16,8 @@ that list is a function of the project. A project with no database has no databa
 
 So the container's first process is a shell script, `entrypoint.sh`. It:
 
-1. refuses to start without `SANDBOXR_SLUG`
-2. reads [`/sandboxr/plan.json`](plan-json.md), and **refuses to start** if it is missing or is not
+1. refuses to start without `SANDBOXER_SLUG`
+2. reads [`/sandboxer/plan.json`](plan-json.md), and **refuses to start** if it is missing or is not
    valid JSON
 3. exports the environment the sandbox computes for itself — its database address, its object
    storage, its own hostnames, and the project's own names for all three
@@ -37,7 +37,7 @@ They do **not** reach a `docker exec` — which is how the host runs every migra
 every database verb.
 
 So the derivation lives in `container/scripts/env.sh`, a library each of those scripts sources for
-itself. Without that, a script would silently run with an empty `SANDBOXR_DB_FILE` and open a
+itself. Without that, a script would silently run with an empty `SANDBOXER_DB_FILE` and open a
 throwaway in-memory database instead of failing.
 
 </details>
@@ -84,7 +84,7 @@ with no database still has to be able to say it finished booting. Otherwise "no 
 <summary><b>Details for an agent</b> — how the service tree is really written</summary>
 
 `container/scripts/gen-services.sh` writes into `/etc/s6-overlay/s6-rc.d`, merging over the
-skeleton copied from `/opt/sandboxr/s6` rather than replacing the directory — s6-overlay's own
+skeleton copied from `/opt/sandboxer/s6` rather than replacing the directory — s6-overlay's own
 bundles have to survive alongside the generated ones.
 
 - **Membership of the `user` bundle is what starts a service.** A service directory outside the
@@ -95,13 +95,13 @@ bundles have to survive alongside the generated ones.
 - **Backends depend on `db-init`. Dev servers depend on `db-init` and `deps-init`** — a dev server
   is a Node process and needs its dependency tree present before it starts.
 - **Service ids**: a backend is its sanitised `name`; a front-end of either kind is `web-<label>`.
-  Those ids are what `/__sandboxr/health/<service>` and the per-service log files use.
+  Those ids are what `/__sandboxer/health/<service>` and the per-service log files use.
 - **A port is injected as `PORT`** ahead of each service rather than left to the project's own
   config, because the plan is the single place a port is declared and the router reads the same
   number.
 - **Every long-run gets a `finish` script that logs the exit and sleeps two seconds.** A crash loop
   that restarts instantly floods the log and hides its own first line.
-- `SANDBOXR_WITH` is a comma-separated list of the optional services to enable. It matches a
+- `SANDBOXER_WITH` is a comma-separated list of the optional services to enable. It matches a
   backend's `name` or a front-end's `label`.
 
 </details>
@@ -122,7 +122,7 @@ needs to know what is happening.
 | The status endpoint says `booting`, with a reason | Nothing can say anything |
 
 > [!CAUTION] This was learned the hard way
-> The internal tool sandboxr was ported from *did* gate its router on database initialisation. Its
+> The internal tool sandboxer was ported from *did* gate its router on database initialisation. Its
 > sandboxes were unreachable and unexplained for the whole of their first boot, and nobody could
 > tell a slow restore from a broken one.
 
@@ -139,7 +139,7 @@ sounds harmless. It is not:
 
 ## Nothing asserts a state
 
-Every writer in the boot sequence records a **fact** in its own small file under `/run/sandboxr` —
+Every writer in the boot sequence records a **fact** in its own small file under `/run/sandboxer` —
 the database step finished, the migration failed. A composer then works out the overall answer. No
 writer ever sets the state directly, so two writers cannot disagree about whether the sandbox is
 degraded.
@@ -154,7 +154,7 @@ degraded.
 }
 ```
 
-That document is what `/__sandboxr/status.json` serves, and it is where a sandbox's `degraded`
+That document is what `/__sandboxer/status.json` serves, and it is where a sandbox's `degraded`
 state comes from.
 
 ## A failed migration does not stop the sandbox
@@ -190,7 +190,7 @@ So the image installs them at `/opt/deps`, and a boot step copies them into plac
 
 That step is `deps-init`, and it decides what to do in three stages:
 
-1. **Is `node_modules/.sandboxr-deps` already naming this lockfile?** If so, re-link the workspace
+1. **Is `node_modules/.sandboxer-deps` already naming this lockfile?** If so, re-link the workspace
    binaries and stop. Nothing else is needed.
 2. **Does the lockfile hash match the one stamped into the image?** If so, copy from `/opt/deps`,
    which takes seconds.
@@ -211,7 +211,7 @@ listing cannot tell that from a finished install.
 So the volume would report itself populated for ever, and every sandbox on the lockfile would
 inherit it. The only symptom is builds failing to resolve imports that plainly exist.
 
-`deps-init` therefore writes `node_modules/.sandboxr-deps` — the lockfile hash it installed from —
+`deps-init` therefore writes `node_modules/.sandboxer-deps` — the lockfile hash it installed from —
 as its **last** act, by rename, and treats only that marker as done. A volume whose marker is
 missing or names a different lockfile is repopulated over the top rather than emptied first,
 because another sandbox may be running against it at that moment.

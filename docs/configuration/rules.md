@@ -1,17 +1,17 @@
 ---
 title: The rules a config must obey
-description: Every constraint on a sandboxr.yaml in one place, each with the symptom you see when you break it.
+description: Every constraint on a sandboxer.yaml in one place, each with the symptom you see when you break it.
 ---
 
-A config that parses can still be wrong. This page collects every rule sandboxr enforces,
+A config that parses can still be wrong. This page collects every rule sandboxer enforces,
 what you see when you break it, and what to change. Read it when something is refused, or
 read it once before writing a config so nothing here surprises you.
 
 ```prompt
-Diagnose why a sandboxr config is being refused.
+Diagnose why a sandboxer config is being refused.
 
 Read docs/configuration/rules.md and match the exact error text against the table there.
-Run `sandboxr config` to see what the file resolved to. Fix the field the error names.
+Run `sandboxer config` to see what the file resolved to. Fix the field the error names.
 
 Stop and tell me if the fix would change what data the sandbox is seeded from, or would
 make a public project private, or the reverse — those are decisions about who can see
@@ -21,7 +21,7 @@ real records, not typos.
 Errors take one shape, so they are easy to read:
 
 ```
-/home/you/acme/sandboxr.yaml: frontends.app: needs an `out` directory or a `serve` command
+/home/you/acme/sandboxer.yaml: frontends.app: needs an `out` directory or a `serve` command
 ```
 
 The file, then the field, then what is wrong. The file named is the one whose author has to
@@ -64,7 +64,7 @@ later.
 
 ## The slug
 
-You do not write the slug in the config. sandboxr derives it, and two of its properties can
+You do not write the slug in the config. sandboxer derives it, and two of its properties can
 surprise you.
 
 **The alphabet is `[a-z0-9-]`.** Anything else in a branch or directory name is folded to a
@@ -82,9 +82,9 @@ to the same string, and the two sandboxes would then share one database lock.
 From `packages/core/src/naming.ts` (rules 3 to 6) and `packages/core/src/worktree-slug.ts`
 (rules 1 and 2, and the resolver `slugFor` that puts them in this order):
 
-1. An explicit argument (`sandboxr up my-slug`), if non-blank.
+1. An explicit argument (`sandboxer up my-slug`), if non-blank.
 2. A slug recorded for this worktree at
-   `~/.sandboxr/state/slug/<project>/<worktree dir>`, written when the slug it would
+   `~/.sandboxer/state/slug/<project>/<worktree dir>`, written when the slug it would
    derive was already another worktree's.
 3. A ticket id in the worktree directory's **basename**, matched by
    `/[a-z]+-[0-9]+/i`.
@@ -105,7 +105,7 @@ rest of the name because it is what makes a slug readable: `tkt-4821` rather tha
 `feat-tkt-4821-rework-the-thing`.
 
 The ceiling exists to bound the advisory lock name
-`sandboxr_migrate_<project>_<slug>`, which MySQL's `GET_LOCK` truncates silently at 64
+`sandboxer_migrate_<project>_<slug>`, which MySQL's `GET_LOCK` truncates silently at 64
 characters. Over budget, `lockName()` throws rather than colliding.
 
 Why hashed and not truncated: `feature/checkout-redesign-part-one` and
@@ -114,7 +114,7 @@ share one advisory lock, and one migration would silently wait on the other. Rai
 ceiling means re-checking the lock-name budget of every driver.
 
 The ceiling is also why a *given* slug uses four random characters rather than a UUID.
-`sandboxr worktree add` compares the slug a new worktree would derive against the ones its
+`sandboxer worktree add` compares the slug a new worktree would derive against the ones its
 siblings resolve to, and on a match assigns `<base>-<token>` with `<base>` trimmed to
 `ceiling - 5`. **The ceiling there is the project's**, from `slugCeilingFor` — `worktree add`
 loads the config of the worktree it has just cut to get it, and falls back to `SLUG_MAX` when
@@ -127,11 +127,11 @@ clear neither budget, and would be unreadable if it did.
 
 ## The version constraint
 
-**`sandboxr:` must be satisfiable by the tool you are running.**
+**`sandboxer:` must be satisfiable by the tool you are running.**
 
-> `needs sandboxr >=0.2.0, and this is 0.1.0 — upgrade the tool, or relax the constraint`
+> `needs sandboxer >=0.2.0, and this is 0.1.0 — upgrade the tool, or relax the constraint`
 
-**And it must be a constraint sandboxr can parse.**
+**And it must be a constraint sandboxer can parse.**
 
 > `"latest" is not a version — expected something like ">=0.1.0"`
 
@@ -147,7 +147,7 @@ allowed to open it.
 > `a d1 database admits one writer, so it must name the service that owns it (one of: api, app)`
 
 `database.owner` is required for `d1` and `sqlite` whenever the project declares more than
-one runtime. With exactly one runtime you may leave it out, and sandboxr resolves it into
+one runtime. With exactly one runtime you may leave it out, and sandboxer resolves it into
 the plan for you.
 
 The plan itself may never leave it out. The container withholds the database's location from
@@ -166,17 +166,17 @@ The value is a backend `name` or a front-end `label`.
 Set `driver: none`, or add `seed_from`, or add `migrate`.
 
 **A file-backed runtime must be pointed at the sandbox's own state.** This one is
-**advice, not a refusal** — `sandboxr doctor` reports it and `up` proceeds anyway.
+**advice, not a refusal** — `sandboxer doctor` reports it and `up` proceeds anyway.
 [Databases](../databases.md) has the detail.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — what has to name the state directory, and the three symptoms when nothing does</summary>
 
 Both the `migrate` command and the owner's `serve` command have to direct the runtime at
-the sandbox's state directory — `--persist-to "$SANDBOXR_D1_DIR"` for wrangler.
+the sandbox's state directory — `--persist-to "$SANDBOXER_D1_DIR"` for wrangler.
 
 It is advice rather than a refusal because a project can point its runtime at the right
-place through a config file sandboxr cannot read. A refusal has to be certain, and this one
+place through a config file sandboxer cannot read. A refusal has to be certain, and this one
 cannot be.
 
 The symptom, when it is genuinely missing, is three things at once and none of them is an
@@ -184,7 +184,7 @@ error:
 
 1. The sandbox's database lands in your branch and shows up in `git status`.
 2. Two sandboxes from one worktree share a file.
-3. `sandboxr down` no longer removes the database.
+3. `sandboxer down` no longer removes the database.
 
 </details>
 
@@ -224,7 +224,7 @@ refuses it. Including it produces a permanent crash-loop that makes the sandbox 
 **No `toolchain`.** `toolchain.go` and `toolchain.node` decide what goes into your
 project's image layer. Declare a Go backend with no `toolchain.go` and the config is
 accepted, the sandbox starts, and that service's log says `go: command not found` — a
-message which never mentions `sandboxr.yaml`.
+message which never mentions `sandboxer.yaml`.
 
 **No `memory:` on a heavy build.** A build that renders many pages across several worker
 processes is not bounded by any single heap limit. The cgroup total is what the kernel
@@ -240,9 +240,9 @@ second instead of dying part-way:
 ```
 
 That message suggests a variable nothing reads. The container's build script follows the
-line above with `SANDBOXR_MEMORY=6g sandboxr up`, and nothing on the host reads
-`SANDBOXR_MEMORY` today. The working fix is the one the host's own output gives: set
-`memory` on that app in `sandboxr.yaml` and start the sandbox again.
+line above with `SANDBOXER_MEMORY=6g sandboxer up`, and nothing on the host reads
+`SANDBOXER_MEMORY` today. The working fix is the one the host's own output gives: set
+`memory` on that app in `sandboxer.yaml` and start the sandbox again.
 
 </details>
 
@@ -301,7 +301,7 @@ anything**. An empty file carries no credentials and is not refused:
 
 ```
 acme serves public apps, so it may not carry the real credentials in
-/home/you/.sandboxr/secrets/acme.env
+/home/you/.sandboxer/secrets/acme.env
   Either set access.credentials to real (and accept that), or set access.apps to private.
 ```
 
@@ -309,17 +309,17 @@ acme serves public apps, so it may not carry the real credentials in
 
 ## Where the file lives, and what it governs
 
-**The config lives at the root of the project being sandboxed.** sandboxr walks *up* from
-the directory you ran the command in, trying `sandboxr.yaml`, `sandboxr.yml` then
-`.sandboxr.yaml` in each directory.
+**The config lives at the root of the project being sandboxed.** sandboxer walks *up* from
+the directory you ran the command in, trying `sandboxer.yaml`, `sandboxer.yml` then
+`.sandboxer.yaml` in each directory.
 
-> `no sandboxr.yaml here or in any parent directory — a project describes itself in one at its repo root`
+> `no sandboxer.yaml here or in any parent directory — a project describes itself in one at its repo root`
 
 The directory holding the file is what gets mounted at `/workspace`. That is the config's
 directory, not the git top level, so a project kept in a subdirectory of a larger repository
 is mounted at the right level.
 
-**`root` may never be a workspace project directory.** A project sandboxr manages lives at
+**`root` may never be a workspace project directory.** A project sandboxer manages lives at
 `<workspace>/<project>/`, which holds `repo.git` and every worktree of it. Mounting that as
 `/workspace` would put all of them inside one sandbox, so it is refused outright. Run from a
 worktree instead.
@@ -330,11 +330,11 @@ worktree instead.
 Mounting the project directory would also resolve every declared path one directory too
 high, and none of the failures that follow looks anything like a wrong root. The refusal:
 
-> `is the project-level config for a managed project, so it cannot be run from /home/you/.sandboxr/workspace/acme — that directory holds repo.git and every worktree, and mounting it would put all of them in the sandbox. Run from a worktree under /home/you/.sandboxr/workspace/acme/wt, where this file applies on its own`
+> `is the project-level config for a managed project, so it cannot be run from /home/you/.sandboxer/workspace/acme — that directory holds repo.git and every worktree, and mounting it would put all of them in the sandbox. Run from a worktree under /home/you/.sandboxer/workspace/acme/wt, where this file applies on its own`
 
-A worktree is a separate checkout, so an **uncommitted** `sandboxr.yaml` in one worktree
+A worktree is a separate checkout, so an **uncommitted** `sandboxer.yaml` in one worktree
 does not exist in any other. For that case only, a managed project may keep a config beside
-its mirror at `<workspace>/<project>/sandboxr.yaml`, and every worktree of that project
+its mirror at `<workspace>/<project>/sandboxer.yaml`, and every worktree of that project
 that carries none of its own uses it.
 
 Three rules, all load-bearing:
@@ -348,7 +348,7 @@ Three rules, all load-bearing:
    file's directory, which is rule 2's failure exactly.
 
 `ResolvedConfig.origin` is `repo` when the file is inside `root` and `project` when it is
-the workspace fallback. `sandboxr config` prints it. This is the one place
+the workspace fallback. `sandboxer config` prints it. This is the one place
 `root === dirname(file)` does not hold; code wanting the directory a declared path resolves
 against wants `root`, or `projectPath()`.
 
@@ -363,11 +363,11 @@ Two more file-level errors: `is not valid YAML: …` and `is empty`.
 
 | Rule | Field named | Refuses? | Checked when |
 |---|---|---|---|
-| `project` and `sandboxr` present | the missing one | yes | config read |
+| `project` and `sandboxer` present | the missing one | yes | config read |
 | `project` matches the hostname alphabet | `project` | yes | config read |
 | No unknown keys anywhere | the key | yes | config read |
-| `sandboxr` parses as a constraint | `sandboxr` | yes | config read |
-| `sandboxr` is satisfied by this tool | `sandboxr` | yes | config read |
+| `sandboxer` parses as a constraint | `sandboxer` | yes | config read |
+| `sandboxer` is satisfied by this tool | `sandboxer` | yes | config read |
 | Labels unique across backends and front-ends | `backends.<name>` / `frontends.<label>` | yes | config read |
 | Backend names unique | `backends` | yes | config read |
 | Backend has a build | `backends.<name>` | yes | config read |
@@ -381,11 +381,11 @@ Two more file-level errors: `is not valid YAML: …` and `is empty`.
 | `d1`/`sqlite` with 2+ runtimes names an `owner` | `database.owner` | yes | config read |
 | `owner` names a declared runtime | `database.owner` | yes | config read |
 | Public project has a permissible seed | `database.seed_from.local` / `.file` | yes | config read |
-| Public project's secrets file holds nothing | — | yes | `sandboxr up` |
+| Public project's secrets file holds nothing | — | yes | `sandboxer up` |
 | `root` is not a workspace project directory | — | yes | config read |
 | File is valid, non-empty YAML | — | yes | config read |
 | Front-end build fits the sandbox's memory | — | yes | build time, in the container |
-| Migrate/serve command mentions the state variable | `database.migrate.command` / `frontends.<label>.serve` | **no** — `doctor` advice | `sandboxr doctor` |
+| Migrate/serve command mentions the state variable | `database.migrate.command` / `frontends.<label>.serve` | **no** — `doctor` advice | `sandboxer doctor` |
 | A compiled backend has a `toolchain` | — | **no** | never; fails at build time |
 | A service that cannot start is omitted | — | **no** | never; crash-loops |
 
@@ -400,5 +400,5 @@ floor `4g`; MySQL lock-name ceiling 64.
 
 </details>
 
-**Next:** [sandboxr.yaml, field by field](sandboxr-yaml.md) for what each field means, or
+**Next:** [sandboxer.yaml, field by field](sandboxer-yaml.md) for what each field means, or
 [Troubleshooting](../troubleshooting.md) for symptoms that are not about the config.

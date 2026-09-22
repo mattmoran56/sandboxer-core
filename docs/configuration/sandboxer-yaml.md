@@ -1,19 +1,19 @@
 ---
-title: sandboxr.yaml, field by field
+title: sandboxer.yaml, field by field
 description: The complete reference for a project's configuration — every block, every field, every type and every default.
 ---
 
-Every field a `sandboxr.yaml` accepts, in schema order. Use
+Every field a `sandboxer.yaml` accepts, in schema order. Use
 [Build your config, step by step](index.md) if you are writing one for the first time;
 this page is for looking things up.
 
 ```prompt
-Answer a question about a sandboxr.yaml field.
+Answer a question about a sandboxer.yaml field.
 
-Read docs/configuration/sandboxr-yaml.md. Treat it as the field list, and
+Read docs/configuration/sandboxer-yaml.md. Treat it as the field list, and
 docs/configuration/rules.md as the list of constraints. If the answer is not on either
 page, say so rather than guessing — the authority is
-packages/core/src/config/schema.ts in the sandboxr repository.
+packages/core/src/config/schema.ts in the sandboxer repository.
 ```
 
 `packages/core/src/config/schema.ts` is the authority. Where this page and the schema
@@ -27,13 +27,13 @@ you cannot see is worse than a failure you can.
 
 ```yaml
 project: acme            # required
-sandboxr: ">=0.1.0"      # required
+sandboxer: ">=0.1.0"      # required
 ```
 
 | Field | Type | Required | Default |
 |---|---|---|---|
 | `project` | lowercase letters, digits and dashes | **yes** | — |
-| `sandboxr` | version constraint | **yes** | — |
+| `sandboxer` | version constraint | **yes** | — |
 | `database` | [block](#database) | no | `{ driver: none }` |
 | `backends` | [block](#backends) | no | none |
 | `frontends` | [block](#frontends) | no | none |
@@ -48,7 +48,7 @@ sandboxr: ">=0.1.0"      # required
 `project` must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. It goes into hostnames, container
 names and volume names, so it shares the hostname alphabet.
 
-`sandboxr` is matched against the tool's own version. Comparators: `>=`, `<=`, `>`, `<`,
+`sandboxer` is matched against the tool's own version. Comparators: `>=`, `<=`, `>`, `<`,
 `^`, `~`, `=`. A space or a comma between terms means AND. `||` separates alternatives. `*`
 or an empty string accepts anything. `^0.x` treats the minor digit as the breaking one,
 which is the convention every registry uses and the one a pre-1.0 tool needs.
@@ -70,7 +70,7 @@ database:
   version: "8.4"
   seed_from:
     local: { container: acme_db, database: acme }
-    file: /var/sandboxr/seeds/acme.sql.zst
+    file: /var/sandboxer/seeds/acme.sql.zst
     fixtures: db/seeds/fixtures.sql
     anonymised: true
   migrate:
@@ -93,7 +93,7 @@ database:
 
 `owner` names a declared backend `name` or a front-end `label`. It is required for `d1` and
 `sqlite` whenever the project declares more than one runtime; with exactly one runtime,
-sandboxr resolves it for you when it writes the plan.
+sandboxer resolves it for you when it writes the plan.
 
 > [!WARNING] A driver with nothing to do is refused
 > A `driver` other than `none`, with neither `seed_from` nor `migrate`, is a config error.
@@ -110,7 +110,7 @@ sandboxr resolves it for you when it writes the plan.
 | `anonymised` | boolean | Asserts that `file` holds no real personal data |
 
 Precedence is **`local`, then `file`, then `fixtures`** — freshest first.
-`sandboxr up --seed local|file|fixtures` forces one. The access rules filter the list
+`sandboxer up --seed local|file|fixtures` forces one. The access rules filter the list
 before anything is chosen, so a public project simply has fewer options.
 
 `anonymised` is the only thing the public-sandbox refusal accepts as marking a dump safe. It
@@ -122,12 +122,12 @@ is an assertion by whoever wrote the config, not something the tool can verify.
 |---|---|---|---|
 | `command` | string | **yes** | Your project's own runner |
 | `workdir` | path | no | Where to run it. Relative to the tree the config governs |
-| `since` | string or number | no | A cutoff, exported as `SANDBOXR_MIGRATE_SINCE` |
+| `since` | string or number | no | A cutoff, exported as `SANDBOXER_MIGRATE_SINCE` |
 | `failure_pattern` | string | no | Treat output matching this as a failure, even on exit 0 |
 | `file_pattern` | string | no | How to pull the failing file's name out of the output |
 | `error_pattern` | string | no | How to pull the error line out of the output |
 
-`since` is exported as a variable rather than turned into a flag. sandboxr cannot guess a
+`since` is exported as a variable rather than turned into a flag. sandboxer cannot guess a
 runner's flag spelling, so **your command has to consume it**. If `since` appears to do
 nothing, that is why.
 
@@ -146,7 +146,7 @@ With **no** `workdir`, the two halves of the tool differ today:
   directory, so that no dotfile lying around the repo can shadow the environment the
   sandbox passed in. That is the path a boot takes.
 - The host driver's `migrateWorkdir()` (`packages/core/src/drivers/migrate.ts`) falls back
-  to `/workspace`. That is the path `sandboxr db migrate` and `sandboxr reload --migrate`
+  to `/workspace`. That is the path `sandboxer db migrate` and `sandboxer reload --migrate`
   take.
 
 Declare `workdir` explicitly if it matters to your runner, which it usually does —
@@ -331,8 +331,8 @@ Note the asymmetry: `never` is matched as a glob, `keep` is matched literally.
 `keep: [ANALYTICS_*]` matches a variable actually called `ANALYTICS_*` and nothing else.
 
 This block governs **importing**. The credentials themselves live in one file per project,
-`~/.sandboxr/secrets/<project>.env`, which you also edit directly — `sandboxr secrets set` or
-`sandboxr secrets edit`. A project with no `.env` files to import from needs no `read` list at
+`~/.sandboxer/secrets/<project>.env`, which you also edit directly — `sandboxer secrets set` or
+`sandboxer secrets edit`. A project with no `.env` files to import from needs no `read` list at
 all, only `keep`, which doubles as its statement of which credentials it needs.
 
 Full rules, and why `never` matters more than it looks: [Secrets](secrets.md).
@@ -351,7 +351,7 @@ storage:
 | `buckets` | list of strings | no | Created at first boot |
 
 With `minio`, an S3-compatible store runs inside the sandbox, so uploads never reach a real
-bucket. Its endpoint is exported as `SANDBOXR_S3_ENDPOINT`. The label `s3` is reserved:
+bucket. Its endpoint is exported as `SANDBOXER_S3_ENDPOINT`. The label `s3` is reserved:
 `<slug>--s3--<project>.<domain>` reaches the store, and `/console/*` on that hostname reaches
 its web console.
 
@@ -374,7 +374,7 @@ deps:
 
 Named rather than inferred, because the directory holding the lockfile is not always the
 directory holding the packages, and the shared dependency volume is mounted at exactly one
-path. Left out, sandboxr searches; see
+path. Left out, sandboxer searches; see
 [step 5 of building a config](index.md#step-5-add-deps) for the search order.
 
 ## `toolchain`
@@ -401,7 +401,7 @@ access:
 | Field | Values | Default | Notes |
 |---|---|---|---|
 | `apps` | `public` \| `private` | `public` | `private` puts every app hostname behind a forward-auth check in the shared router, answered by whatever serves the bare domain |
-| `controls` | `password` | `password` | The only accepted value, and there is no way to turn it off. The engine parses it and enforces nothing — sandboxr serves no controls over http |
+| `controls` | `password` | `password` | The only accepted value, and there is no way to turn it off. The engine parses it and enforces nothing — sandboxer serves no controls over http |
 | `credentials` | `dummy` \| `real` | `dummy` | Whether the project's real third-party credentials may be present |
 
 A public project seeding from live data, or carrying real credentials, is **refused** rather
@@ -409,19 +409,19 @@ than warned. [Access and security](../access.md) has the whole model.
 
 ## `env`
 
-The join between sandboxr's names for things and the project's own.
+The join between sandboxer's names for things and the project's own.
 
 ```yaml
 env:
-  DB_HOST: "${SANDBOXR_DB_HOST}"
-  DB_NAME: "${SANDBOXR_DB_NAME}"
-  S3_ENDPOINT: "${SANDBOXR_S3_ENDPOINT}"
+  DB_HOST: "${SANDBOXER_DB_HOST}"
+  DB_NAME: "${SANDBOXER_DB_NAME}"
+  S3_ENDPOINT: "${SANDBOXER_S3_ENDPOINT}"
   S3_BUCKET: uploads
   VITE_API_URL: /api
-  VITE_APP_URL: "${SANDBOXR_URL_APP}"
+  VITE_APP_URL: "${SANDBOXER_URL_APP}"
 ```
 
-Keys must match `^[A-Za-z_][A-Za-z0-9_]*$`. Values are plain strings; `${SANDBOXR_*}`
+Keys must match `^[A-Za-z_][A-Za-z0-9_]*$`. Values are plain strings; `${SANDBOXER_*}`
 placeholders are substituted **inside the container** with values the sandbox computed for
 itself.
 
@@ -431,7 +431,7 @@ from the project's secrets file instead and never appears here.
 
 **This map is expanded last, so it beats everything else**, the secrets file included. A
 credential set under a name this map also defines is silently replaced by the map's value —
-`sandboxr secrets list` says which names those are.
+`sandboxer secrets list` says which names those are.
 
 The full list of what a sandbox computes:
 [Environment variables](../reference/environment.md).

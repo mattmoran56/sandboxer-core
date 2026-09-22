@@ -23,7 +23,7 @@ const CODE = `
     </button>
   </div>
   <pre class="sbx-code__pre"><code>cd .worktrees/tkt-4821
-sandboxr up</code></pre>
+sandboxer up</code></pre>
 </div>`;
 
 /** A prompt card, which is the same seam with a different wrapper. */
@@ -35,7 +35,7 @@ const PROMPT = `
       <span class="sbx-copy__word">Copy</span>
     </button>
   </div>
-  <pre class="sbx-prompt__pre"><code>Install sandboxr on this machine.</code></pre>
+  <pre class="sbx-prompt__pre"><code>Install sandboxer on this machine.</code></pre>
 </div>`;
 
 const DETAILS = `
@@ -80,21 +80,21 @@ describe("copying", () => {
     mount(CODE);
     fireEvent.click(copyButton("Copy this code"));
     await waitFor(() => expect(clipboardWrites).toHaveLength(1));
-    expect(clipboardWrites[0]).toBe("cd .worktrees/tkt-4821\nsandboxr up");
+    expect(clipboardWrites[0]).toBe("cd .worktrees/tkt-4821\nsandboxer up");
   });
 
   it("copies a prompt card the same way", async () => {
     mount(PROMPT);
     fireEvent.click(copyButton("Copy this prompt"));
     await waitFor(() => expect(clipboardWrites).toHaveLength(1));
-    expect(clipboardWrites[0]).toBe("Install sandboxr on this machine.");
+    expect(clipboardWrites[0]).toBe("Install sandboxer on this machine.");
   });
 
   it("copies the block the click landed in, with several on the page", async () => {
     mount(`${CODE}${PROMPT}`);
     fireEvent.click(copyButton("Copy this prompt"));
     await waitFor(() => expect(clipboardWrites).toHaveLength(1));
-    expect(clipboardWrites[0]).toBe("Install sandboxr on this machine.");
+    expect(clipboardWrites[0]).toBe("Install sandboxer on this machine.");
   });
 
   it("confirms on the button that it copied", async () => {
@@ -135,7 +135,7 @@ describe("copying", () => {
     await waitFor(() => expect(word("Copy this code")).toBe("Press ⌘C"));
     expect(copyButton("Copy this code")).toHaveAttribute("data-state", "failed");
     // And the code is selected, so the keystroke it suggests actually works.
-    expect(window.getSelection()?.toString()).toContain("sandboxr up");
+    expect(window.getSelection()?.toString()).toContain("sandboxer up");
   });
 });
 

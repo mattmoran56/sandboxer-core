@@ -1,6 +1,6 @@
 // Tests for the container paths the host and the container share:
 // - seedMount: an artifact in the host cache is named inside the cache mount and needs no mount of its own
-// - seedMount: an artifact anywhere else is mounted at its own path under /sandboxr/seed
+// - seedMount: an artifact anywhere else is mounted at its own path under /sandboxer/seed
 // - seedMount: the basename is kept, because the container picks a decompressor by extension
 // - seedMount: a sibling directory whose name merely starts with the cache's is not "in the cache"
 // - seedMount: a relative or unnormalised cache path still resolves
@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { CACHE_DIR, SEED_DIR, seedMount } from "./layout.js";
 
 describe("seedMount", () => {
-  const cache = "/home/dev/.sandboxr/cache";
+  const cache = "/home/dev/.sandboxer/cache";
 
   it("names a cached artifact inside the cache mount, and asks for no mount", () => {
     expect(seedMount(`${cache}/seed-acme-3f2a1b.sql.zst`, cache)).toEqual({
@@ -22,9 +22,9 @@ describe("seedMount", () => {
   // outside every repo, whose directory is the only thing locating it. Taking
   // the basename pointed the container at the cache, where it had never been.
   it("mounts a declared file at its own path, keeping the name", () => {
-    expect(seedMount("/home/dev/.sandboxr/seeds/acme-base.sql.zst", cache)).toEqual({
+    expect(seedMount("/home/dev/.sandboxer/seeds/acme-base.sql.zst", cache)).toEqual({
       inside: `${SEED_DIR}/acme-base.sql.zst`,
-      bind: "/home/dev/.sandboxr/seeds/acme-base.sql.zst",
+      bind: "/home/dev/.sandboxer/seeds/acme-base.sql.zst",
     });
   });
 
@@ -37,7 +37,7 @@ describe("seedMount", () => {
   // A string prefix would call this cached and then mount nothing, which is the
   // exact failure this function exists to make impossible.
   it("does not mistake a sibling directory for the cache", () => {
-    expect(seedMount("/home/dev/.sandboxr/cache-old/dump.sql.zst", cache)).toMatchObject({
+    expect(seedMount("/home/dev/.sandboxer/cache-old/dump.sql.zst", cache)).toMatchObject({
       inside: `${SEED_DIR}/dump.sql.zst`,
     });
   });

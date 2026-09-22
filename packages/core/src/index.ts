@@ -1,5 +1,5 @@
 /**
- * @sandboxr/core — the public surface every other package depends on.
+ * @sandboxer/core — the public surface every other package depends on.
  *
  * Nothing outside this file is a contract. The names below are fixed by
  * docs/architecture/contracts.md; a package that disagrees with them is a bug.
@@ -97,7 +97,16 @@ export {
 } from "./naming.js";
 export type { DeriveSlugInput, HostParts, VolumePurpose } from "./naming.js";
 
-export { WORKTREES_DIR, canonicalPath, directoriesOf, isInside, paths, samePath, type Paths } from "./paths.js";
+export {
+  WORKTREES_DIR,
+  canonicalPath,
+  directoriesOf,
+  isInside,
+  legacyHomeNotice,
+  paths,
+  samePath,
+  type Paths,
+} from "./paths.js";
 
 export { archBuildArgs, docker, createDocker, DockerError, nodeRunner, type Docker, type ExecResult } from "./docker.js";
 export type { BuildCacheRow, ContainerRow, DiskUsage, ImageRow, Runner, VolumeRow } from "./docker.js";
@@ -117,7 +126,7 @@ export {
   // Exported for the same reason `SessionError` and `RuntimeError` are: it is
   // the class of failure a *caller* can act on — a name already in use, a
   // checkout that does not describe itself, a DNS budget that will not fit a
-  // slug — as against a fault in sandboxr. The dashboard turns one into an
+  // slug — as against a fault in sandboxer. The dashboard turns one into an
   // answer and anything else into a 500, and it cannot tell them apart without
   // the class.
   SandboxError,

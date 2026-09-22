@@ -6,7 +6,7 @@
 // - a bad --ttl is refused by name, for the same reason
 // - a config error exits 2, distinct from a command that merely failed
 // - `config` in a managed worktree names the project-level file it fell back to, and the worktree root
-// - `config` reports what ~/.sandboxr/config.yaml resolved to for this project, keyed on either of its names
+// - `config` reports what ~/.sandboxer/config.yaml resolved to for this project, keyed on either of its names
 // - `doctor` names a projects: entry in config.yaml that matches no project, and lists the names that would
 // - project and worktree dispatch: subcommands, missing arguments, no project
 // - `worktree name`, `worktree delete` and `worktree pull` dispatch like the rest, and every one of
@@ -14,7 +14,7 @@
 // - project available: a machine with no gh says so in one sentence and still exits 0
 // - the commands that name a sandbox say how they are used when given no slug
 // - prune advertises `--yes` rather than `--dry-run`, because its default is the opposite of gc's
-// - secrets: every subcommand, driven against a real SANDBOXR_HOME, and in particular
+// - secrets: every subcommand, driven against a real SANDBOXER_HOME, and in particular
 //   that none of them ever prints a value — the property the whole group exists for
 // - secrets set reads the value from stdin rather than argv, and strips one newline
 // - secrets unset says so rather than claiming a removal, and writes no file
@@ -58,7 +58,7 @@ async function run(argv: string[], cwd: string, env?: NodeJS.ProcessEnv, stdin?:
   const code = await main(argv, {
     writer,
     cwd,
-    env: env ?? { SANDBOXR_HOME: join(cwd, "home") },
+    env: env ?? { SANDBOXER_HOME: join(cwd, "home") },
     // Closed by default, so a command that reads stdin can never sit waiting for
     // one that the test run has no way to answer.
     stdin: stdin ?? Readable.from([]),
@@ -67,7 +67,7 @@ async function run(argv: string[], cwd: string, env?: NodeJS.ProcessEnv, stdin?:
 }
 
 const CONFIG = `project: acme
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 access:
   apps: private
 frontends:
@@ -80,7 +80,7 @@ let empty: string;
 
 beforeAll(async () => {
   project = await mkdtemp(join(tmpdir(), "sbx-cli-"));
-  await writeFile(join(project, "sandboxr.yaml"), CONFIG);
+  await writeFile(join(project, "sandboxer.yaml"), CONFIG);
   // A directory with no config anywhere above it would be impossible under a
   // repo that has one, so the empty case gets its own temporary root.
   empty = await mkdtemp(join(tmpdir(), "sbx-none-"));
@@ -124,7 +124,7 @@ describe("config", () => {
   it("exits 2 when there is no config to read", async () => {
     const result = await run(["config"], empty);
     expect(result.code).toBe(2);
-    expect(result.stderr).toContain("no sandboxr.yaml");
+    expect(result.stderr).toContain("no sandboxer.yaml");
   });
 
   it("describes what the config resolved to", async () => {
@@ -145,7 +145,7 @@ describe("config", () => {
   // that ran and did not work, and a script should be able to tell them apart.
   it("exits 2 for a config that does not satisfy the schema", async () => {
     const broken = await mkdtemp(join(tmpdir(), "sbx-bad-"));
-    await writeFile(join(broken, "sandboxr.yaml"), "project: Acme\nsandboxr: \">=0.1.0\"\n");
+    await writeFile(join(broken, "sandboxer.yaml"), "project: Acme\nsandboxer: \">=0.1.0\"\n");
     const result = await run(["config"], broken);
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("project");
@@ -159,11 +159,11 @@ describe("config", () => {
     const worktree = join(projectDir, "wt", "main");
     await mkdir(join(projectDir, "repo.git"), { recursive: true });
     await mkdir(worktree, { recursive: true });
-    await writeFile(join(projectDir, "sandboxr.yaml"), CONFIG);
+    await writeFile(join(projectDir, "sandboxer.yaml"), CONFIG);
 
-    const result = await run(["config"], worktree, { SANDBOXR_HOME: home });
+    const result = await run(["config"], worktree, { SANDBOXER_HOME: home });
     expect(result.code).toBe(0);
-    expect(result.stderr).toContain(join(projectDir, "sandboxr.yaml"));
+    expect(result.stderr).toContain(join(projectDir, "sandboxer.yaml"));
     expect(result.stderr).toContain("the workspace project directory");
     // The root is the worktree, never the project directory it read the file from.
     expect(result.stderr).toContain(`root        ${worktree}`);
@@ -183,7 +183,7 @@ async function managedWorkspace(entry: string): Promise<{ home: string; worktree
   const worktree = join(projectDir, "wt", "main");
   await mkdir(join(projectDir, "repo.git"), { recursive: true });
   await mkdir(worktree, { recursive: true });
-  await writeFile(join(worktree, "sandboxr.yaml"), CONFIG);
+  await writeFile(join(worktree, "sandboxer.yaml"), CONFIG);
   await writeFile(join(home, "config.yaml"), entry);
   return { home, worktree };
 }
@@ -192,7 +192,7 @@ describe("config, the machine's settings for this project", () => {
   it("takes an entry keyed on the workspace directory, not only the declared project:", async () => {
     const { home, worktree } = await managedWorkspace("projects:\n  acme-monorepo: { ttl: 3d, github: token }\n");
 
-    const result = await run(["config"], worktree, { SANDBOXR_HOME: home });
+    const result = await run(["config"], worktree, { SANDBOXER_HOME: home });
     expect(result.code).toBe(0);
     expect(result.stderr).toContain("ttl         3d");
     expect(result.stderr).toContain("github      token (projects.acme-monorepo)");
@@ -205,7 +205,7 @@ describe("config, the machine's settings for this project", () => {
   it("says the token is off and names the key that would turn it on", async () => {
     const { home, worktree } = await managedWorkspace("github: none\n");
 
-    const result = await run(["config"], worktree, { SANDBOXR_HOME: home });
+    const result = await run(["config"], worktree, { SANDBOXER_HOME: home });
     expect(result.stderr).toContain("github      none");
     expect(result.stderr).toContain("projects.acme-monorepo.github: token");
     // Two independent reasons a push fails; naming one of them misleads.
@@ -221,7 +221,7 @@ describe("doctor", () => {
   it("names an entry that matches no project, and the names that would", async () => {
     const { home, worktree } = await managedWorkspace("projects:\n  demo: { github: token }\n");
 
-    const result = await run(["doctor"], worktree, { SANDBOXR_HOME: home });
+    const result = await run(["doctor"], worktree, { SANDBOXER_HOME: home });
     expect(result.stderr).toContain('config.yaml has settings for "demo"');
     expect(result.stderr).toContain("acme-monorepo");
   }, 60_000);
@@ -229,7 +229,7 @@ describe("doctor", () => {
   it("says so when every entry matches", async () => {
     const { home, worktree } = await managedWorkspace("projects:\n  acme: { ttl: 3d }\n");
 
-    const result = await run(["doctor"], worktree, { SANDBOXR_HOME: home });
+    const result = await run(["doctor"], worktree, { SANDBOXER_HOME: home });
     expect(result.stderr).toContain("every projects: entry in config.yaml names a project here");
   }, 60_000);
 });
@@ -288,7 +288,7 @@ describe("projects", () => {
   it("says how it is used when given no subcommand", async () => {
     const result = await run(["project"], empty);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("usage: sandboxr project ls|available|clone|fetch|prs");
+    expect(result.stderr).toContain("usage: sandboxer project ls|available|clone|fetch|prs");
   });
 
   // An empty workspace is the state of a machine that has never cloned
@@ -296,7 +296,7 @@ describe("projects", () => {
   it("reports an empty workspace as empty, and succeeds", async () => {
     const result = await run(["project", "ls"], empty);
     expect(result.code).toBe(0);
-    expect(result.stderr).toContain("sandboxr project clone");
+    expect(result.stderr).toContain("sandboxer project clone");
   });
 
   it("puts an empty workspace on stdout as an empty list", async () => {
@@ -334,13 +334,13 @@ describe("projects", () => {
   it("names the missing url rather than cloning nothing", async () => {
     const result = await run(["project", "clone"], empty);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("usage: sandboxr project clone <url>");
+    expect(result.stderr).toContain("usage: sandboxer project clone <url>");
   });
 
   it.each([["fetch"], ["prs"]])("%s wants a project name", async (sub) => {
     const result = await run(["project", sub], empty);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain(`usage: sandboxr project ${sub} <name>`);
+    expect(result.stderr).toContain(`usage: sandboxer project ${sub} <name>`);
   });
 
   it.each([["fetch"], ["prs"]])("%s says the project is not in the workspace", async (sub) => {
@@ -354,13 +354,13 @@ describe("worktrees", () => {
   it("says how it is used when given no subcommand", async () => {
     const result = await run(["worktree"], empty);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("usage: sandboxr worktree ls|add|rm");
+    expect(result.stderr).toContain("usage: sandboxer worktree ls|add|rm");
   });
 
   it("wants a project to list the worktrees of", async () => {
     const result = await run(["worktree", "ls"], empty);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("usage: sandboxr worktree ls <project>");
+    expect(result.stderr).toContain("usage: sandboxer worktree ls <project>");
   });
 
   it("asks for the branch as well as the project", async () => {
@@ -391,14 +391,14 @@ describe("naming a sandbox", () => {
   it.each([["stop"], ["start"], ["keep"], ["unkeep"]])("%s with no slug says how it is used", async (command) => {
     const result = await run([command], empty);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain(`usage: sandboxr ${command} <slug> [--project NAME]`);
+    expect(result.stderr).toContain(`usage: sandboxer ${command} <slug> [--project NAME]`);
   });
 });
 
 describe("subcommands", () => {
   it.each([
-    ["db", "usage: sandboxr db"],
-    ["secrets", "usage: sandboxr secrets"],
+    ["db", "usage: sandboxer db"],
+    ["secrets", "usage: sandboxer secrets"],
   ])("%s with no subcommand says how it is used", async (command, expected) => {
     const result = await run([command], project);
     expect(result.code).toBe(1);
@@ -408,7 +408,7 @@ describe("subcommands", () => {
   it("secrets check reports a project with no secrets file yet", async () => {
     const result = await run(["secrets", "check"], project);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("sandboxr secrets import");
+    expect(result.stderr).toContain("sandboxer secrets import");
   });
 
   it("reload says what it could have been asked to rebuild", async () => {
@@ -420,13 +420,13 @@ describe("subcommands", () => {
   });
 });
 
-// The whole secrets group, driven against a real SANDBOXR_HOME with nothing
+// The whole secrets group, driven against a real SANDBOXER_HOME with nothing
 // mocked: these write and read the file the command itself uses. The property
 // asserted over and over is the negative one — the value does not appear in the
 // output — because that is the reason the group is shaped the way it is.
 describe("secrets", () => {
   const SECRETS_CONFIG = `project: acme
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 access:
   apps: private
 secrets:
@@ -452,8 +452,8 @@ writeFileSync(file, "SENTRY_DSN=https://abc@example.test/42\\nDB_HOST=prod.inter
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "sbx-secrets-"));
     home = join(root, "home");
-    await writeFile(join(root, "sandboxr.yaml"), SECRETS_CONFIG);
-    env = { SANDBOXR_HOME: home };
+    await writeFile(join(root, "sandboxer.yaml"), SECRETS_CONFIG);
+    env = { SANDBOXER_HOME: home };
   });
 
   /** An editor of our own, so `edit` can be driven without a terminal. */
@@ -471,13 +471,13 @@ writeFileSync(file, "SENTRY_DSN=https://abc@example.test/42\\nDB_HOST=prod.inter
     const result = await run(["secrets", "list"], root, env);
     expect(result.code).toBe(0);
     expect(result.stderr).toContain("no secrets file yet");
-    expect(result.stderr).toContain(`ORQ_API_KEY is declared in sandboxr.yaml`);
+    expect(result.stderr).toContain(`ORQ_API_KEY is declared in sandboxer.yaml`);
   });
 
   it("says how the group is used when given no subcommand it knows", async () => {
     const result = await run(["secrets", "frobnicate"], root, env);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("usage: sandboxr secrets list|set|unset|edit|import|check");
+    expect(result.stderr).toContain("usage: sandboxer secrets list|set|unset|edit|import|check");
   });
 
   describe("set", () => {
@@ -509,7 +509,7 @@ writeFileSync(file, "SENTRY_DSN=https://abc@example.test/42\\nDB_HOST=prod.inter
 
     it("refuses a reserved name without reading anything", async () => {
       const stdin = Readable.from(["never-read\n"]);
-      const result = await run(["secrets", "set", "SANDBOXR_DB_HOST"], root, env, stdin);
+      const result = await run(["secrets", "set", "SANDBOXER_DB_HOST"], root, env, stdin);
       expect(result.code).toBe(1);
       expect(result.stderr).toContain("works out for itself");
       expect(stdin.readableEnded).toBe(false);
@@ -533,13 +533,13 @@ writeFileSync(file, "SENTRY_DSN=https://abc@example.test/42\\nDB_HOST=prod.inter
     it("names the argument it wants when given no name", async () => {
       const result = await run(["secrets", "set"], root, env);
       expect(result.code).toBe(1);
-      expect(result.stderr).toContain("usage: sandboxr secrets set NAME");
+      expect(result.stderr).toContain("usage: sandboxer secrets set NAME");
     });
 
     // Core reports this rather than refusing it, and it is the shape of bug that
     // costs an afternoon: the variable has a value, and it is the wrong one.
     it("warns when the project's env map already claims the name", async () => {
-      await writeFile(join(root, "sandboxr.yaml"), `${SECRETS_CONFIG}env:\n  SENTRY_DSN: https://in-the-map/0\n`);
+      await writeFile(join(root, "sandboxer.yaml"), `${SECRETS_CONFIG}env:\n  SENTRY_DSN: https://in-the-map/0\n`);
       const result = await run(["secrets", "set", "SENTRY_DSN"], root, env, Readable.from(["https://typed/1\n"]));
       expect(result.code).toBe(0);
       expect(result.stderr).toContain("SENTRY_DSN is also in this project's env: map");
@@ -587,7 +587,7 @@ writeFileSync(file, "SENTRY_DSN=https://abc@example.test/42\\nDB_HOST=prod.inter
       const seen = await readFile(join(root, "seen.env"), "utf8");
       expect(seen).toContain("ORQ_API_KEY=");
       expect(seen).toContain("STRIPE_SECRET_KEY=");
-      expect(seen).toContain("sandboxr.yaml says this project needs");
+      expect(seen).toContain("sandboxer.yaml says this project needs");
     });
 
     it("says nothing changed when the editor saved nothing", async () => {

@@ -1,8 +1,8 @@
 /**
- * The `sandboxr:` version constraint.
+ * The `sandboxer:` version constraint.
  *
  * A project pins the minimum tool version it needs, so a config using a field
- * an older sandboxr does not understand fails with a sentence about versions
+ * an older sandboxer does not understand fails with a sentence about versions
  * rather than a confusing schema error. Implemented here rather than pulled in
  * as a dependency because the accepted grammar is small and fixed, and a
  * mismatch has to produce a message we control.

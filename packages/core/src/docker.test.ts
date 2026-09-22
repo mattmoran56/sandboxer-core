@@ -50,8 +50,8 @@ function recorder(replies: Array<Partial<{ code: number; stdout: string; stderr:
 describe("createDocker", () => {
   it("passes arguments as an array, so a name can never become shell syntax", async () => {
     const { calls, run } = recorder();
-    await createDocker(run).exec("sandboxr-p-s", ["sh", "-c", "echo hi; rm -rf /"]);
-    expect(calls[0]?.args).toEqual(["exec", "sandboxr-p-s", "sh", "-c", "echo hi; rm -rf /"]);
+    await createDocker(run).exec("sandboxer-p-s", ["sh", "-c", "echo hi; rm -rf /"]);
+    expect(calls[0]?.args).toEqual(["exec", "sandboxer-p-s", "sh", "-c", "echo hi; rm -rf /"]);
   });
 
   it("returns a non-zero exit as data", async () => {
@@ -77,7 +77,7 @@ describe("createDocker", () => {
     );
     const { run } = recorder([{ code: 1, stdout, stderr }]);
     const error = await createDocker(run)
-      .ok(["build", "-t", "sandboxr/acme:abc", "/tmp/ctx"])
+      .ok(["build", "-t", "sandboxer/acme:abc", "/tmp/ctx"])
       .then(
         () => undefined,
         (thrown: unknown) => thrown as DockerError,
@@ -114,19 +114,19 @@ describe("createDocker", () => {
     const { calls, run } = recorder([
       {
         stdout: [
-          '{"Names":"sandboxr-p-a","ID":"aaa","State":"running","Labels":"sandboxr.slug=a,sandboxr.project=p"}',
-          '{"Names":"sandboxr-p-b","ID":"bbb","State":"exited","Labels":"sandboxr.slug=b"}',
+          '{"Names":"sandboxer-p-a","ID":"aaa","State":"running","Labels":"sandboxer.slug=a,sandboxer.project=p"}',
+          '{"Names":"sandboxer-p-b","ID":"bbb","State":"exited","Labels":"sandboxer.slug=b"}',
         ].join("\n"),
       },
     ]);
-    const rows = await createDocker(run).ps(["label=sandboxr.slug"]);
-    expect(calls[0]?.args).toEqual(["ps", "-a", "--filter", "label=sandboxr.slug", "--format", "{{json .}}"]);
+    const rows = await createDocker(run).ps(["label=sandboxer.slug"]);
+    expect(calls[0]?.args).toEqual(["ps", "-a", "--filter", "label=sandboxer.slug", "--format", "{{json .}}"]);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toEqual({
-      name: "sandboxr-p-a",
+      name: "sandboxer-p-a",
       id: "aaa",
       state: "running",
-      labels: { "sandboxr.slug": "a", "sandboxr.project": "p" },
+      labels: { "sandboxer.slug": "a", "sandboxer.project": "p" },
     });
   });
 
@@ -136,10 +136,10 @@ describe("createDocker", () => {
   });
 
   it("reads labels through an inspect template, which survives a comma in a value", async () => {
-    const { calls, run } = recorder([{ stdout: "sandboxr.branch=feat/a,b\nsandboxr.slug=s\n" }]);
-    const labels = await createDocker(run).labels("sandboxr-p-s");
+    const { calls, run } = recorder([{ stdout: "sandboxer.branch=feat/a,b\nsandboxer.slug=s\n" }]);
+    const labels = await createDocker(run).labels("sandboxer-p-s");
     expect(calls[0]?.args[1]).toBe("-f");
-    expect(labels).toEqual({ "sandboxr.branch": "feat/a,b", "sandboxr.slug": "s" });
+    expect(labels).toEqual({ "sandboxer.branch": "feat/a,b", "sandboxer.slug": "s" });
   });
 
   it("returns no labels for a container that does not exist", async () => {
@@ -161,24 +161,24 @@ describe("createDocker", () => {
   });
 
   it("lists volumes by prefix and drops blank lines", async () => {
-    const { calls, run } = recorder([{ stdout: "sandboxr-data-p-a\n\nsandboxr-www-p-a\n" }]);
-    expect(await createDocker(run).volumes("sandboxr-")).toEqual(["sandboxr-data-p-a", "sandboxr-www-p-a"]);
-    expect(calls[0]?.args).toEqual(["volume", "ls", "--filter", "name=sandboxr-", "--format", "{{.Name}}"]);
+    const { calls, run } = recorder([{ stdout: "sandboxer-data-p-a\n\nsandboxer-www-p-a\n" }]);
+    expect(await createDocker(run).volumes("sandboxer-")).toEqual(["sandboxer-data-p-a", "sandboxer-www-p-a"]);
+    expect(calls[0]?.args).toEqual(["volume", "ls", "--filter", "name=sandboxer-", "--format", "{{.Name}}"]);
   });
 
   it("reports whether a volume was actually removed", async () => {
     const { run } = recorder([{ code: 1, stderr: "volume is in use" }]);
-    expect(await createDocker(run).volumeRm("sandboxr-data-p-a")).toBe(false);
+    expect(await createDocker(run).volumeRm("sandboxer-data-p-a")).toBe(false);
   });
 
   it("creates the shared network only when it is missing", async () => {
     const present = recorder([{ code: 0 }]);
-    await createDocker(present.run).ensureNetwork("sandboxr");
+    await createDocker(present.run).ensureNetwork("sandboxer");
     expect(present.calls).toHaveLength(1);
 
     const absent = recorder([{ code: 1 }, { code: 0 }]);
-    await createDocker(absent.run).ensureNetwork("sandboxr");
-    expect(absent.calls[1]?.args).toEqual(["network", "create", "sandboxr"]);
+    await createDocker(absent.run).ensureNetwork("sandboxer");
+    expect(absent.calls[1]?.args).toEqual(["network", "create", "sandboxer"]);
   });
 
   it("passes an environment as separate -e arguments", async () => {
@@ -196,8 +196,8 @@ describe("createDocker", () => {
   // The window the router's access log is read through — see sandbox/activity.ts.
   it("passes a since window through to docker", async () => {
     const { calls, run } = recorder();
-    await createDocker(run).logs("sandboxr-router", { since: "13h" });
-    expect(calls[0]?.args).toEqual(["logs", "--since", "13h", "sandboxr-router"]);
+    await createDocker(run).logs("sandboxer-router", { since: "13h" });
+    expect(calls[0]?.args).toEqual(["logs", "--since", "13h", "sandboxer-router"]);
   });
 
   it("omits an empty since rather than sending docker a blank window", async () => {
@@ -307,7 +307,7 @@ describe("parseDiskUsage", () => {
   const stdout = JSON.stringify({
     Images: [
       {
-        Repository: "sandboxr/acme",
+        Repository: "sandboxer/acme",
         Tag: "48273eacdece",
         ID: "sha256:222110270923",
         CreatedAt: "2026-08-28 07:43:32 +0100 BST",
@@ -317,7 +317,7 @@ describe("parseDiskUsage", () => {
         Containers: "1",
       },
     ],
-    Volumes: [{ Name: "sandboxr-data-acme-tkt-1", Size: "412MB", Links: "0" }],
+    Volumes: [{ Name: "sandboxer-data-acme-tkt-1", Size: "412MB", Links: "0" }],
     BuildCache: [
       { ID: "abc", Size: "1.5GB", InUse: "false", Shared: "true", LastUsedAt: "2026-08-27 09:00:00 +0000 UTC" },
     ],
@@ -325,9 +325,9 @@ describe("parseDiskUsage", () => {
 
   it("reads each kind, and strips the digest algorithm off an image id", () => {
     const usage = parseDiskUsage(stdout);
-    expect(usage.images[0]).toMatchObject({ repository: "sandboxr/acme", id: "222110270923", containers: 1 });
+    expect(usage.images[0]).toMatchObject({ repository: "sandboxer/acme", id: "222110270923", containers: 1 });
     expect(usage.images[0]?.uniqueSize).toBeCloseTo(5.34e9, 0);
-    expect(usage.volumes[0]).toMatchObject({ name: "sandboxr-data-acme-tkt-1", links: 0 });
+    expect(usage.volumes[0]).toMatchObject({ name: "sandboxer-data-acme-tkt-1", links: 0 });
     expect(usage.buildCache[0]).toMatchObject({ id: "abc", inUse: false, shared: true });
   });
 
@@ -352,8 +352,8 @@ describe("reclaiming", () => {
 
   it("removes an image by reference, and reports a refusal as false", async () => {
     const { calls, run } = recorder([{ code: 1, stderr: "image is being used" }]);
-    expect(await createDocker(run).imageRm("sandboxr/acme:old")).toBe(false);
-    expect(calls[0]?.args).toEqual(["image", "rm", "sandboxr/acme:old"]);
+    expect(await createDocker(run).imageRm("sandboxer/acme:old")).toBe(false);
+    expect(calls[0]?.args).toEqual(["image", "rm", "sandboxer/acme:old"]);
   });
 
   it("prunes the build cache and reads back what docker says it reclaimed", async () => {

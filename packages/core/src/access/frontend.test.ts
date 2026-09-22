@@ -4,7 +4,7 @@
 // - frontendRouteLabels: two routers onto one service, and the second one names it
 // - frontendRouteLabels: the handshake carries an explicit priority and no forward-auth
 // - frontendRouteLabels: no certificate puts both routers on the web entry point
-// - frontendRouteLabels: `sandboxr.frontend` is stamped, which is what listFrontends finds
+// - frontendRouteLabels: `sandboxer.frontend` is stamped, which is what listFrontends finds
 // - listFrontends: the label filter, stopped containers included, and a daemon
 //   that will not answer reading as "nothing is on the bare domain"
 

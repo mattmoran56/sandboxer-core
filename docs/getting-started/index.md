@@ -3,25 +3,25 @@ title: Start here
 description: The one prompt that sets a laptop up, a table of where to go for what you want, and the four steps in order.
 ---
 
-This is the front door to actually running sandboxr. Pick the row below that matches what you
+This is the front door to actually running sandboxer. Pick the row below that matches what you
 want, or hand the prompt to your agent and let it do the whole laptop setup.
 
-If you have not yet read [What sandboxr is](../introduction.md), that page is three minutes and
+If you have not yet read [What sandboxer is](../introduction.md), that page is three minutes and
 explains why any of this is worth doing.
 
 ## Hand this to your agent
 
 ```prompt
-Set this machine up for sandboxr and prove it works.
+Set this machine up for sandboxer and prove it works.
 
 Read docs/getting-started/install.md and then docs/getting-started/demo-project.md, and work
-through them in that order. Install from the repository checkout, run `sandboxr init`, then bring
+through them in that order. Install from the repository checkout, run `sandboxer init`, then bring
 up the demo project in examples/demo-worker and confirm the page it serves loads in a browser.
 
 Stop and ask me if:
 - Docker is not running, or has under 8 GB of memory available to it.
 - `mkcert` is missing and you would need my password to install its root certificate.
-- `sandboxr doctor` reports anything it does not tell you how to fix.
+- `sandboxer doctor` reports anything it does not tell you how to fix.
 
 Tell me the demo sandbox's URL when you are done.
 ```
@@ -46,11 +46,11 @@ side by side, with what each costs.
 
 ## The four things you will do, in order
 
-1. **[Install it](install.md).** Get the `sandboxr` command, then run `sandboxr init` once. That
+1. **[Install it](install.md).** Get the `sandboxer` command, then run `sandboxer init` once. That
    builds the container image every sandbox runs from and starts the shared router that gives
    every sandbox its hostname. Budget ten minutes, most of it Docker building.
-2. **[Start your first sandbox](first-sandbox.md).** Make a git worktree, run `sandboxr up` in it,
-   and open the URL it prints. Then throw it away with `sandboxr down` and watch the database go
+2. **[Start your first sandbox](first-sandbox.md).** Make a git worktree, run `sandboxer up` in it,
+   and open the URL it prints. Then throw it away with `sandboxer down` and watch the database go
    with it.
 3. **[Run the demo project](demo-project.md).** `examples/demo-worker` is the only project that
    has been taken all the way through, so it is the honest check that your machine works. It is
@@ -65,37 +65,37 @@ question entirely.
 <details class="agent">
 <summary><b>Details for an agent</b> — the whole laptop setup as commands</summary>
 
-Run from a checkout of the sandboxr repository. There is no published npm package; see
+Run from a checkout of the sandboxer repository. There is no published npm package; see
 [Install it](install.md) for why.
 
 ```bash
-# 1. Build the tool and put `sandboxr` on PATH.
+# 1. Build the tool and put `sandboxer` on PATH.
 npm install
 npm run build
-npm link --workspace @sandboxr/cli
-sandboxr version
+npm link --workspace @sandboxer/cli
+sandboxer version
 
 # 2. Set the machine up. Idempotent — run it again to change anything.
-sandboxr init
+sandboxer init
 
 # 3. Check it.
-sandboxr doctor
+sandboxer doctor
 
 # 4. Prove it end to end on the demo project.
 cd examples/demo-worker
-sandboxr up demo1
+sandboxer up demo1
 curl -s https://demo1--app--demo.sbx.localhost/api/notes
 
 # 5. Clean up.
-sandboxr down demo1
+sandboxer down demo1
 ```
 
-Exit codes worth handling: `sandboxr up` returns `3` when the sandbox is up but its migrations
-failed, and `0` when it is healthy. `sandboxr status` does the same. Anything else non-zero is a
+Exit codes worth handling: `sandboxer up` returns `3` when the sandbox is up but its migrations
+failed, and `0` when it is healthy. `sandboxer status` does the same. Anything else non-zero is a
 real failure.
 
 Human-readable output goes to **stderr**. `--json` puts the machine-readable result on
-**stdout**, so `sandboxr ls --json | jq` works while progress still shows.
+**stdout**, so `sandboxer ls --json | jq` works while progress still shows.
 
 </details>
 

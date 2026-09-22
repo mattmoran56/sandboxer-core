@@ -28,8 +28,8 @@ export interface Advice {
  * sandbox of that project shares one file (contracts §5.4, §6.1).
  */
 const STATE_VARIABLE: Partial<Record<ResolvedConfig["database"]["driver"], string>> = {
-  d1: "SANDBOXR_D1_DIR",
-  sqlite: "SANDBOXR_DB_FILE",
+  d1: "SANDBOXER_D1_DIR",
+  sqlite: "SANDBOXER_DB_FILE",
 };
 
 /** Whether a command directs its runtime at the sandbox rather than the worktree. */
@@ -38,7 +38,7 @@ export function pointsAtSandboxState(command: string, driver: ResolvedConfig["da
   // A driver with no state directory has nothing to be pointed at, so every
   // command trivially satisfies the rule.
   if (!variable) return true;
-  return command.includes(variable) || command.includes("SANDBOXR_DB_DIR");
+  return command.includes(variable) || command.includes("SANDBOXER_DB_DIR");
 }
 
 /**

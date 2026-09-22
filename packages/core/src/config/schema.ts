@@ -1,5 +1,5 @@
 /**
- * The authoritative schema for `sandboxr.yaml` (contracts §5).
+ * The authoritative schema for `sandboxer.yaml` (contracts §5).
  *
  * Everything is a strict object, so a misspelled key is an error naming the key
  * rather than a setting that silently does nothing — which in a config that
@@ -179,7 +179,7 @@ export const accessSchema = z.strictObject({
 
 export const configSchema = z.strictObject({
   project: projectName,
-  sandboxr: nonEmpty,
+  sandboxer: nonEmpty,
   database: databaseSchema.optional(),
   backends: backendsSchema.optional(),
   frontends: frontendsSchema.optional(),
@@ -190,10 +190,10 @@ export const configSchema = z.strictObject({
   toolchain: toolchainSchema.optional(),
   access: accessSchema.optional(),
   /**
-   * The mapping from sandboxr's own variable names to the project's.
+   * The mapping from sandboxer's own variable names to the project's.
    *
    * The sandbox computes *where* everything is and exports it under a
-   * `SANDBOXR_` prefix; the project reads its own names for the same things.
+   * `SANDBOXER_` prefix; the project reads its own names for the same things.
    * Only the project knows its own spelling, so it says so here — values are
    * expanded by substitution, never by a shell, so a value is data.
    */

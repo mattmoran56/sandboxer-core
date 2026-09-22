@@ -9,15 +9,15 @@ set -uo pipefail
 
 LOG_TAG="sqlite"
 # shellcheck source-path=SCRIPTDIR source=../lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
-FILE="${SANDBOXR_DB_FILE:?}"
+FILE="${SANDBOXER_DB_FILE:?}"
 
 seed_artifact() {
   local named
   named=$(plan .database.seed.path)
   [[ -z "$named" ]] && return 0
-  [[ "$named" == /* ]] && printf '%s\n' "$named" || printf '/sandboxr/cache/%s\n' "$named"
+  [[ "$named" == /* ]] && printf '%s\n' "$named" || printf '/sandboxer/cache/%s\n' "$named"
 }
 
 provision() {

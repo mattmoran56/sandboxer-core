@@ -237,7 +237,7 @@ export const docsContent = (): Plugin => {
   };
 
   return {
-    name: "sandboxr:docs-content",
+    name: "sandboxer:docs-content",
     // Ahead of the resolver, so nothing tries to find `virtual:docs-content` on disk.
     enforce: "pre",
 

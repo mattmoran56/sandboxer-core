@@ -6,7 +6,7 @@
 // - a value with spaces survives, because a commit identity is exactly that
 // - a quote and a backslash are escaped the way Compose's dotenv reader unescapes them
 // - a newline is refused rather than escaped
-// - the file lands at $SANDBOXR_HOME/host.env, mode 0600, because it holds a GitHub token
+// - the file lands at $SANDBOXER_HOME/host.env, mode 0600, because it holds a GitHub token
 
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,7 +28,7 @@ const facts = {
  * reads it expects. The names here are the test's, not the engine's.
  */
 const extra = {
-  SANDBOXR_AGENT_CREDENTIALS: "/Users/ada/.agent/.credentials.json",
+  SANDBOXER_AGENT_CREDENTIALS: "/Users/ada/.agent/.credentials.json",
   AGENT_OAUTH_TOKEN: "tok-example",
 };
 
@@ -48,7 +48,7 @@ describe("hostEnvironment", () => {
   // without naming them.
   it("appends the keys the embedder named", () => {
     const held = hostEnvironment(facts, extra);
-    expect(held.SANDBOXR_AGENT_CREDENTIALS).toBe("/Users/ada/.agent/.credentials.json");
+    expect(held.SANDBOXER_AGENT_CREDENTIALS).toBe("/Users/ada/.agent/.credentials.json");
     expect(held.AGENT_OAUTH_TOKEN).toBe("tok-example");
   });
 
@@ -88,7 +88,7 @@ describe("formatHostEnv", () => {
       .split("\n")
       .filter((line) => line !== "" && !line.startsWith("#"))
       .map((line) => line.slice(0, line.indexOf("=")));
-    expect(written).toEqual([...HOST_ENV_KEYS, "AGENT_OAUTH_TOKEN", "SANDBOXR_AGENT_CREDENTIALS"]);
+    expect(written).toEqual([...HOST_ENV_KEYS, "AGENT_OAUTH_TOKEN", "SANDBOXER_AGENT_CREDENTIALS"]);
   });
 
   // The same refusal, on a key the engine has never heard of.
@@ -109,19 +109,19 @@ describe("formatHostEnv", () => {
   });
 
   it("says who wrote it, because an edit to it would be lost", () => {
-    expect(formatHostEnv({})).toContain("sandboxr init");
+    expect(formatHostEnv({})).toContain("sandboxer init");
   });
 });
 
 describe("writeHostEnv", () => {
-  it("writes $SANDBOXR_HOME/host.env, readable by nobody else", async () => {
-    const home = await mkdtemp(join(tmpdir(), "sandboxr-host-env-"));
-    const file = await writeHostEnv({ facts, env: { SANDBOXR_HOME: home } });
+  it("writes $SANDBOXER_HOME/host.env, readable by nobody else", async () => {
+    const home = await mkdtemp(join(tmpdir(), "sandboxer-host-env-"));
+    const file = await writeHostEnv({ facts, env: { SANDBOXER_HOME: home } });
 
     expect(file).toBe(join(home, "host.env"));
     const text = await readFile(file, "utf8");
     expect(text).toContain('GH_TOKEN="gho_example"');
-    expect(text).not.toContain("SANDBOXR_AGENT_CREDENTIALS");
+    expect(text).not.toContain("SANDBOXER_AGENT_CREDENTIALS");
     // It holds a GitHub token, so it is `secrets/`-grade rather than `state/`-grade.
     expect((await stat(file)).mode & 0o777).toBe(0o600);
   });

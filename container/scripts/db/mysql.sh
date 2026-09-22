@@ -10,9 +10,9 @@ set -uo pipefail
 
 LOG_TAG="mysql"
 # shellcheck source-path=SCRIPTDIR source=../lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
-DB="${SANDBOXR_DB_NAME:?}"
+DB="${SANDBOXER_DB_NAME:?}"
 ROOT=(mysql --protocol=socket -uroot)
 
 ready() {
@@ -26,15 +26,15 @@ ready() {
 
 # The newest artifact the host's prepareSeed left in the cache. Named in the plan
 # when the host pinned one; otherwise the newest dump in the cache mount, so a
-# `sandboxr db refresh` takes effect without regenerating the plan.
+# `sandboxer db refresh` takes effect without regenerating the plan.
 seed_artifact() {
   local named
   named=$(plan .database.seed.path)
   if [[ -n "$named" ]]; then
-    [[ "$named" == /* ]] && printf '%s\n' "$named" || printf '/sandboxr/cache/%s\n' "$named"
+    [[ "$named" == /* ]] && printf '%s\n' "$named" || printf '/sandboxer/cache/%s\n' "$named"
     return
   fi
-  ls -t /sandboxr/cache/*.sql.zst /sandboxr/cache/*.sql.gz /sandboxr/cache/*.sql 2>/dev/null | head -1
+  ls -t /sandboxer/cache/*.sql.zst /sandboxer/cache/*.sql.gz /sandboxer/cache/*.sql 2>/dev/null | head -1
 }
 
 # zstd, gzip and plain, decided by extension rather than by sniffing: the host
@@ -57,11 +57,11 @@ provision() {
   # database literally named `<db>%`, after which every connection fails with
   # Error 1044.
   "${ROOT[@]}" -e "
-    CREATE USER IF NOT EXISTS '${SANDBOXR_DB_USER}'@'%'         IDENTIFIED BY '${SANDBOXR_DB_PASSWORD}';
-    CREATE USER IF NOT EXISTS '${SANDBOXR_DB_USER}'@'localhost' IDENTIFIED BY '${SANDBOXR_DB_PASSWORD}';
-    GRANT ALL PRIVILEGES ON \`${DB}\`.*     TO '${SANDBOXR_DB_USER}'@'%';
-    GRANT ALL PRIVILEGES ON \`${DB}\`.*     TO '${SANDBOXR_DB_USER}'@'localhost';
-    GRANT ALL PRIVILEGES ON \`${DB}\\_%\`.* TO '${SANDBOXR_DB_USER}'@'%';
+    CREATE USER IF NOT EXISTS '${SANDBOXER_DB_USER}'@'%'         IDENTIFIED BY '${SANDBOXER_DB_PASSWORD}';
+    CREATE USER IF NOT EXISTS '${SANDBOXER_DB_USER}'@'localhost' IDENTIFIED BY '${SANDBOXER_DB_PASSWORD}';
+    GRANT ALL PRIVILEGES ON \`${DB}\`.*     TO '${SANDBOXER_DB_USER}'@'%';
+    GRANT ALL PRIVILEGES ON \`${DB}\`.*     TO '${SANDBOXER_DB_USER}'@'localhost';
+    GRANT ALL PRIVILEGES ON \`${DB}\\_%\`.* TO '${SANDBOXER_DB_USER}'@'%';
     FLUSH PRIVILEGES;" || {
     warn "could not create the app user"
     return 1
@@ -84,7 +84,7 @@ provision() {
   if [[ -z "$artifact" || ! -f "$artifact" ]]; then
     # An empty database is a legitimate starting point -- migrations build the
     # schema from nothing -- so this is a note, not a failure.
-    log "no seed artifact in /sandboxr/cache; starting from an empty database"
+    log "no seed artifact in /sandboxer/cache; starting from an empty database"
     return 0
   fi
 

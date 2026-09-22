@@ -80,7 +80,7 @@ export interface AddInput {
   /** Progress and warnings, one line at a time. */
   log?: ((line: string) => void) | undefined;
   /**
-   * The environment `SANDBOXR_HOME` is read from, for the slug record.
+   * The environment `SANDBOXER_HOME` is read from, for the slug record.
    *
    * Taken as an argument rather than read off `process.env` for paths.ts's
    * reason: a test has to be able to point the whole tree at a temporary
@@ -377,7 +377,7 @@ export async function addWorktree(input: AddInput): Promise<Worktree> {
   // *called*, which needs the directory to exist and the sibling listing to
   // compare against, so it can only run once git has answered. They touch
   // nothing in common: one writes refs in the mirror, the other writes a file
-  // under `SANDBOXR_HOME`, and a slug is never read from a ref.
+  // under `SANDBOXER_HOME`, and a slug is never read from a ref.
   const fresh = await freshenBranch({ project, branch, base: input.base, heldElsewhere, run, log });
 
   let args: string[];
@@ -522,7 +522,7 @@ async function claimSlug(
  * to *start* is a refusal in the wrong place.
  *
  * `SLUG_MAX` when nothing can be read, which is honest rather than a guess: a
- * branch carrying no `sandboxr.yaml`, with no project-level one above it, has no
+ * branch carrying no `sandboxer.yaml`, with no project-level one above it, has no
  * declared project name and no labels, so it has no hostname to have a budget
  * for. Inventing a ceiling from a name that is not the config's would give a
  * different answer from the one `up` uses the moment a config appears.

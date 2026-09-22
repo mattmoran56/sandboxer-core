@@ -1,13 +1,13 @@
 // The three preferences this site remembers, and how a stored string becomes them.
 //
 // **The key and the three names are fixed by `index.html`.** A blocking script in
-// the document head reads `sandboxr.docs.prefs.v1` and applies `theme` and
+// the document head reads `sandboxer.docs.prefs.v1` and applies `theme` and
 // `scheme` to `<html>` before the bundle loads — see the comment there for why
 // that has to happen ahead of the first paint. Renaming anything in this file
 // without changing that script gives every reader who chose dark a white flash on
 // every navigation, and nothing in a test would notice.
 //
-// It is a *different* key from the dashboard's `sandboxr.prefs.v2` on purpose.
+// It is a *different* key from whatever a product's dashboard uses, on purpose.
 // The two apps have different shapes — there is no sidebar grouping here and no
 // "expand everything" there — and on a machine where both are served from
 // `localhost` they would share an origin and therefore share storage. One
@@ -42,8 +42,16 @@ export const DEFAULTS: Prefs = {
   expandAll: false,
 };
 
-/** Where the preferences live. Read by `index.html` before the bundle loads. */
-export const PREFS_KEY = "sandboxr.docs.prefs.v1";
+/**
+ * Where the preferences live. Read by `index.html` before the bundle loads.
+ *
+ * It was `sandboxr.docs.prefs.v1`, and the rename moved it deliberately rather
+ * than reading the old key once. Nothing here is worth a compatibility path: a
+ * reader's saved theme and scheme reset to the defaults once, on the next visit,
+ * and they set them again in two clicks. Anything read from the old key would be
+ * code that exists for one visit and then lives for ever.
+ */
+export const PREFS_KEY = "sandboxer.docs.prefs.v1";
 
 export interface SchemeInfo {
   id: SchemeId;

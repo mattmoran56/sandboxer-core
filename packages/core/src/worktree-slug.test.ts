@@ -38,9 +38,9 @@ let workspace: string;
 // `paths()`: the whole tree moves to a temporary directory without the test
 // having to mutate anything global.
 beforeEach(async () => {
-  const home = await mkdtemp(join(tmpdir(), "sandboxr-slug-"));
+  const home = await mkdtemp(join(tmpdir(), "sandboxer-slug-"));
   workspace = join(home, "workspace");
-  env = { SANDBOXR_HOME: home, SANDBOXR_WORKSPACE: workspace };
+  env = { SANDBOXER_HOME: home, SANDBOXER_WORKSPACE: workspace };
 });
 
 /** `<workspace>/<project>/wt/<dir>`, created on disk so realpath can resolve it. */
@@ -233,7 +233,7 @@ describe("worktreeKey", () => {
     expect(worktreeKey(inside, undefined, env)?.worktreeDir).toBe("feat-eng-3941-run-selector");
   });
 
-  // sandboxr never cut it, so it cannot have recorded a slug for it — and
+  // sandboxer never cut it, so it cannot have recorded a slug for it — and
   // inventing a key would read a stranger's file into a hostname.
   it("has no key for a checkout outside the workspace", () => {
     expect(worktreeKey("/home/someone/code/acme/.worktrees/eng-3941", "acme", env)).toBeUndefined();

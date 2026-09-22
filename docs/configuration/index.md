@@ -3,12 +3,12 @@ title: Build your config, step by step
 description: Start from an empty file and add one block at a time, until your project can run in a sandbox.
 ---
 
-This page builds a `sandboxr.yaml` from nothing. Each step adds one block, says what that
+This page builds a `sandboxer.yaml` from nothing. Each step adds one block, says what that
 block buys you, and says what breaks if you leave it out. By the end you have a working
 config you understand.
 
 ```prompt
-Write a sandboxr.yaml for this project.
+Write a sandboxer.yaml for this project.
 
 Read docs/configuration/index.md, then docs/configuration/rules.md, then work through
 the steps in order. Inspect the repository to find the real build commands, ports and
@@ -20,12 +20,12 @@ front-end has no build command you can find; or the project keeps secrets in .en
 and you cannot tell which of them are third-party credentials.
 ```
 
-The file lives at the root of the project you want to sandbox — not in sandboxr's own
+The file lives at the root of the project you want to sandbox — not in sandboxer's own
 repository. It is committed with that project's code, so a branch that adds a service adds
 it to the config in the same commit.
 
 > [!TIP] Check the file as you go
-> `sandboxr config` reads the config, resolves it, and prints what it resolved to. It
+> `sandboxer config` reads the config, resolves it, and prints what it resolved to. It
 > creates nothing. Every error names the file and the field, so a mistake is a sentence
 > rather than a puzzle.
 
@@ -35,14 +35,14 @@ Two lines. Both are required, and nothing else is.
 
 ```yaml
 project: acme
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 ```
 
 `project` is the project's name. It goes into every
 [hostname](../reference/glossary.md), every container name and every volume name, so it
 uses the hostname alphabet: lowercase letters, digits and dashes.
 
-`sandboxr` is the minimum version of the tool this file needs. It exists so that a config
+`sandboxer` is the minimum version of the tool this file needs. It exists so that a config
 using a newer field fails with a sentence about versions rather than a confusing schema
 error.
 
@@ -51,12 +51,12 @@ mounted inside it and nothing running. That is genuinely useful once — for che
 plumbing — and useless after that.
 
 **What breaks without it.** Both fields are required, so the config is refused. Leave out
-`sandboxr` and the error names `sandboxr` as the missing field.
+`sandboxer` and the error names `sandboxer` as the missing field.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the two required fields, exactly</summary>
 
-`project` must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. `sandboxr` must be a non-empty
+`project` must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. `sandboxer` must be a non-empty
 string and a parseable constraint: the accepted comparators are `>=`, `<=`, `>`, `<`, `^`,
 `~` and `=`; a space or a comma between terms means AND; `||` separates alternatives; `*`
 or an empty string accepts anything.
@@ -64,7 +64,7 @@ or an empty string accepts anything.
 Every object in the schema is a Zod `strictObject`. A misspelled key is an error naming
 the key, never a setting that silently does nothing.
 
-The file may be called `sandboxr.yaml`, `sandboxr.yml` or `.sandboxr.yaml`, tried in that
+The file may be called `sandboxer.yaml`, `sandboxer.yml` or `.sandboxer.yaml`, tried in that
 order. See [The rules a config must obey](rules.md) for where the file is looked for.
 
 </details>
@@ -76,7 +76,7 @@ gets a hostname of its own.
 
 ```yaml
 project: acme
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 
 frontends:
   root: web/packages
@@ -99,7 +99,7 @@ elsewhere; here it is enough to know that the label is the part you choose.
 `defaults` applies to every app in the list, so a project with six apps that build the
 same way says it once. `build` produces the files, and `out` is the directory they land in.
 
-**What this buys you.** A URL that serves your app. sandboxr builds it, copies the output
+**What this buys you.** A URL that serves your app. sandboxer builds it, copies the output
 where its file server can find it, and serves it.
 
 **What breaks without a `build` or an `out`.** The config is refused, naming the app. A
@@ -145,7 +145,7 @@ as up.
 again.
 
 **What breaks without a `build`.** The config is refused, naming the backend. There is no
-default build command, because sandboxr has no way to guess how your project compiles.
+default build command, because sandboxer has no way to guess how your project compiles.
 
 ### Let the app call the API on its own hostname
 
@@ -193,7 +193,7 @@ database:
   version: "8.4"
   seed_from:
     local: { container: acme_db, database: acme }
-    file: /var/sandboxr/seeds/acme.sql.zst
+    file: /var/sandboxer/seeds/acme.sql.zst
     fixtures: db/seeds/fixtures.sql
   migrate:
     workdir: services
@@ -210,11 +210,11 @@ forks a database container the developer already runs, a server restores a dump,
 neither source exists on the other machine. `fixtures` is a script applied after the
 migrations, whichever source was used.
 
-`migrate.command` is **your project's own migration runner**. sandboxr never reimplements
+`migrate.command` is **your project's own migration runner**. sandboxer never reimplements
 migration logic; it runs the command you give it.
 
 **What this buys you.** A copy of real structure and real volume, per sandbox. Getting the
-migration wrong costs one `sandboxr down`.
+migration wrong costs one `sandboxer down`.
 
 **What breaks without it.** Nothing, if the project has no database — leave the block out
 and the driver is `none`, which costs nothing. But a `driver` other than `none` with
@@ -247,7 +247,7 @@ deps:
 volume outside the worktree. So the second sandbox of a project skips the install
 entirely, and a branch that changes its dependencies transparently gets its own copy.
 
-**What breaks without it.** Less than you would think. sandboxr looks for a lockfile
+**What breaks without it.** Less than you would think. sandboxer looks for a lockfile
 itself — `package-lock.json`, then `pnpm-lock.yaml`, then `yarn.lock`, then `bun.lockb` —
 in the repo root, then the first segment of `frontends.root`, then `frontends.root` itself.
 Declare the block when the guess would be wrong, which is when the directory holding the
@@ -297,17 +297,17 @@ backend, and `toolchain.node` for anything that runs `npm`, `npx` or a bundler.
 ## Step 7: add `env`
 
 The sandbox works out where everything is: its own database, its own object storage, its
-own hostnames. It exports those under names beginning `SANDBOXR_`. Your project reads its
+own hostnames. It exports those under names beginning `SANDBOXER_`. Your project reads its
 own names for the same things. `env` is the join between the two.
 
 ```yaml
 env:
-  DB_HOST: "${SANDBOXR_DB_HOST}"
-  DB_NAME: "${SANDBOXR_DB_NAME}"
-  DB_USER: "${SANDBOXR_DB_USER}"
-  DB_PASSWORD: "${SANDBOXR_DB_PASSWORD}"
+  DB_HOST: "${SANDBOXER_DB_HOST}"
+  DB_NAME: "${SANDBOXER_DB_NAME}"
+  DB_USER: "${SANDBOXER_DB_USER}"
+  DB_PASSWORD: "${SANDBOXER_DB_PASSWORD}"
   VITE_API_URL: /api
-  VITE_APP_URL: "${SANDBOXR_URL_APP}"
+  VITE_APP_URL: "${SANDBOXER_URL_APP}"
 ```
 
 **What this buys you.** Your project's own code, unmodified, pointed at the sandbox's own
@@ -354,7 +354,7 @@ access:
 sending somebody a link.
 
 `controls: password` is the only accepted value, and there is no setting that removes it.
-sandboxr itself serves no controls over http — it is a command-line tool — so the field is a
+sandboxer itself serves no controls over http — it is a command-line tool — so the field is a
 statement about whatever control plane the machine runs, for that control plane to keep. The
 engine parses it and enforces nothing.
 
@@ -376,14 +376,14 @@ Both are refusals, not warnings, and both name the field and the way out.
 
 ```yaml
 project: acme
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 
 database:
   driver: mysql
   version: "8.4"
   seed_from:
     local: { container: acme_db, database: acme }
-    file: /var/sandboxr/seeds/acme.sql.zst
+    file: /var/sandboxer/seeds/acme.sql.zst
     fixtures: db/seeds/fixtures.sql
   migrate:
     workdir: services
@@ -425,12 +425,12 @@ access:
   controls: password
 
 env:
-  DB_HOST: "${SANDBOXR_DB_HOST}"
-  DB_NAME: "${SANDBOXR_DB_NAME}"
-  DB_USER: "${SANDBOXR_DB_USER}"
-  DB_PASSWORD: "${SANDBOXR_DB_PASSWORD}"
+  DB_HOST: "${SANDBOXER_DB_HOST}"
+  DB_NAME: "${SANDBOXER_DB_NAME}"
+  DB_USER: "${SANDBOXER_DB_USER}"
+  DB_PASSWORD: "${SANDBOXER_DB_PASSWORD}"
   VITE_API_URL: /api
-  VITE_APP_URL: "${SANDBOXR_URL_APP}"
+  VITE_APP_URL: "${SANDBOXER_URL_APP}"
 ```
 
 Four things you have not met yet round out the schema. `secrets` says which of a project's
@@ -438,7 +438,7 @@ Four things you have not met yet round out the schema. `secrets` says which of a
 runs object storage inside the sandbox. A `frontends` entry can run as a server rather than
 building to a directory. And `database` has driver-specific corners.
 
-All four are in [the field-by-field reference](sandboxr-yaml.md).
+All four are in [the field-by-field reference](sandboxer-yaml.md).
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — the errors a first config usually produces</summary>
@@ -450,9 +450,9 @@ All four are in [the field-by-field reference](sandboxr-yaml.md).
 | `has no build command, and frontends.defaults sets none` | A static app needs a `build`, on the entry or in `defaults` |
 | `is a server, so it needs the port it listens on` | An entry with `serve:` needs `port:` |
 | `a d1 database admits one writer, so it must name the service that owns it` | Add `database.owner` |
-| `needs sandboxr >=0.2.0, and this is 0.1.0` | Upgrade the tool, or relax the constraint |
+| `needs sandboxer >=0.2.0, and this is 0.1.0` | Upgrade the tool, or relax the constraint |
 | `a driver with neither a seed nor a migration has nothing to do` | Add `seed_from`, add `migrate`, or set `driver: none` |
-| An app's hostname answers "has not been built in this sandbox" | Normal. Nothing is built at startup — run `sandboxr reload <slug> --web=<label>` |
+| An app's hostname answers "has not been built in this sandbox" | Normal. Nothing is built at startup — run `sandboxer reload <slug> --web=<label>` |
 
 Every one of these, with its exact wording and its cause, is on
 [The rules a config must obey](rules.md).
@@ -460,5 +460,5 @@ Every one of these, with its exact wording and its cause, is on
 </details>
 
 **Next:** [The rules a config must obey](rules.md) collects every constraint and the
-symptom you see when you break it. [sandboxr.yaml, field by field](sandboxr-yaml.md) is
+symptom you see when you break it. [sandboxer.yaml, field by field](sandboxer-yaml.md) is
 the complete reference for everything this page skipped.

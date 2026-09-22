@@ -5,7 +5,7 @@ dist/
 *.log
 
 # Local state — never committed. See docs/architecture/contracts.md.
-.sandboxr/
+.sandboxer/
 secrets/*.env
 !secrets/.gitkeep
 

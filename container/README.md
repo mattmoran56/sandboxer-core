@@ -51,8 +51,8 @@ all facts about one repository.
   plus its dependency install.
 
 ```
-sandboxr/base:<version>                generic, one per machine, no agent
-    └── sandboxr/<project>:<hash>      toolchains + database engine + deps
+sandboxer/base:<version>                generic, one per machine, no agent
+    └── sandboxer/<project>:<hash>      toolchains + database engine + deps
             └── one container per worktree
 ```
 
@@ -62,7 +62,7 @@ image `FROM` the base and hands the tag in, and the project layer is rendered on
 top of that instead. That image is the embedder's, and so is its Dockerfile: it
 is not in this repository and does not need to be.
 
-**A sandbox started by `sandboxr up` has no agent in it**, and that is the
+**A sandbox started by `sandboxer up` has no agent in it**, and that is the
 boundary rather than an oversight: the CLI passes no `baseImage`, so it gets the
 agent-free base.
 
@@ -70,10 +70,10 @@ agent-free base.
 
 ```bash
 # base — context is this directory
-docker build -f base/Dockerfile -t sandboxr/base:0.1.0 .
+docker build -f base/Dockerfile -t sandboxer/base:0.1.0 .
 
 # project — the host renders the template and stages the manifests
-docker build -f <rendered Dockerfile> -t sandboxr/<project>:<hash> <staged context>
+docker build -f <rendered Dockerfile> -t sandboxer/<project>:<hash> <staged context>
 ```
 
 ### Rendering the project template
@@ -81,8 +81,8 @@ docker build -f <rendered Dockerfile> -t sandboxr/<project>:<hash> <staged conte
 The template is a normal Dockerfile with two kinds of hole in it, and the header
 comment inside the file is the authoritative description. In short:
 
-1. **Blocks.** Everything between `# >>> sandboxr:block <name>` and
-   `# <<< sandboxr:block <name>` is kept when that block is enabled and deleted
+1. **Blocks.** Everything between `# >>> sandboxer:block <name>` and
+   `# <<< sandboxer:block <name>` is kept when that block is enabled and deleted
    otherwise, guard lines included. Blocks are `go`, `node`, `mysql`, `sqlite`,
    `gomod`, `deps`.
 2. **Values.** Every `{{NAME}}` becomes a string. A missing value is an error, not
@@ -100,13 +100,13 @@ time.
 
 ## The plan
 
-The container's entire view of the project is one file: `/sandboxr/plan.json`,
+The container's entire view of the project is one file: `/sandboxer/plan.json`,
 written by the host and mounted read-only. Nothing in `scripts/` names a service, a
 port, a package or a route — they are all read from the plan. That is what makes
 one image serve a multi-service database-backed monorepo and a single-worker
 project on a file database.
 
-The plan is a flattened, fully-resolved projection of `sandboxr.yaml`: every
+The plan is a flattened, fully-resolved projection of `sandboxer.yaml`: every
 default already merged, every optional field either present or absent, nothing
 left to infer. Resolution is the host's job, because the host has a schema and a
 type checker and this side has `jq`.
@@ -121,14 +121,14 @@ type checker and this side has `jq`.
     "name": "acme",                     // defaults to the project name
     "owner": "app",                     // file drivers: the one service that may open it
     "fixtures": "migrations/seeds/fixtures.sql",   // repo-relative
-    // A path *inside the container*, not on the host: /sandboxr/cache/<name>
-    // for a dump sandboxr cached, /sandboxr/seed/<name> for a file the project
+    // A path *inside the container*, not on the host: /sandboxer/cache/<name>
+    // for a dump sandboxer cached, /sandboxer/seed/<name> for a file the project
     // declared somewhere else and the host bind-mounted. See "The seed artifact".
-    "seed": { "path": "/sandboxr/cache/acme-3f2a1b.sql.zst", "anonymised": true },
+    "seed": { "path": "/sandboxer/cache/acme-3f2a1b.sql.zst", "anonymised": true },
     "migrate": {
       "workdir": "services",            // repo-relative; omitted means run in /empty
       "command": "go run ./cmd/migrate --env local",
-      "since": "20260209",              // exported as SANDBOXR_MIGRATE_SINCE
+      "since": "20260209",              // exported as SANDBOXER_MIGRATE_SINCE
       "failure_pattern": "[0-9]+ failed",
       "file_pattern": "[0-9]{8}-[^ ]+\\.sql",
       "error_pattern": "Error [0-9]+ \\([0-9A-Z]+\\):.*"
@@ -162,7 +162,7 @@ type checker and this side has `jq`.
 
   "routes": { "app": { "/api": "api", "/cms": "cms" } },
 
-  "env": { "DB_HOST": "${SANDBOXR_DB_HOST}", "S3_BUCKET": "uploads" }
+  "env": { "DB_HOST": "${SANDBOXER_DB_HOST}", "S3_BUCKET": "uploads" }
 }
 ```
 
@@ -176,7 +176,7 @@ today, and the container cannot do its job without them:
   to be a real 404 rather than silently rendering the home page. One mode cannot
   cover all three, and getting it wrong is not a crash — it is an app that
   half-works.
-- **`env`** is the mapping from sandboxr's own variable names to the project's.
+- **`env`** is the mapping from sandboxer's own variable names to the project's.
   The container computes *where* things are (see below) and the project reads its
   own names for them; something has to join the two, and only the project knows
   its own spelling. Values are expanded with `envsubst`, which substitutes
@@ -190,8 +190,8 @@ cache:
 
 | Artifact | `seed.path` | How it got there |
 |---|---|---|
-| a dump sandboxr took and content-addressed | `/sandboxr/cache/<name>` | the cache directory is mounted read-only |
-| a `database.seed_from.file` the project declared | `/sandboxr/seed/<name>` | that one file, bind-mounted read-only |
+| a dump sandboxer took and content-addressed | `/sandboxer/cache/<name>` | the cache directory is mounted read-only |
+| a `database.seed_from.file` the project declared | `/sandboxer/seed/<name>` | that one file, bind-mounted read-only |
 
 The container does not resolve a bare name against a directory it has to know
 about, because the second kind has no name that would work: a declared `file:`
@@ -205,7 +205,7 @@ The basename is preserved either way because `decompress()` picks zstd, gzip or
 `cat` by extension, and the host is the side that knows the name.
 
 When `seed.path` is absent the driver falls back to the newest dump in
-`/sandboxr/cache`, so a `sandboxr db refresh` takes effect without regenerating
+`/sandboxer/cache`, so a `sandboxer db refresh` takes effect without regenerating
 the plan.
 
 ### The environment a sandbox computes for itself
@@ -213,19 +213,19 @@ the plan.
 Contracts §5.2 forbids importing anything that describes *where* something runs —
 importing a developer's `DB_HOST` would point the sandbox at their own database,
 and importing storage credentials would point it at real cloud storage. So the
-entrypoint derives them and exports them under a `SANDBOXR_` prefix:
+entrypoint derives them and exports them under a `SANDBOXER_` prefix:
 
 | Variable | When |
 |---|---|
-| `SANDBOXR_DB_DRIVER`, `SANDBOXR_DB_NAME`, `SANDBOXR_DB_DIR` | always |
-| `SANDBOXR_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD` | `mysql` |
-| `SANDBOXR_DB_FILE` | `sqlite` |
-| `SANDBOXR_D1_DIR`, `SANDBOXR_D1_OWNER` | `d1` |
-| `SANDBOXR_S3_ENDPOINT`, `_KEY`, `_SECRET`, `_REGION` | `storage.driver: minio` |
-| `SANDBOXR_URL_<LABEL>` | one per app label |
-| `SANDBOXR_PORT_<SERVICE>` | one per port-holding service |
+| `SANDBOXER_DB_DRIVER`, `SANDBOXER_DB_NAME`, `SANDBOXER_DB_DIR` | always |
+| `SANDBOXER_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD` | `mysql` |
+| `SANDBOXER_DB_FILE` | `sqlite` |
+| `SANDBOXER_D1_DIR`, `SANDBOXER_D1_OWNER` | `d1` |
+| `SANDBOXER_S3_ENDPOINT`, `_KEY`, `_SECRET`, `_REGION` | `storage.driver: minio` |
+| `SANDBOXER_URL_<LABEL>` | one per app label |
+| `SANDBOXER_PORT_<SERVICE>` | one per port-holding service |
 
-`SANDBOXR_URL_<LABEL>` exists because only the container knows both the slug and
+`SANDBOXER_URL_<LABEL>` exists because only the container knows both the slug and
 the domain at the moment a build runs. Same-origin API calls do not need it — the
 router serves `/api` on the app's own hostname, which keeps the bundle free of
 cross-origin requests and takes CORS out of the picture entirely — but cross-app
@@ -236,8 +236,8 @@ navigation needs an absolute, slug-bearing URL.
 More than one of them can name the same variable, so the order is fixed.
 Contracts §5.2 states it; `env.sh` is where it happens. Weakest first:
 
-1. **The project's secrets**, read line by line out of `/sandboxr/secrets.env`
-   (`SANDBOXR_SECRETS` overrides the path). Read first and therefore weakest: a
+1. **The project's secrets**, read line by line out of `/sandboxer/secrets.env`
+   (`SANDBOXER_SECRETS` overrides the path). Read first and therefore weakest: a
    name that is **already set is left alone**, whoever set it. Values are read as
    **data** — no `source`, no expansion, so a value containing `$(...)` stays
    literal. Exactly one layer of matching quotes comes off, because the host
@@ -269,7 +269,7 @@ next `stop`/`start` — the entrypoint runs again and reads the file again. An
 env-file is read once, when the container is created, so the value in the file
 and the value in the sandbox could disagree indefinitely with nothing saying so.
 A *service* restarted inside the container is a different matter: it inherits the
-environment `/init` was given at boot, `SANDBOXR_ENV_READY` included, so it keeps
+environment `/init` was given at boot, `SANDBOXER_ENV_READY` included, so it keeps
 the values it started with.
 
 #### `docker exec` inherits none of it
@@ -281,7 +281,7 @@ script in `scripts/` sources `lib.sh` and so recomputes it for itself; anything
 that is not one of those scripts has to be run through `scripts/with-env`:
 
 ```bash
-docker exec <container> /opt/sandboxr/scripts/with-env npm test
+docker exec <container> /opt/sandboxer/scripts/with-env npm test
 ```
 
 An argv prefix and not a shell string, so an argument that is deliberately an
@@ -299,14 +299,14 @@ Mounts the host is expected to provide:
 | Path | What |
 |---|---|
 | `/workspace` | the worktree, bind-mounted read-write |
-| `/sandboxr/plan.json` | the plan, read-only |
-| `/sandboxr/secrets.env` | the project's third-party credentials, read-only — only when the project has a secrets file and the machine lets this project use it |
-| `/sandboxr/cache` | the seed artifact cache, read-only |
-| `/sandboxr/seed/<name>` | a declared `database.seed_from.file`, that one file, read-only — only when the project has one and it is not in the cache |
-| `/var/log/sandboxr` | per-sandbox logs, so they survive the container |
-| `/var/lib/sandboxr/data` | the `data` volume |
-| `/var/lib/sandboxr/blob` | the `blob` volume |
-| `/var/lib/sandboxr/bin` | the `bin` volume |
+| `/sandboxer/plan.json` | the plan, read-only |
+| `/sandboxer/secrets.env` | the project's third-party credentials, read-only — only when the project has a secrets file and the machine lets this project use it |
+| `/sandboxer/cache` | the seed artifact cache, read-only |
+| `/sandboxer/seed/<name>` | a declared `database.seed_from.file`, that one file, read-only — only when the project has one and it is not in the cache |
+| `/var/log/sandboxer` | per-sandbox logs, so they survive the container |
+| `/var/lib/sandboxer/data` | the `data` volume |
+| `/var/lib/sandboxer/blob` | the `blob` volume |
+| `/var/lib/sandboxer/bin` | the `bin` volume |
 | `/srv/www` | the `www` volume |
 | `/workspace/<deps.root>/node_modules` | the shared `deps-<hash>` volume |
 | `<whatever an embedder named>` | one bind per `UpOptions.volumes` row; the engine mints none of these names |
@@ -333,9 +333,9 @@ read-write because `git commit` writes objects and refs into it. Neither is
 present for a plain checkout, whose `.git` is inside `/workspace` already; the
 host decides, in `gitMounts` (packages/core/src/git.ts), which is which.
 
-Environment: `SANDBOXR_SLUG` is required. `SANDBOXR_DOMAIN` (default `sbx.lcl`),
-`SANDBOXR_PROJECT`, `SANDBOXR_WITH`, `SANDBOXR_SEED`, `SANDBOXR_DB_USER`,
-`SANDBOXR_DB_PASSWORD`, `SANDBOXR_S3_KEY` and `SANDBOXR_S3_SECRET` all have
+Environment: `SANDBOXER_SLUG` is required. `SANDBOXER_DOMAIN` (default `sbx.lcl`),
+`SANDBOXER_PROJECT`, `SANDBOXER_WITH`, `SANDBOXER_SEED`, `SANDBOXER_DB_USER`,
+`SANDBOXER_DB_PASSWORD`, `SANDBOXER_S3_KEY` and `SANDBOXER_S3_SECRET` all have
 defaults. Anything an embedder passed as `UpOptions.containerEnv` arrives the
 same way and is the embedder's to document.
 
@@ -401,7 +401,7 @@ with a watcher bolted on, and cannot be expressed as a backend because it is the
 front-end. It is also the most expensive thing in a sandbox: a dev server holds its
 whole module graph in memory for as long as the container lives, whether or not
 anyone opens it. That is why a project can mark one `optional`, and why
-`SANDBOXR_WITH` exists.
+`SANDBOXER_WITH` exists.
 
 **Static builds are on demand, never at startup.** A sandbox has to come up in
 seconds. An app nobody opens should cost nothing, and an app that has not been
@@ -415,10 +415,10 @@ a first build of something deliberately excluded from `--all`.
 
 ## The router
 
-`gen-caddyfile.sh` writes `/run/sandboxr/Caddyfile` at every boot from the plan and
+`gen-caddyfile.sh` writes `/run/sandboxer/Caddyfile` at every boot from the plan and
 the environment. Host matchers are exact: `<slug>--<label>--<project>.<domain>`.
 
-The domain comes from `SANDBOXR_DOMAIN`. This is worth stating because the source
+The domain comes from `SANDBOXER_DOMAIN`. This is worth stating because the source
 implementation hardcoded its domain in thirteen places in a static Caddyfile, and
 therefore had a domain override that silently did nothing — every request landed on
 the catch-all 404 and nothing said why.
@@ -427,18 +427,18 @@ The status surface answers on **every** hostname the sandbox serves:
 
 | Path | What |
 |---|---|
-| `/__sandboxr/live` | `ok`, unconditionally — the container is up |
-| `/__sandboxr/status.json` | the composed status document (below) |
-| `/__sandboxr/built.json` | label → last build time, for every built app |
-| `/__sandboxr/health/<service>` | proxied to that service's declared health path |
-| anything else under `/__sandboxr/` | `404` |
+| `/__sandboxer/live` | `ok`, unconditionally — the container is up |
+| `/__sandboxer/status.json` | the composed status document (below) |
+| `/__sandboxer/built.json` | label → last build time, for every built app |
+| `/__sandboxer/health/<service>` | proxied to that service's declared health path |
+| anything else under `/__sandboxer/` | `404` |
 
-**The `/__sandboxr/` prefix is reserved and answers before any app block.** The
+**The `/__sandboxer/` prefix is reserved and answers before any app block.** The
 last row is not a tidy-up: without it a path under the prefix that names nothing
 fell through to the site block for whatever hostname it arrived on, because a host
 matcher matches every path. A health route is written **only** for a service that
 is going to run — a service the plan marks `optional` and nobody named in
-`SANDBOXR_WITH` gets none, deliberately — so the probe of a dormant service was
+`SANDBOXER_WITH` gets none, deliberately — so the probe of a dormant service was
 the request that landed there. What came back was the front-end's own answer: an
 unbuilt app replied with its 503 "not built yet" page, so every dormant service read
 as `down`; once that app was built the same request got the
@@ -460,7 +460,7 @@ is a different answer from a service saying no.
 ```
 
 `state` is **derived, never asserted**: every writer records a fact in its own
-marker file under `/run/sandboxr` and calls `status.sh`, which composes the answer.
+marker file under `/run/sandboxer` and calls `status.sh`, which composes the answer.
 Two writers therefore cannot disagree about whether the sandbox is degraded.
 
 ## Why the pieces are the way they are
@@ -511,7 +511,7 @@ build script one workspace package exposes to another is missing, and the build
 fails with a bare `code 127` that names nothing.
 
 **"Installed" is a marker the script writes last, not a non-empty directory.**
-`node_modules/.sandboxr-deps` holds the lockfile hash the install came from, and is
+`node_modules/.sandboxer-deps` holds the lockfile hash the install came from, and is
 renamed into place only after the copy or the install has finished. The volume is
 *shared* — every sandbox on that lockfile mounts the same one — so a boot
 interrupted part-way through the copy leaves a tree that is non-empty and short of
@@ -654,7 +654,7 @@ docker run --rm -v "$PWD/container:/c:ro" koalaman/shellcheck-alpine:stable \
   sh -c 'cd /c && find scripts \( -name "*.sh" -o -name with-env \) | sort | xargs shellcheck -x -S warning'
 
 # the generators, against both example plans, in a scratch directory
-#   SANDBOXR_SCRIPTS / _RUN / _LOGS / _STATE / _WWW / _S6_DIR / _S6_SKEL
+#   SANDBOXER_SCRIPTS / _RUN / _LOGS / _STATE / _WWW / _S6_DIR / _S6_SKEL
 #   all override their container defaults for exactly this purpose
 
 # the generated router
@@ -675,7 +675,7 @@ docker run --rm -v "$PWD/out:/w:ro" caddy:2-alpine \
 - Both example plans generate a service tree and a router config, and both
   generated Caddyfiles pass `caddy validate`.
 - Served for real: a built app serves, a deep path falls back to `index.html`, an
-  unbuilt app answers 503 with instructions, `/__sandboxr/live` answers 200 on any
+  unbuilt app answers 503 with instructions, `/__sandboxer/live` answers 200 on any
   hostname, and an unknown host answers 404 naming the host.
 - `db-init` → `migrate-run` → `status.sh` produce the right state for each outcome:
   no migration command → `ok`/`skipped`; a command that fails → `degraded`/`failed`

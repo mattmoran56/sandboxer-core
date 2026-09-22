@@ -17,7 +17,7 @@ set -uo pipefail
 
 LOG_TAG="deps-init"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
 ROOT=$(plan .deps.root)
 [[ -n "$ROOT" ]] || {
@@ -49,7 +49,7 @@ SOURCE=/opt/deps/node_modules
 # itself rather than being trusted. This is `partialPath`/`commitPartial` from
 # packages/core/src/drivers/seed.ts, which solves exactly this for a half-written
 # dump; deps-init simply never used it.
-MARKER="$TARGET/.sandboxr-deps"
+MARKER="$TARGET/.sandboxer-deps"
 
 commit_marker() {
   # Renamed into place rather than written in place: a marker half-written by a

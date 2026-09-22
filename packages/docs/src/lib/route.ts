@@ -11,8 +11,14 @@
 // people's history and in whatever has already linked to it. A rewrite that
 // quietly moved every page would have been a rewrite that broke every link.
 
-/** The repository, for the two links a page's footer carries. */
-export const REPO = "https://github.com/mattmoran56/sandboxr";
+/**
+ * The repository, for the two links a page's footer carries.
+ *
+ * `sandboxer-core` and not `sandboxer`: the repository name is the one thing the
+ * rename could not derive from the tool's name, and a footer link to a
+ * repository that does not exist is a 404 nobody reports.
+ */
+export const REPO = "https://github.com/mattmoran56/sandboxer-core";
 
 /**
  * Pages that live under `docs/` and are deliberately **not** part of the site.

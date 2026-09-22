@@ -1,10 +1,10 @@
 /**
  * Which file configures a directory, and which directory that config governs.
  *
- * These used to be one answer. A project describes itself in a `sandboxr.yaml`
+ * These used to be one answer. A project describes itself in a `sandboxer.yaml`
  * at its own repo root, so the root was `dirname(file)` and there was nothing
  * else to decide. Contracts §5.6 adds the one exception: a project-level config
- * at `<workspace>/<project>/sandboxr.yaml`, read by every worktree of that
+ * at `<workspace>/<project>/sandboxer.yaml`, read by every worktree of that
  * project that carries no config of its own. That file sits *beside* `repo.git`,
  * one level above every worktree, so its content applies to a worktree while its
  * directory emphatically does not.
@@ -20,16 +20,16 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { WORKTREES_DIR, paths } from "../paths.js";
 
-export const CONFIG_FILENAME = "sandboxr.yaml";
+export const CONFIG_FILENAME = "sandboxer.yaml";
 
 /** Alternative spellings, accepted in this order when more than one is present. */
-export const CONFIG_FILENAMES = [CONFIG_FILENAME, "sandboxr.yml", ".sandboxr.yaml"] as const;
+export const CONFIG_FILENAMES = [CONFIG_FILENAME, "sandboxer.yml", ".sandboxer.yaml"] as const;
 
 /** Where a config's content came from, relative to the tree it configures. */
 export type ConfigOrigin =
   /** Inside the checkout it configures — a project describing itself. */
   | "repo"
-  /** `<workspace>/<project>/sandboxr.yaml`, standing in for every worktree. */
+  /** `<workspace>/<project>/sandboxer.yaml`, standing in for every worktree. */
   | "project";
 
 export interface ConfigLocation {
@@ -150,7 +150,7 @@ export function isWorkspaceProjectDir(dir: string, env: NodeJS.ProcessEnv = proc
  *
  * The file lives at the root of the project being sandboxed, so any directory
  * inside that project is a legal place to run a command from — which is what
- * makes `sandboxr up` work from wherever you happen to be.
+ * makes `sandboxer up` work from wherever you happen to be.
  *
  * `stopAt` is the last directory searched. It exists because the walk is
  * otherwise unbounded to the filesystem root, and inside a managed worktree that
@@ -220,7 +220,7 @@ export async function locateConfig(
 
   // **Bounded at the top of the worktree, and that bound is the bug fix.**
   // Unbounded, the walk-up leaves the checkout on its own and lands on
-  // `<workspace>/<project>/sandboxr.yaml` — at which point `root` is
+  // `<workspace>/<project>/sandboxer.yaml` — at which point `root` is
   // `dirname(file)`, so `/workspace` becomes the project directory, with
   // `repo.git` and every sibling worktree mounted into the sandbox and every
   // declared path resolving one directory too high. None of those failures looks

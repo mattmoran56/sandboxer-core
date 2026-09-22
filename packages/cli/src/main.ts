@@ -1,6 +1,6 @@
 /**
- * `sandboxr` — dispatch and argument handling only; the work lives in
- * @sandboxr/core.
+ * `sandboxer` — dispatch and argument handling only; the work lives in
+ * @sandboxer/core.
  *
  * Every command returns an exit code rather than calling `process.exit`, so the
  * whole surface can be driven from a test without ending the test run.
@@ -88,12 +88,12 @@ import {
   type Project,
   type ResolvedConfig,
   type Sandbox,
-} from "@sandboxr/core";
+} from "@sandboxer/core";
 
 import { flagBoolean, flagList, flagNumber, flagString, parseArgs, type ParsedArgs } from "./args.js";
 import { Output, processWriter, type Writer } from "./output.js";
 
-export const USAGE = `sandboxr — one container per git worktree, on its own hostname
+export const USAGE = `sandboxer — one container per git worktree, on its own hostname
 
 SETUP
   init                         Set this machine up: router, certificate, base image
@@ -337,8 +337,8 @@ async function target(
   const declared = flagString(args, "worktree");
 
   // A named sandbox knows where it came from, so ask it rather than the current
-  // directory. Without this, `sandboxr status <slug>` only worked from inside a
-  // configured directory — which for a project sandboxr checked out itself is
+  // directory. Without this, `sandboxer status <slug>` only worked from inside a
+  // configured directory — which for a project sandboxer checked out itself is
   // backwards: the slug identifies it, and the worktree is on its label.
   //
   // Only when a slug was actually named and no `--worktree` overrides it, so the
@@ -432,8 +432,8 @@ async function cmdUp(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.Pro
 
   if (result.migrationFailure) {
     out.warn(result.migrationFailure);
-    out.dim(`      sandboxr logs ${result.sandbox.slug}`);
-    out.dim(`      sandboxr db shell ${result.sandbox.slug}`);
+    out.dim(`      sandboxer logs ${result.sandbox.slug}`);
+    out.dim(`      sandboxer db shell ${result.sandbox.slug}`);
   } else {
     out.ok(`Sandbox ${result.sandbox.slug} is ${result.sandbox.state}`);
   }
@@ -459,7 +459,7 @@ async function cmdList(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
     return 0;
   }
   if (sandboxes.length === 0) {
-    out.line("No sandboxes. Create one with: sandboxr up");
+    out.line("No sandboxes. Create one with: sandboxer up");
     return 0;
   }
   // One column for two facts, because they answer the same question — when does
@@ -537,7 +537,7 @@ async function cmdLogs(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.P
     return result.code;
   }
   // The log is the result here, not decoration, so it goes to stdout whether or
-  // not --json was asked for: `sandboxr logs > today.txt` is the whole point.
+  // not --json was asked for: `sandboxer logs > today.txt` is the whole point.
   out.raw(text);
   return result.code;
 }
@@ -546,7 +546,7 @@ async function cmdShell(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.
   const { config, slug } = await target(args, cwd, env);
   void out;
   // Anything after a bare `--` is the command to run instead of a login shell,
-  // which is what makes `sandboxr shell -- go test ./...` work from a script.
+  // which is what makes `sandboxer shell -- go test ./...` work from a script.
   const command = args.rest.length > 0 ? args.rest : ["bash"];
   return docker.execInteractive(containerName(config.project, slug), command, { workdir: "/workspace" });
 }
@@ -679,7 +679,7 @@ async function cmdPrune(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): 
         `${formatBytes(result.buildCache.size)} of which no image is also holding.`,
     );
     out.dim("Every project on this daemon built into it, and the next build of each is a cold one.");
-    out.dim("  sandboxr prune --build-cache --yes");
+    out.dim("  sandboxer prune --build-cache --yes");
   }
   return 0;
 }
@@ -688,7 +688,7 @@ async function cmdPrune(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): 
  * Resolves the project a slug belongs to, for the commands that name a sandbox
  * rather than stand in one.
  *
- * `list` is asked first because it is the same ground truth `sandboxr ls`
+ * `list` is asked first because it is the same ground truth `sandboxer ls`
  * prints, so a slug copied out of that table resolves from anywhere — which is
  * the whole point of `stop`, `start` and `keep`: they are things you do to
  * somebody else's sandbox from wherever you happen to be. The config in the
@@ -744,7 +744,7 @@ async function cmdPower(
   env: NodeJS.ProcessEnv,
   action: "stop" | "start",
 ): Promise<number> {
-  const found = await sandboxTarget(args, out, cwd, env, `usage: sandboxr ${action} <slug> [--project NAME]`);
+  const found = await sandboxTarget(args, out, cwd, env, `usage: sandboxer ${action} <slug> [--project NAME]`);
   if (!found) return 1;
 
   // core says one line about what it did, and it is held rather than printed as
@@ -782,7 +782,7 @@ async function cmdKeep(
   keepAlive: boolean,
 ): Promise<number> {
   const verb = keepAlive ? "keep" : "unkeep";
-  const found = await sandboxTarget(args, out, cwd, env, `usage: sandboxr ${verb} <slug> [--project NAME]`);
+  const found = await sandboxTarget(args, out, cwd, env, `usage: sandboxer ${verb} <slug> [--project NAME]`);
   if (!found) return 1;
 
   if (!keepAlive) {
@@ -792,18 +792,18 @@ async function cmdKeep(
     return 0;
   }
 
-  // The marker holds the `sandboxr.created` of the container it was written
+  // The marker holds the `sandboxer.created` of the container it was written
   // for, so there has to be a container to read it from. Writing one anyway
   // would leave a file that keeps nothing alive now and silently keeps whatever
   // next takes the name.
   if (!found.sandbox) {
     out.error(`no sandbox called ${found.slug} in ${found.project} — keep one that exists`);
-    out.dim("      sandboxr ls");
+    out.dim("      sandboxer ls");
     return 1;
   }
   if (found.sandbox.created === "") {
     out.error(`${found.slug} carries no created label, so a keep-alive could not tell it from its successor`);
-    out.dim("      sandboxr down and up again to relabel it");
+    out.dim("      sandboxer down and up again to relabel it");
     return 1;
   }
 
@@ -844,7 +844,7 @@ async function cmdProject(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv)
       return 0;
     }
     if (projects.length === 0) {
-      out.line("No projects yet. Clone one with: sandboxr project clone <url>");
+      out.line("No projects yet. Clone one with: sandboxer project clone <url>");
       return 0;
     }
     out.table(
@@ -861,7 +861,7 @@ async function cmdProject(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv)
   if (sub === "clone") {
     const url = name;
     if (url === undefined) {
-      out.error("usage: sandboxr project clone <url> [--name NAME]");
+      out.error("usage: sandboxer project clone <url> [--name NAME]");
       return 1;
     }
     const project = await cloneProject(url, {
@@ -871,13 +871,13 @@ async function cmdProject(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv)
     });
     if (out.json) out.data(project);
     out.ok(`${project.name} is in the workspace, on ${project.base}`);
-    out.dim(`      sandboxr worktree add ${project.name} <branch>`);
+    out.dim(`      sandboxer worktree add ${project.name} <branch>`);
     return 0;
   }
 
   if (sub === "fetch" || sub === "prs") {
     if (name === undefined) {
-      out.error(`usage: sandboxr project ${sub} <name>`);
+      out.error(`usage: sandboxer project ${sub} <name>`);
       return 1;
     }
     const project = await findProject(name, { env });
@@ -885,7 +885,7 @@ async function cmdProject(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv)
     return sub === "fetch" ? await projectFetch(project, out) : await projectPulls(project, out);
   }
 
-  out.error("usage: sandboxr project ls|available|clone|fetch|prs");
+  out.error("usage: sandboxer project ls|available|clone|fetch|prs");
   return 1;
 }
 
@@ -951,7 +951,7 @@ async function projectAvailable(out: Output, env: NodeJS.ProcessEnv): Promise<nu
     out.dim("* a fork");
   }
   out.line();
-  out.dim("      sandboxr project clone <url>");
+  out.dim("      sandboxer project clone <url>");
   return 0;
 }
 
@@ -1018,11 +1018,11 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     sub !== "name" &&
     sub !== "pull"
   ) {
-    out.error("usage: sandboxr worktree ls|add|rm|delete|name|pull <project> [branch]");
+    out.error("usage: sandboxer worktree ls|add|rm|delete|name|pull <project> [branch]");
     return 1;
   }
   if (name === undefined) {
-    out.error(`usage: sandboxr worktree ${sub} <project>${sub === "ls" || sub === "list" ? "" : " <branch>"}`);
+    out.error(`usage: sandboxer worktree ${sub} <project>${sub === "ls" || sub === "list" ? "" : " <branch>"}`);
     return 1;
   }
 
@@ -1050,7 +1050,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
       return 0;
     }
     if (worktrees.length === 0) {
-      out.line(`No worktrees yet. Cut one with: sandboxr worktree add ${project.name} <branch>`);
+      out.line(`No worktrees yet. Cut one with: sandboxer worktree add ${project.name} <branch>`);
       return 0;
     }
     // The column appears only once something has a name. A workspace where
@@ -1076,7 +1076,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
   }
 
   if (branch === undefined) {
-    out.error(`usage: sandboxr worktree ${sub} ${project.name} <branch>`);
+    out.error(`usage: sandboxer worktree ${sub} ${project.name} <branch>`);
     return 1;
   }
 
@@ -1090,7 +1090,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     });
     if (out.json) out.data(worktree);
     out.ok(`${worktree.branch} at ${worktree.path}`);
-    out.dim(`      sandboxr up --project ${project.name} --branch ${worktree.branch}`);
+    out.dim(`      sandboxer up --project ${project.name} --branch ${worktree.branch}`);
     return 0;
   }
 
@@ -1143,7 +1143,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     worktrees.find((worktree) => basename(worktree.path) === sanitizeSlug(branch));
   if (!found) {
     out.error(`no worktree for ${branch} in ${project.name}`);
-    out.dim(`      sandboxr worktree ls ${project.name}`);
+    out.dim(`      sandboxer worktree ls ${project.name}`);
     return 1;
   }
 
@@ -1153,7 +1153,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
     // usage error. Collapsing the two would make a mistyped command silently
     // throw away somebody's label.
     if (args.positional.length < 4) {
-      out.error(`usage: sandboxr worktree name ${project.name} ${branch} <name>`);
+      out.error(`usage: sandboxer worktree name ${project.name} ${branch} <name>`);
       out.dim('      an empty name ("") hands the worktree back to its branch');
       return 1;
     }
@@ -1218,7 +1218,7 @@ async function cmdWorktree(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
  *    than `up` does for any project whose DNS budget binds.
  *  - `env`, because this is async for a reason: a worktree that collided with a
  *    sibling was *given* its slug, and a given slug is read from the store under
- *    `SANDBOXR_HOME` rather than derived.
+ *    `SANDBOXER_HOME` rather than derived.
  */
 async function slugOf(
   project: string,
@@ -1243,7 +1243,7 @@ const slugMaxOf = projectSlugCeiling;
 
 function noProject(out: Output, name: string): number {
   out.error(`no project called ${name} in the workspace`);
-  out.dim("      sandboxr project ls");
+  out.dim("      sandboxer project ls");
   return 1;
 }
 
@@ -1281,7 +1281,7 @@ async function cmdDb(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.Pro
       const schema = await driver.snapshot(ctx);
       // The schema is the result here rather than a description of it, so it
       // goes to stdout unaltered whether or not --json was asked for:
-      // `sandboxr db snapshot > before.sql` has to produce a usable file.
+      // `sandboxer db snapshot > before.sql` has to produce a usable file.
       if (out.json) out.data({ project: config.project, slug, schema });
       else out.raw(schema.endsWith("\n") ? schema : `${schema}\n`);
       return 0;
@@ -1290,7 +1290,7 @@ async function cmdDb(args: ParsedArgs, out: Output, cwd: string, env: NodeJS.Pro
       await driver.shell(ctx);
       return 0;
     default:
-      out.error("usage: sandboxr db seed|migrate|snapshot|shell [slug]");
+      out.error("usage: sandboxer db seed|migrate|snapshot|shell [slug]");
       return 1;
   }
 }
@@ -1344,8 +1344,8 @@ async function cmdSecrets(
       // `.env.example` has nothing to import *from*, and being told to run a
       // command that reads nothing is worse than being told nothing.
       out.warn("no secrets file yet");
-      out.dim("      set one by hand:            sandboxr secrets set " + (check.absent[0] ?? "NAME"));
-      out.dim("      or take them from .env:     sandboxr secrets import");
+      out.dim("      set one by hand:            sandboxer secrets set " + (check.absent[0] ?? "NAME"));
+      out.dim("      or take them from .env:     sandboxer secrets import");
       return 1;
     }
     for (const name of check.present) out.ok(name);
@@ -1370,7 +1370,7 @@ async function cmdSecrets(
     }
 
     for (const name of view.absent) out.warn(`${name} is declared in ${CONFIG_FILENAME} and not set`);
-    if (view.absent.length > 0) out.dim(`      sandboxr secrets set ${view.absent[0] ?? "NAME"}`);
+    if (view.absent.length > 0) out.dim(`      sandboxer secrets set ${view.absent[0] ?? "NAME"}`);
     warnShadowed(out, view.shadowed);
     warnIfNotEditable(out, config, view.exists);
 
@@ -1382,7 +1382,7 @@ async function cmdSecrets(
   if (sub === "set") {
     const name = args.positional[1];
     if (name === undefined) {
-      out.error("usage: sandboxr secrets set NAME   (the value is read from a prompt or stdin)");
+      out.error("usage: sandboxer secrets set NAME   (the value is read from a prompt or stdin)");
       return 1;
     }
     // Refused on the name alone before anything is asked for: making somebody
@@ -1426,7 +1426,7 @@ async function cmdSecrets(
   if (sub === "unset") {
     const name = args.positional[1];
     if (name === undefined) {
-      out.error("usage: sandboxr secrets unset NAME");
+      out.error("usage: sandboxer secrets unset NAME");
       return 1;
     }
 
@@ -1453,7 +1453,7 @@ async function cmdSecrets(
     return await editSecretsFile(config, out, env);
   }
 
-  out.error("usage: sandboxr secrets list|set|unset|edit|import|check");
+  out.error("usage: sandboxer secrets list|set|unset|edit|import|check");
   return 1;
 }
 
@@ -1490,7 +1490,7 @@ function warnIfNotEditable(out: Output, config: ResolvedConfig, exists: boolean)
  *
  * Never from argv, which is the whole point: an argument is in the shell history
  * and in every `ps` on the machine for as long as the command runs. A pipe is
- * the form a server operator actually uses — `printf '%s' "$KEY" | sandboxr
+ * the form a server operator actually uses — `printf '%s' "$KEY" | sandboxer
  * secrets set ORQ_API_KEY` — so a non-terminal stdin is read rather than
  * refused.
  */
@@ -1629,7 +1629,7 @@ async function startingText(file: string, config: ResolvedConfig, count: number)
 
   const declared = declaredNames(config);
   return [
-    `# ${config.project}'s third-party credentials, for sandboxr. NAME=value, one per line.`,
+    `# ${config.project}'s third-party credentials, for sandboxer. NAME=value, one per line.`,
     "#",
     "# Comments and order are not kept: the file is rewritten sorted by name.",
     "# Nothing describing where a service runs belongs here — a sandbox works out",
@@ -1661,14 +1661,14 @@ function editorCommand(env: NodeJS.ProcessEnv): string[] {
  *
  * Given the environment the command itself was given rather than the process's,
  * so that the editor an injected env names is the editor that runs — the same
- * seam every other command reads `SANDBOXR_HOME` through.
+ * seam every other command reads `SANDBOXER_HOME` through.
  */
 async function runEditor(command: string[], file: string, env: NodeJS.ProcessEnv): Promise<number> {
   const [program, ...rest] = command as [string, ...string[]];
   return await new Promise<number>((resolve, reject) => {
     const child = spawn(program, [...rest, file], { stdio: "inherit", env });
     // A clearer failure than "spawn code ENOENT", which reads as a bug in
-    // sandboxr rather than as a variable pointing at something not installed.
+    // sandboxer rather than as a variable pointing at something not installed.
     child.on("error", () =>
       reject(new Error(`could not start ${program} — set VISUAL or EDITOR to an editor on this machine`)),
     );
@@ -1717,7 +1717,7 @@ async function cmdInit(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv): P
     out.warn(note);
   }
   out.line();
-  out.dim("  Next: cd into a project with a sandboxr.yaml and run `sandboxr up`.");
+  out.dim("  Next: cd into a project with a sandboxer.yaml and run `sandboxer up`.");
   return 0;
 }
 
@@ -1730,7 +1730,7 @@ async function cmdTeardown(args: ParsedArgs, out: Output, env: NodeJS.ProcessEnv
   });
   if (out.json) out.data(result);
   if (result.removed.length === 0) out.line("Nothing to tear down.");
-  else out.dim("  Sandboxes are left alone. Use `sandboxr down` for those.");
+  else out.dim("  Sandboxes are left alone. Use `sandboxer down` for those.");
   return 0;
 }
 
@@ -1741,7 +1741,7 @@ async function cmdConfig(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
   // and handing the file back to loadConfig on its own would lose the root.
   const location = await locateConfig(from, { env });
   if (!location) {
-    out.error(`no sandboxr.yaml here or in any parent of ${from}`);
+    out.error(`no sandboxer.yaml here or in any parent of ${from}`);
     return 2;
   }
   const config = await loadConfig(from, { enforceAccess: false, env });
@@ -1765,7 +1765,7 @@ async function cmdConfig(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
   out.line(`  driver      ${config.database.driver}`);
   out.line(`  access      apps ${config.access.apps}, credentials ${config.access.credentials}`);
 
-  // What `~/.sandboxr/config.yaml` says about *this* project, printed beside the
+  // What `~/.sandboxer/config.yaml` says about *this* project, printed beside the
   // project's own config because the two are read together on every start and
   // nowhere else did a person see the answer. `github` in particular has no
   // symptom until `git push` fails inside an agent session hours later.
@@ -1825,23 +1825,23 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
     findings.push(
       access.baseImagePresent
         ? { ok: true, text: "the base image is built" }
-        : { ok: false, text: "no base image", fix: "sandboxr init" },
+        : { ok: false, text: "no base image", fix: "sandboxer init" },
     );
     findings.push(
       access.routerRunning
         ? { ok: true, text: `router is up, serving ${access.scheme} on ${access.domain}` }
-        : { ok: false, text: "the shared router is not running", fix: "sandboxr init" },
+        : { ok: false, text: "the shared router is not running", fix: "sandboxer init" },
     );
     // **Not a failed check when it is empty**, and that is the whole reason this
     // is a list rather than a boolean. The engine serves no control plane
     // (contracts §7.2), so "nothing is on the bare domain" is the ordinary state
-    // of a machine set up with `sandboxr init` — reporting it as a fault, with
-    // `sandboxr init` as the fix, would send somebody round a loop that cannot
+    // of a machine set up with `sandboxer init` — reporting it as a fault, with
+    // `sandboxer init` as the fix, would send somebody round a loop that cannot
     // end.
     findings.push(
       access.frontends.length > 0
         ? { ok: true, text: `${access.frontends.join(", ")} is serving ${access.url}` }
-        : { ok: true, text: `nothing is serving ${access.url} — sandboxr is a command-line tool` },
+        : { ok: true, text: `nothing is serving ${access.url} — sandboxer is a command-line tool` },
     );
     if (access.scheme === "http") {
       findings.push({
@@ -1861,7 +1861,7 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
   if (!location) {
     findings.push({
       ok: false,
-      text: `no sandboxr.yaml in ${from} or any parent directory`,
+      text: `no sandboxer.yaml in ${from} or any parent directory`,
       fix: "add one at the root of the project you want to sandbox",
     });
   } else {
@@ -1891,7 +1891,7 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
               // Named by name, and `set` first: a project with no `.env` files
               // on disk has nothing to import from, which is exactly the case a
               // missing credential is most likely to be.
-              fix: `sandboxr secrets set ${check.absent[0] ?? "NAME"}, or sandboxr secrets import`,
+              fix: `sandboxer secrets set ${check.absent[0] ?? "NAME"}, or sandboxer secrets import`,
             },
       );
     } catch (error) {
@@ -1923,7 +1923,7 @@ async function cmdDoctor(args: ParsedArgs, out: Output, cwd: string, env: NodeJS
     // worktree** — `projectIdentities` already has that one, under both of its
     // names, and adding it again under its declared name alone would invent a
     // collision between the project and itself. A checkout outside the
-    // workspace is a perfectly ordinary thing to run `sandboxr up` in, and an
+    // workspace is a perfectly ordinary thing to run `sandboxer up` in, and an
     // entry keyed on it is correct; nothing here can enumerate every such
     // project, which is why the fix below says "rename or remove" rather than
     // asserting the project does not exist.

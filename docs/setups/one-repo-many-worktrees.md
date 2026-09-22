@@ -10,8 +10,8 @@ rather than one — where their names come from, what they share, and where they
 ```prompt
 Start a sandbox for every git worktree in this repository, then show me the URLs.
 
-Read docs/setups/one-repo-many-worktrees.md first. Run `sandboxr up --worktree <path>` for each
-worktree, one at a time rather than in parallel, then `sandboxr ls`. Tell me each sandbox's slug
+Read docs/setups/one-repo-many-worktrees.md first. Run `sandboxer up --worktree <path>` for each
+worktree, one at a time rather than in parallel, then `sandboxer ls`. Tell me each sandbox's slug
 and where it came from.
 
 Stop and tell me if two worktrees would derive the same slug — that would make the second `up`
@@ -34,9 +34,9 @@ One `up` per worktree, and each one gets a container, a database, a hostname and
 
 ```bash
 for wt in ~/code/acme/.worktrees/*/; do
-  sandboxr up --worktree "$wt"
+  sandboxer up --worktree "$wt"
 done
-sandboxr ls
+sandboxer ls
 ```
 
 ```
@@ -52,11 +52,11 @@ container is up but something failed on the way — usually a migration.
 ## Where the name comes from
 
 That `SLUG` column is the name of the sandbox, and it is the first label of its hostname. You never
-have to choose it. sandboxr derives it, and the order it tries is fixed:
+have to choose it. sandboxer derives it, and the order it tries is fixed:
 
 | It looks for | Example | Result |
 |---|---|---|
-| 1. A name you passed | `sandboxr up checkout-demo` | `checkout-demo` |
+| 1. A name you passed | `sandboxer up checkout-demo` | `checkout-demo` |
 | 2. A slug this worktree was given | see [when two worktrees want the same name](#when-two-worktrees-want-the-same-name) | `tkt-4821-7k2f` |
 | 3. A ticket id in the **worktree directory** name | `.worktrees/tkt-4821` | `tkt-4821` |
 | 4. A ticket id in the **branch** name | `feat/TKT-4821-rework` | `tkt-4821` |
@@ -83,7 +83,7 @@ A name that cleans up to nothing at all is refused with a message saying so.
 
 ### And it is capped at 31 characters
 
-A slug may be at most **31 characters**. Over that, sandboxr keeps the first 22 characters and
+A slug may be at most **31 characters**. Over that, sandboxer keeps the first 22 characters and
 appends a dash and eight hexadecimal characters of the SHA-256 of the original name:
 
 ```
@@ -110,7 +110,7 @@ first branch's database.
 
 **Which of these happens depends on who cut the worktree.**
 
-When sandboxr cut it — `sandboxr worktree add`, or anything else that reaches `addWorktree` — it
+When sandboxer cut it — `sandboxer worktree add`, or anything else that reaches `addWorktree` — it
 compares the slug the new worktree would take against the ones its siblings already answer to, and
 on a match gives it one of its own instead:
 
@@ -121,9 +121,9 @@ another worktree of acme already answers to "tkt-4821", so this one is "tkt-4821
 Four random characters on the end, so the name is still readable and still fits the ceiling — the
 project's own, which for a long project name and a long label is lower than 31. It is written down,
 because random characters cannot be worked out again, and everything from then on — the hostname,
-the container, `sandboxr ls` — uses it.
+the container, `sandboxer ls` — uses it.
 
-When you cut the worktree yourself, in your own repository, sandboxr never saw it happen and
+When you cut the worktree yourself, in your own repository, sandboxer never saw it happen and
 cannot warn you.
 
 > [!WARNING] A collision between worktrees you cut yourself is not caught
@@ -133,10 +133,10 @@ cannot warn you.
 The fix is to name one of them yourself:
 
 ```bash
-sandboxr up tkt-4821-retry --worktree ~/code/acme/.worktrees/tkt-4821-retry
+sandboxer up tkt-4821-retry --worktree ~/code/acme/.worktrees/tkt-4821-retry
 ```
 
-`sandboxr ls` is how you spot it: two rows cannot have the same slug, so a slug you expected to see
+`sandboxer ls` is how you spot it: two rows cannot have the same slug, so a slug you expected to see
 twice appearing once is the symptom.
 
 Worktrees that already collide are left alone. Renaming one that has a running sandbox would leave
@@ -158,11 +158,11 @@ the second sandbox of a project starts far faster than the first.
 
 | Private to one sandbox | Name |
 |---|---|
-| Its container | `sandboxr-<project>-<slug>` |
-| Its database | `sandboxr-data-<project>-<slug>` |
-| Its uploads, built binaries, built sites | `sandboxr-blob-…`, `sandboxr-bin-…`, `sandboxr-www-…` |
+| Its container | `sandboxer-<project>-<slug>` |
+| Its database | `sandboxer-data-<project>-<slug>` |
+| Its uploads, built binaries, built sites | `sandboxer-blob-…`, `sandboxer-bin-…`, `sandboxer-www-…` |
 | Its hostnames and its TLS certificate | issued when it starts, removed when it goes |
-| Its logs | `~/.sandboxr/logs/<project>/<slug>/`, and they outlive the container |
+| Its logs | `~/.sandboxer/logs/<project>/<slug>/`, and they outlive the container |
 | Its worktree | bind-mounted at `/workspace`, so edits go both ways instantly |
 
 ### The git repository is shared, read-write
@@ -171,7 +171,7 @@ A git worktree is not self-contained. Its `.git` is a one-line file naming the r
 absolute path, and that repository is somewhere else on your disk. So a container holding only the
 worktree fails every git command.
 
-sandboxr therefore mounts **both** — the worktree and the repository it points at — at the
+sandboxer therefore mounts **both** — the worktree and the repository it points at — at the
 **identical path inside and outside** the container, so the absolute path git wrote down still
 resolves. The repository mount is read-write, because `git commit` writes objects and refs into it.
 
@@ -191,10 +191,10 @@ Commits made inside a sandbox carry your name and address, read from the host's 
 that do not exist in a container, which would break the very operations it was meant to enable.
 
 `git push` and `gh` only work if the machine has opted this project in with `github: token` in
-`~/.sandboxr/config.yaml`. That is off by default, and [Access and security](../access.md) explains
+`~/.sandboxer/config.yaml`. That is off by default, and [Access and security](../access.md) explains
 what it widens. `up` says so on every start when it is off, and names the key to write — key it on
-the project's workspace directory, which is the name `sandboxr project ls` prints, or on the
-`project:` its `sandboxr.yaml` declares. A key that is neither matches nothing; `sandboxr doctor` says so.
+the project's workspace directory, which is the name `sandboxer project ls` prints, or on the
+`project:` its `sandboxer.yaml` declares. A key that is neither matches nothing; `sandboxer doctor` says so.
 
 ## How many fit on a machine
 
@@ -223,11 +223,11 @@ A worktree you delete leaves its sandbox behind, because a sandbox is a containe
 Docker. `gc` reaps them:
 
 ```bash
-sandboxr gc --dry-run    # say what would go
-sandboxr gc              # do it
+sandboxer gc --dry-run    # say what would go
+sandboxer gc              # do it
 ```
 
-It removes sandboxes whose recorded worktree is no longer on disk, then any `sandboxr-` volume that
+It removes sandboxes whose recorded worktree is no longer on disk, then any `sandboxer-` volume that
 nothing owns and nothing has mounted. Shared and dependency volumes are left alone.
 
 <details class="agent">
@@ -236,7 +236,7 @@ nothing owns and nothing has mounted. Shared and dependency volumes are left alo
 **Resolution** (`slugFor` in `packages/core/src/worktree-slug.ts`), first match wins:
 
 1. `explicit` — the positional argument to `up`, or `--slug`. Trimmed; an empty string does not count.
-2. The slug recorded at `$SANDBOXR_HOME/state/slug/<project>/<worktree dir>`, if there is one and
+2. The slug recorded at `$SANDBOXER_HOME/state/slug/<project>/<worktree dir>`, if there is one and
    it reads back as a slug. `<project>` is the workspace *directory* name, and the key is the
    worktree's directory name, never a slug. Only worktrees under `<workspace>/<project>/wt` can
    have one.
@@ -279,7 +279,7 @@ Over it: `folded.slice(0, ceiling - 9)` with trailing dashes trimmed, then `-`, 
 trailing-dash trim exists so the join never produces `--`, which is the separator inside a
 flattened hostname.
 
-**Why 31:** `lockName(project, slug)` builds `sandboxr_migrate_<project>_<slug>` and throws if it
+**Why 31:** `lockName(project, slug)` builds `sandboxer_migrate_<project>_<slug>` and throws if it
 exceeds 64 characters, which is where MySQL's `GET_LOCK` silently truncates. Raising `SLUG_MAX`
 means re-checking every driver's lock-name budget.
 
@@ -292,17 +292,17 @@ allows 40 still gets 31, because the lock budget still binds. See contracts §3.
 | Thing | Pattern |
 |---|---|
 | Hostname | `<slug>--<label>--<project>.<domain>` |
-| Container | `sandboxr-<project>-<slug>` |
-| Volumes | `sandboxr-{data,blob,bin,www}-<project>-<slug>` |
-| Dependency volume | `sandboxr-deps-<first 16 hex of sha256 of the lockfile>` |
-| Advisory lock | `sandboxr_migrate_<project>_<slug>`, non-alphanumerics folded to `_` |
-| Logs | `$SANDBOXR_HOME/logs/<project>/<slug>/` |
-| Generated environment | `$SANDBOXR_HOME/build/<project>/<slug>.env` |
-| Plan | `$SANDBOXR_HOME/build/<project>/<slug>.plan.json` |
-| Keep-alive marker | `$SANDBOXR_HOME/state/keep/<project>/<slug>` |
-| Given slug | `$SANDBOXR_HOME/state/slug/<project>/<worktree directory>` — keyed on the directory, not the slug |
+| Container | `sandboxer-<project>-<slug>` |
+| Volumes | `sandboxer-{data,blob,bin,www}-<project>-<slug>` |
+| Dependency volume | `sandboxer-deps-<first 16 hex of sha256 of the lockfile>` |
+| Advisory lock | `sandboxer_migrate_<project>_<slug>`, non-alphanumerics folded to `_` |
+| Logs | `$SANDBOXER_HOME/logs/<project>/<slug>/` |
+| Generated environment | `$SANDBOXER_HOME/build/<project>/<slug>.env` |
+| Plan | `$SANDBOXER_HOME/build/<project>/<slug>.plan.json` |
+| Keep-alive marker | `$SANDBOXER_HOME/state/keep/<project>/<slug>` |
+| Given slug | `$SANDBOXER_HOME/state/slug/<project>/<worktree directory>` — keyed on the directory, not the slug |
 
-`<project>` here is the `project:` field in `sandboxr.yaml`, not a directory name.
+`<project>` here is the `project:` field in `sandboxer.yaml`, not a directory name.
 
 **Git mounts** (`gitMounts` in `packages/core/src/git.ts`) returns two paths: the worktree, and the
 repository's common dir. It returns **nothing** in three cases:
@@ -332,19 +332,19 @@ documented route, not a workaround.
 
 **A hostname you did not expect.** Read the derivation order above, top to bottom, and stop at the
 first rule that matches. A ticket id in a directory name beats the branch entirely, which is the
-step people miss. `sandboxr ls` prints the slug it chose beside the branch it came from.
+step people miss. `sandboxer ls` prints the slug it chose beside the branch it came from.
 
 **A slug ending in eight random-looking characters.** The name was over 31 characters, so it was
 hashed. Pass a shorter name explicitly if you want a readable URL.
 
 **Two branches sharing one database.** They derived the same slug, and neither worktree was cut by
-sandboxr, so nothing was there to notice. See the collision section above. `sandboxr down` one of
+sandboxer, so nothing was there to notice. See the collision section above. `sandboxer down` one of
 them and bring it back with an explicit name.
 
 **A slug with four extra characters on the end that you did not ask for.** Another worktree of the
 project already answered to the slug this one would have taken, so it was given
-`<slug>-<4 characters>` when it was cut. `sandboxr worktree add` says so at the time, and the value
-is in `$SANDBOXR_HOME/state/slug/<project>/<worktree directory>`.
+`<slug>-<4 characters>` when it was cut. `sandboxer worktree add` says so at the time, and the value
+is in `$SANDBOXER_HOME/state/slug/<project>/<worktree directory>`.
 
 **`fatal: not a git repository: /Users/…/repo.git/worktrees/x` inside a sandbox.** The repository was
 not mounted. Normally that means the project is a subdirectory of a larger repository, which
@@ -354,5 +354,5 @@ every file in the project as deleted. A clean failure beats that.
 </details>
 
 **Next:** [The edit–reload loop](../guides/edit-and-reload.md) for what to do once several are
-running, or [Several repositories at once](many-projects.md) if you would rather sandboxr kept the
+running, or [Several repositories at once](many-projects.md) if you would rather sandboxer kept the
 repositories for you.

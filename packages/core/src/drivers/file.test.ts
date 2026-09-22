@@ -5,7 +5,7 @@
 // - prepareSeed: copies a source into the cache, reuses an existing entry, and reports an empty start when there is nothing to copy
 // - prepareSeed: a public sandbox never copies an unmarked source
 // - migrate: the baseline is taken on a first run and preserved after a failure
-// - migrate: the cutoff reaches the project's runner as SANDBOXR_MIGRATE_SINCE, and is absent when unset
+// - migrate: the cutoff reaches the project's runner as SANDBOXER_MIGRATE_SINCE, and is absent when unset
 // - locationEnv: the path entrypoint.sh derives, a directory for d1 and a file for sqlite
 // - shell: delegates to the container's driver script, carrying the location docker exec does not inherit
 // - both driver names are exposed, and they behave identically
@@ -30,12 +30,12 @@ function configFor(root: string, seed: Record<string, unknown>, apps: "public" |
   return resolveConfig(
     {
       project: "acme",
-      sandboxr: ">=0.1.0",
+      sandboxer: ">=0.1.0",
       access: { apps },
       database: { driver: "d1", seed_from: seed, migrate: { command: "migrate" }, owner: "app" },
       frontends: { apps: [{ label: "app", package: ".", serve: "serve", port: 1 }] },
     },
-    join(root, "sandboxr.yaml"),
+    join(root, "sandboxer.yaml"),
     { enforceAccess: false },
   );
 }
@@ -236,10 +236,10 @@ describe("provision", () => {
       createdAt: new Date().toISOString(),
     });
 
-    expect(copies[0]?.[1]).toBe("sandboxr-acme-tkt-1");
+    expect(copies[0]?.[1]).toBe("sandboxer-acme-tkt-1");
     // The path entrypoint.sh derives, because the host and the container have to
     // agree on where the database is.
-    expect(copies[0]?.[2]).toBe("/var/lib/sandboxr/data/d1");
+    expect(copies[0]?.[2]).toBe("/var/lib/sandboxer/data/d1");
     expect(calls.some((cmd) => cmd.join(" ").includes("sh -lc migrate"))).toBe(true);
   });
 });
@@ -284,49 +284,49 @@ describe("locationEnv", () => {
   // The same rule entrypoint.sh uses. Two answers to "where is the database"
   // is one more than a sandbox can have.
   it.each([
-    ["d1", { SANDBOXR_D1_DIR: "/var/lib/sandboxr/data/d1" }],
-    ["sqlite", { SANDBOXR_DB_FILE: "/var/lib/sandboxr/data/sqlite/acme.sqlite" }],
+    ["d1", { SANDBOXER_D1_DIR: "/var/lib/sandboxer/data/d1" }],
+    ["sqlite", { SANDBOXER_DB_FILE: "/var/lib/sandboxer/data/sqlite/acme.sqlite" }],
   ])("%s carries the location its driver script reads", (driver, expected) => {
     const config = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "private" },
         database: { driver, migrate: { command: "m" }, owner: "app" },
         frontends: { apps: [{ label: "app", package: ".", serve: "s", port: 1 }] },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
-    expect(locationEnv(config)).toMatchObject({ SANDBOXR_DB_DRIVER: driver, SANDBOXR_DB_NAME: "acme", ...expected });
+    expect(locationEnv(config)).toMatchObject({ SANDBOXER_DB_DRIVER: driver, SANDBOXER_DB_NAME: "acme", ...expected });
   });
 
   it("gives d1 a directory and sqlite a file, which are not interchangeable", () => {
     const d1Config = configFor("/repo", { fixtures: "f.sql" });
-    expect(locationEnv(d1Config)).not.toHaveProperty("SANDBOXR_DB_FILE");
+    expect(locationEnv(d1Config)).not.toHaveProperty("SANDBOXER_DB_FILE");
   });
 });
 
 describe("migrate environment", () => {
   // Exported rather than turned into a flag: the tool cannot guess a runner's
   // flag spelling, so the command consumes it if it wants it (contracts §5.4).
-  it("exports the cutoff as SANDBOXR_MIGRATE_SINCE", async () => {
+  it("exports the cutoff as SANDBOXER_MIGRATE_SINCE", async () => {
     const root = await mkdtemp(join(tmpdir(), "sbx-since-"));
     const config = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "private" },
         database: { driver: "d1", migrate: { command: "migrate", since: "20260209" }, owner: "app" },
         frontends: { apps: [{ label: "app", package: ".", serve: "s", port: 1 }] },
       },
-      join(root, "sandboxr.yaml"),
+      join(root, "sandboxer.yaml"),
     );
     const { ctx, calls, envs } = contextFor(config, join(root, "home"));
     await d1Driver.migrate(ctx);
 
     const index = calls.findIndex((cmd) => cmd.join(" ").includes("sh -lc migrate"));
     expect(index).toBeGreaterThanOrEqual(0);
-    expect(envs[index]).toMatchObject({ SANDBOXR_MIGRATE_SINCE: "20260209" });
+    expect(envs[index]).toMatchObject({ SANDBOXER_MIGRATE_SINCE: "20260209" });
   });
 
   it("leaves it out when the config sets no cutoff", async () => {
@@ -336,7 +336,7 @@ describe("migrate environment", () => {
     await d1Driver.migrate(ctx);
 
     const index = calls.findIndex((cmd) => cmd.join(" ").includes("sh -lc migrate"));
-    expect(envs[index]).not.toHaveProperty("SANDBOXR_MIGRATE_SINCE");
+    expect(envs[index]).not.toHaveProperty("SANDBOXER_MIGRATE_SINCE");
   });
 });
 
@@ -350,18 +350,18 @@ describe("shell", () => {
     const config = configFor(root, { fixtures: "f.sql" });
     const { ctx, calls } = contextFor(config, join(root, "home"));
     await d1Driver.shell(ctx);
-    expect(calls.at(-1)?.join(" ")).toContain("/opt/sandboxr/scripts/db.sh shell");
+    expect(calls.at(-1)?.join(" ")).toContain("/opt/sandboxer/scripts/db.sh shell");
   });
 
   // docker exec never sees what entrypoint.sh exported, so a command run from the
-  // host has to carry the location itself. Without it `$SANDBOXR_D1_DIR` is empty
+  // host has to carry the location itself. Without it `$SANDBOXER_D1_DIR` is empty
   // and the driver script exits on its own `:?` guard.
   it("carries the database location, which docker exec does not inherit", async () => {
     const root = await mkdtemp(join(tmpdir(), "sbx-shell-env-"));
     const config = configFor(root, { fixtures: "f.sql" });
     const { ctx, calls } = contextFor(config, join(root, "home"));
     await d1Driver.shell(ctx);
-    expect(calls.at(-1)?.join(" ")).toContain("SANDBOXR_D1_DIR=/var/lib/sandboxr/data/d1");
+    expect(calls.at(-1)?.join(" ")).toContain("SANDBOXER_D1_DIR=/var/lib/sandboxer/data/d1");
   });
 });
 

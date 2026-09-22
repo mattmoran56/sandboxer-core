@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
 # The per-project layer. Generated from this template by the host, on top of the
-# sandboxr base image, and adding only what the project's `toolchain:` and
+# sandboxer base image, and adding only what the project's `toolchain:` and
 # `database:` blocks declare.
 #
 # ---------------------------------------------------------------------------
@@ -10,8 +10,8 @@
 # Two substitutions, in this order:
 #
 #   1. Blocks.  Everything between
-#          # >>> sandboxr:block <name>
-#          # <<< sandboxr:block <name>
+#          # >>> sandboxer:block <name>
+#          # <<< sandboxer:block <name>
 #      is kept when <name> is enabled for this project and deleted otherwise,
 #      guard lines included. Blocks never nest.
 #
@@ -42,7 +42,7 @@
 # itself is bind-mounted at run time.
 # ---------------------------------------------------------------------------
 
-ARG BASE_IMAGE=sandboxr/base:latest
+ARG BASE_IMAGE=sandboxer/base:latest
 FROM ${BASE_IMAGE}
 
 # Resolved, not trusted: `TARGETARCH` is a BuildKit built-in and the legacy
@@ -55,7 +55,7 @@ ARG TARGETARCH
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 
-# >>> sandboxr:block go
+# >>> sandboxer:block go
 # The declared version may be a prefix (`1.26`), because that is how a project
 # usually pins a toolchain, so the exact release is resolved from the download
 # index rather than guessed at. Resolving beats appending `.0`: the newest patch
@@ -84,9 +84,9 @@ ENV PATH="/usr/local/go/bin:${PATH}" \
     GOPATH=/go \
     GOCACHE=/go/cache \
     GOTOOLCHAIN=local
-# <<< sandboxr:block go
+# <<< sandboxer:block go
 
-# >>> sandboxr:block node
+# >>> sandboxer:block node
 # From the official tarball rather than Debian's archive, which carries whatever
 # version bookworm froze on. The declared version may be a prefix; the newest
 # release under it wins.
@@ -113,9 +113,9 @@ RUN set -eux; \
 ENV NPM_CONFIG_FUND=false \
     NPM_CONFIG_AUDIT=false \
     NEXT_TELEMETRY_DISABLED=1
-# <<< sandboxr:block node
+# <<< sandboxer:block node
 
-# >>> sandboxr:block mysql
+# >>> sandboxer:block mysql
 # MySQL from the vendor's generic glibc tarball.
 #
 # Debian's archive carries MariaDB, which is not a drop-in substitute for a
@@ -170,30 +170,30 @@ RUN set -eux; \
     find /opt/mysql/bin -type f -name 'mysql_client_test*' -delete; \
     groupadd -r mysql; \
     useradd -r -g mysql -s /sbin/nologin mysql; \
-    install -d -o mysql -g mysql /run/mysqld /var/lib/sandboxr/data; \
+    install -d -o mysql -g mysql /run/mysqld /var/lib/sandboxer/data; \
     /opt/mysql/bin/mysqld --version
 
 ENV PATH="/opt/mysql/bin:${PATH}"
-# <<< sandboxr:block mysql
+# <<< sandboxer:block mysql
 
-# >>> sandboxr:block sqlite
+# >>> sandboxer:block sqlite
 # The CLI only. A file-backed database needs no server, which is most of why this
 # kind of sandbox is cheap; the CLI is what applies fixtures, takes a schema
 # snapshot and backs an interactive shell.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends sqlite3 \
  && rm -rf /var/lib/apt/lists/*
-# <<< sandboxr:block sqlite
+# <<< sandboxer:block sqlite
 
-# >>> sandboxr:block gomod
+# >>> sandboxer:block gomod
 # Warmed so the first build inside a sandbox compiles rather than downloads. Keyed
 # on the module manifests alone, so a source change never re-runs it.
 COPY gomod/ /gomod/
 RUN --mount=type=cache,target=/go/pkg/mod \
     cd /gomod && go mod download && cp -a /go/pkg/mod /go/pkg/mod-warm || true
-# <<< sandboxr:block gomod
+# <<< sandboxer:block gomod
 
-# >>> sandboxr:block deps
+# >>> sandboxer:block deps
 # Installed under /opt/deps, deliberately outside the worktree path.
 #
 # The worktree is bind-mounted over /workspace at run time, and a bind mount hides
@@ -216,11 +216,11 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 # not. Sixteen hex characters: enough to make a collision irrelevant, short enough
 # to read in a log line.
 RUN sha256sum /opt/deps/{{DEPS_LOCKFILE}} | cut -c1-16 > /opt/deps/.lockhash
-# <<< sandboxr:block deps
+# <<< sandboxer:block deps
 
 # Put the toolchain back on PATH for login shells.
 #
-# Everything sandboxr runs inside a container goes through `sh -lc`, so that a
+# Everything sandboxer runs inside a container goes through `sh -lc`, so that a
 # project's own build and migrate commands see the environment a person would.
 # But Debian's /etc/profile *assigns* PATH rather than extending it, which
 # silently discards every directory the blocks above added — go, mysql — and
@@ -231,6 +231,6 @@ RUN sha256sum /opt/deps/{{DEPS_LOCKFILE}} | cut -c1-16 > /opt/deps/.lockhash
 # last, once, from the image's own resolved PATH, so a block that is not part of
 # this project contributes nothing and nothing here has to be kept in step with
 # the ENV lines above.
-RUN printf 'export PATH="%s"\n' "$PATH" > /etc/profile.d/00-sandboxr-path.sh
+RUN printf 'export PATH="%s"\n' "$PATH" > /etc/profile.d/00-sandboxer-path.sh
 
 WORKDIR /workspace

@@ -1,4 +1,4 @@
-# sandboxr
+# sandboxer
 
 Turn a git worktree into a running copy of a whole project, on its own hostname. One
 container per branch, with its own database, its own file storage and its own copy of every
@@ -12,7 +12,7 @@ terminal.
 | | Why | How to check |
 |---|---|---|
 | **Docker** | A sandbox is a container. Docker Desktop, OrbStack and Colima all work | `docker info` |
-| **Node 22 or newer** | sandboxr is TypeScript | `node --version` |
+| **Node 22 or newer** | sandboxer is TypeScript | `node --version` |
 | **git** | Sandboxes are built from git worktrees, and their names come from branches | `git --version` |
 | **mkcert** *(optional)* | HTTPS instead of HTTP. Everything works without it | `mkcert -version` |
 
@@ -22,7 +22,7 @@ having things killed for memory, and the thing the kernel picks may not be the s
 ## Install it
 
 There is no published npm package, so you install from a checkout. Leave the checkout where
-it is: sandboxr reads the Dockerfiles and the in-container scripts out of that directory
+it is: sandboxer reads the Dockerfiles and the in-container scripts out of that directory
 every time it builds an image.
 
 ```bash
@@ -30,18 +30,18 @@ git clone https://github.com/mattmoran56/sandboxer-core
 cd sandboxer-core
 npm install
 npm run build
-npm link --workspace @sandboxr/cli
+npm link --workspace @sandboxer/cli
 ```
 
-`sandboxr version` should now answer.
+`sandboxer version` should now answer.
 
 ## Set the machine up
 
 ```bash
-sandboxr init
+sandboxer init
 ```
 
-Run that once per machine. It creates `~/.sandboxr` and the shared Docker network, then
+Run that once per machine. It creates `~/.sandboxer` and the shared Docker network, then
 builds the base image every sandbox runs from. It issues a certificate when mkcert's root is
 already trusted, and starts the shared Traefik router on `127.0.0.1:80` and `:443`. The
 first run is slow, and that is Docker building the image.
@@ -55,12 +55,12 @@ and nothing that needs an administrator password.
 
 ## Describe your project
 
-A project says what it is in a `sandboxr.yaml` at its root. Only `project` and `sandboxr`
+A project says what it is in a `sandboxer.yaml` at its root. Only `project` and `sandboxer`
 are required; everything else names something to run.
 
 ```yaml
 project: acme
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 
 toolchain:
   node: "22"
@@ -86,22 +86,22 @@ to end, and its config is small enough to read line by line.
 cd ~/acme
 git worktree add .worktrees/tkt-4821 -b tkt-4821
 cd .worktrees/tkt-4821
-sandboxr up
+sandboxer up
 ```
 
 `up` prints one URL per app. Inside the container, `/workspace` *is* that worktree: edit a
 file on either side and it changes on both, with no sync step and no watcher.
 
 ```bash
-sandboxr ls        # every sandbox: state, ttl, branch, worktree
-sandboxr status    # one in detail, with its URLs
-sandboxr logs -f   # its log stream
-sandboxr shell     # a shell inside it, starting in /workspace
-sandboxr down      # remove it, its database and its uploads. Never your worktree
-sandboxr doctor    # what is missing on this machine, and the command that fixes it
+sandboxer ls        # every sandbox: state, ttl, branch, worktree
+sandboxer status    # one in detail, with its URLs
+sandboxer logs -f   # its log stream
+sandboxer shell     # a shell inside it, starting in /workspace
+sandboxer down      # remove it, its database and its uploads. Never your worktree
+sandboxer doctor    # what is missing on this machine, and the command that fixes it
 ```
 
-`sandboxr help` lists the rest: projects, worktrees, database and secrets.
+`sandboxer help` lists the rest: projects, worktrees, database and secrets.
 
 ## The documentation
 

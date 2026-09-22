@@ -4,7 +4,7 @@ description: The single boundary between the host and the container — what is 
 ---
 
 `plan.json` is the container's **entire** view of the project. Nothing inside a sandbox ever reads
-`sandboxr.yaml`.
+`sandboxer.yaml`.
 
 The host does all the thinking. It reads the config, applies every default, decides what kind each
 service is, works out the addresses, and enforces the access rules. What reaches the container is a
@@ -39,11 +39,11 @@ server, MySQL and object storage.
     "name": "acme",                     // the project name; absent for driver "none"
     "owner": "app",                     // file drivers: the one service that may open it
     "fixtures": "db/seeds/fixtures.sql",         // repo-relative
-    "seed": { "path": "/sandboxr/cache/acme-3f2a1b.sql.zst", "anonymised": true },
+    "seed": { "path": "/sandboxer/cache/acme-3f2a1b.sql.zst", "anonymised": true },
     "migrate": {
       "workdir": "services",            // repo-relative; omitted means run in an empty directory
       "command": "go run ./cmd/migrate --env local",
-      "since": "20260209",              // exported as SANDBOXR_MIGRATE_SINCE
+      "since": "20260209",              // exported as SANDBOXER_MIGRATE_SINCE
       "failure_pattern": "[0-9]+ failed",
       "file_pattern": "[0-9]{8}-[^ ]+\\.sql",
       "error_pattern": "Error [0-9]+ \\([0-9A-Z]+\\):.*"
@@ -75,7 +75,7 @@ server, MySQL and object storage.
 
   "routes": { "app": { "/api": "api", "/cms": "cms" } },
 
-  "env": { "DB_HOST": "${SANDBOXR_DB_HOST}", "S3_BUCKET": "uploads" }
+  "env": { "DB_HOST": "${SANDBOXER_DB_HOST}", "S3_BUCKET": "uploads" }
 }
 ```
 
@@ -95,7 +95,7 @@ server, MySQL and object storage.
 | `deps` | The Node tree: `root`, `lockfile`, `install`. Omitted when there is none |
 | `services` | One flat array — backends first, then front-ends — each with an explicit `kind` |
 | `routes` | Copied from the config verbatim |
-| `env` | Copied verbatim. The container expands `${SANDBOXR_*}` placeholders, not the host |
+| `env` | Copied verbatim. The container expands `${SANDBOXER_*}` placeholders, not the host |
 
 <details class="agent">
 <summary><b>Details for an agent</b> — every field of every service kind</summary>
@@ -135,13 +135,13 @@ path, and never a bare name the container has to resolve against a directory.
 
 | The artifact | `path` | What the host mounts |
 |---|---|---|
-| a dump sandboxr took and cached | `/sandboxr/cache/<name>` | the cache directory, read-only |
-| a `database.seed_from.file` the project declared | `/sandboxr/seed/<name>` | that one file, read-only |
+| a dump sandboxer took and cached | `/sandboxer/cache/<name>` | the cache directory, read-only |
+| a `database.seed_from.file` the project declared | `/sandboxer/seed/<name>` | that one file, read-only |
 
 <details class="why">
 <summary><b>Why it works this way</b> — two kinds of seed artifact, and why one is bind-mounted</summary>
 
-A cached dump is content-addressed into `~/.sandboxr/cache`. The filename is the identity and the
+A cached dump is content-addressed into `~/.sandboxer/cache`. The filename is the identity and the
 directory is fixed at both ends, so a bare name would be enough to find it.
 
 A declared `file:` may be anywhere the user keeps it — deliberately outside every repository, so
@@ -158,15 +158,15 @@ The basename is kept in both cases, because the container chooses zstd, gzip or 
 A fixed mount path would have to guess.
 
 `anonymised` reaches the container so it can say what it restored rather than having to work it out.
-When `seed.path` is absent altogether the driver falls back to the newest dump in `/sandboxr/cache`,
-so a `sandboxr db seed` takes effect without regenerating the plan.
+When `seed.path` is absent altogether the driver falls back to the newest dump in `/sandboxer/cache`,
+so a `sandboxer db seed` takes effect without regenerating the plan.
 
 </details>
 
 ### `env` is for addresses, not secrets
 
 Anything genuinely secret comes from the project's secrets file, which the host mounts read-only at
-`/sandboxr/secrets.env` at mode `0600` and which never appears in the plan. The plan is written at
+`/sandboxer/secrets.env` at mode `0600` and which never appears in the plan. The plan is written at
 ordinary file permissions and is readable by anyone who can read the sandbox's configuration, so it
 carries addresses and never values — the `env:` map refers to a credential by name. Both mounts are
 read-only: a container that could rewrite either could change what it claims to be running or what
@@ -177,30 +177,30 @@ is data, and never a command.
 
 ## What the sandbox computes for itself
 
-The container derives its own addresses and exports them under a `SANDBOXR_` prefix. The `env` map
+The container derives its own addresses and exports them under a `SANDBOXER_` prefix. The `env` map
 is how a project reaches them under its own names.
 
 | Variable | Present when |
 |---|---|
-| `SANDBOXR_DB_DRIVER`, `SANDBOXR_DB_NAME`, `SANDBOXR_DB_DIR` | always |
-| `SANDBOXR_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD` | `driver: mysql` |
-| `SANDBOXR_DB_FILE` | `driver: sqlite` |
-| `SANDBOXR_D1_DIR`, `SANDBOXR_D1_OWNER` | `driver: d1` |
-| `SANDBOXR_S3_ENDPOINT`, `_KEY`, `_SECRET`, `_REGION` | storage is declared |
-| `SANDBOXR_URL_<LABEL>` | one per label, upper-cased with hyphens as underscores |
-| `SANDBOXR_PORT_<SERVICE>` | one per port-holding service |
-| `SANDBOXR_MIGRATE_SINCE` | `migrate.since` is set |
+| `SANDBOXER_DB_DRIVER`, `SANDBOXER_DB_NAME`, `SANDBOXER_DB_DIR` | always |
+| `SANDBOXER_DB_HOST`, `_PORT`, `_USER`, `_PASSWORD` | `driver: mysql` |
+| `SANDBOXER_DB_FILE` | `driver: sqlite` |
+| `SANDBOXER_D1_DIR`, `SANDBOXER_D1_OWNER` | `driver: d1` |
+| `SANDBOXER_S3_ENDPOINT`, `_KEY`, `_SECRET`, `_REGION` | storage is declared |
+| `SANDBOXER_URL_<LABEL>` | one per label, upper-cased with hyphens as underscores |
+| `SANDBOXER_PORT_<SERVICE>` | one per port-holding service |
+| `SANDBOXER_MIGRATE_SINCE` | `migrate.since` is set |
 
-`SANDBOXR_URL_<LABEL>` exists because only the container knows both the slug and the domain at the
+`SANDBOXER_URL_<LABEL>` exists because only the container knows both the slug and the domain at the
 moment a build runs. Same-origin API calls do not need it — the router serves `/api` on the app's
 own hostname — but a link from one app to another needs an absolute, slug-bearing URL.
 
 > [!TIP] `migrate.since` arrives as a variable, not a flag
-> sandboxr cannot guess a runner's flag spelling, so the command has to consume it:
+> sandboxer cannot guess a runner's flag spelling, so the command has to consume it:
 >
 > ```yaml
 > migrate:
->   command: go run ./cmd/migrate --since "$SANDBOXR_MIGRATE_SINCE"
+>   command: go run ./cmd/migrate --since "$SANDBOXER_MIGRATE_SINCE"
 > ```
 
 The full list of variables, on both sides, is in
@@ -208,7 +208,7 @@ The full list of variables, on both sides, is in
 
 ## Where it lives, and what else is mounted
 
-The plan is written on the host at `~/.sandboxr/build/<project>/<slug>.plan.json` and mounted
+The plan is written on the host at `~/.sandboxer/build/<project>/<slug>.plan.json` and mounted
 **read-only**. A container that could rewrite its own plan could change what it claims to be
 running.
 
@@ -218,13 +218,13 @@ running.
 | Inside the container | What it is |
 |---|---|
 | `/workspace` | the worktree, bind-mounted read-write |
-| `/sandboxr/plan.json` | the plan, read-only |
-| `/sandboxr/cache` | the host's seed cache, read-only |
-| `/sandboxr/seed/<name>` | a declared seed file — that one file, read-only. Only when the project declares one outside the cache |
-| `/var/log/sandboxr` | per-sandbox logs, so they outlive the container |
-| `/var/lib/sandboxr/data` | the database volume. Only for a driver that needs one |
-| `/var/lib/sandboxr/blob` | the object-storage volume. Only when storage is declared |
-| `/var/lib/sandboxr/bin` | built binaries |
+| `/sandboxer/plan.json` | the plan, read-only |
+| `/sandboxer/cache` | the host's seed cache, read-only |
+| `/sandboxer/seed/<name>` | a declared seed file — that one file, read-only. Only when the project declares one outside the cache |
+| `/var/log/sandboxer` | per-sandbox logs, so they outlive the container |
+| `/var/lib/sandboxer/data` | the database volume. Only for a driver that needs one |
+| `/var/lib/sandboxer/blob` | the object-storage volume. Only when storage is declared |
+| `/var/lib/sandboxer/bin` | built binaries |
 | `/srv/www` | built websites |
 | `/workspace/<deps.root>/node_modules` | the shared dependency volume, keyed on the lockfile hash |
 | `/go/cache`, `/go/pkg/mod` | Go's build and module caches, shared machine-wide. Only for a Go toolchain |
@@ -242,7 +242,7 @@ whose `.git` is inside `/workspace` already.
 The host-side constants for every path above are in `packages/core/src/sandbox/layout.ts`, which
 must agree with `container/README.md` exactly.
 
-`SANDBOXR_SLUG` is the one environment variable the container **requires**. Everything else has a
+`SANDBOXER_SLUG` is the one environment variable the container **requires**. Everything else has a
 default.
 
 </details>

@@ -1,12 +1,12 @@
 /**
- * Every host path sandboxr owns, from contracts §4.
+ * Every host path sandboxer owns, from contracts §4.
  *
- * All of it hangs off SANDBOXR_HOME (default `~/.sandboxr`), which is
+ * All of it hangs off SANDBOXER_HOME (default `~/.sandboxer`), which is
  * deliberately outside any repository so `git clean` cannot destroy a seed
  * cache or a certificate.
  */
 
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 
@@ -37,8 +37,8 @@ export function samePath(a: string, b: string): boolean {
  * Whether one path is the same as, or under, another.
  *
  * Path arithmetic with a separator guard rather than `startsWith` alone: a
- * workspace at `/srv/sandboxr-other` would otherwise count as inside
- * `/srv/sandboxr` and silently lose its mount.
+ * workspace at `/srv/sandboxer-other` would otherwise count as inside
+ * `/srv/sandboxer` and silently lose its mount.
  */
 export function isInside(child: string, parent: string): boolean {
   const rel = relative(parent, child);
@@ -56,7 +56,7 @@ export function isInside(child: string, parent: string): boolean {
 export const WORKTREES_DIR = "wt";
 
 export interface Paths {
-  /** SANDBOXR_HOME itself. */
+  /** SANDBOXER_HOME itself. */
   home: string;
   /** Database seed artifacts, content-addressed. */
   cache: string;
@@ -81,9 +81,9 @@ export interface Paths {
    * The Unix sockets the host's own long-lived processes listen on: the voice
    * sidecar's, and the telegram sidecar's.
    *
-   * Under `SANDBOXR_HOME` rather than on a named Docker volume, and that is the
+   * Under `SANDBOXER_HOME` rather than on a named Docker volume, and that is the
    * whole reason it is here: the dashboard already bind-mounts the home at the
-   * *identical path inside and out*, so one `SANDBOXR_VOICE_SOCKET` value is
+   * *identical path inside and out*, so one `SANDBOXER_VOICE_SOCKET` value is
    * correct on the host, in the dashboard and in the sidecar at once. A named
    * volume would need every one of them to mount it and would make the path mean
    * something different on each side.
@@ -105,8 +105,8 @@ export interface Paths {
   /**
    * The projects this machine can start a sandbox for, one directory each.
    *
-   * Outside the rest of the tree in spirit: everything else under SANDBOXR_HOME
-   * is something sandboxr generated and can regenerate, whereas this holds
+   * Outside the rest of the tree in spirit: everything else under SANDBOXER_HOME
+   * is something sandboxer generated and can regenerate, whereas this holds
    * checkouts of other people's repositories. It is still under the home so
    * there is one directory to mount into the dashboard and one to back up.
    */
@@ -127,7 +127,7 @@ export interface Paths {
   /**
    * The heartbeat saying a live process holds a socket open on one sandbox.
    *
-   * Keyed like `keepFile` — on the `sandboxr.project` of the container, not the
+   * Keyed like `keepFile` — on the `sandboxer.project` of the container, not the
    * workspace directory — because it is joined to a sandbox and not to a
    * worktree. Only the mtime is read; see sandbox/attach.ts for why this is the
    * one activity signal that is written rather than derived.
@@ -138,7 +138,7 @@ export interface Paths {
    *
    * `<project>` here is the workspace *directory* name — §4.1's key, and the
    * one the worktree's own path is built from — not the `project:` a
-   * sandboxr.yaml declares, which is what `keepFile` beside it is keyed on. The
+   * sandboxer.yaml declares, which is what `keepFile` beside it is keyed on. The
    * two are allowed to differ, and this file names a directory on disk rather
    * than a container.
    */
@@ -160,6 +160,36 @@ export interface Paths {
 }
 
 /**
+ * A sentence for somebody whose state is still under the old name, or nothing.
+ *
+ * The tool was called `sandboxr` and kept everything in `~/.sandboxr`: the
+ * certificates, `config.yaml`, every `secrets/<project>.env`, the slug tokens
+ * that cannot be re-derived (contracts §4.2.3), and `workspace/`, which holds
+ * every bare clone and every worktree on the machine. Under the new name
+ * `paths()` resolves `~/.sandboxer`, finds nothing, and `init` builds a fresh
+ * tree beside the old one — so the machine looks new, the projects look gone,
+ * and the thing that actually happened is invisible.
+ *
+ * **It says so and moves nothing.** An automatic `mv` of a directory this
+ * important, from a tool the person has just upgraded, is the kind of help that
+ * is only ever noticed when it goes wrong; and there is no safe answer when both
+ * directories exist. One sentence turns a data-loss footgun into an instruction.
+ *
+ * Read-only: `existsSync` twice, no write, no side effect. Returns `undefined`
+ * when `SANDBOXER_HOME` is set (the person has said where their state is), when
+ * the new home already exists, or when there is no old one — which is every
+ * machine that never ran `sandboxr`.
+ */
+export function legacyHomeNotice(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (env.SANDBOXER_HOME !== undefined && env.SANDBOXER_HOME !== "") return undefined;
+  const home = env.HOME !== undefined && env.HOME !== "" ? env.HOME : homedir();
+  const current = join(home, ".sandboxer");
+  const legacy = join(home, ".sandboxr");
+  if (existsSync(current) || !existsSync(legacy)) return undefined;
+  return `Your state from the old name is still at ${legacy}. Run \`mv ${legacy} ${current}\` to keep it — nothing here moves it for you.`;
+}
+
+/**
  * Resolves the path set from an environment.
  *
  * Takes the environment as an argument rather than reading `process.env`
@@ -167,11 +197,18 @@ export interface Paths {
  * mutating the process.
  */
 export function paths(env: NodeJS.ProcessEnv = process.env): Paths {
-  const home = env.SANDBOXR_HOME && env.SANDBOXR_HOME !== "" ? env.SANDBOXR_HOME : join(homedir(), ".sandboxr");
+  // `env.HOME` before `homedir()`, which on this platform is the same answer
+  // when `env` is the process environment — `os.homedir()` reads $HOME first —
+  // and a different one when a test hands in an environment of its own. That
+  // is what lets a test drive `init` against a fake home without setting
+  // SANDBOXER_HOME, which is the one case where `legacyHomeNotice` has something
+  // to say.
+  const userHome = env.HOME !== undefined && env.HOME !== "" ? env.HOME : homedir();
+  const home = env.SANDBOXER_HOME && env.SANDBOXER_HOME !== "" ? env.SANDBOXER_HOME : join(userHome, ".sandboxer");
   // Its own variable rather than always under the home, because the projects
   // are the one thing here worth putting on a different disk.
   const workspace =
-    env.SANDBOXR_WORKSPACE && env.SANDBOXR_WORKSPACE !== "" ? env.SANDBOXR_WORKSPACE : join(home, "workspace");
+    env.SANDBOXER_WORKSPACE && env.SANDBOXER_WORKSPACE !== "" ? env.SANDBOXER_WORKSPACE : join(home, "workspace");
 
   return {
     home,

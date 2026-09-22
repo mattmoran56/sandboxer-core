@@ -17,7 +17,7 @@ set -uo pipefail
 NAME="${1:?logged.sh needs a service name}"
 shift
 
-LOGS="${SANDBOXR_LOGS:-/var/log/sandboxr}"
+LOGS="${SANDBOXER_LOGS:-/var/log/sandboxer}"
 LOG="$LOGS/$NAME.log"
 mkdir -p "$LOGS"
 

@@ -69,7 +69,7 @@ export const docsAssets = (): Plugin => {
   let config: ResolvedConfig;
 
   return {
-    name: "sandboxr:docs-assets",
+    name: "sandboxer:docs-assets",
 
     configResolved(resolved) {
       config = resolved;

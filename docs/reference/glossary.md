@@ -3,14 +3,14 @@ title: Glossary
 description: Every term these pages use in a narrower sense than plain English, defined once and linked to the page that explains it.
 ---
 
-Every word sandboxr uses precisely, in one list. Each entry is one or two sentences, and links the
+Every word sandboxer uses precisely, in one list. Each entry is one or two sentences, and links the
 page that explains the thing properly.
 
 ## A
 
 **Anonymised** — an assertion, made by whoever wrote the config, that a database dump carries no
 real personal data. `anonymised: true` beside a `seed_from.file` is the only thing that lets a
-`public` project restore that dump. sandboxr cannot check it. See
+`public` project restore that dump. sandboxer cannot check it. See
 [Access and security](../access.md).
 
 **Access tier** — the three settings under `access:` in a config. `apps` decides whether the
@@ -18,8 +18,8 @@ sandbox's apps are open to anyone with the URL, `credentials` decides whether re
 credentials may reach it, and `controls` is always `password`. See
 [Access and security](../access.md).
 
-**Advisory lock** — a named lock a migration takes so two runs cannot overlap. sandboxr's is
-`sandboxr_migrate_<project>_<slug>`. See [Databases](../databases.md).
+**Advisory lock** — a named lock a migration takes so two runs cannot overlap. sandboxer's is
+`sandboxer_migrate_<project>_<slug>`. See [Databases](../databases.md).
 
 **Agent prompt** — a block of text on one of these pages that you copy into a coding agent, so it
 does the task for you. All of them are collected on
@@ -31,18 +31,18 @@ does the task for you. All of them are collected on
 Declared under `backends:`. See [The three runtime kinds](../configuration/runtime-kinds.md).
 
 **Bare domain** — the domain on its own, with nothing in front of it. It is never a sandbox's
-hostname. `sandboxr init` prepares it and serves nothing on it, so it is where a control plane of
+hostname. `sandboxer init` prepares it and serves nothing on it, so it is where a control plane of
 your own would go. See [Access and security](../access.md).
 
-**Base image** — `sandboxr/base`, the generic image every sandbox on the machine shares: the
+**Base image** — `sandboxer/base`, the generic image every sandbox on the machine shares: the
 supervisor, the in-container router, the object store, `git`, `gh` and the container scripts. No
-coding agent, and nothing project-specific. Built by `sandboxr init`. See
+coding agent, and nothing project-specific. Built by `sandboxer init`. See
 [Install it](../getting-started/install.md).
 
 **Bind mount** — the mechanism that lets a container see a directory on your computer directly,
 rather than a copy of it. Your worktree is bind-mounted at `/workspace`. See [Paths](paths.md).
 
-**Blob volume** — `sandboxr-blob-<project>-<slug>`, holding one sandbox's uploaded files. See
+**Blob volume** — `sandboxer-blob-<project>-<slug>`, holding one sandbox's uploaded files. See
 [Paths](paths.md).
 
 ## C
@@ -50,7 +50,7 @@ rather than a copy of it. Your worktree is bind-mounted at `/workspace`. See [Pa
 **Caddy** — the router *inside* each sandbox. It splits traffic by label and by route prefix, and
 serves the status surface. See [How a request arrives](../architecture/request-path.md).
 
-**Container** — one running sandbox, named `sandboxr-<project>-<slug>`. One container per worktree,
+**Container** — one running sandbox, named `sandboxer-<project>-<slug>`. One container per worktree,
 holding every service that worktree needs. See
 [How it works, in five steps](../how-it-works.md).
 
@@ -66,7 +66,7 @@ field and enforces nothing: it is a statement for whatever is on the bare domain
 services are started deliberately, because inspecting a failed migration is a reason the sandbox
 exists. See [Testing a migration](../guides/testing-a-migration.md).
 
-**Dependency volume** — `sandboxr-deps-<hash>`, holding one installed `node_modules` tree. The hash
+**Dependency volume** — `sandboxer-deps-<hash>`, holding one installed `node_modules` tree. The hash
 is the lockfile's, so every sandbox with the same dependencies shares one install. See
 [One repo, many branches](../setups/one-repo-many-worktrees.md).
 
@@ -74,15 +74,15 @@ is the lockfile's, so every sandbox with the same dependencies shares one instal
 runs a branch that is already checked out somewhere else, and it is normal rather than a failure.
 See [Several repositories at once](../setups/many-projects.md).
 
-**Dirty** — a sandbox built from a worktree that had uncommitted changes. `sandboxr ls` marks it
+**Dirty** — a sandbox built from a worktree that had uncommitted changes. `sandboxer ls` marks it
 with a `*`. See [CLI commands](cli.md).
 
 **Display name** — what you have chosen to call a worktree, instead of its branch: "the checkout
 flow rewrite" rather than `feat/tkt-4821`. It is a label and nothing more — the [slug](#s), the
 hostname, the container name and every URL still come from the branch and the directory, so renaming
-a worktree moves no address. Set with `sandboxr worktree name`. See [CLI commands](cli.md).
+a worktree moves no address. Set with `sandboxer worktree name`. See [CLI commands](cli.md).
 
-**Domain** — the hostname suffix everything hangs off. `SANDBOXR_DOMAIN`, default `sbx.localhost`.
+**Domain** — the hostname suffix everything hangs off. `SANDBOXER_DOMAIN`, default `sbx.localhost`.
 See [Environment variables](environment.md).
 
 **Dormant service** — a runtime marked `optional:` that nobody asked to start. It has no route at
@@ -127,14 +127,14 @@ request. See
 
 ## G
 
-**Garbage collection** — `sandboxr gc`. It reaps sandboxes whose worktree is gone, then removes
-sandboxr volumes nothing owns. See [Start, stop, list, clean up](../guides/lifecycle.md).
+**Garbage collection** — `sandboxer gc`. It reaps sandboxes whose worktree is gone, then removes
+sandboxer volumes nothing owns. See [Start, stop, list, clean up](../guides/lifecycle.md).
 
-**Given slug** — the slug sandboxr assigns a worktree whose derived slug was already another
+**Given slug** — the slug sandboxer assigns a worktree whose derived slug was already another
 worktree's: `tkt-4821-7k2f`, four random characters on the end. Two branches on one ticket derive one
 slug, and a slug names the container, the volumes and the database lock — so one slug would be one
 sandbox for two branches. It is recorded, because random characters cannot be derived again, and it
-applies to worktrees sandboxr cut rather than ones you cut yourself. See
+applies to worktrees sandboxer cut rather than ones you cut yourself. See
 [One repo, many branches](../setups/one-repo-many-worktrees.md).
 
 ## H
@@ -144,7 +144,7 @@ applies to worktrees sandboxr cut rather than ones you cut yourself. See
 
 ## I
 
-**Idle clock** — the clock behind a [ttl](#t), read by `sandboxr expire`. It measures **idleness,
+**Idle clock** — the clock behind a [ttl](#t), read by `sandboxer expire`. It measures **idleness,
 not uptime**: the deadline is the later of the container's start time and the last time anybody used
 it, plus the ttl. Two things count as use — a request through the router, and a socket somebody is
 holding open on the sandbox, which keeps it open until it closes. Nothing runs the clock for you.
@@ -152,23 +152,23 @@ See [Start, stop, list, clean up](../guides/lifecycle.md).
 
 ## K
 
-**Keep-alive** — an exemption from the idle clock, set with `sandboxr keep` and removed with
-`sandboxr unkeep`. It is a file on the host, and it records which container it was written for. See
+**Keep-alive** — an exemption from the idle clock, set with `sandboxer keep` and removed with
+`sandboxer unkeep`. It is a file on the host, and it records which container it was written for. See
 [Start, stop, list, clean up](../guides/lifecycle.md).
 
 ## L
 
 **Lockfile** — the file a package manager writes to pin exact dependency versions
-(`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`). sandboxr hashes it to name the
+(`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`). sandboxer hashes it to name the
 shared dependency volume, so two branches with identical lockfiles share one install. See
 [One repo, many branches](../setups/one-repo-many-worktrees.md).
 
 **Label** (config) — the name of one app or one API inside a project, used as a piece of its
 hostname. Two runtimes in one project may not share one. See
-[sandboxr.yaml, field by field](../configuration/sandboxr-yaml.md).
+[sandboxer.yaml, field by field](../configuration/sandboxer-yaml.md).
 
 **Label** (Docker) — where **all** durable state about a sandbox lives. There is no manifest file,
-so `sandboxr ls` is a pure function of `docker ps`. See
+so `sandboxer ls` is a pure function of `docker ps`. See
 [State lives in labels](../architecture/state.md).
 
 **Long-run** — a supervised service that is kept alive and restarted if it dies: a backend, a served
@@ -176,16 +176,16 @@ front-end, the in-container router. See [The startup graph](../architecture/star
 
 ## M
 
-**Machine config** — `~/.sandboxr/config.yaml`, the settings that belong to the machine rather than
+**Machine config** — `~/.sandboxer/config.yaml`, the settings that belong to the machine rather than
 to any project: how long a sandbox may sit unused, and which projects get this machine's GitHub
 token. See [Paths](paths.md).
 
-**Migration** — a schema change, applied by **the project's own migration program**. sandboxr runs
+**Migration** — a schema change, applied by **the project's own migration program**. sandboxer runs
 the command the config names and reads its output. It never reimplements the logic. See
 [Databases](../databases.md).
 
 **mkcert** — the tool that issues the locally-trusted certificate the router serves. It is the only
-certificate issuer sandboxr has. See [Install it](../getting-started/install.md).
+certificate issuer sandboxer has. See [Install it](../getting-started/install.md).
 
 ## O
 
@@ -194,7 +194,7 @@ seed dependencies. One-shots *gate* long-runs, so nothing serves traffic against
 not ready. See [The startup graph](../architecture/startup.md).
 
 **Optional runtime** — a runtime declared `optional: true`, which does not start unless
-`sandboxr up --with <label>` asks for it. See
+`sandboxer up --with <label>` asks for it. See
 [The three runtime kinds](../configuration/runtime-kinds.md).
 
 **Owner** — for `d1` and `sqlite`, the single service allowed to open the database file. Every other
@@ -204,16 +204,16 @@ service is denied the file's location outright. See [Databases](../databases.md)
 
 **Plan** — see [plan.json](#p).
 
-**`plan.json`** — the fully resolved version of `sandboxr.yaml` that the host writes and the
+**`plan.json`** — the fully resolved version of `sandboxer.yaml` that the host writes and the
 container reads. Every default merged, every address computed, all three runtime kinds flattened
-into one list. **Nothing inside a container ever reads `sandboxr.yaml`.** See
+into one list. **Nothing inside a container ever reads `sandboxer.yaml`.** See
 [plan.json](../architecture/plan-json.md).
 
 **Private app** — an app hostname belonging to a project whose `access.apps` is `private`. The
 router will not serve it without a signed-in session on the [bare domain](#b). See
 [Access and security](../access.md).
 
-**Project** — a repository that describes itself in a `sandboxr.yaml`. The `project:` name in that
+**Project** — a repository that describes itself in a `sandboxer.yaml`. The `project:` name in that
 file appears in every hostname, container name and volume name. One project has many sandboxes. See
 [Build your config, step by step](../configuration/index.md).
 
@@ -224,7 +224,7 @@ into it, so every sandbox of the project shares one. See
 
 **Prompt (agent)** — see [agent prompt](#a).
 
-**Prune** — `sandboxr prune`, which reclaims the disk that building left behind. It reports by
+**Prune** — `sandboxer prune`, which reclaims the disk that building left behind. It reports by
 default and removes only with `--yes`. See
 [Giving Docker the whole machine](../guides/docker-capacity.md).
 
@@ -248,7 +248,7 @@ router** is Caddy, inside every container. See
 [How a request arrives](../architecture/request-path.md).
 
 **Runtime** — one thing a project declares and a sandbox runs: a backend, or a front-end. A runtime
-marked `optional:` starts only when `sandboxr up --with <label>` asks for it. Never a short form of
+marked `optional:` starts only when `sandboxer up --with <label>` asks for it. Never a short form of
 *runtime kind*, which is the entry below. See
 [The three runtime kinds](../configuration/runtime-kinds.md).
 
@@ -267,10 +267,10 @@ See [Secrets](../configuration/secrets.md).
 
 **Storage** — the S3-compatible object store inside each sandbox, so uploads never reach a real
 bucket. Declared as `storage: { driver: minio, buckets: [...] }`, and `none` by default. See
-[sandboxr.yaml, field by field](../configuration/sandboxr-yaml.md).
+[sandboxer.yaml, field by field](../configuration/sandboxer-yaml.md).
 
 **Supervisor** — the process inside a container that starts the project's services in the right
-order and restarts one that dies. sandboxr's is [s6](#s). See
+order and restarts one that dies. sandboxer's is [s6](#s). See
 [The startup graph](../architecture/startup.md).
 
 **s6** — the supervisor inside each container. It starts each service in order, restarts one that
@@ -279,7 +279,7 @@ dies, and compiles its service list once, before anything runs. See
 
 **Sandbox** — a complete, disposable copy of a project running in one container: its services, its
 front-ends, its own database, its own file storage. One per branch. See
-[What sandboxr is](../introduction.md).
+[What sandboxer is](../introduction.md).
 
 **Seed** — the starting data a sandbox's database is filled with. See
 [Databases](../databases.md).
@@ -300,7 +300,7 @@ in memory whether or not anyone opens it. See
 preference, from an explicit argument, a slug recorded for the worktree, a ticket-style id in the
 worktree directory name, that pattern in the branch name, the branch name, then the directory name.
 Capped at **31 characters**, and hashed rather than truncated past that. Two worktrees of one project
-cannot share one, so the second worktree sandboxr cuts for a ticket is *given* a slug — see
+cannot share one, so the second worktree sandboxer cuts for a ticket is *given* a slug — see
 [Given slug](#g). See [How it works, in five steps](../how-it-works.md).
 
 **Snapshot** — the schema of a sandbox's database, printed. Two snapshots and `diff` is how you see
@@ -313,9 +313,9 @@ at startup. See [The three runtime kinds](../configuration/runtime-kinds.md).
 **`static_mode`** — how a built directory is served. `spa` sends every unknown path to `index.html`,
 `html` looks up `about.html` when asked for `/about`, `files` returns a real 404. Declared rather
 than guessed, because the wrong value **half-works** instead of failing. See
-[sandboxr.yaml, field by field](../configuration/sandboxr-yaml.md).
+[sandboxer.yaml, field by field](../configuration/sandboxer-yaml.md).
 
-**Status surface** — the paths under `/__sandboxr/` that every sandbox answers on *every* hostname it
+**Status surface** — the paths under `/__sandboxer/` that every sandbox answers on *every* hostname it
 serves, whether or not its database is ready. See
 [How a request arrives](../architecture/request-path.md).
 
@@ -323,7 +323,7 @@ serves, whether or not its database is ready. See
 
 **Toolchain** — the language runtimes a project asks for, as `toolchain: { go, node }`. They are
 installed into the project layer. See
-[sandboxr.yaml, field by field](../configuration/sandboxr-yaml.md).
+[sandboxer.yaml, field by field](../configuration/sandboxer-yaml.md).
 
 **Traefik** — the shared router: one container per machine, in front of every sandbox. It reconciles
 from Docker labels, so starting a sandbox writes no config file. See
@@ -335,16 +335,16 @@ of seconds, or `never`. Default 12 hours. See
 
 ## W
 
-**Workspace** — the repositories sandboxr keeps for itself, one directory per project, so a sandbox
+**Workspace** — the repositories sandboxer keeps for itself, one directory per project, so a sandbox
 can be a branch you pick rather than a worktree you made by hand. See
 [Several repositories at once](../setups/many-projects.md).
 
 **Worktree** — a second checkout of the same repository, made with `git worktree add`, so several
-branches are open at once sharing one `.git`. sandboxr works from worktrees rather than clones, so a
+branches are open at once sharing one `.git`. sandboxer works from worktrees rather than clones, so a
 sandbox is always tied to exactly one branch. See
 [How it works, in five steps](../how-it-works.md).
 
 ---
 
 **Next:** [Cheat sheet](cheat-sheet.md) for the same facts as commands and tables, or
-[What sandboxr is](../introduction.md) if a definition here raised a bigger question.
+[What sandboxer is](../introduction.md) if a definition here raised a bigger question.

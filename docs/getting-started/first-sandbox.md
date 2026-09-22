@@ -6,8 +6,8 @@ description: One worktree, one container, one URL — what happens in what order
 This page starts one sandbox from a git worktree, shows you what happened, and then deletes it.
 Five commands in total.
 
-You need a machine that has had [`sandboxr init`](install.md) run on it, and a project with a
-`sandboxr.yaml` at its root. If your project has no config yet,
+You need a machine that has had [`sandboxer init`](install.md) run on it, and a project with a
+`sandboxer.yaml` at its root. If your project has no config yet,
 [Build your config, step by step](../configuration/index.md) starts from an empty file. If you
 would rather borrow a project that already works, use
 [the demo project](demo-project.md) instead.
@@ -15,19 +15,19 @@ would rather borrow a project that already works, use
 ```prompt
 Start a sandbox for this worktree and confirm it serves.
 
-Read docs/getting-started/first-sandbox.md and follow it. Run `sandboxr up` in the worktree, then
-open the URL it prints and confirm it answers. Report the URL and the output of `sandboxr status`.
+Read docs/getting-started/first-sandbox.md and follow it. Run `sandboxer up` in the worktree, then
+open the URL it prints and confirm it answers. Report the URL and the output of `sandboxer status`.
 
 Stop and ask me if:
-- There is no sandboxr.yaml in this project. Do not write one without asking.
-- `sandboxr up` exits with code 3. That means the sandbox is up but its migrations failed — show
-  me `sandboxr logs` and wait.
+- There is no sandboxer.yaml in this project. Do not write one without asking.
+- `sandboxer up` exits with code 3. That means the sandbox is up but its migrations failed — show
+  me `sandboxer logs` and wait.
 - It refuses to start because the project serves public apps and has real credentials on this
   machine.
 - An app answers 503 with a page naming a build command. Ask before running a build; some cost
   minutes and gigabytes.
 
-Do not run `sandboxr down` unless I ask. That deletes the sandbox's database.
+Do not run `sandboxer down` unless I ask. That deletes the sandbox's database.
 ```
 
 ## 1. Make a worktree
@@ -42,23 +42,23 @@ git worktree add .worktrees/tkt-4821 -b tkt-4821
 ```
 
 > [!NOTE] The name comes from the directory or the branch
-> sandboxr looks for a ticket-shaped id — letters, a dash, digits — first in the worktree
+> sandboxer looks for a ticket-shaped id — letters, a dash, digits — first in the worktree
 > directory's name, then in the branch name. Failing both it uses the branch name, then the
 > directory name. So `.worktrees/feat-tkt-4821-rework-the-thing` still becomes `tkt-4821`. Pass
-> your own with `sandboxr up my-name`.
+> your own with `sandboxer up my-name`.
 
 ## 2. Start it
 
 ```bash
 cd .worktrees/tkt-4821
-sandboxr up
+sandboxer up
 ```
 
 ```
 ==> Seeding: empty, then migrations and seeds/fixtures.sql
-==> Building sandboxr/acme:8f2c1a94d0b7
+==> Building sandboxer/acme:8f2c1a94d0b7
 ==> acme has no GitHub token: git commit works in this sandbox, gh and git push do not.
-      Set projects.acme.github: token in /home/you/.sandboxr/config.yaml, and check
+      Set projects.acme.github: token in /home/you/.sandboxer/config.yaml, and check
       whatever runs commands in there may use gh and git push.
 ==> Starting tkt-4821 from tkt-4821@a1b2c3d
 ==> Applied fixtures from seeds/fixtures.sql
@@ -71,7 +71,7 @@ sandboxr up
 Open one of those URLs. That is your branch, running.
 
 Hostnames are always `<slug>--<label>--<project>.<domain>`. The slug is this sandbox, the label is
-one app or service in the project, and the project is the name in its `sandboxr.yaml`.
+one app or service in the project, and the project is the name in its `sandboxer.yaml`.
 
 The line about the GitHub token is said on every start where the token is off, which is the default.
 Nothing is broken — `git commit` works inside the sandbox exactly as it does outside — but pushing
@@ -85,39 +85,39 @@ or its lockfile builds nothing at all and starts in seconds.
 
 ### What happened, in order
 
-1. sandboxr worked out which worktree you meant, loaded `sandboxr.yaml`, and asked git for the
+1. sandboxer worked out which worktree you meant, loaded `sandboxer.yaml`, and asked git for the
    branch and commit.
 2. It derived the slug from the directory and the branch.
 3. It picked a database seed source and produced the seed on the host, before the container
    existed.
 4. It resolved the project's dependency tree and wrote a `plan.json` — the container's only view
-   of your project. Nothing inside a sandbox reads `sandboxr.yaml`.
+   of your project. Nothing inside a sandbox reads `sandboxer.yaml`.
 5. It built the project image layer, if a matching one was not already there.
 6. It issued a certificate covering this sandbox's hostnames, when the router is serving HTTPS.
 7. It started the container, mounting your worktree at `/workspace`.
 8. Inside, the container read the plan, wrote its own service tree, and started up. Its own web
    server comes up immediately; the project's services wait for the database to be ready.
-9. Back on the host, sandboxr staged the database copy, ran your migration command, and applied
+9. Back on the host, sandboxer staged the database copy, ran your migration command, and applied
    your fixtures.
 10. It printed one URL per app.
 
-Nothing on the host records that this sandbox exists. Everything sandboxr knows about it lives in
-labels on the container, which is why `sandboxr ls` cannot disagree with reality.
+Nothing on the host records that this sandbox exists. Everything sandboxer knows about it lives in
+labels on the container, which is why `sandboxer ls` cannot disagree with reality.
 
 ### Starting one that already exists
 
 Not an error. The container is replaced from the current config and the current commit, and its
 volumes carry straight over. That is what makes `up` the right command after you edit
-`sandboxr.yaml`.
+`sandboxer.yaml`.
 
 ### If it comes up degraded
 
-`sandboxr up` exits with code **3** when the sandbox is running but its migrations failed. That is
+`sandboxer up` exits with code **3** when the sandbox is running but its migrations failed. That is
 deliberate: inspecting a failed migration is one of the reasons the sandbox exists, so it is not
 torn down. See [Testing a migration](../guides/testing-a-migration.md).
 
 <details class="agent">
-<summary><b>Details for an agent</b> — every flag <code>sandboxr up</code> and <code>sandboxr down</code> accept</summary>
+<summary><b>Details for an agent</b> — every flag <code>sandboxer up</code> and <code>sandboxer down</code> accept</summary>
 
 `up [slug]` — the positional argument is the slug, and it wins over everything derived.
 
@@ -157,17 +157,17 @@ a failure.
 
 | Path | What |
 |---|---|
-| `~/.sandboxr/build/<project>/<slug>.plan.json` | The plan this sandbox is running |
-| `~/.sandboxr/build/<project>/<slug>.env` | The generated environment, rewritten on every start |
-| `~/.sandboxr/logs/<project>/<slug>/` | Logs that outlive the container |
-| `~/.sandboxr/cache/` | The seed cache, mounted read-only into every sandbox |
+| `~/.sandboxer/build/<project>/<slug>.plan.json` | The plan this sandbox is running |
+| `~/.sandboxer/build/<project>/<slug>.env` | The generated environment, rewritten on every start |
+| `~/.sandboxer/logs/<project>/<slug>/` | Logs that outlive the container |
+| `~/.sandboxer/cache/` | The seed cache, mounted read-only into every sandbox |
 
 </details>
 
 ## 3. Check it is healthy
 
 ```bash
-sandboxr status
+sandboxer status
 ```
 
 ```
@@ -190,13 +190,13 @@ database is still restoring. No CLI needed:
 
 | Path | Answers |
 |---|---|
-| `/__sandboxr/live` | `ok`, unconditionally — the container and its own web server are up |
-| `/__sandboxr/status.json` | `booting`, `ok` or `degraded`, plus the migration verdict |
-| `/__sandboxr/built.json` | Every app label, and when each was last built |
-| `/__sandboxr/health/<service>` | Proxied to that service's own health path |
+| `/__sandboxer/live` | `ok`, unconditionally — the container and its own web server are up |
+| `/__sandboxer/status.json` | `booting`, `ok` or `degraded`, plus the migration verdict |
+| `/__sandboxer/built.json` | Every app label, and when each was last built |
+| `/__sandboxer/health/<service>` | Proxied to that service's own health path |
 
 ```bash
-curl -s https://tkt-4821--app--acme.sbx.localhost/__sandboxr/live
+curl -s https://tkt-4821--app--acme.sbx.localhost/__sandboxer/live
 ```
 
 ## 4. Build a front-end
@@ -208,21 +208,21 @@ That is deliberate. A sandbox has to come up in seconds, and the heaviest app in
 cost minutes and gigabytes.
 
 ```bash
-sandboxr reload --web=app     # build one app
-sandboxr reload --web=all     # build every app in the build-everything set
-sandboxr reload --web=built   # rebuild only what this sandbox has already built
+sandboxer reload --web=app     # build one app
+sandboxer reload --web=all     # build every app in the build-everything set
+sandboxer reload --web=built   # rebuild only what this sandbox has already built
 ```
 
 An app that is a long-running dev server rather than a build is **restarted** instead, and says
-so. Backends are `sandboxr reload --go`. The whole loop is in
+so. Backends are `sandboxer reload --go`. The whole loop is in
 [The edit–reload loop](../guides/edit-and-reload.md).
 
 ## 5. Look inside
 
 ```bash
-sandboxr logs -f          # the container's own log stream
-sandboxr shell            # a shell inside, starting in /workspace
-sandboxr db shell         # an interactive database prompt
+sandboxer logs -f          # the container's own log stream
+sandboxer shell            # a shell inside, starting in /workspace
+sandboxer db shell         # an interactive database prompt
 ```
 
 Inside the shell, `/workspace` **is** your worktree. Edit a file there and it changes on your host;
@@ -232,42 +232,42 @@ immediately. There is no sync step and no watcher.
 ## 6. Throw it away
 
 ```bash
-sandboxr down
+sandboxer down
 ```
 
 That removes the container, the database, the file storage, the built binaries and the built
 front-ends. It does **not** touch your worktree, your branch, or the database your seed came from.
 
-`sandboxr down --keep` removes the container and leaves the volumes, so the next `up` reuses the
+`sandboxer down --keep` removes the container and leaves the volumes, so the next `up` reuses the
 same database.
 
 ```bash
 git worktree remove .worktrees/tkt-4821
-sandboxr gc                # reap sandboxes whose worktree is gone
+sandboxer gc                # reap sandboxes whose worktree is gone
 ```
 
 Those two are the long way round, and they leave the sandbox running in between. A worktree cut
-into sandboxr's own workspace is finished off in one command, sandbox first:
+into sandboxer's own workspace is finished off in one command, sandbox first:
 
 ```bash
-sandboxr worktree delete acme feat/tkt-4821
+sandboxer worktree delete acme feat/tkt-4821
 ```
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — the failures specific to a first <code>up</code></summary>
 
-**`no sandboxr.yaml here or in any parent`** — you are not in a project that describes itself. Run
-`sandboxr config` to see where it looked. [Build your config, step by step](../configuration/index.md)
+**`no sandboxer.yaml here or in any parent`** — you are not in a project that describes itself. Run
+`sandboxer config` to see where it looked. [Build your config, step by step](../configuration/index.md)
 is the way in.
 
 **`The shared router is not running, so this sandbox will have no hostname.`** — a warning, not a
-refusal. The sandbox is running and useful; it just has no URL. Run `sandboxr init`.
+refusal. The sandbox is running and useful; it just has no URL. Run `sandboxer init`.
 
 **The URL loads but shows a 503 naming a build command** — that is the intended answer for an app
 nobody has built yet. Run the command it names.
 
 **`up` exits 3** — migrations failed and the sandbox is up so you can look at it.
-`sandboxr logs` and `sandboxr db shell` are the next two commands, and both are printed for you.
+`sandboxer logs` and `sandboxer db shell` are the next two commands, and both are printed for you.
 
 Everything else, by symptom, is in [Troubleshooting](../troubleshooting.md).
 

@@ -22,7 +22,7 @@ See [contracts §2](contracts.md).
 not.
 
 ```prompt
-I want to change how sandboxr behaves. Before you write anything, work out which package the
+I want to change how sandboxer behaves. Before you write anything, work out which package the
 change belongs in.
 
 Read docs/architecture/packages.md, then docs/architecture/contracts.md. Follow these rules:
@@ -37,13 +37,13 @@ commit message.
 
 ## `packages/core`
 
-**What it owns.** Everything. Reading and validating `sandboxr.yaml`. Deriving slugs, hostnames,
+**What it owns.** Everything. Reading and validating `sandboxer.yaml`. Deriving slugs, hostnames,
 container names, volume names and image tags. Emitting [`plan.json`](plan-json.md). Building the
 project's image layer. Working out the `docker run` arguments, the mounts and the memory limit.
 The four database drivers. The shared router and the certificates. The git and GitHub plumbing.
 The lifecycle verbs.
 
-**Not** an agent, and **not** a control plane. sandboxr runs a worktree in a container and has no
+**Not** an agent, and **not** a control plane. sandboxer runs a worktree in a container and has no
 name for a coding agent at all. It prepares the bare domain and leaves it empty — contracts §7.2 —
 and starts nothing there.
 
@@ -68,18 +68,18 @@ that file is a contract.
 
 | Module | Answers |
 |---|---|
-| `config/schema.ts` | Every `sandboxr.yaml` field. Zod, strict objects, so a misspelled key is an error naming the key |
+| `config/schema.ts` | Every `sandboxer.yaml` field. Zod, strict objects, so a misspelled key is an error naming the key |
 | `config/load.ts` | Loading and resolving a config. `ConfigError`, `loadConfig`, `resolveConfig`, `projectPath` |
 | `config/locate.ts` | Where the config file is. The bounded walk up, and the workspace fallback |
 | `config/access.ts` | Whether a `public` project is allowed to start. `publicAccessViolations`, `permittedSeeds`, `allowsRealCredentials` |
-| `config/machine.ts` | `~/.sandboxr/config.yaml`: the machine's own `ttl` and `github` settings, and their precedence |
+| `config/machine.ts` | `~/.sandboxer/config.yaml`: the machine's own `ttl` and `github` settings, and their precedence |
 | `config/plan.ts` | `plan.json`. `planFor`, `writePlan`, `planPorts` |
-| `config/version.ts` | The `sandboxr:` version range |
+| `config/version.ts` | The `sandboxer:` version range |
 | `naming.ts` | Slugs, hostnames, container and volume names, image repositories, the migration lock name. `DEFAULT_DOMAIN`, `SLUG_MAX`, `NETWORK`, `SHARED_VOLUMES`, `PROTECTED_IMAGES` |
-| `paths.ts` | Every host path under `SANDBOXR_HOME` that the engine owns |
+| `paths.ts` | Every host path under `SANDBOXER_HOME` that the engine owns |
 | `docker.ts` | A typed wrapper over the `docker` CLI. Arguments are arrays, never shell strings, and the runner is injectable |
 | `image.ts` | Rendering the project Dockerfile template, staging manifests, and the content-addressed tag |
-| `install.ts` | Where this installation of sandboxr lives, so an embedder can mount it |
+| `install.ts` | Where this installation of sandboxer lives, so an embedder can mount it |
 | `secrets.ts` | Reading, editing, importing, filtering and checking a project's third-party credentials |
 | `git.ts` | `gitFacts`, `gitMounts`, `hostGitIdentity` — what makes git work inside a container |
 | `forge.ts` | Everything that shells out to `gh`: repositories, pull requests, merged branches, and `createPullIndex` — a project's pull requests by branch, cached and bounded by a timeout so a hung `gh` cannot stall a page |
@@ -111,7 +111,7 @@ the specifier for anything that is not relative, `node:`-prefixed or one of thos
 **What it owns.** Argument parsing, dispatch, and printing. One command does one thing and prints
 the result.
 
-**Its public surface** is the `sandboxr` binary, and the `USAGE` constant in
+**Its public surface** is the `sandboxer` binary, and the `USAGE` constant in
 `packages/cli/src/main.ts` is the real, complete list of commands and flags. Every command returns
 an exit code rather than calling `process.exit`, so the whole surface can be driven from a test.
 
@@ -126,7 +126,7 @@ a sandbox is, the logic is in the wrong package.
 
 | File | What it is |
 |---|---|
-| `bin/sandboxr.js` | The entry point named in `package.json`'s `bin` |
+| `bin/sandboxer.js` | The entry point named in `package.json`'s `bin` |
 | `src/main.ts` | Dispatch, and `USAGE` — the authoritative command surface |
 | `src/args.ts` | `parseArgs`, `flagString`, `flagBoolean`, `flagNumber`, `flagList` |
 | `src/output.ts` | `Output`, which writes human text to stderr and `--json` to stdout |
@@ -134,7 +134,7 @@ a sandbox is, the logic is in the wrong package.
 Human-readable output goes to **stderr**; `--json` puts the result on **stdout**. That split is
 what makes a command pipeable without losing its narration.
 
-The package's only dependency is `@sandboxr/core`, and `src/boundary.test.ts` is the cut-down
+The package's only dependency is `@sandboxer/core`, and `src/boundary.test.ts` is the cut-down
 half of core's: the CLI is the engine's whole face, so an import from outside the engine here
 would ship in the binary a colleague installs.
 
@@ -169,7 +169,7 @@ with `shiki`.
 - `docs/architecture/contracts.md`, `packages/docs/AUTHORING.md` and any `README.md` are
   deliberately **not** site pages.
 
-This package depends on `@sandboxr/tokens`, so the two share one design system rather than
+This package depends on `@sandboxer/tokens`, so the two share one design system rather than
 keeping two. It depends on nothing outside the engine: this site is the engine's, and an engine
 package may not depend on a product one.
 
@@ -181,7 +181,7 @@ package may not depend on a product one.
 themes, the fonts, the light/dark mechanism, the base layer and the named shapes. Its header
 comment is the document for it, and [the brand](../brand.md) is that header written for a reader.
 
-**Its public surface** is one export, `@sandboxr/tokens/tokens.css`. There is no build: the file
+**Its public surface** is one export, `@sandboxer/tokens/tokens.css`. There is no build: the file
 is shipped as written, so it declares the three `@fontsource*` packages it imports, and Tailwind
 as a peer — the app's own `@tailwindcss/vite` is what resolves that import, and a second copy
 nested here would be a different Tailwind from the one the plugin runs.
@@ -199,14 +199,14 @@ disagreed about would be visible to anyone who opened both.
 Dockerfile template. The entrypoint. The generators that write the service tree and the internal
 router config. The build, run, database, migration and status scripts.
 
-**Its public surface** is two files and one variable: `/sandboxr/plan.json`, the mounts the host is
-expected to provide, and `SANDBOXR_SLUG`. `container/README.md` is the authoritative specification
+**Its public surface** is two files and one variable: `/sandboxer/plan.json`, the mounts the host is
+expected to provide, and `SANDBOXER_SLUG`. `container/README.md` is the authoritative specification
 of the plan, and `container/examples/*.plan.json` holds two worked examples.
 
 **Who calls it.** Docker, at boot. And `docker exec`, when the host runs a build, a migration or a
 database verb.
 
-**What it may never do.** Read `sandboxr.yaml`. Name a service, port, package or route of its own.
+**What it may never do.** Read `sandboxer.yaml`. Name a service, port, package or route of its own.
 Assume any project toolchain exists — these scripts run under s6 before and sometimes without one.
 
 <details class="agent">
@@ -228,8 +228,8 @@ Assume any project toolchain exists — these scripts run under s6 before and so
 | `scripts/status.sh` | Composes `status.json` from the marker files |
 | `examples/*.plan.json` | Two worked plans, used to exercise the generators |
 
-Both generators are overridable through `SANDBOXR_SCRIPTS`, `SANDBOXR_RUN`, `SANDBOXR_LOGS`,
-`SANDBOXR_STATE`, `SANDBOXR_WWW`, `SANDBOXR_S6_DIR` and `SANDBOXR_S6_SKEL`, so they can be run
+Both generators are overridable through `SANDBOXER_SCRIPTS`, `SANDBOXER_RUN`, `SANDBOXER_LOGS`,
+`SANDBOXER_STATE`, `SANDBOXER_WWW`, `SANDBOXER_S6_DIR` and `SANDBOXER_S6_SKEL`, so they can be run
 against a scratch directory without a container. `container/README.md` has the commands.
 
 </details>
@@ -245,17 +245,17 @@ be invisible.
 | an embedder → `core` | Direct function calls, in process, through one file of the embedder's | **Never shells out to the CLI.** A renamed core export is then a compile error in that one file. One way only, and `packages/core/src/boundary.test.ts` is what says so — core importing anything built on it is the boundary failing, not a shortcut |
 | `core` → `container` | `plan.json`, mounted read-only, plus the environment | The plan is fully resolved. The container never merges a default or infers a kind |
 | `core` → Docker | Container labels, mounts, image tags, and the shared network | State lives only in labels. `list`, and which sandboxes `gc` reaps, are pure functions of `docker ps` |
-| `container` → the host | The status surface over HTTP, and marker files under `/run/sandboxr` | Every writer records a fact. Nothing asserts a state |
+| `container` → the host | The status surface over HTTP, and marker files under `/run/sandboxer` | Every writer records a fact. Nothing asserts a state |
 
 <details class="facts">
 <summary><b>Fact sheet</b> — the real dependency edges, from each package.json</summary>
 
 | Package | Depends on |
 |---|---|
-| `@sandboxr/core` | `yaml`, `zod` |
-| `@sandboxr/cli` | `@sandboxr/core` |
-| `@sandboxr/docs` | `@sandboxr/tokens`, `marked`, `mermaid`, React |
-| `@sandboxr/tokens` | The three `@fontsource*` packages it imports; Tailwind, as a peer |
+| `@sandboxer/core` | `yaml`, `zod` |
+| `@sandboxer/cli` | `@sandboxer/core` |
+| `@sandboxer/docs` | `@sandboxer/tokens`, `marked`, `mermaid`, React |
+| `@sandboxer/tokens` | The three `@fontsource*` packages it imports; Tailwind, as a peer |
 | `container/` | Nothing in `packages/`. Only what the base image guarantees |
 
 **`packages/` is built in directory order, not dependency order.** `npm run build --workspaces`
@@ -270,7 +270,7 @@ package on its own is where it bites.
 
 ```bash
 npm run build                    # every package
-npm --workspace @sandboxr/cli run build    # one package, and its references first
+npm --workspace @sandboxer/cli run build    # one package, and its references first
 ```
 
 </details>

@@ -1,21 +1,21 @@
 ---
 title: The brand
-description: The name, the mark, the palette, the type and the voice — what sandboxr looks and sounds like, and the exact values to build it from.
+description: The name, the mark, the palette, the type and the voice — what sandboxer looks and sounds like, and the exact values to build it from.
 ---
 
-Everything sandboxr shows a person is drawn from one small set of decisions: one name, one mark,
+Everything sandboxer shows a person is drawn from one small set of decisions: one name, one mark,
 one palette, three typefaces, and a way of writing sentences. This page is that set, so a new
 screen, a new page or a new tool can be made to look like the rest of it without guessing.
 
 ```prompt
-Apply the sandboxr brand to a surface I am about to describe, then check the result against the
+Apply the sandboxer brand to a surface I am about to describe, then check the result against the
 brand guide.
 
 Read docs/brand.md first, and then packages/tokens/tokens.css, which is where the values
 actually live. Build the surface from the semantic tokens — surface, line, ink, ink-muted, brand,
 and the status hues — and never from a hex you typed yourself. Headings are the serif, body is the
 sans, anything a machine cares about is the mono. Draw a panel or a card as a hairline on a
-surface, not as a shadow. Write the wordmark as `sandboxr`, with no letterspacing and no
+surface, not as a shadow. Write the wordmark as `sandboxer`, with no letterspacing and no
 tagline.
 
 Stop and ask me if the surface seems to need a colour the palette does not have, a second
@@ -23,24 +23,24 @@ typeface, a gradient, or the mark redrawn rather than rescaled.
 ```
 
 The values live in one stylesheet, `packages/tokens/tokens.css`. It is a package of its own,
-`@sandboxr/tokens`, so that every app built on sandboxr can depend on it and none of them owns it.
+`@sandboxer/tokens`, so that every app built on sandboxer can depend on it and none of them owns it.
 That file is the design system; this page is what it means. Where the two disagree, the file is
 right and this page is the bug.
 
 ## The name
 
-**sandboxr** is the engine. Always lowercase, including at the start of a sentence and in a
+**sandboxer** is the engine. Always lowercase, including at the start of a sentence and in a
 heading, and never letterspaced. The documentation site is the engine's, and its wordmark says
-sandboxr.
+sandboxer.
 
-A product built on sandboxr carries a name of its own, not this one, and writes it by its own
+A product built on sandboxer carries a name of its own, not this one, and writes it by its own
 rules. Nothing here decides what that name is.
 
-In prose sandboxr is an ordinary noun. "sandboxr turns a git worktree into a running copy of a
+In prose sandboxer is an ordinary noun. "sandboxer turns a git worktree into a running copy of a
 whole project, on its own hostname." That sentence is the one-line pitch. Longer descriptions are
 that sentence plus what it costs, never a new one.
 
-The command is `sandboxr` too, and the config file is `sandboxr.yaml`, so the word is never
+The command is `sandboxer` too, and the config file is `sandboxer.yaml`, so the word is never
 capitalised anywhere a reader could copy it into a terminal and be wrong.
 
 <details class="agent">
@@ -48,14 +48,14 @@ capitalised anywhere a reader could copy it into a terminal and be wrong.
 
 | Where | Written |
 |---|---|
-| The engine in prose, mid-sentence | `sandboxr` |
-| The engine in prose, at the start of a sentence | `sandboxr` — lowercase survives; rewrite the sentence rather than capitalise it |
-| The engine in a heading or a page title | `sandboxr` |
-| The command, the engine's package scope, the config file | `sandboxr`, `@sandboxr/*`, `sandboxr.yaml` |
-| A container, volume or hostname | `sandboxr-<project>-<slug>` — see [Paths](reference/paths.md) |
-| The documentation site's wordmark | `sandboxr`, one word, no space, no letterspacing, no full stop |
+| The engine in prose, mid-sentence | `sandboxer` |
+| The engine in prose, at the start of a sentence | `sandboxer` — lowercase survives; rewrite the sentence rather than capitalise it |
+| The engine in a heading or a page title | `sandboxer` |
+| The command, the engine's package scope, the config file | `sandboxer`, `@sandboxer/*`, `sandboxer.yaml` |
+| A container, volume or hostname | `sandboxer-<project>-<slug>` — see [Paths](reference/paths.md) |
+| The documentation site's wordmark | `sandboxer`, one word, no space, no letterspacing, no full stop |
 
-**Never `Sandboxr`, `SandboxR` or `SANDBOXR`.** The one exception is a place that upper-cases every
+**Never `Sandboxer`, `SandBoxer` or `SANDBOXER`.** The one exception is a place that upper-cases every
 word mechanically — an OS window title, a package registry's own display of a name — where nothing
 in the repository decides it.
 
@@ -71,10 +71,10 @@ of the name.
 
 ## The mark
 
-![The sandboxr mark](assets/brand/mark.svg)
+![The sandboxer mark](assets/brand/mark.svg)
 
 Three horizontal bars in a flat brand-coloured rounded square. The bars are a worktree, a sandbox
-running on it, and a hostname in front of that — the three things sandboxr makes out of a branch,
+running on it, and a hostname in front of that — the three things sandboxer makes out of a branch,
 stacked in the order you meet them. The middle bar is the short one, so the shape reads as a
 deliberate object rather than as a menu icon or a list.
 
@@ -85,7 +85,7 @@ reversed out at 20 pixels.
 The square's corner radius is 0.27 of its side, which is close to the radius the platforms round
 an app icon to. Nothing else in the product uses that radius; a card is much tighter.
 
-![The sandboxr lockup: the mark beside the wordmark](assets/brand/lockup.svg)
+![The sandboxer lockup: the mark beside the wordmark](assets/brand/lockup.svg)
 
 Both files above are committed — `docs/assets/brand/mark.svg` and `docs/assets/brand/lockup.svg` —
 and they are the copies to hand somebody who needs the artwork. The wordmark inside the lockup is
@@ -174,7 +174,7 @@ is a word, not a logotype: nothing has been drawn by hand, so it is reproduced b
 than by finding a file.
 
 The lockup is the mark, a 10px gap, and the wordmark, vertically centred on each other, in a
-sticky header over a hairline. **An app built on sandboxr draws the same lockup down to the class
+sticky header over a hairline. **An app built on sandboxer draws the same lockup down to the class
 list**, because somebody with one of each open in two tabs has to see one product rather than two
 sites that share a palette. Only the word differs.
 
@@ -186,7 +186,7 @@ span changes:
 
 ```html
 <span class="grid size-7 place-items-center rounded-[0.475rem] bg-brand text-brand-ink">…mark…</span>
-<span class="font-serif text-xl leading-none text-ink">sandboxr</span>
+<span class="font-serif text-xl leading-none text-ink">sandboxer</span>
 ```
 
 - **The plate** is `size-7` (28px), `bg-brand`, radius `0.475rem` (7.6px, which is 0.27 of 28), with
@@ -400,7 +400,7 @@ further in again.
 
 ## Voice
 
-sandboxr writes in lowercase, plain, slightly literary British English. It uses sentences where a
+sandboxer writes in lowercase, plain, slightly literary British English. It uses sentences where a
 lesser interface would use a label, and it says what a thing will do rather than what it is called.
 
 Four rules, and each has a real string behind it — from the CLI, which is the whole of what the
@@ -410,12 +410,12 @@ engine says to a person.
 word "empty". Most of these states are ordinary — a machine with nothing running is the normal
 condition of most machines.
 
-> No sandboxes. Create one with: sandboxr up
+> No sandboxes. Create one with: sandboxer up
 
 **Nothing is described as broken when it is only waiting, or only absent.** A thing that is not
 there is reported as not there, with the command that would put it there.
 
-> No projects yet. Clone one with: sandboxr project clone <url>
+> No projects yet. Clone one with: sandboxer project clone <url>
 
 **A command says what happens, and a refusal says what survives.** `gc` and `prune` name what they
 left alone as well as what they took.
@@ -430,7 +430,7 @@ more than an admitted gap.
 <details class="agent">
 <summary><b>Details for an agent</b> — the rules those four strings are examples of</summary>
 
-- **Lowercase for the product's own words.** `sandboxr`, `live`, `stale`, `docs`. Sentence case for
+- **Lowercase for the product's own words.** `sandboxer`, `live`, `stale`, `docs`. Sentence case for
   everything that is a sentence, and for a control's label.
 - **No exclamation marks, no "Oops", no "Whoops", no emoji.** A failure is described plainly and
   followed by the thing to do about it.
@@ -455,12 +455,12 @@ a prompt at the top of every page somebody can arrive at cold. It is `packages/d
   exists, in the palette or in the mark.
 - **No glass.** Nothing is translucent and nothing is blurred. There is no `backdrop-filter`, and
   no preference to turn one off.
-- **No capital S.** `sandboxr`, everywhere a person or a machine can read it.
+- **No capital S.** `sandboxer`, everywhere a person or a machine can read it.
 - **No letterspaced wordmark**, no all-caps wordmark, and no tagline attached to it.
 - **No colour named in a component.** A component asks for `surface`, `line`, `ink` or `brand`; if
   what it needs has no token, the palette is what changes.
-- **No second palette in another app.** Anything built on sandboxr imports
-  `@sandboxr/tokens/tokens.css`. A palette that exists twice drifts, and it drifts silently —
+- **No second palette in another app.** Anything built on sandboxer imports
+  `@sandboxer/tokens/tokens.css`. A palette that exists twice drifts, and it drifts silently —
   nothing about one app looking right tells you the other does.
 - **No shadow under a card or a panel**, and no radius typed as a number where a named one exists.
 - **No status colour reused for decoration.** Green means running; a green that means "nice" costs

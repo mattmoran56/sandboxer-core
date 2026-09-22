@@ -46,7 +46,7 @@ describe("LABELS", () => {
   });
 
   it("namespaces every key", () => {
-    for (const key of Object.values(LABELS)) expect(key.startsWith("sandboxr.")).toBe(true);
+    for (const key of Object.values(LABELS)) expect(key.startsWith("sandboxer.")).toBe(true);
   });
 });
 
@@ -93,11 +93,11 @@ describe("labelsFor", () => {
     const config = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "private" },
         database: { driver: "sqlite", seed_from: { fixtures: "f.sql" }, migrate: { command: "m" } },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
     const labels = labelsFromConfig(config, {
       slug: "tkt-1",
@@ -114,18 +114,18 @@ describe("labelsFor", () => {
 
 describe("labelArgs", () => {
   it("renders one --label per pair, as separate arguments", () => {
-    expect(labelArgs({ "sandboxr.slug": "tkt-1", "sandboxr.branch": "feat/a b" })).toEqual([
+    expect(labelArgs({ "sandboxer.slug": "tkt-1", "sandboxer.branch": "feat/a b" })).toEqual([
       "--label",
-      "sandboxr.slug=tkt-1",
+      "sandboxer.slug=tkt-1",
       "--label",
-      "sandboxr.branch=feat/a b",
+      "sandboxer.branch=feat/a b",
     ]);
   });
 });
 
 describe("sandboxFromLabels", () => {
   it("round-trips everything labelsFor wrote", () => {
-    const sandbox = sandboxFromLabels(labelsFor(input), "sandboxr-acme-tkt-1", "running");
+    const sandbox = sandboxFromLabels(labelsFor(input), "sandboxer-acme-tkt-1", "running");
     expect(sandbox).toEqual({
       project: "acme",
       slug: "tkt-1",
@@ -141,11 +141,11 @@ describe("sandboxFromLabels", () => {
       kind: "runtime",
       session: "",
       state: "running",
-      container: "sandboxr-acme-tkt-1",
+      container: "sandboxer-acme-tkt-1",
     });
   });
 
-  // A container with no `sandboxr.kind` is a pre-session sandbox, which Jef's §9.3
+  // A container with no `sandboxer.kind` is a pre-session sandbox, which Jef's §9.3
   // says reads as a runtime — and an unknown word must fall back rather than be
   // passed through as something nothing downstream handles.
   it("reads a container with no kind as a runtime, and no session as none", () => {
@@ -188,7 +188,7 @@ describe("sandboxFromLabels", () => {
 
   it("rebuilds the container name when docker did not give one", () => {
     const sandbox = sandboxFromLabels({ [LABELS.slug]: "tkt-1", [LABELS.project]: "acme" }, "", "stopped");
-    expect(sandbox?.container).toBe("sandboxr-acme-tkt-1");
+    expect(sandbox?.container).toBe("sandboxer-acme-tkt-1");
   });
 });
 

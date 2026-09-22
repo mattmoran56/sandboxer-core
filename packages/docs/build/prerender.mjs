@@ -24,7 +24,7 @@ const raw = await readFile(path.join(dist, "index.html"), "utf8");
 // The shell's own `<title>` is dropped before the per-page one is inserted.
 // A document with two `<title>` elements is not an error and browsers do not
 // pick the last: they take the first, so leaving the shell's in place gave every
-// one of these files the title "sandboxr documentation" while the correct tag sat
+// one of these files the title "sandboxer documentation" while the correct tag sat
 // a few lines below it, present and ignored.
 const template = raw.replace(/[ \t]*<title>[\s\S]*?<\/title>\r?\n?/, "");
 

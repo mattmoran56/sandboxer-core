@@ -4,7 +4,7 @@
 //  - title beats headings beats description beats body
 //  - a page whose title is the query comes first
 //  - a whole word beats a prefix beats a match inside a word
-//  - dotted, dashed and slashed terms stay findable whole (`sandboxr.yaml`, `--ttl`,
+//  - dotted, dashed and slashed terms stay findable whole (`sandboxer.yaml`, `--ttl`,
 //    `plan.json`, `edit-and-reload`, `/caches/go`) and `--ttl` does not match bare "ttl"
 //  - case and diacritics are folded, and the snippet still shows the original
 //  - the hit carries the heading whose section matched best, and null when only the
@@ -111,9 +111,9 @@ it("prefers a whole word over a prefix over a match inside a word", () => {
 describe("terms with punctuation in them stay findable whole", () => {
   const corpus = [
     doc({
-      slug: "configuration/sandboxr-yaml",
-      title: "sandboxr.yaml, field by field",
-      text: "Every field of sandboxr.yaml, with its default.",
+      slug: "configuration/sandboxer-yaml",
+      title: "sandboxer.yaml, field by field",
+      text: "Every field of sandboxer.yaml, with its default.",
     }),
     doc({
       slug: "architecture/plan-json",
@@ -123,7 +123,7 @@ describe("terms with punctuation in them stay findable whole", () => {
     doc({
       slug: "reference/cli",
       title: "CLI commands",
-      text: "sandboxr up --ttl 12h stops a sandbox once it has sat unused that long.",
+      text: "sandboxer up --ttl 12h stops a sandbox once it has sat unused that long.",
     }),
     doc({
       slug: "guides/edit-and-reload",
@@ -143,8 +143,8 @@ describe("terms with punctuation in them stay findable whole", () => {
   ];
 
   it.each([
-    ["sandboxr.yaml", "configuration/sandboxr-yaml"],
-    ["yaml", "configuration/sandboxr-yaml"],
+    ["sandboxer.yaml", "configuration/sandboxer-yaml"],
+    ["yaml", "configuration/sandboxer-yaml"],
     ["plan.json", "architecture/plan-json"],
     ["--ttl", "reference/cli"],
     ["edit-and-reload", "guides/edit-and-reload"],
@@ -187,7 +187,7 @@ describe("the hit carries the heading whose section matched best", () => {
   const page = doc({
     slug: "reference/paths",
     title: "Paths",
-    description: "Where sandboxr puts things.",
+    description: "Where sandboxer puts things.",
     headings: [
       h("what-happens-first", "What happens first"),
       h("the-go-module-cache", "The Go module cache"),
@@ -305,7 +305,7 @@ describe("buildIndex and search are a pair", () => {
 
 describe("the query and the fold, on their own", () => {
   it("keeps a term's length through folding, so offsets line up", () => {
-    for (const sample of ["Café", "naïve", "RÉSUMÉ", "sandboxr.yaml", "ß", "æther", "日本語"]) {
+    for (const sample of ["Café", "naïve", "RÉSUMÉ", "sandboxer.yaml", "ß", "æther", "日本語"]) {
       expect(fold(sample)).toHaveLength(sample.length);
     }
   });
@@ -369,7 +369,7 @@ describe("the real pages under docs/", () => {
 
   it("answers a spread of queries without falling over", () => {
     const queries = [
-      "sandboxr.yaml",
+      "sandboxer.yaml",
       "docker memory",
       "--ttl",
       "traefik hostname",

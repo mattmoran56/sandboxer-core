@@ -38,11 +38,11 @@ describe("toPlainText", () => {
       '<span class="sbx-code__lang">bash</span>' +
       '<button class="sbx-copy" type="button" data-copy aria-label="Copy this code">' +
       '<svg class="sbx-copy__icon"></svg><span class="sbx-copy__word">Copy</span></button>' +
-      '</div><pre class="sbx-code__pre shiki"><code><span>sandboxr up</span></code></pre></div>';
+      '</div><pre class="sbx-code__pre shiki"><code><span>sandboxer up</span></code></pre></div>';
     const text = toPlainText(html);
     expect(text).not.toContain("Copy");
     expect(text).not.toContain("bash");
-    expect(text).toBe("sandboxr up");
+    expect(text).toBe("sandboxer up");
   });
 
   it("drops the prompt card's caption but keeps the prompt", () => {
@@ -51,8 +51,8 @@ describe("toPlainText", () => {
       '<span class="sbx-prompt__label"><svg class="sbx-prompt__icon"></svg>Prompt for your agent</span>' +
       '<button class="sbx-copy sbx-prompt__copy" data-copy aria-label="Copy this prompt">' +
       '<span class="sbx-copy__word">Copy</span></button></div>' +
-      '<pre class="sbx-prompt__pre"><code>Install sandboxr.</code></pre></div>';
-    expect(toPlainText(html)).toBe("Install sandboxr.");
+      '<pre class="sbx-prompt__pre"><code>Install sandboxer.</code></pre></div>';
+    expect(toPlainText(html)).toBe("Install sandboxer.");
   });
 
   it("drops a diagram whole, source and fallback", () => {

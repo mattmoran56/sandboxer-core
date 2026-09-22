@@ -75,8 +75,8 @@ describe("slugOfPath", () => {
     ["a doubled trailing slash", "/reference/cli//", "reference/cli"],
     ["a doubled leading slash", "//reference/cli/", "reference/cli"],
     ["a query", "/reference/cli/?q=up", "reference/cli"],
-    ["a hash", "/reference/cli/#sandboxr-up", "reference/cli"],
-    ["a query and a hash", "/reference/cli?q=up#sandboxr-up", "reference/cli"],
+    ["a hash", "/reference/cli/#sandboxer-up", "reference/cli"],
+    ["a query and a hash", "/reference/cli?q=up#sandboxer-up", "reference/cli"],
   ])("%s: %s", (_what, pathname, slug) => {
     expect(slugOfPath(pathname)).toBe(slug);
   });

@@ -1,4 +1,4 @@
-// Tests for the `sandboxr:` version constraint grammar:
+// Tests for the `sandboxer:` version constraint grammar:
 // - parseVersion: full, partial and v-prefixed versions, prereleases, build metadata, rubbish
 // - compareVersions: each field, prerelease ordering, equality, antisymmetry
 // - satisfies: every comparator, caret and tilde bounds including the 0.x rule, conjunctions, alternatives, wildcards

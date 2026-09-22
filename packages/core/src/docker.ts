@@ -248,7 +248,7 @@ export interface Docker {
    * When the container last entered the running state, or undefined.
    *
    * Deliberately not read from `ps`: the expiry clock has to restart when a
-   * sandbox does, and `sandboxr.created` is stamped once at creation and never
+   * sandbox does, and `sandboxer.created` is stamped once at creation and never
    * moves. Taking the deadline from a label would mean a sandbox stopped for
    * being expired was still expired the instant it came back, so pressing
    * restart would appear to do nothing.

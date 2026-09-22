@@ -109,7 +109,7 @@ describe("worktrees on a real repository", () => {
     // Resolved, because git records a worktree by its real path and the system
     // temp directory is a symlink on macOS — comparing the two as strings
     // otherwise fails in a way that looks nothing like a symlink.
-    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxr-worktree-")));
+    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxer-worktree-")));
     source = join(root, "source");
 
     // A source repo with two branches, then a bare clone of it — the same shape
@@ -357,7 +357,7 @@ describe("a post-checkout hook that fails", () => {
   let project: Project;
 
   beforeAll(async () => {
-    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxr-worktree-hook-")));
+    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxer-worktree-hook-")));
     const source = join(root, "source");
 
     await exec("git", ["init", "-b", "main", source]);
@@ -404,7 +404,7 @@ describe("a post-checkout hook that fails", () => {
  *
  * The worktrees have to be cut inside a real workspace, because that layout is
  * what a slug record is keyed on — this is the one test where
- * `SANDBOXR_WORKSPACE` is load-bearing rather than incidental.
+ * `SANDBOXER_WORKSPACE` is load-bearing rather than incidental.
  */
 describe("two worktrees on one ticket", () => {
   let root: string;
@@ -415,10 +415,10 @@ describe("two worktrees on one ticket", () => {
   const second = "feat/eng-3941-labs-run-selector";
 
   beforeAll(async () => {
-    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxr-worktree-slug-")));
+    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxer-worktree-slug-")));
     const source = join(root, "source");
     const workspace = join(root, "workspace");
-    env = { SANDBOXR_HOME: join(root, "home"), SANDBOXR_WORKSPACE: workspace };
+    env = { SANDBOXER_HOME: join(root, "home"), SANDBOXER_WORKSPACE: workspace };
 
     await exec("git", ["init", "-b", "main", source]);
     await git(source, "config", "user.email", "test@example.com");
@@ -578,10 +578,10 @@ describe("a collision under a project's own ceiling", () => {
   const label = "storefront-preview-alpha";
 
   beforeAll(async () => {
-    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxr-worktree-ceiling-")));
+    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxer-worktree-ceiling-")));
     const source = join(root, "source");
     const workspace = join(root, "workspace");
-    env = { SANDBOXR_HOME: join(root, "home"), SANDBOXR_WORKSPACE: workspace };
+    env = { SANDBOXER_HOME: join(root, "home"), SANDBOXER_WORKSPACE: workspace };
 
     await exec("git", ["init", "-b", "main", source]);
     await git(source, "config", "user.email", "test@example.com");
@@ -606,10 +606,10 @@ describe("a collision under a project's own ceiling", () => {
     // either branch carrying a file. This is what gives `addWorktree` a project
     // name and a label to compute a ceiling from at all.
     await writeFile(
-      join(projectDir, "sandboxr.yaml"),
+      join(projectDir, "sandboxer.yaml"),
       [
         `project: ${declared}`,
-        'sandboxr: ">=0.1.0"',
+        'sandboxer: ">=0.1.0"',
         "access:",
         "  apps: private",
         "frontends:",
@@ -694,7 +694,7 @@ describe("the dates a worktree carries", () => {
     };
 
   beforeAll(async () => {
-    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxr-worktree-dates-")));
+    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxer-worktree-dates-")));
     tree = join(root, "wt", "main");
     await exec("mkdir", ["-p", tree]);
     project = { name: "demo", repo: join(root, "repo.git"), worktrees: join(root, "wt"), base: "main", origin: "" };

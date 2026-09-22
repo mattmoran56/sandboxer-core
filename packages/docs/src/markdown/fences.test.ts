@@ -21,7 +21,7 @@ const codeText = (html: string): string => {
 
 describe("promptBlock", () => {
   it("writes the agreed markup", () => {
-    const html = promptBlock("Install sandboxr.");
+    const html = promptBlock("Install sandboxer.");
     expect(html).toMatch(/^<div class="sbx-prompt">/);
     expect(html).toContain('<div class="sbx-prompt__bar">');
     expect(html).toContain('<span class="sbx-prompt__label">');
@@ -36,7 +36,7 @@ describe("promptBlock", () => {
     const source = [
       `Read the page at https://example.test/?a=1&b=2 first.`,
       ``,
-      `Then run: sandboxr up --env 'A="1"' <<'EOF'`,
+      `Then run: sandboxer up --env 'A="1"' <<'EOF'`,
       `  x & y > z`,
       `EOF`,
     ].join("\n");

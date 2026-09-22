@@ -13,7 +13,7 @@ describe("slugify", () => {
   });
 
   it("collapses a run of punctuation to one hyphen and trims the edges", () => {
-    expect(slugify("  `sandboxr up` — the flags!  ")).toBe("sandboxr-up-the-flags");
+    expect(slugify("  `sandboxer up` — the flags!  ")).toBe("sandboxer-up-the-flags");
   });
 
   it("keeps accented letters, as GitHub does", () => {

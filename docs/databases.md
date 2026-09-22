@@ -5,7 +5,7 @@ description: How a sandbox gets a database of its own — the four rules every d
 
 Every [sandbox](reference/glossary.md) has its own database. That is the single most useful
 thing about it. A branch with a migration in it can be run against real structure and real
-volume, and getting the migration wrong costs one `sandboxr down`.
+volume, and getting the migration wrong costs one `sandboxer down`.
 
 ```prompt
 Set this project up so each sandbox gets its own database, and test a migration in one.
@@ -20,7 +20,7 @@ is only permitted for a `private` project, and I need to confirm which database 
 
 ## The four rules
 
-These are why it is safe to point sandboxr at a database with real data in it.
+These are why it is safe to point sandboxer at a database with real data in it.
 
 **1. The source database is only ever read.** Everything destructive happens to a **copy**
 inside the sandbox.
@@ -31,7 +31,7 @@ marked `degraded`, and the services start anyway.
 **3. The schema baseline survives a failed run.** The saved schema is replaced only after a
 migration **succeeds**.
 
-**4. sandboxr never reimplements a project's migration logic.** It runs the project's own
+**4. sandboxer never reimplements a project's migration logic.** It runs the project's own
 command.
 
 > [!CAUTION] A tool that quietly fixes things stops being evidence
@@ -63,10 +63,10 @@ not agree for long.
 
 | Command | What it does | Needs a running sandbox |
 |---|---|---|
-| `sandboxr db seed` | Produce or refresh the seed artifact | no |
-| `sandboxr db migrate` | Run the project's own migration command | yes |
-| `sandboxr db snapshot` | Print the schema — structure, not rows | yes |
-| `sandboxr db shell` | An interactive database prompt | yes |
+| `sandboxer db seed` | Produce or refresh the seed artifact | no |
+| `sandboxer db migrate` | Run the project's own migration command | yes |
+| `sandboxer db snapshot` | Print the schema — structure, not rows | yes |
+| `sandboxer db shell` | An interactive database prompt | yes |
 
 That is the whole database surface. There is no `db diff` and no `db reset`. Comparing
 before and after is two snapshots and `diff`; starting clean is `down` then `up`. See
@@ -113,7 +113,7 @@ flowchart TB
   subgraph hostside["On your computer"]
     src[("A database you already run")]
     ps["make the seed"]
-    cache[("~/.sandboxr/cache<br/>keyed on the source's content")]
+    cache[("~/.sandboxer/cache<br/>keyed on the source's content")]
     decl[("A dump you keep yourself:<br/>seed_from.file")]
   end
   subgraph inside["Inside one sandbox"]
@@ -138,7 +138,7 @@ source unless its content changed.
 database:
   seed_from:
     local: { container: acme_db, database: acme }   # fork a container you already run
-    file: /var/sandboxr/seeds/acme.sql.zst          # or restore a dump
+    file: /var/sandboxer/seeds/acme.sql.zst          # or restore a dump
     fixtures: db/seeds/fixtures.sql                 # applied after migrations, either way
 ```
 
@@ -146,7 +146,7 @@ Listing several is normal. A laptop forks the container the developer already ha
 server restores a dump. Neither source exists on the other machine.
 
 **Precedence is `local`, then `file`, then `fixtures`** — freshest first.
-`sandboxr up --seed local|file|fixtures` forces one.
+`sandboxer up --seed local|file|fixtures` forces one.
 
 **The access rules filter that list before anything is chosen**, so a public project has
 fewer options rather than a separate code path:
@@ -169,7 +169,7 @@ A source is then only used if it is actually *available* on this machine.
 config named a source, the error says which rule excluded it.
 
 **The cache key is a fingerprint of the source's content**, not a timestamp. Entries live at
-`~/.sandboxr/cache/seed-<project>-<key>` with a `.meta.json` beside them, so an entry is
+`~/.sandboxer/cache/seed-<project>-<key>` with a `.meta.json` beside them, so an entry is
 immutable — a changed source writes a new file rather than overwriting one something may be
 restoring from.
 
@@ -180,7 +180,7 @@ restoring from.
 - **D1 and SQLite** hash the file itself, sidecars included. A database file's timestamp
   moves every time the engine checkpoints, whether or not anything changed.
 
-A time-to-live bounds how stale an entry can get: `SANDBOXR_CACHE_TTL_HOURS`, default 24. An
+A time-to-live bounds how stale an entry can get: `SANDBOXER_CACHE_TTL_HOURS`, default 24. An
 in-progress artifact is written as `<name>.partial` and renamed only on success, so an
 interrupted dump can never be mistaken for a complete one.
 
@@ -188,8 +188,8 @@ interrupted dump can never be mistaken for a complete one.
 
 | Artifact | Path inside the container | Mount |
 |---|---|---|
-| A dump sandboxr took and content-addressed | `/sandboxr/cache/<name>` | the cache directory, already mounted read-only |
-| A `database.seed_from.file` the project declared | `/sandboxr/seed/<name>` | that **one file**, bind-mounted read-only |
+| A dump sandboxer took and content-addressed | `/sandboxer/cache/<name>` | the cache directory, already mounted read-only |
+| A `database.seed_from.file` the project declared | `/sandboxer/seed/<name>` | that **one file**, bind-mounted read-only |
 
 `plan.json`'s `database.seed.path` is therefore a path *inside* the container — never a host
 path, and never a bare name to be resolved against a directory the container has to know
@@ -204,7 +204,7 @@ the sandbox everything else in it.
 
 The basename is preserved because the container decides how to decompress by extension
 (`.zst`, `.gz`, plain). When `seed.path` is absent the container falls back to the newest
-dump in `/sandboxr/cache`, so `sandboxr db seed` takes effect without regenerating the plan.
+dump in `/sandboxer/cache`, so `sandboxer db seed` takes effect without regenerating the plan.
 
 **D1 and SQLite copy rather than mount**, because a database file is small and has to be
 fingerprinted anyway.
@@ -213,7 +213,7 @@ fingerprinted anyway.
 
 ### What a driver keeps, per sandbox
 
-Under `~/.sandboxr/logs/<project>/<slug>/`:
+Under `~/.sandboxer/logs/<project>/<slug>/`:
 
 | File | What it is |
 |---|---|
@@ -239,7 +239,7 @@ host-side `mysql` command against a sandbox fails with `Error 1045: Access denie
 **Nothing orders the two provisioners.** The host half is called before `mysqld` accepts
 connections, so it loses the race.
 
-The visible symptom of both is `sandboxr up` reporting **"Provisioning did not complete"**
+The visible symptom of both is `sandboxer up` reporting **"Provisioning did not complete"**
 against a sandbox the container brought up perfectly. Nothing is lost, because the container
 half does all the work. But nothing the host driver does to a running MySQL sandbox runs at
 all.
@@ -249,7 +249,7 @@ all.
 
 **The credential.** The container initialises its server with `--initialize-insecure`, so
 root has no password — deliberately, and for a reason the script states. The host driver's
-settings default `rootPassword` to `sandboxr`. Every host-side statement therefore fails on
+settings default `rootPassword` to `sandboxer`. Every host-side statement therefore fails on
 `Error 1045: Access denied`, and the driver reports that as a provisioning failure.
 
 **The ordering.** `provision` runs twice by design. The container's own `db-init` oneshot
@@ -308,7 +308,7 @@ MySQL treats `_` and `%` as wildcards in the database part of a `GRANT`, so the 
 underscore with a live `%` is the only correct spelling.
 
 ```sql
-GRANT ALL PRIVILEGES ON `acme\_%`.* TO 'sandboxr'@'%';
+GRANT ALL PRIVILEGES ON `acme\_%`.* TO 'sandboxer'@'%';
 ```
 
 <details class="failure">
@@ -346,8 +346,8 @@ on the slug: at most **31 characters**, hashed past that rather than truncated.
 <details class="agent">
 <summary><b>Details for an agent</b> — the lock name, and how the ceiling is spelled</summary>
 
-sandboxr computes one lock name per sandbox — `sandboxr_migrate_<project>_<slug>` — and
-passes it as `SANDBOXR_MIGRATION_LOCK`. A runner that takes a lock therefore takes one
+sandboxer computes one lock name per sandbox — `sandboxer_migrate_<project>_<slug>` — and
+passes it as `SANDBOXER_MIGRATION_LOCK`. A runner that takes a lock therefore takes one
 nobody else can hold.
 
 Over 31 characters, the slug keeps its first 22 with an 8-character hash of the *original*
@@ -363,7 +363,7 @@ nothing else. It does not inherit your shell.
 If your project keeps a production config in the repository, choose a `workdir` from which
 the runner's relative paths do not resolve.
 
-`since` is passed as `SANDBOXR_MIGRATE_SINCE` rather than as a flag, because sandboxr cannot
+`since` is passed as `SANDBOXER_MIGRATE_SINCE` rather than as a flag, because sandboxer cannot
 guess a runner's flag spelling. **Your command has to consume it.**
 
 <details class="why">
@@ -379,7 +379,7 @@ Running inside the container removes most of that. What remains is the worktree,
 mounted — hence the `workdir` advice above.
 
 If `since` appears to do nothing, the reason is that your command never referenced
-`SANDBOXR_MIGRATE_SINCE`.
+`SANDBOXER_MIGRATE_SINCE`.
 
 </details>
 
@@ -407,7 +407,7 @@ Most runners record their own progress, and a row left incomplete means an earli
 part-way. A careful runner then refuses to continue unattended. A faithful copy inherits that
 refusal.
 
-sandboxr does not repair a project's bookkeeping, because that is the reimplementation rule 4
+sandboxer does not repair a project's bookkeeping, because that is the reimplementation rule 4
 forbids. The repair belongs in the project's own runner, under two rules:
 
 1. **Heal a row by completing it, never by deleting it.**
@@ -489,33 +489,33 @@ a database browser you left open on Tuesday.
 
 ## Rule two: point the runtime at the sandbox's own directory
 
-The sandbox exports its database's location as `$SANDBOXR_D1_DIR`. **Both** the migrate
+The sandbox exports its database's location as `$SANDBOXER_D1_DIR`. **Both** the migrate
 command and the owner's serve command have to be told about it:
 
 ```yaml
 database:
   driver: d1
   migrate:
-    command: npx wrangler d1 migrations apply DB --local --persist-to "$SANDBOXR_D1_DIR"
+    command: npx wrangler d1 migrations apply DB --local --persist-to "$SANDBOXER_D1_DIR"
   owner: app
 
 frontends:
   apps:
     - label: app
       package: .
-      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXR_D1_DIR"
+      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXER_D1_DIR"
       port: 8787
 ```
 
 Leave it off either one and the runtime falls back to a directory inside your worktree. Three
 things then go wrong at once and none of them is an error. The database turns up in
-`git status`, two sandboxes from one worktree share a file, and `sandboxr down` stops removing
+`git status`, two sandboxes from one worktree share a file, and `sandboxer down` stops removing
 it.
 
 > [!WARNING] doctor warns about this, and deliberately does not refuse
-> `sandboxr doctor` reads both commands and reports any that never mention the variable. A
+> `sandboxer doctor` reads both commands and reports any that never mention the variable. A
 > refusal has to be certain, and this one cannot be: a project may point its runtime at the
-> right place through a config file sandboxr cannot read.
+> right place through a config file sandboxer cannot read.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the five state variables, and why <code>docker exec</code> does not have them</summary>
@@ -524,11 +524,11 @@ The variables, which the host driver and the container scripts agree on:
 
 | Variable | Value | Driver |
 |---|---|---|
-| `SANDBOXR_DB_DRIVER` | `d1` or `sqlite` | both |
-| `SANDBOXR_DB_NAME` | the project name | both |
-| `SANDBOXR_DB_DIR` | `/var/lib/sandboxr/data/<driver>` | both |
-| `SANDBOXR_D1_DIR` | the same directory | `d1` only |
-| `SANDBOXR_DB_FILE` | `/var/lib/sandboxr/data/sqlite/<project>.sqlite` | `sqlite` only |
+| `SANDBOXER_DB_DRIVER` | `d1` or `sqlite` | both |
+| `SANDBOXER_DB_NAME` | the project name | both |
+| `SANDBOXER_DB_DIR` | `/var/lib/sandboxer/data/<driver>` | both |
+| `SANDBOXER_D1_DIR` | the same directory | `d1` only |
+| `SANDBOXER_DB_FILE` | `/var/lib/sandboxer/data/sqlite/<project>.sqlite` | `sqlite` only |
 
 `d1` gets a *directory* rather than a file because the local Cloudflare runtime owns the
 layout inside it. The driver finds the actual SQLite file by searching for `*.sqlite`
@@ -536,16 +536,16 @@ underneath. No match means "nothing has created it yet", which is a normal first
 
 **`docker exec` does not inherit them.** The container exports these before it starts its
 services, so every supervised service has them. A command you run by hand has to carry them
-itself. Otherwise `$SANDBOXR_DB_FILE` expands to nothing, and `sqlite3 ""` quietly operates
-on a temporary in-memory database instead of failing. `sandboxr db shell` and
-`sandboxr db snapshot` pass them for you.
+itself. Otherwise `$SANDBOXER_DB_FILE` expands to nothing, and `sqlite3 ""` quietly operates
+on a temporary in-memory database instead of failing. `sandboxer db shell` and
+`sandboxer db snapshot` pass them for you.
 
 Written out in full, the three failures when nothing names the state directory:
 
 1. The sandbox's database lands in your branch and turns up in `git status`.
 2. Two sandboxes from the same worktree share one file, breaking the one-writer rule by
    construction.
-3. `sandboxr down` no longer removes the database, because it is not in the sandbox's volume.
+3. `sandboxer down` no longer removes the database, because it is not in the sandbox's volume.
 
 </details>
 
@@ -586,10 +586,10 @@ differs. Opening a SQLite file directly is `sqlite`; going through a Workers bin
 | Where the database is | one file, at a path the sandbox fixes | inside the runtime's state directory, found by search |
 | Migration command | the project's own | usually the platform CLI's |
 | Starting empty | an empty file is created, in write-ahead mode | the first thing to open it creates it |
-| `sandboxr db shell` | read-write | **read-only** |
+| `sandboxer db shell` | read-write | **read-only** |
 
 > [!WARNING] A `sqlite` shell is a second writer
-> `sandboxr db shell` opens a `d1` database read-only, so it can never break the one-writer rule.
+> `sandboxer db shell` opens a `d1` database read-only, so it can never break the one-writer rule.
 > The plain `sqlite` shell opens it read-write. Leave one open while a migration runs and you get
 > exactly the deadlock this rule exists to prevent. Close it first.
 
@@ -602,7 +602,7 @@ The two-writer deadlock has no error message, so recognise it by shape.
 |---|---|
 | The sandbox sits at `starting` for ever, and the log stops mid-way through database setup with nothing after it | Two openers. Count them before you look at anything else |
 | A service fails immediately, complaining about a missing database binding | The one-writer rule working. That service is not the `owner` |
-| A `.sqlite` file turns up in `git status` | A command is missing `--persist-to "$SANDBOXR_D1_DIR"` |
+| A `.sqlite` file turns up in `git status` | A command is missing `--persist-to "$SANDBOXER_D1_DIR"` |
 | `no D1 database in <directory> yet` from `db shell` | Nothing has created it. Normal on a fresh worktree with no seed |
 | Fixtures did not apply | Non-fatal by design — a fixture that no longer matches the schema is a signal, not a reason to refuse to start |
 | `Provisioning did not complete` on a MySQL sandbox that looks fine | The known host-side credential defect above. The container did the work |

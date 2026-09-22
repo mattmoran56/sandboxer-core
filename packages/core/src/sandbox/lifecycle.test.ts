@@ -183,11 +183,11 @@ function row(labels: Record<string, string>, name: string, state = "running"): C
   return { name, id: name, state, labels };
 }
 
-function configOf(extra: Record<string, unknown> = {}, file = "/repo/sandboxr.yaml"): ResolvedConfig {
+function configOf(extra: Record<string, unknown> = {}, file = "/repo/sandboxer.yaml"): ResolvedConfig {
   return resolveConfig(
     {
       project: "acme",
-      sandboxr: ">=0.1.0",
+      sandboxer: ">=0.1.0",
       access: { apps: "private" },
       database: { driver: "mysql", seed_from: { fixtures: "seeds/f.sql" }, migrate: { command: "migrate" } },
       backends: [{ name: "api", port: 8001, label: "api", build: "build -o {out} ./{name}" }],
@@ -220,7 +220,7 @@ const labelsOf = (slug: string, project = "acme") =>
 describe("list", () => {
   it("builds a sandbox from each container's labels", async () => {
     const { docker } = fakeDocker({
-      rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
+      rows: [row(labelsOf("tkt-1"), "sandboxer-acme-tkt-1")],
       exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
     });
     const sandboxes = await list({ docker });
@@ -230,48 +230,48 @@ describe("list", () => {
 
   it("filters by project", async () => {
     const { docker, argsOf } = fakeDocker({
-      rows: [row(labelsOf("a"), "sandboxr-acme-a"), row(labelsOf("b", "other"), "sandboxr-other-b")],
+      rows: [row(labelsOf("a"), "sandboxer-acme-a"), row(labelsOf("b", "other"), "sandboxer-other-b")],
       exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
     });
     const sandboxes = await list({ docker, project: "acme" });
     expect(sandboxes.map((sandbox) => sandbox.slug)).toEqual(["a"]);
-    expect(argsOf("ps")[0]?.[0]).toEqual(["label=sandboxr.slug", "label=sandboxr.project=acme"]);
+    expect(argsOf("ps")[0]?.[0]).toEqual(["label=sandboxer.slug", "label=sandboxer.project=acme"]);
   });
 
-  // A session's runtimes, joined on the `sandboxr.session` label rather than on
+  // A session's runtimes, joined on the `sandboxer.session` label rather than on
   // a list the session keeps (Jef's §9.4). `SANDBOX_FILTER` stays in front,
   // so a workstation — which carries the session label and no slug — cannot
   // arrive here and be read as a sandbox of a project it belongs to none of.
   it("filters by session, and never lets a workstation through", async () => {
     const { docker, argsOf } = fakeDocker({
       rows: [
-        row({ ...labelsOf("eng-3941-web"), "sandboxr.session": "eng-3941" }, "sandboxr-acme-eng-3941-web"),
-        row({ ...labelsOf("other-web"), "sandboxr.session": "other" }, "sandboxr-acme-other-web"),
-        row({ "sandboxr.kind": "workstation", "sandboxr.session": "eng-3941" }, "sandboxr-ws-eng-3941"),
+        row({ ...labelsOf("eng-3941-web"), "sandboxer.session": "eng-3941" }, "sandboxer-acme-eng-3941-web"),
+        row({ ...labelsOf("other-web"), "sandboxer.session": "other" }, "sandboxer-acme-other-web"),
+        row({ "sandboxer.kind": "workstation", "sandboxer.session": "eng-3941" }, "sandboxer-ws-eng-3941"),
       ],
       exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
     });
     const sandboxes = await list({ docker, session: "eng-3941" });
     expect(sandboxes.map((sandbox) => sandbox.slug)).toEqual(["eng-3941-web"]);
-    expect(argsOf("ps")[0]?.[0]).toEqual(["label=sandboxr.slug", "label=sandboxr.session=eng-3941"]);
+    expect(argsOf("ps")[0]?.[0]).toEqual(["label=sandboxer.slug", "label=sandboxer.session=eng-3941"]);
   });
 
   it("sorts by project and slug, so the list is stable between runs", async () => {
     const { docker } = fakeDocker({
-      rows: [row(labelsOf("b"), "sandboxr-acme-b"), row(labelsOf("a"), "sandboxr-acme-a")],
+      rows: [row(labelsOf("b"), "sandboxer-acme-b"), row(labelsOf("a"), "sandboxer-acme-a")],
       exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
     });
     expect((await list({ docker })).map((sandbox) => sandbox.slug)).toEqual(["a", "b"]);
   });
 
   it("ignores a container of ours that has lost its slug label", async () => {
-    const { docker } = fakeDocker({ rows: [row({ "sandboxr.project": "acme" }, "sandboxr-acme-x")] });
+    const { docker } = fakeDocker({ rows: [row({ "sandboxer.project": "acme" }, "sandboxer-acme-x")] });
     expect(await list({ docker })).toEqual([]);
   });
 
   // Asking a stopped container for its markers costs an exec that always fails.
   it("does not ask a stopped container about its migrations", async () => {
-    const { docker, argsOf } = fakeDocker({ rows: [row(labelsOf("a"), "sandboxr-acme-a", "exited")] });
+    const { docker, argsOf } = fakeDocker({ rows: [row(labelsOf("a"), "sandboxer-acme-a", "exited")] });
     const sandboxes = await list({ docker });
     expect(sandboxes[0]?.state).toBe("stopped");
     expect(argsOf("exec")).toHaveLength(0);
@@ -279,7 +279,7 @@ describe("list", () => {
 
   it("reports a running sandbox whose migrations failed as degraded", async () => {
     const { docker } = fakeDocker({
-      rows: [row(labelsOf("a"), "sandboxr-acme-a")],
+      rows: [row(labelsOf("a"), "sandboxer-acme-a")],
       exec: () => ({ stdout: '{"state":"failed","file":"001.sql","error":""}' }),
     });
     expect((await list({ docker }))[0]?.state).toBe("degraded");
@@ -294,16 +294,16 @@ describe("down", () => {
 
   it("removes the container and every volume it owned", async () => {
     const { docker, argsOf } = fakeDocker({ exists: true });
-    const report = await down("acme", "tkt-1", { docker, env: { SANDBOXR_HOME: await tempHome() } });
-    expect(argsOf("rm")[0]?.[0]).toBe("sandboxr-acme-tkt-1");
+    const report = await down("acme", "tkt-1", { docker, env: { SANDBOXER_HOME: await tempHome() } });
+    expect(argsOf("rm")[0]?.[0]).toBe("sandboxer-acme-tkt-1");
     expect(argsOf("volumeRm").map((args) => args[0])).toEqual([
-      "sandboxr-data-acme-tkt-1",
-      "sandboxr-blob-acme-tkt-1",
-      "sandboxr-bin-acme-tkt-1",
-      "sandboxr-www-acme-tkt-1",
+      "sandboxer-data-acme-tkt-1",
+      "sandboxer-blob-acme-tkt-1",
+      "sandboxer-bin-acme-tkt-1",
+      "sandboxer-www-acme-tkt-1",
     ]);
-    expect(report.removed).toContain("sandboxr-acme-tkt-1");
-    expect(report.removed).toContain("sandboxr-data-acme-tkt-1");
+    expect(report.removed).toContain("sandboxer-acme-tkt-1");
+    expect(report.removed).toContain("sandboxer-data-acme-tkt-1");
   });
 
   // The generated files are named after the sandbox and nothing else can derive
@@ -319,7 +319,7 @@ describe("down", () => {
     await writeFile(join(home, "state", "attach", "acme", "tkt-1"), "now\n");
 
     const { docker } = fakeDocker({ exists: true });
-    await down("acme", "tkt-1", { docker, env: { SANDBOXR_HOME: home } });
+    await down("acme", "tkt-1", { docker, env: { SANDBOXER_HOME: home } });
 
     expect(existsSync(join(home, "build", "acme", "tkt-1.plan.json"))).toBe(false);
     expect(existsSync(join(home, "build", "acme", "tkt-1.env"))).toBe(false);
@@ -335,10 +335,10 @@ describe("down", () => {
   it("never names a work volume, even one belonging to the runtime's own session", async () => {
     const { docker, argsOf } = fakeDocker({
       exists: true,
-      volumes: ["sandboxr-work-eng-3941", "sandboxr-data-acme-eng-3941-web"],
+      volumes: ["sandboxer-work-eng-3941", "sandboxer-data-acme-eng-3941-web"],
     });
-    await down("acme", "eng-3941-web", { docker, env: { SANDBOXR_HOME: await tempHome() } });
-    expect(argsOf("volumeRm").map((args) => args[0])).not.toContain("sandboxr-work-eng-3941");
+    await down("acme", "eng-3941-web", { docker, env: { SANDBOXER_HOME: await tempHome() } });
+    expect(argsOf("volumeRm").map((args) => args[0])).not.toContain("sandboxer-work-eng-3941");
   });
 
   // `--keep` means the container went and its data stayed, and the generated
@@ -348,7 +348,7 @@ describe("down", () => {
     await mkdir(join(home, "logs", "acme", "tkt-1"), { recursive: true });
 
     const { docker, argsOf } = fakeDocker({ exists: true });
-    await down("acme", "tkt-1", { docker, keep: true, env: { SANDBOXR_HOME: home } });
+    await down("acme", "tkt-1", { docker, keep: true, env: { SANDBOXER_HOME: home } });
 
     expect(argsOf("volumeRm")).toHaveLength(0);
     expect(existsSync(join(home, "logs", "acme", "tkt-1"))).toBe(true);
@@ -359,7 +359,7 @@ describe("down", () => {
     const lines: string[] = [];
     const report = await down("acme", "ghost", {
       docker,
-      env: { SANDBOXR_HOME: await tempHome() },
+      env: { SANDBOXER_HOME: await tempHome() },
       log: (line) => lines.push(line),
     });
     expect(lines.join(" ")).toMatch(/No sandbox called ghost/);
@@ -382,7 +382,7 @@ describe("up", () => {
       config: configOf(),
       worktree: dir,
       docker,
-      env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
+      env: { SANDBOXER_HOME: home, SANDBOXER_DOMAIN: "sbx.localhost" },
     });
 
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
@@ -396,7 +396,7 @@ describe("up", () => {
     expect(runArguments).toContain(`${LABELS.worktree}=/repo`);
 
     const envFile = join(home, "build", "acme", "tkt-1.env");
-    expect(await readFile(envFile, "utf8")).toContain("SANDBOXR_SLUG=tkt-1");
+    expect(await readFile(envFile, "utf8")).toContain("SANDBOXER_SLUG=tkt-1");
     // http, not https: the URL follows what the router is actually serving, and
     // this home has never been through `init`, so nothing terminates TLS.
     expect(result.urls.app).toBe("http://tkt-1--app--acme.sbx.localhost");
@@ -417,22 +417,22 @@ describe("up", () => {
       config: configOf(),
       worktree: dir,
       docker,
-      env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
+      env: { SANDBOXER_HOME: home, SANDBOXER_DOMAIN: "sbx.localhost" },
     });
 
     expect(result.urls.app).toBe("https://tkt-1--app--acme.sbx.localhost");
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
-    expect(runArguments).toContain("traefik.http.routers.sandboxr-acme-tkt-1.entrypoints=websecure");
-    expect(runArguments).toContain("traefik.http.routers.sandboxr-acme-tkt-1.tls=true");
+    expect(runArguments).toContain("traefik.http.routers.sandboxer-acme-tkt-1.entrypoints=websecure");
+    expect(runArguments).toContain("traefik.http.routers.sandboxer-acme-tkt-1.tls=true");
   });
 
   /**
    * The seam an embedder puts an agent through.
    *
-   * The engine's base image has no agent in it — sandboxr runs a project and has
+   * The engine's base image has no agent in it — sandboxer runs a project and has
    * no opinion about who edits the worktree — so a product that wants one layers
-   * its own base `FROM sandboxr/base` and names it here. Jef does exactly that
-   * with `jef/base`; `sandboxr up` from the engine's own CLI does not, and its
+   * its own base `FROM sandboxer/base` and names it here. Jef does exactly that
+   * with `jef/base`; `sandboxer up` from the engine's own CLI does not, and its
    * sandboxes have no agent in them.
    *
    * Asserted in both places the value has to arrive, because they are two
@@ -447,7 +447,7 @@ describe("up", () => {
       exists: false,
       // The project layer is not here, so it is built — which is the call this
       // test reads. Everything else is, so nothing else builds.
-      images: (reference) => !reference.startsWith("sandboxr/acme:"),
+      images: (reference) => !reference.startsWith("sandboxer/acme:"),
       exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
     });
 
@@ -456,7 +456,7 @@ describe("up", () => {
       worktree: dir,
       docker,
       baseImage: "jef/base:0.1.0-abcdef123456",
-      env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
+      env: { SANDBOXER_HOME: home, SANDBOXER_DOMAIN: "sbx.localhost" },
     });
 
     const calls = argsOf("ok").map((args) => args[0] as string[]);
@@ -467,7 +467,7 @@ describe("up", () => {
     expect(calls.filter((args) => args[0] === "build")).toHaveLength(1);
 
     const run = calls.find((args) => args[0] === "run") ?? [];
-    expect(run[run.length - 1]).toMatch(/^sandboxr\/acme:[0-9a-f]+$/);
+    expect(run[run.length - 1]).toMatch(/^sandboxer\/acme:[0-9a-f]+$/);
   });
 
   // The router has to be told about a sandbox at the moment it starts, or the
@@ -479,16 +479,16 @@ describe("up", () => {
       config: configOf(),
       worktree: dir,
       docker,
-      env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
+      env: { SANDBOXER_HOME: home, SANDBOXER_DOMAIN: "sbx.localhost" },
     });
 
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
     expect(runArguments).toContain("traefik.enable=true");
     expect(runArguments).toContain(
-      "traefik.http.routers.sandboxr-acme-tkt-1.rule=HostRegexp(`^tkt-1--[a-z0-9]+(?:-[a-z0-9]+)*--acme\\.sbx\\.localhost$`)",
+      "traefik.http.routers.sandboxer-acme-tkt-1.rule=HostRegexp(`^tkt-1--[a-z0-9]+(?:-[a-z0-9]+)*--acme\\.sbx\\.localhost$`)",
     );
     // Port 80 is the sandbox's own router, which is what splits by label.
-    expect(runArguments).toContain("traefik.http.services.sandboxr-acme-tkt-1.loadbalancer.server.port=80");
+    expect(runArguments).toContain("traefik.http.services.sandboxer-acme-tkt-1.loadbalancer.server.port=80");
   });
 
   // Anyone who can drive a public app can otherwise make it send real email and
@@ -504,7 +504,7 @@ describe("up", () => {
         config: configOf({ access: { apps: "public" } }),
         worktree: dir,
         docker,
-        env: { SANDBOXR_HOME: home },
+        env: { SANDBOXER_HOME: home },
       }),
     ).rejects.toThrow(/access\.credentials to real.*access\.apps to private/s);
   });
@@ -520,13 +520,13 @@ describe("up", () => {
     const { docker } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
 
     await expect(
-      up({ config: configOf({ access: { apps: "public" } }), worktree: dir, docker, env: { SANDBOXR_HOME: home } }),
+      up({ config: configOf({ access: { apps: "public" } }), worktree: dir, docker, env: { SANDBOXER_HOME: home } }),
     ).resolves.toBeDefined();
   });
 
   /*
    * The report behind these two: a workspace holding `acme-monorepo`, whose
-   * `sandboxr.yaml` says `project: acme`, and a config.yaml keyed on the only
+   * `sandboxer.yaml` says `project: acme`, and a config.yaml keyed on the only
    * name the operator had ever been shown — the directory. It matched nothing,
    * every project fell through to the machine-wide default, and the first
    * symptom was an agent unable to push, hours after the sandbox started.
@@ -540,7 +540,7 @@ describe("up", () => {
     const worktreeDir = join(project, "wt", "tkt-1");
     await mkdir(worktreeDir, { recursive: true });
     await mkdir(home, { recursive: true });
-    return { home, worktree: worktreeDir, config: configOf({}, join(worktreeDir, "sandboxr.yaml")) };
+    return { home, worktree: worktreeDir, config: configOf({}, join(worktreeDir, "sandboxer.yaml")) };
   }
 
   it("keys config.yaml on the workspace directory, not only the declared project:", async () => {
@@ -552,7 +552,7 @@ describe("up", () => {
       config,
       worktree: dir,
       docker,
-      env: { SANDBOXR_HOME: home, SANDBOXR_WORKSPACE: join(dir, "..", "..", "..") },
+      env: { SANDBOXER_HOME: home, SANDBOXER_WORKSPACE: join(dir, "..", "..", "..") },
     });
 
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
@@ -574,7 +574,7 @@ describe("up", () => {
       worktree: dir,
       docker,
       log: (line) => lines.push(line),
-      env: { SANDBOXR_HOME: home, SANDBOXR_WORKSPACE: join(dir, "..", "..", "..") },
+      env: { SANDBOXER_HOME: home, SANDBOXER_WORKSPACE: join(dir, "..", "..", "..") },
     });
 
     const said = lines.join("\n");
@@ -599,7 +599,7 @@ describe("up", () => {
       log: (line) => lines.push(line),
       // GH_TOKEN so the opted-in path answers from the environment instead of
       // shelling out to `gh`, which a test machine may not have logged in.
-      env: { SANDBOXR_HOME: home, SANDBOXR_WORKSPACE: join(dir, "..", "..", ".."), GH_TOKEN: "t" },
+      env: { SANDBOXER_HOME: home, SANDBOXER_WORKSPACE: join(dir, "..", "..", ".."), GH_TOKEN: "t" },
     });
 
     expect(lines.join("\n")).not.toMatch(/has no GitHub token/);
@@ -611,9 +611,9 @@ describe("up", () => {
     await writeFile(join(home, "secrets", "acme.env"), "API_TOKEN=real\n");
     const { docker, argsOf } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
 
-    await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home } });
+    await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXER_HOME: home } });
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
-    expect(runArguments).toContain(`${join(home, "secrets", "acme.env")}:/sandboxr/secrets.env:ro`);
+    expect(runArguments).toContain(`${join(home, "secrets", "acme.env")}:/sandboxer/secrets.env:ro`);
   });
 
   // The digest is what lets the dashboard say a sandbox started before a
@@ -625,10 +625,10 @@ describe("up", () => {
     await writeFile(join(home, "secrets", "acme.env"), "API_TOKEN=real\n");
     const { docker, argsOf } = fakeDocker({ running: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
 
-    await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home } });
+    await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXER_HOME: home } });
     const runArguments = (argsOf("ok")[0]?.[0] ?? []) as string[];
-    const stamped = runArguments.find((argument) => argument.startsWith("sandboxr.env="));
-    expect(stamped).toMatch(/^sandboxr\.env=[0-9a-f]{16}$/);
+    const stamped = runArguments.find((argument) => argument.startsWith("sandboxer.env="));
+    expect(stamped).toMatch(/^sandboxer\.env=[0-9a-f]{16}$/);
   });
 
   it("opts in when the config says the credentials may be real", async () => {
@@ -641,7 +641,7 @@ describe("up", () => {
         config: configOf({ access: { apps: "public", credentials: "real" } }),
         worktree: dir,
         docker,
-        env: { SANDBOXR_HOME: home },
+        env: { SANDBOXER_HOME: home },
       }),
     ).resolves.toBeTruthy();
   });
@@ -666,7 +666,7 @@ describe("up", () => {
       config: configOf(),
       worktree: dir,
       docker,
-      env: { SANDBOXR_HOME: home },
+      env: { SANDBOXER_HOME: home },
       log: (line) => lines.push(line),
     });
 
@@ -685,15 +685,15 @@ describe("up", () => {
   it("replaces an existing container for the same slug", async () => {
     const { dir, home } = await worktree();
     const { docker, argsOf } = fakeDocker({ running: true, exists: true, exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }) });
-    await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home } });
-    expect(argsOf("rm")[0]?.[0]).toBe("sandboxr-acme-tkt-1");
+    await up({ config: configOf(), worktree: dir, docker, env: { SANDBOXER_HOME: home } });
+    expect(argsOf("rm")[0]?.[0]).toBe("sandboxer-acme-tkt-1");
   });
 
   it("refuses to replace one when told not to", async () => {
     const { dir, home } = await worktree();
     const { docker } = fakeDocker({ running: true, exists: true });
     await expect(
-      up({ config: configOf(), worktree: dir, docker, env: { SANDBOXR_HOME: home }, replace: false }),
+      up({ config: configOf(), worktree: dir, docker, env: { SANDBOXER_HOME: home }, replace: false }),
     ).rejects.toThrow(/already exists/);
   });
 
@@ -711,8 +711,8 @@ describe("up", () => {
       manifests: "/tmp/staged-xyz",
       workspace: "/work/acme/main",
       facts: { branch: "feat/thing", commit: "abc1234", dirty: true, worktree: "/work/acme/main", directory: "main" },
-      mounts: ["-v", "sandboxr-work-eng-3941:/work", "--mount", "type=volume,src=sandboxr-work-eng-3941,dst=/workspace"],
-      labels: { "sandboxr.session": "eng-3941" },
+      mounts: ["-v", "sandboxer-work-eng-3941:/work", "--mount", "type=volume,src=sandboxer-work-eng-3941,dst=/workspace"],
+      labels: { "sandboxer.session": "eng-3941" },
       from: "acme/feat/thing@abc1234 in session eng-3941",
     };
 
@@ -729,7 +729,7 @@ describe("up", () => {
         workspace: provided,
         docker,
         log: (line) => lines.push(line),
-        env: { SANDBOXR_HOME: home, SANDBOXR_DOMAIN: "sbx.localhost" },
+        env: { SANDBOXER_HOME: home, SANDBOXER_DOMAIN: "sbx.localhost" },
       });
       return { args: (argsOf("ok")[0]?.[0] ?? []) as string[], lines };
     };
@@ -765,14 +765,14 @@ describe("up", () => {
       expect(args).toContain(`${LABELS.branch}=feat/thing`);
       expect(args).toContain(`${LABELS.commit}=abc1234`);
       expect(args).toContain(`${LABELS.dirty}=true`);
-      expect(args).toContain("sandboxr-acme-eng-3941-web");
+      expect(args).toContain("sandboxer-acme-eng-3941-web");
     });
 
     // Merged over the engine's, so an embedder can carry a group id the engine
     // has nothing to compute (contracts §3.4).
     it("merges the caller's labels over its own", async () => {
       const { args } = await startProvided();
-      expect(args).toContain("sandboxr.session=eng-3941");
+      expect(args).toContain("sandboxer.session=eng-3941");
     });
 
     it("says what the caller said it was starting from", async () => {
@@ -785,7 +785,7 @@ describe("up", () => {
 describe("reload", () => {
   const running = () =>
     fakeDocker({
-      rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
+      rows: [row(labelsOf("tkt-1"), "sandboxer-acme-tkt-1")],
       running: true,
       exec: (cmd) =>
         cmd.join(" ").includes("migrate.json") ? { stdout: '{"state":"ok","file":"","error":""}' } : { stdout: "" },
@@ -796,21 +796,21 @@ describe("reload", () => {
     const result = await reload("acme", "tkt-1", { kind: "backend", target: "api", docker, config: configOf() });
     expect(result.built).toEqual(["api"]);
     const commands = argsOf("exec").map((args) => (args[1] as string[]).join(" "));
-    expect(commands.some((command) => command.includes("build -o /var/lib/sandboxr/bin/api ./api"))).toBe(true);
-    expect(commands.some((command) => command.includes("sandboxr-restart api"))).toBe(true);
+    expect(commands.some((command) => command.includes("build -o /var/lib/sandboxer/bin/api ./api"))).toBe(true);
+    expect(commands.some((command) => command.includes("sandboxer-restart api"))).toBe(true);
   });
 
   // A broken branch must not also take the sandbox's services down.
   it("leaves the running process alone when a build fails", async () => {
     const { docker, argsOf } = fakeDocker({
-      rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
+      rows: [row(labelsOf("tkt-1"), "sandboxer-acme-tkt-1")],
       running: true,
       exec: (cmd) => (cmd.join(" ").includes("build -o") ? { code: 1, stderr: "syntax error" } : { stdout: "" }),
     });
     const result = await reload("acme", "tkt-1", { kind: "backend", target: "api", docker, config: configOf() });
     expect(result.failed).toEqual(["api"]);
     const commands = argsOf("exec").map((args) => (args[1] as string[]).join(" "));
-    expect(commands.some((command) => command.includes("sandboxr-restart"))).toBe(false);
+    expect(commands.some((command) => command.includes("sandboxer-restart"))).toBe(false);
   });
 
   it("builds the build-everything set for `all`, which excludes the opted-out app", async () => {
@@ -829,7 +829,7 @@ describe("reload", () => {
   // first build of an expensive app by accident.
   it("refreshes what the sandbox has already built", async () => {
     const { docker } = fakeDocker({
-      rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
+      rows: [row(labelsOf("tkt-1"), "sandboxer-acme-tkt-1")],
       running: true,
       exec: (cmd) => (cmd.join(" ").includes(".built.json") ? { stdout: '{"www":1}' } : { stdout: "" }),
     });
@@ -847,7 +847,7 @@ describe("reload", () => {
     const { docker, argsOf } = running();
     await reload("acme", "tkt-1", { kind: "frontend", target: "cms", docker, config: configOf() });
     const commands = argsOf("exec").map((args) => (args[1] as string[]).join(" "));
-    expect(commands.some((command) => command.includes("sandboxr-restart cms"))).toBe(true);
+    expect(commands.some((command) => command.includes("sandboxer-restart cms"))).toBe(true);
   });
 
   it("refuses a target that names nothing", async () => {
@@ -868,7 +868,7 @@ describe("reload", () => {
 describe("status", () => {
   it("reports the services, the migration state and the built apps", async () => {
     const { docker } = fakeDocker({
-      rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
+      rows: [row(labelsOf("tkt-1"), "sandboxer-acme-tkt-1")],
       running: true,
       exec: (cmd) => {
         const joined = cmd.join(" ");
@@ -878,18 +878,18 @@ describe("status", () => {
         return { stdout: "" };
       },
     });
-    // `SANDBOXR_HOME` and not just the domain, and it is load-bearing: the URL a
+    // `SANDBOXER_HOME` and not just the domain, and it is load-bearing: the URL a
     // status reports is https or http depending on whether the router found a
     // certificate, which `routerScheme` decides by looking for one under the
     // home. Without a home of its own this read the developer's real
-    // `~/.sandboxr` — so the test passed on a machine with no mkcert and failed
+    // `~/.sandboxer` — so the test passed on a machine with no mkcert and failed
     // on one with it, which is a test asserting a fact about the laptop it ran
     // on rather than about the code.
     const home = await mkdtemp(join(tmpdir(), "sbx-status-"));
     const result = await status("acme", "tkt-1", {
       docker,
       config: configOf(),
-      env: { SANDBOXR_DOMAIN: "sbx.localhost", SANDBOXR_HOME: home },
+      env: { SANDBOXER_DOMAIN: "sbx.localhost", SANDBOXER_HOME: home },
     });
     expect(result.migrations).toBe("ok");
     expect(result.built).toEqual(["app"]);
@@ -906,21 +906,21 @@ describe("status", () => {
 describe("gc", () => {
   it("reaps a sandbox whose worktree is gone", async () => {
     const { docker, argsOf } = fakeDocker({
-      rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
+      rows: [row(labelsOf("tkt-1"), "sandboxer-acme-tkt-1")],
       exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
-      volumes: ["sandboxr-data-acme-tkt-1"],
+      volumes: ["sandboxer-data-acme-tkt-1"],
       exists: true,
     });
     const plan = await gc({ docker });
     expect(plan.reap).toHaveLength(1);
-    expect(argsOf("rm")[0]?.[0]).toBe("sandboxr-acme-tkt-1");
+    expect(argsOf("rm")[0]?.[0]).toBe("sandboxer-acme-tkt-1");
   });
 
   it("removes nothing under dryRun", async () => {
     const { docker, argsOf } = fakeDocker({
-      rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
+      rows: [row(labelsOf("tkt-1"), "sandboxer-acme-tkt-1")],
       exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
-      volumes: ["sandboxr-data-acme-tkt-1"],
+      volumes: ["sandboxer-data-acme-tkt-1"],
     });
     const plan = await gc({ docker, dryRun: true });
     expect(plan.reap).toHaveLength(1);
@@ -931,7 +931,7 @@ describe("gc", () => {
 
   const images = [
     {
-      repository: "sandboxr/acme",
+      repository: "sandboxer/acme",
       tag: "old",
       id: "1",
       created: new Date("2026-08-01T00:00:00.000Z"),
@@ -940,7 +940,7 @@ describe("gc", () => {
       containers: 0,
     },
     {
-      repository: "sandboxr/acme",
+      repository: "sandboxer/acme",
       tag: "new",
       id: "2",
       created: new Date("2026-08-27T00:00:00.000Z"),
@@ -956,8 +956,8 @@ describe("gc", () => {
   it("removes a project image a newer build replaced, and keeps the newest", async () => {
     const { docker, argsOf } = fakeDocker({ usage: { images, volumes: [], buildCache: [] } });
     const plan = await gc({ docker });
-    expect(plan.images.map((image) => image.reference)).toEqual(["sandboxr/acme:old"]);
-    expect(argsOf("imageRm")).toEqual([["sandboxr/acme:old"]]);
+    expect(plan.images.map((image) => image.reference)).toEqual(["sandboxer/acme:old"]);
+    expect(argsOf("imageRm")).toEqual([["sandboxer/acme:old"]]);
   });
 
   // `docker system df` is a walk of the storage driver and can fail where
@@ -965,15 +965,15 @@ describe("gc", () => {
   // container and volume reaping, which has nothing to do with images.
   it("still reaps containers and volumes when the disk report is unavailable", async () => {
     const { docker, argsOf } = fakeDocker({
-      rows: [row(labelsOf("tkt-1"), "sandboxr-acme-tkt-1")],
+      rows: [row(labelsOf("tkt-1"), "sandboxer-acme-tkt-1")],
       exec: () => ({ stdout: '{"state":"ok","file":"","error":""}' }),
-      volumes: ["sandboxr-data-acme-tkt-1"],
+      volumes: ["sandboxer-data-acme-tkt-1"],
       exists: true,
       usageFails: true,
     });
     const plan = await gc({ docker });
     expect(plan.reap).toHaveLength(1);
-    expect(argsOf("rm")[0]?.[0]).toBe("sandboxr-acme-tkt-1");
+    expect(argsOf("rm")[0]?.[0]).toBe("sandboxer-acme-tkt-1");
     // Not "there are no superseded images" — no listing, so nothing is concluded.
     expect(plan.images).toEqual([]);
     expect(argsOf("imageRm")).toHaveLength(0);
@@ -984,7 +984,7 @@ describe("prune", () => {
   const usage = {
     images: [
       {
-        repository: "sandboxr/acme",
+        repository: "sandboxer/acme",
         tag: "old",
         id: "1",
         created: new Date("2026-08-01T00:00:00.000Z"),
@@ -993,7 +993,7 @@ describe("prune", () => {
         containers: 0,
       },
       {
-        repository: "sandboxr/acme",
+        repository: "sandboxer/acme",
         tag: "new",
         id: "2",
         created: new Date("2026-08-27T00:00:00.000Z"),
@@ -1002,7 +1002,7 @@ describe("prune", () => {
         containers: 1,
       },
     ],
-    volumes: [{ name: "sandboxr-data-acme-gone", size: 4.12e8, links: 0 }],
+    volumes: [{ name: "sandboxer-data-acme-gone", size: 4.12e8, links: 0 }],
     buildCache: [{ id: "a", size: 1e9, inUse: false, shared: false }],
   };
 
@@ -1013,8 +1013,8 @@ describe("prune", () => {
     const { docker, argsOf } = fakeDocker({ usage });
     const result = await prune({ docker });
     expect(result.applied).toBe(false);
-    expect(result.images.map((image) => image.reference)).toEqual(["sandboxr/acme:old"]);
-    expect(result.volumes.map((volume) => volume.name)).toEqual(["sandboxr-data-acme-gone"]);
+    expect(result.images.map((image) => image.reference)).toEqual(["sandboxer/acme:old"]);
+    expect(result.volumes.map((volume) => volume.name)).toEqual(["sandboxer-data-acme-gone"]);
     expect(argsOf("imageRm")).toHaveLength(0);
     expect(argsOf("volumeRm")).toHaveLength(0);
   });
@@ -1022,9 +1022,9 @@ describe("prune", () => {
   it("removes the superseded image and the orphaned volume when applied", async () => {
     const { docker, argsOf } = fakeDocker({ usage });
     const result = await prune({ docker, apply: true });
-    expect(argsOf("imageRm")).toEqual([["sandboxr/acme:old"]]);
-    expect(argsOf("volumeRm")).toEqual([["sandboxr-data-acme-gone"]]);
-    expect(result.removed.images).toEqual(["sandboxr/acme:old"]);
+    expect(argsOf("imageRm")).toEqual([["sandboxer/acme:old"]]);
+    expect(argsOf("volumeRm")).toEqual([["sandboxer-data-acme-gone"]]);
+    expect(result.removed.images).toEqual(["sandboxer/acme:old"]);
     expect(result.removed.buildCacheBytes).toBe(0);
   });
 

@@ -20,11 +20,11 @@ const CREATED = "2026-08-25T09:00:00.000Z";
 
 let env: NodeJS.ProcessEnv;
 
-// SANDBOXR_HOME is passed as an environment rather than set on the process, per
+// SANDBOXER_HOME is passed as an environment rather than set on the process, per
 // the note on `paths()`: the whole tree moves to a temporary directory without
 // the test having to mutate anything global.
 beforeEach(async () => {
-  env = { SANDBOXR_HOME: await mkdtemp(join(tmpdir(), "sandboxr-keep-")) };
+  env = { SANDBOXER_HOME: await mkdtemp(join(tmpdir(), "sandboxer-keep-")) };
 });
 
 function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
@@ -43,7 +43,7 @@ function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
     kind: "runtime",
     session: "",
     state: "running",
-    container: "sandboxr-acme-tkt-1",
+    container: "sandboxer-acme-tkt-1",
     ...overrides,
   };
 }

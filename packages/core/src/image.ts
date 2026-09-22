@@ -48,13 +48,13 @@ export function applyBlocks(template: string, enabled: ReadonlySet<string>): str
   let skipping: string | null = null;
 
   for (const line of template.split("\n")) {
-    const open = /^#\s*>>>\s*sandboxr:block\s+(\S+)\s*$/.exec(line);
+    const open = /^#\s*>>>\s*sandboxer:block\s+(\S+)\s*$/.exec(line);
     if (open) {
       const name = open[1] as string;
       if (!enabled.has(name)) skipping = name;
       continue;
     }
-    const close = /^#\s*<<<\s*sandboxr:block\s+(\S+)\s*$/.exec(line);
+    const close = /^#\s*<<<\s*sandboxer:block\s+(\S+)\s*$/.exec(line);
     if (close) {
       if (skipping === close[1]) skipping = null;
       continue;
@@ -192,7 +192,7 @@ export async function findGoModule(worktree: string, workdir?: string): Promise<
  * tag arrives as a `--build-arg` rather than in the Dockerfile text, so nothing
  * in this hash saw it. A base rebuilt with new container scripts therefore left
  * every project image on the machine pinned to the old one, and `up` reported
- * "Image sandboxr/acme:… is current" while starting a sandbox that did not have
+ * "Image sandboxer/acme:… is current" while starting a sandbox that did not have
  * the scripts the host was relying on.
  */
 export async function imageTag(
@@ -269,7 +269,7 @@ export async function ensureProjectImage(options: BuildImageOptions): Promise<Bu
     return { tag, built: false, dockerfile };
   }
 
-  const context = await mkdtemp(join(tmpdir(), "sandboxr-build-"));
+  const context = await mkdtemp(join(tmpdir(), "sandboxer-build-"));
   try {
     await writeFile(join(context, "Dockerfile"), dockerfile);
     for (const file of staged) {

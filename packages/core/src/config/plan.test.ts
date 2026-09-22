@@ -29,7 +29,7 @@ const REFERENCE = new URL("../../../../container/examples/", import.meta.url).pa
 const full = resolveConfig(
   {
     project: "acme",
-    sandboxr: ">=0.1.0",
+    sandboxer: ">=0.1.0",
     access: { apps: "private" },
     database: {
       driver: "mysql",
@@ -65,13 +65,13 @@ const full = resolveConfig(
     storage: { driver: "minio", buckets: ["uploads", "avatars"] },
     deps: { root: "web" },
     toolchain: { go: "1.23", node: "22" },
-    env: { DB_HOST: "${SANDBOXR_DB_HOST}", VITE_API_URL: "/api" },
+    env: { DB_HOST: "${SANDBOXER_DB_HOST}", VITE_API_URL: "/api" },
   },
-  "/repo/sandboxr.yaml",
+  "/repo/sandboxer.yaml",
 );
 
 describe("planFor", () => {
-  const plan = planFor(full, { seed: { path: "/sandboxr/cache/seed-acme-3f2a1b.sql.zst" } });
+  const plan = planFor(full, { seed: { path: "/sandboxer/cache/seed-acme-3f2a1b.sql.zst" } });
 
   it("emits the documented top-level shape", () => {
     expect(Object.keys(plan).sort()).toEqual([
@@ -92,7 +92,7 @@ describe("planFor", () => {
       version: "8.4",
       name: "acme",
       fixtures: "db/seeds/fixtures.sql",
-      seed: { path: "/sandboxr/cache/seed-acme-3f2a1b.sql.zst", anonymised: false },
+      seed: { path: "/sandboxer/cache/seed-acme-3f2a1b.sql.zst", anonymised: false },
       migrate: {
         command: "go run ./cmd/migrate",
         workdir: "services",
@@ -108,9 +108,9 @@ describe("planFor", () => {
   // and silently unfindable for a `file:` the project declared elsewhere, so the
   // resolution moved out to `seedMount` and this is now a pass-through.
   it("writes the seed path it was given, whole", () => {
-    expect(plan.database.seed?.path).toBe("/sandboxr/cache/seed-acme-3f2a1b.sql.zst");
-    expect(planFor(full, { seed: { path: "/sandboxr/seed/acme.sql.zst" } }).database.seed?.path).toBe(
-      "/sandboxr/seed/acme.sql.zst",
+    expect(plan.database.seed?.path).toBe("/sandboxer/cache/seed-acme-3f2a1b.sql.zst");
+    expect(planFor(full, { seed: { path: "/sandboxer/seed/acme.sql.zst" } }).database.seed?.path).toBe(
+      "/sandboxer/seed/acme.sql.zst",
     );
   });
 
@@ -185,7 +185,7 @@ describe("planFor", () => {
 
   it("passes the routes and the project's own variable names through", () => {
     expect(plan.routes).toEqual({ app: { "/api": "api", "/cms": "cms" } });
-    expect(plan.env).toEqual({ DB_HOST: "${SANDBOXR_DB_HOST}", VITE_API_URL: "/api" });
+    expect(plan.env).toEqual({ DB_HOST: "${SANDBOXER_DB_HOST}", VITE_API_URL: "/api" });
   });
 
   it("carries the dependency tree with its defaults filled in", () => {
@@ -195,8 +195,8 @@ describe("planFor", () => {
   it("says storage is none rather than leaving it out", () => {
     const bare = planFor(
       resolveConfig(
-        { project: "acme", sandboxr: ">=0.1.0", access: { apps: "private" }, database: { driver: "none" } },
-        "/repo/sandboxr.yaml",
+        { project: "acme", sandboxer: ">=0.1.0", access: { apps: "private" }, database: { driver: "none" } },
+        "/repo/sandboxer.yaml",
       ),
     );
     expect(bare.storage).toEqual({ driver: "none" });
@@ -210,26 +210,26 @@ describe("planFor", () => {
     const anonymised = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "public" },
         database: { driver: "mysql", seed_from: { file: "/seeds/d.sql", anonymised: true }, migrate: { command: "m" } },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
-    const plan2 = planFor(anonymised, { seed: { path: "/sandboxr/seed/d.sql", anonymised: true } });
-    expect(plan2.database.seed).toEqual({ path: "/sandboxr/seed/d.sql", anonymised: true });
+    const plan2 = planFor(anonymised, { seed: { path: "/sandboxer/seed/d.sql", anonymised: true } });
+    expect(plan2.database.seed).toEqual({ path: "/sandboxer/seed/d.sql", anonymised: true });
   });
 
   it("carries the owner a file-backed driver requires", () => {
     const d1 = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "private" },
         database: { driver: "d1", owner: "app", seed_from: { fixtures: "f.sql" }, migrate: { command: "m" } },
         frontends: { apps: [{ label: "app", package: ".", serve: "s", port: 1 }] },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
     const plan3 = planFor(d1);
     expect(plan3.database.owner).toBe("app");
@@ -244,12 +244,12 @@ describe("planFor", () => {
     const implied = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "private" },
         database: { driver: "sqlite", seed_from: { fixtures: "f.sql" }, migrate: { command: "m" } },
         frontends: { apps: [{ label: "app", package: ".", serve: "s", port: 1 }] },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
     expect(planFor(implied).database.owner).toBe("app");
   });
@@ -262,11 +262,11 @@ describe("planFor", () => {
     const served = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "private" },
         frontends: { apps: [{ label: "app", package: ".", serve: "s", port: 1, health: "/healthz" }] },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
     expect(planFor(served).services[0]).toMatchObject({ kind: "server", health: "/healthz" });
   });
@@ -277,11 +277,11 @@ describe("planFor", () => {
     const built = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "private" },
         frontends: { apps: [{ label: "app", package: ".", build: "b", out: "dist", health: "/healthz" }] },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
     expect(planFor(built).services[0]).not.toHaveProperty("health");
   });
@@ -322,7 +322,7 @@ describe("the emitted plan against the container's reference plans", () => {
 
   it.each(configs)("%s emits only keys the container knows", async (name) => {
     const config = await loadConfig(join(EXAMPLES, name), { enforceAccess: false });
-    const plan = planFor(config, { seed: { path: `/sandboxr/cache/seed-${config.project}-abc.sql.zst` } });
+    const plan = planFor(config, { seed: { path: `/sandboxer/cache/seed-${config.project}-abc.sql.zst` } });
 
     for (const key of Object.keys(plan)) expect([...knownTopLevel]).toContain(key);
     for (const key of Object.keys(plan.database)) expect([...knownDatabase]).toContain(key);
@@ -363,7 +363,7 @@ describe("planFor reproduces the container's worked plans exactly", () => {
     const config = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         database: {
           driver: "mysql",
           version: "8.4",
@@ -416,27 +416,27 @@ describe("planFor reproduces the container's worked plans exactly", () => {
           admin: { "/api/admin": "adminApi", "/api": "api" },
         },
         env: {
-          DB_HOST: "${SANDBOXR_DB_HOST}",
-          DB_PORT: "${SANDBOXR_DB_PORT}",
-          DB_NAME: "${SANDBOXR_DB_NAME}",
-          DB_USER: "${SANDBOXR_DB_USER}",
-          DB_PASSWORD: "${SANDBOXR_DB_PASSWORD}",
-          S3_ENDPOINT: "${SANDBOXR_S3_ENDPOINT}",
-          S3_KEY: "${SANDBOXR_S3_KEY}",
-          S3_SECRET: "${SANDBOXR_S3_SECRET}",
+          DB_HOST: "${SANDBOXER_DB_HOST}",
+          DB_PORT: "${SANDBOXER_DB_PORT}",
+          DB_NAME: "${SANDBOXER_DB_NAME}",
+          DB_USER: "${SANDBOXER_DB_USER}",
+          DB_PASSWORD: "${SANDBOXER_DB_PASSWORD}",
+          S3_ENDPOINT: "${SANDBOXER_S3_ENDPOINT}",
+          S3_KEY: "${SANDBOXER_S3_KEY}",
+          S3_SECRET: "${SANDBOXER_S3_SECRET}",
           S3_BUCKET: "uploads",
           VITE_API_URL: "/api",
-          VITE_APP_URL: "${SANDBOXR_URL_APP}",
-          VITE_ADMIN_URL: "${SANDBOXR_URL_ADMIN}",
+          VITE_APP_URL: "${SANDBOXER_URL_APP}",
+          VITE_ADMIN_URL: "${SANDBOXER_URL_ADMIN}",
         },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
 
     // The seed is an artifact rather than a config field, so it arrives the way
     // a real run supplies it: already resolved to the path the container will
     // open it at, by `seedMount`.
-    const plan = planFor(config, { seed: { path: "/sandboxr/cache/acme-3f2a1b.sql.zst", anonymised: true } });
+    const plan = planFor(config, { seed: { path: "/sandboxer/cache/acme-3f2a1b.sql.zst", anonymised: true } });
 
     expect(plan).toEqual(reference("monolith.plan.json"));
   });
@@ -445,12 +445,12 @@ describe("planFor reproduces the container's worked plans exactly", () => {
     const config = resolveConfig(
       {
         project: "edge-thing",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         database: {
           driver: "d1",
           owner: "app",
           seed_from: { file: ".wrangler/state", fixtures: "seeds/fixtures.sql", anonymised: true },
-          migrate: { command: "npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXR_D1_DIR" },
+          migrate: { command: "npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXER_D1_DIR" },
         },
         storage: { driver: "none" },
         toolchain: { node: "24" },
@@ -461,19 +461,19 @@ describe("planFor reproduces the container's worked plans exactly", () => {
             {
               label: "app",
               package: ".",
-              serve: "npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to $SANDBOXR_D1_DIR",
+              serve: "npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to $SANDBOXER_D1_DIR",
               port: 8787,
               health: "/health",
             },
           ],
         },
         routes: {},
-        env: { API_TOKEN: "dummy", APP_URL: "${SANDBOXR_URL_APP}" },
+        env: { API_TOKEN: "dummy", APP_URL: "${SANDBOXER_URL_APP}" },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
 
-    const plan = planFor(config, { seed: { path: "/sandboxr/cache/edge-thing-state", anonymised: true } });
+    const plan = planFor(config, { seed: { path: "/sandboxer/cache/edge-thing-state", anonymised: true } });
     const want = reference("worker.plan.json");
 
     // The worked plan leaves `database.name` out and lets `entrypoint.sh` default

@@ -58,7 +58,7 @@ describe("the contract with index.html", () => {
   // would leave the script reading a key nothing writes — with no error, just a
   // flash of the wrong theme on every load.
   it("keeps the key and the three names the blocking script reads", () => {
-    expect(PREFS_KEY).toBe("sandboxr.docs.prefs.v1");
+    expect(PREFS_KEY).toBe("sandboxer.docs.prefs.v1");
     expect(Object.keys(DEFAULTS).sort()).toEqual(["expandAll", "scheme", "theme"]);
   });
 

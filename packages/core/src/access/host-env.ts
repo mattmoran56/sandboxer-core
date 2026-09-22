@@ -22,7 +22,7 @@
  *
  * An embedder starting its front end with `docker run` resolves all three at
  * that moment, from the functions below. This writes the same ones to
- * `$SANDBOXR_HOME/host.env`, so a compose deployment gets them from core rather
+ * `$SANDBOXER_HOME/host.env`, so a compose deployment gets them from core rather
  * than from a second lookup written in YAML that could not do the lookup
  * anyway.
  *
@@ -101,7 +101,7 @@ export function hostEnvironment(facts: HostFacts, extra: Record<string, string |
  */
 export function formatHostEnv(values: Record<string, string>): string {
   const lines = [
-    "# Written by `sandboxr init`. Edits are lost on the next run.",
+    "# Written by `sandboxer init`. Edits are lost on the next run.",
     "#",
     "# The values only the host can resolve — the keychain's GitHub token, this",
     "# machine's commit identity, and whatever else the tool that ran `init` had",
@@ -131,7 +131,7 @@ export interface WriteHostEnvOptions {
   env?: NodeJS.ProcessEnv | undefined;
 }
 
-/** Writes `$SANDBOXR_HOME/host.env` and returns its path. */
+/** Writes `$SANDBOXER_HOME/host.env` and returns its path. */
 export async function writeHostEnv(options: WriteHostEnvOptions): Promise<string> {
   const file = paths(options.env ?? process.env).hostEnvFile;
   await writeFile(file, formatHostEnv(hostEnvironment(options.facts, options.extra ?? {})), "utf8");

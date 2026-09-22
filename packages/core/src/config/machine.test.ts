@@ -1,8 +1,8 @@
-// Tests for ~/.sandboxr/config.yaml, the machine's own settings:
+// Tests for ~/.sandboxer/config.yaml, the machine's own settings:
 // - loadMachineConfig: a missing file and an empty file are the defaults, not an error
 // - loadMachineConfig: a misspelled key, a bad ttl and unreadable YAML are errors naming the file and the field
-// - resolveTtl: the precedence chain — --ttl, the project entry, the file, SANDBOXR_TTL_HOURS, the built-in
-// - resolveTtl: an unreadable SANDBOXR_TTL_HOURS falls through instead of failing a start
+// - resolveTtl: the precedence chain — --ttl, the project entry, the file, SANDBOXER_TTL_HOURS, the built-in
+// - resolveTtl: an unreadable SANDBOXER_TTL_HOURS falls through instead of failing a start
 // - resolveGithub: the project entry beats the file, which beats the default, which is off
 // - projectEntry: a projects: key is either of a project's two names, directory first
 // - projectEntry: a key that is another project's directory never reaches this one through its declared name
@@ -39,7 +39,7 @@ import {
 let env: NodeJS.ProcessEnv;
 
 beforeEach(async () => {
-  env = { SANDBOXR_HOME: await mkdtemp(join(tmpdir(), "sandboxr-config-")) };
+  env = { SANDBOXER_HOME: await mkdtemp(join(tmpdir(), "sandboxer-config-")) };
 });
 
 const write = (text: string): Promise<void> => writeFile(paths(env).configFile, text, "utf8");
@@ -97,7 +97,7 @@ describe("resolveTtl", () => {
   const config = { ttl: "12h", projects: { acme: { ttl: "3d" } } };
 
   it("takes what the command was told before anything else", () => {
-    expect(resolveTtl({ explicit: "2h", project: "acme", config, env: { SANDBOXR_TTL_HOURS: "4" } })).toBe("2h");
+    expect(resolveTtl({ explicit: "2h", project: "acme", config, env: { SANDBOXER_TTL_HOURS: "4" } })).toBe("2h");
   });
 
   it("takes the project's entry before the file's top-level ttl", () => {
@@ -112,9 +112,9 @@ describe("resolveTtl", () => {
   // installed the service and then forgotten; the file is what somebody edits,
   // and an edit that loses to a forgotten variable is the worst kind of not
   // working.
-  it("takes SANDBOXR_TTL_HOURS only when the file says nothing", () => {
-    expect(resolveTtl({ project: "acme", config: {}, env: { SANDBOXR_TTL_HOURS: "4" } })).toBe("4h");
-    expect(resolveTtl({ project: "acme", config, env: { SANDBOXR_TTL_HOURS: "4" } })).toBe("3d");
+  it("takes SANDBOXER_TTL_HOURS only when the file says nothing", () => {
+    expect(resolveTtl({ project: "acme", config: {}, env: { SANDBOXER_TTL_HOURS: "4" } })).toBe("4h");
+    expect(resolveTtl({ project: "acme", config, env: { SANDBOXER_TTL_HOURS: "4" } })).toBe("3d");
   });
 
   it("falls back to the built-in twelve hours", () => {
@@ -125,9 +125,9 @@ describe("resolveTtl", () => {
   // Unlike the file, nobody has just typed this: it comes from a unit file
   // written months ago, and refusing to start a sandbox over it would be a
   // surprising place to discover the typo.
-  it("falls through an unreadable SANDBOXR_TTL_HOURS rather than failing", () => {
-    expect(resolveTtl({ config: {}, env: { SANDBOXR_TTL_HOURS: "soon" } })).toBe(DEFAULT_TTL);
-    expect(resolveTtl({ config: {}, env: { SANDBOXR_TTL_HOURS: "" } })).toBe(DEFAULT_TTL);
+  it("falls through an unreadable SANDBOXER_TTL_HOURS rather than failing", () => {
+    expect(resolveTtl({ config: {}, env: { SANDBOXER_TTL_HOURS: "soon" } })).toBe(DEFAULT_TTL);
+    expect(resolveTtl({ config: {}, env: { SANDBOXER_TTL_HOURS: "" } })).toBe(DEFAULT_TTL);
   });
 
   it("treats an empty --ttl as not given", () => {
@@ -288,12 +288,12 @@ describe("loadMachineConfig, the github field", () => {
   let home: string;
 
   beforeEach(async () => {
-    home = await mkdtemp(join(tmpdir(), "sandboxr-machine-gh-"));
+    home = await mkdtemp(join(tmpdir(), "sandboxer-machine-gh-"));
   });
 
   it("reads it at both levels", async () => {
-    await writeFile(paths({ SANDBOXR_HOME: home }).configFile, "github: token\nprojects:\n  acme: { github: none }\n");
-    const config = await loadMachineConfig({ SANDBOXR_HOME: home });
+    await writeFile(paths({ SANDBOXER_HOME: home }).configFile, "github: token\nprojects:\n  acme: { github: none }\n");
+    const config = await loadMachineConfig({ SANDBOXER_HOME: home });
     expect(config.github).toBe("token");
     expect(config.projects?.acme?.github).toBe("none");
   });
@@ -301,8 +301,8 @@ describe("loadMachineConfig, the github field", () => {
   it("refuses a value it does not recognise, rather than reading it as off", async () => {
     // `github: true` is the obvious thing to write and would silently mean
     // nothing at all — which for a credential setting is the wrong way to fail.
-    await writeFile(paths({ SANDBOXR_HOME: home }).configFile, "github: yes\n");
-    await expect(loadMachineConfig({ SANDBOXR_HOME: home })).rejects.toThrow(/github/);
+    await writeFile(paths({ SANDBOXER_HOME: home }).configFile, "github: yes\n");
+    await expect(loadMachineConfig({ SANDBOXER_HOME: home })).rejects.toThrow(/github/);
   });
 });
 
@@ -322,7 +322,7 @@ describe("share:", () => {
   });
 
   it("expands `~` against HOME", async () => {
-    const home = await mkdtemp(join(tmpdir(), "sandboxr-share-"));
+    const home = await mkdtemp(join(tmpdir(), "sandboxer-share-"));
     await writeFile(join(home, ".npmrc"), "//registry:_authToken=x\n", "utf8");
 
     const files = sharedFiles({ share: [{ host: "~/.npmrc", into: "/root/.npmrc" }] }, { HOME: home });
@@ -345,7 +345,7 @@ describe("share:", () => {
   // in every sandbox on the machine — with a valid credential on the host the
   // whole time.
   it("skips a row whose source is zero bytes", async () => {
-    const home = await mkdtemp(join(tmpdir(), "sandboxr-share-"));
+    const home = await mkdtemp(join(tmpdir(), "sandboxer-share-"));
     await writeFile(join(home, "empty"), "", "utf8");
 
     expect(sharedFiles({ share: [{ host: join(home, "empty"), into: "/root/x" }] }, {})).toEqual([]);
@@ -355,7 +355,7 @@ describe("share:", () => {
   // else inside it — which for a tool's config directory usually includes
   // settings the host itself executes.
   it("skips a row pointing at a directory", async () => {
-    const home = await mkdtemp(join(tmpdir(), "sandboxr-share-"));
+    const home = await mkdtemp(join(tmpdir(), "sandboxer-share-"));
     expect(sharedFiles({ share: [{ host: home, into: "/root/x" }] }, {})).toEqual([]);
   });
 

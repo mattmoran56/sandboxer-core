@@ -71,14 +71,14 @@ export interface MysqlSettings {
  */
 export function mysqlSettings(env: NodeJS.ProcessEnv, project: string, version?: string): MysqlSettings {
   return {
-    sourceUser: env.SANDBOXR_SOURCE_DB_USER ?? "root",
-    sourcePassword: env.SANDBOXR_SOURCE_DB_PASSWORD ?? "",
-    user: env.SANDBOXR_DB_USER ?? "sandboxr",
-    password: env.SANDBOXR_DB_PASSWORD ?? "sandboxr",
-    rootPassword: env.SANDBOXR_DB_ROOT_PASSWORD ?? "sandboxr",
-    database: env.SANDBOXR_DB_NAME ?? identifier(project),
-    image: env.SANDBOXR_MYSQL_IMAGE ?? `mysql:${version ?? "8.4"}`,
-    ttlHours: Number(env.SANDBOXR_CACHE_TTL_HOURS ?? "24") || 24,
+    sourceUser: env.SANDBOXER_SOURCE_DB_USER ?? "root",
+    sourcePassword: env.SANDBOXER_SOURCE_DB_PASSWORD ?? "",
+    user: env.SANDBOXER_DB_USER ?? "sandboxer",
+    password: env.SANDBOXER_DB_PASSWORD ?? "sandboxer",
+    rootPassword: env.SANDBOXER_DB_ROOT_PASSWORD ?? "sandboxer",
+    database: env.SANDBOXER_DB_NAME ?? identifier(project),
+    image: env.SANDBOXER_MYSQL_IMAGE ?? `mysql:${version ?? "8.4"}`,
+    ttlHours: Number(env.SANDBOXER_CACHE_TTL_HOURS ?? "24") || 24,
   };
 }
 
@@ -462,7 +462,7 @@ export const mysqlDriver: DatabaseDriver = {
       // The artifact is mounted read-only into the container, so the restore
       // reads it from inside rather than pushing it through the docker socket.
       // Through `seedMount` and not a basename: a declared `file:` is mounted at
-      // its own path, and only the cache is reachable under /sandboxr/cache.
+      // its own path, and only the cache is reachable under /sandboxer/cache.
       const inside = seedMount(seed.path, join(ctx.home, "cache")).inside;
       const decompress = seed.path.endsWith(".zst") ? `zstd -dc ${inside}` : `cat ${inside}`;
       const restore = restoreArgs(settings, database).join(" ");
@@ -520,8 +520,8 @@ export const mysqlDriver: DatabaseDriver = {
         DB_NAME: settings.database,
         DB_USERNAME: settings.user,
         DB_PASSWORD: settings.password,
-        SANDBOXR_MIGRATION_LOCK: lock,
-        ...(ctx.config.database.migrate?.since ? { SANDBOXR_MIGRATE_SINCE: ctx.config.database.migrate.since } : {}),
+        SANDBOXER_MIGRATION_LOCK: lock,
+        ...(ctx.config.database.migrate?.since ? { SANDBOXER_MIGRATE_SINCE: ctx.config.database.migrate.since } : {}),
       },
     });
 
@@ -625,7 +625,7 @@ async function readFingerprint(
   if (result.code !== 0 || !value) {
     throw new MysqlDriverError(
       `could not fingerprint ${database} in ${container} — are the source credentials right? ` +
-        "Set SANDBOXR_SOURCE_DB_USER and SANDBOXR_SOURCE_DB_PASSWORD.",
+        "Set SANDBOXER_SOURCE_DB_USER and SANDBOXER_SOURCE_DB_PASSWORD.",
     );
   }
   return value.slice(0, 12);

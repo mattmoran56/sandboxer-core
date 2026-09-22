@@ -32,7 +32,7 @@ import { writeMachineConfigExample } from "../config/machine.js";
 import { archBuildArgs, docker as defaultDocker, type Docker } from "../docker.js";
 import { containerDir } from "../install.js";
 import { DEFAULT_DOMAIN, NETWORK } from "../naming.js";
-import { directoriesOf, paths } from "../paths.js";
+import { directoriesOf, legacyHomeNotice, paths } from "../paths.js";
 import { TOOL_VERSION } from "../tool-version.js";
 import { hostGhToken } from "../forge.js";
 import { hostGitIdentity } from "../git.js";
@@ -65,7 +65,7 @@ export * from "./host-env.js";
 export * from "./tls.js";
 
 /** The generic base image every sandbox runs from. */
-export const BASE_IMAGE = "sandboxr/base";
+export const BASE_IMAGE = "sandboxer/base";
 
 export interface InitOptions {
   env?: NodeJS.ProcessEnv | undefined;
@@ -90,7 +90,7 @@ export interface InitOptions {
    * "container name is already in use" rather than with anything that names the
    * cause.
    *
-   * **Reachable through this option and not through the `sandboxr` command.**
+   * **Reachable through this option and not through the `sandboxer` command.**
    * The engine ships no compose file, so the only caller is an embedder that
    * does, and a flag on the engine's CLI whose whole justification is a file the
    * engine does not have is a flag that reads as broken.
@@ -133,7 +133,7 @@ export interface AccessReport {
 }
 
 export function domainOf(env: NodeJS.ProcessEnv = process.env): string {
-  return env.SANDBOXR_DOMAIN && env.SANDBOXR_DOMAIN !== "" ? env.SANDBOXR_DOMAIN : DEFAULT_DOMAIN;
+  return env.SANDBOXER_DOMAIN && env.SANDBOXER_DOMAIN !== "" ? env.SANDBOXER_DOMAIN : DEFAULT_DOMAIN;
 }
 
 /**
@@ -157,14 +157,14 @@ export function originFor(host: string, env: NodeJS.ProcessEnv = process.env): s
 /**
  * A digest of everything that goes *into* the base image.
  *
- * The tag used to be `sandboxr/base:<TOOL_VERSION>` alone, which meant an image
+ * The tag used to be `sandboxer/base:<TOOL_VERSION>` alone, which meant an image
  * was reused until the version number moved — so editing anything under
  * `container/` left every machine running the image built before the edit, and
  * `--rebuild` was the only way to find out.
  *
  * That was survivable while the scripts only ever *added* behaviour. It stopped
  * being survivable when the project's credentials became a mounted file: a host
- * on the new code mounts `/sandboxr/secrets.env`, and an image built before the
+ * on the new code mounts `/sandboxer/secrets.env`, and an image built before the
  * reader existed simply ignores it. Nothing errors — every credential quietly
  * stops arriving, and an application that falls back to a default when its key
  * is missing carries on talking to whatever that default names.
@@ -184,7 +184,7 @@ export async function baseImageTag(env: NodeJS.ProcessEnv = process.env): Promis
     hash.update(await readFile(file));
   }
   // The version stays in the tag as well as in the digest, so `docker images`
-  // still says which sandboxr an image belongs to at a glance.
+  // still says which sandboxer an image belongs to at a glance.
   return `${BASE_IMAGE}:${TOOL_VERSION}-${hash.digest("hex").slice(0, 12)}`;
 }
 
@@ -277,7 +277,7 @@ export async function ensureBaseImage(options: {
  * `host.env`.
  *
  * **It prepares the bare domain and does not fill it** (contracts §7.2). The
- * engine serves no control plane — `sandboxr` is a command-line tool — so
+ * engine serves no control plane — `sandboxer` is a command-line tool — so
  * nothing answers `https://<domain>` after this unless an embedder puts a front
  * end there. `AccessReport.frontend` is where one must listen. `jef init` is
  * Jef's verb: it calls this, builds the dashboard, workstation and orchestrator
@@ -299,6 +299,16 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
     throw new Error("Docker is not running. Start it and try again.");
   }
 
+  // Asked *before* the directories are made, because making them creates the
+  // new home, and the notice is defined as "the old home is here and the new one
+  // is not". Asked afterwards it was always undefined — the first wiring did
+  // exactly that, and the sentence this exists to say was never said.
+  //
+  // Said by `init` and by nothing else, because `init` is the verb somebody runs
+  // straight after an upgrade and the only one that can be trusted to be read.
+  // Every other command would repeat it until it became noise.
+  const legacy = legacyHomeNotice(env);
+
   for (const dir of directoriesOf(p)) await mkdir(dir, { recursive: true });
   await docker.ensureNetwork(NETWORK);
 
@@ -308,6 +318,8 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
   // decides when this machine stops containers.
   const configFile = await writeMachineConfigExample(env);
   if (configFile) notes.push(`Wrote ${configFile}. Edit it to change how long a sandbox may sit unused.`);
+
+  if (legacy) notes.push(legacy);
 
   // The one image `init` builds. It is the prerequisite of the next thing
   // anybody does — the first `up` fails without it — which is the test for
@@ -331,7 +343,7 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
     } else if (!(await caTrusted({ env })) && options.tls !== true) {
       notes.push(
         "mkcert's root is not in this machine's trust store, so the router serves plain http.\n" +
-          "  Run `mkcert -install` (it asks for your password once) and then `sandboxr init` again.",
+          "  Run `mkcert -install` (it asks for your password once) and then `sandboxer init` again.",
       );
     } else {
       cert = await issueCertificate(domain, baseCertificateNames(domain), { env });
@@ -389,14 +401,14 @@ export async function initAccess(options: InitOptions = {}): Promise<AccessRepor
 
   const scheme = cert ? "https" : "http";
   // Said once, because a bare domain nobody is serving looks like a broken
-  // install rather than a finished one. `sandboxr` is a command-line tool: it
+  // install rather than a finished one. `sandboxer` is a command-line tool: it
   // prepares the domain, and whether anything answers on it is an embedder's
   // decision (contracts §7.2).
   if ((await listFrontends(docker)).length === 0) {
     notes.push(
-      `Nothing is serving ${scheme}://${domain}${portSuffix(scheme, ports)} — sandboxr is a command-line tool.\n` +
+      `Nothing is serving ${scheme}://${domain}${portSuffix(scheme, ports)} — sandboxer is a command-line tool.\n` +
         `  A control plane that wants the bare domain listens on ${frontendPort} and carries the\n` +
-        "  `sandboxr.frontend` label. Sandboxes are reachable either way.",
+        "  `sandboxer.frontend` label. Sandboxes are reachable either way.",
     );
   }
 

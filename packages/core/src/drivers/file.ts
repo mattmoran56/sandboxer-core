@@ -44,7 +44,7 @@ export class FileDriverError extends Error {
  * agree on one path: the `data` volume, then a directory per driver.
  */
 export function dataDir(driver: string): string {
-  return `/var/lib/sandboxr/data/${driver}`;
+  return `/var/lib/sandboxer/data/${driver}`;
 }
 
 /**
@@ -53,7 +53,7 @@ export function dataDir(driver: string): string {
  * `entrypoint.sh` exports these before it execs `/init`, so every *supervised*
  * service inherits them — but `docker exec` does not: it gets the container's
  * configured environment, which never saw those exports. A command run from the
- * host therefore has to carry them itself, or `$SANDBOXR_DB_FILE` expands to
+ * host therefore has to carry them itself, or `$SANDBOXER_DB_FILE` expands to
  * nothing and `sqlite3 ""` quietly operates on a temporary in-memory database
  * instead of failing.
  */
@@ -62,14 +62,14 @@ export function locationEnv(config: ResolvedConfig): Record<string, string> {
   const dir = dataDir(driver);
   const name = config.project;
   const env: Record<string, string> = {
-    SANDBOXR_DB_DRIVER: driver,
-    SANDBOXR_DB_NAME: name,
-    SANDBOXR_DB_DIR: dir,
+    SANDBOXER_DB_DRIVER: driver,
+    SANDBOXER_DB_NAME: name,
+    SANDBOXER_DB_DIR: dir,
   };
-  if (driver === "sqlite") env.SANDBOXR_DB_FILE = `${dir}/${name}.sqlite`;
+  if (driver === "sqlite") env.SANDBOXER_DB_FILE = `${dir}/${name}.sqlite`;
   // A directory rather than a file: miniflare owns the layout inside it, and
   // locates its own database by glob.
-  if (driver === "d1") env.SANDBOXR_D1_DIR = dir;
+  if (driver === "d1") env.SANDBOXER_D1_DIR = dir;
   return env;
 }
 
@@ -247,7 +247,7 @@ function makeDriver(name: "d1" | "sqlite"): DatabaseDriver {
         // The cutoff is exported rather than turned into a flag: the tool cannot
         // guess a runner's flag spelling, so the command consumes it if it wants
         // it (contracts §5.4).
-        env: { ...locationEnv(ctx.config), ...(since ? { SANDBOXR_MIGRATE_SINCE: since } : {}) },
+        env: { ...locationEnv(ctx.config), ...(since ? { SANDBOXER_MIGRATE_SINCE: since } : {}) },
       });
       const output = `${result.stdout}${result.stderr}`;
       const parsed = parseMigrationOutput(output);
@@ -298,7 +298,7 @@ function makeDriver(name: "d1" | "sqlite"): DatabaseDriver {
 }
 
 /** The container's own database entry point, which owns every driver detail. */
-const DB_SCRIPT = "/opt/sandboxr/scripts/db.sh";
+const DB_SCRIPT = "/opt/sandboxer/scripts/db.sh";
 
 /**
  * Runs one of the container's database verbs.

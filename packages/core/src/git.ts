@@ -85,7 +85,7 @@ export function pickBranch(stdout: string): string | undefined {
 }
 
 /**
- * Lists a worktree's uncommitted changes, minus the ones sandboxr itself makes.
+ * Lists a worktree's uncommitted changes, minus the ones sandboxer itself makes.
  *
  * A build inside a sandbox can write files the branch's .gitignore does not
  * cover — a generated environment file beside a package is the usual one — and

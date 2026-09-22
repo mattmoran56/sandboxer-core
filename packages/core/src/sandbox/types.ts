@@ -53,7 +53,7 @@ export interface Sandbox {
   /**
    * Which of a session's containers this is (Jef's §9.3).
    *
-   * A container with no `sandboxr.kind` label is a pre-session sandbox and reads
+   * A container with no `sandboxer.kind` label is a pre-session sandbox and reads
    * as `runtime`, so this is never empty and a caller never has to handle a
    * third value.
    */
@@ -106,10 +106,10 @@ export interface UpOptions extends CommonOptions {
    */
   workspace?: ProvidedWorkspace | undefined;
   /**
-   * The image this project's layer is built on. Defaults to `sandboxr/base`.
+   * The image this project's layer is built on. Defaults to `sandboxer/base`.
    *
    * For an embedder that ships a base of its own — one with an agent's
-   * toolchain in it, say — layered `FROM sandboxr/base` so every rule about
+   * toolchain in it, say — layered `FROM sandboxer/base` so every rule about
    * what a sandbox's base has to contain still holds.
    */
   baseImage?: string | undefined;
@@ -185,7 +185,7 @@ export interface ListOptions extends CommonOptions {
    *
    * A runtime *is* a sandbox to everything downstream, so a session's runtimes
    * are listed here rather than by a second lister that would have to rebuild
-   * the same states from the same labels. The join is the `sandboxr.session`
+   * the same states from the same labels. The join is the `sandboxer.session`
    * label and never a list the session keeps: §3.4's rule, which is what stops
    * a session becoming the manifest this codebase has no room for.
    */
@@ -260,7 +260,7 @@ export interface PruneOptions extends CommonOptions {
    * project on the daemon wrote into as well.
    */
   apply?: boolean | undefined;
-  /** Include Docker's build cache, which sandboxr is not the only writer of. */
+  /** Include Docker's build cache, which sandboxer is not the only writer of. */
   buildCache?: boolean | undefined;
   /** Image repositories the caller declares are its own — see `GcOptions`. */
   protectImages?: readonly string[] | undefined;

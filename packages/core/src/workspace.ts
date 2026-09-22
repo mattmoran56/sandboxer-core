@@ -7,7 +7,7 @@
  *
  * There is deliberately **no registry file**. A project *is* a directory
  * containing `repo.git`, so listing projects is a readdir — the same doctrine as
- * docs/architecture/state.md, where `sandboxr ls` is a pure function of
+ * docs/architecture/state.md, where `sandboxer ls` is a pure function of
  * `docker ps`. A manifest would go stale the first time somebody deleted a
  * directory by hand, and there is nothing in a manifest that the directory does
  * not already say.
@@ -233,7 +233,7 @@ async function declaredIn(dir: string): Promise<string | undefined> {
 /**
  * Every project in the workspace, by **both** of the names it answers to.
  *
- * This exists for one question: does a `projects:` key in `~/.sandboxr/config.yaml`
+ * This exists for one question: does a `projects:` key in `~/.sandboxer/config.yaml`
  * name anything on this machine (§4.3)? Answering it with directory names alone
  * would call a perfectly good entry unmatched — an operator who keyed
  * `acme-monorepo` on its declared `project: acme` is right, and being told

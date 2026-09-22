@@ -16,7 +16,7 @@ import { pathOfSlug } from "./route.js";
  * repository's own `docs/reference/status.md` says remote deployment does not
  * exist yet, so a canonical URL asserting a live origin would be a claim nobody
  * has run. It is here because a canonical link and an `og:url` have to be
- * absolute to mean anything at all; set `SANDBOXR_DOCS_URL` at build time to the
+ * absolute to mean anything at all; set `SANDBOXER_DOCS_URL` at build time to the
  * origin the files are actually served from.
  *
  * `process` is reached through a guard because this module also runs in the
@@ -25,7 +25,7 @@ import { pathOfSlug } from "./route.js";
  * anything renders.
  */
 export const SITE_URL = (
-  (typeof process !== "undefined" ? process.env?.SANDBOXR_DOCS_URL : undefined) ?? "https://sandboxr.dev"
+  (typeof process !== "undefined" ? process.env?.SANDBOXER_DOCS_URL : undefined) ?? "https://sandboxer.dev"
 ).replace(/\/+$/, "");
 
 export interface HeadTags {
@@ -37,12 +37,12 @@ export interface HeadTags {
 /**
  * A page's tags.
  *
- * The front page is titled `sandboxr documentation` rather than
- * `Welcome — sandboxr`, because the front page's title is the site's name in a
+ * The front page is titled `sandboxer documentation` rather than
+ * `Welcome — sandboxer`, because the front page's title is the site's name in a
  * bookmark bar and in a search result, and "Welcome" names nothing.
  */
 export const headOf = (page: { slug: string; title: string; description: string }): HeadTags => ({
-  title: page.slug === "" ? "sandboxr documentation" : `${page.title} — sandboxr`,
+  title: page.slug === "" ? "sandboxer documentation" : `${page.title} — sandboxer`,
   description: page.description,
   canonical: `${SITE_URL}${pathOfSlug(page.slug)}`,
 });

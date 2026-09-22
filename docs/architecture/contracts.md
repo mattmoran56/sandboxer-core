@@ -1,6 +1,6 @@
 # Contracts
 
-**This file is the single source of truth for every boundary in sandboxr.** Every package
+**This file is the single source of truth for every boundary in sandboxer.** Every package
 depends on the names, shapes and paths below. If you need to change one, change it here
 first and say so in the commit message — a package that disagrees with this file is a bug.
 
@@ -8,7 +8,7 @@ Read this before writing any code.
 
 ---
 
-## 1. What sandboxr is
+## 1. What sandboxer is
 
 One container per git worktree, holding a whole project: its services, its front-ends, its
 own database, its own file storage. Several run at once on one machine — locally or on a
@@ -33,21 +33,21 @@ session: the engine is handed a workspace and starts a container on it.
 This tree was one repository until the engine was extracted from it, and the boundary is the
 reason this file exists.
 
-- **The engine, `sandboxr`.** This repository: `packages/core`, `packages/cli`, `packages/docs`,
+- **The engine, `sandboxer`.** This repository: `packages/core`, `packages/cli`, `packages/docs`,
   `packages/tokens`, `container/`, `docs/`, `examples/`. It turns a git worktree into a running
   copy of a project on its own hostname. It knows about worktrees, sandboxes, images, volumes, a
   router and a certificate. It knows nothing about agents, sessions or Jef.
 - **The product, `Jef`.** The `meet-jef` repository: a dashboard, agent sessions, an orchestrator,
   a voice, a workstation container, an agent layer on the base image, and a compose file that runs
-  the lot. It is an agent you talk to, built on the engine. It embeds `@sandboxr/core` in process.
+  the lot. It is an agent you talk to, built on the engine. It embeds `@sandboxer/core` in process.
 
 ```
-packages/core      @sandboxr/core     Config, drivers, docker orchestration, lifecycle
-packages/cli       @sandboxr/cli      The `sandboxr` command
-packages/tokens    @sandboxr/tokens   One stylesheet, tokens.css, and the fonts it imports
-packages/docs      @sandboxr/docs     The documentation site
+packages/core      @sandboxer/core     Config, drivers, docker orchestration, lifecycle
+packages/cli       @sandboxer/cli      The `sandboxer` command
+packages/tokens    @sandboxer/tokens   One stylesheet, tokens.css, and the fonts it imports
+packages/docs      @sandboxer/docs     The documentation site
 container/         (no package)       What runs INSIDE a sandbox: Dockerfiles, s6, scripts
-examples/          (no package)       Example sandboxr.yaml files
+examples/          (no package)       Example sandboxer.yaml files
 ```
 
 That is the whole of it. **The engine ships no `docker-compose.yml`, no dashboard, no session
@@ -65,7 +65,7 @@ use the thing. Jef's §9.10 is the map from each rule here to what Jef builds on
 **The rule, stated once: the engine imports nothing from the product; the product imports the
 engine.** Not "should not" — *cannot*: the product is not in this tree, and a test says so as
 well, because the rule has to survive somebody vendoring one repository into the other.
-`@sandboxr/core` depends on `yaml` and `zod` and on nothing else; every import specifier in its source is relative, `node:`-prefixed, or
+`@sandboxer/core` depends on `yaml` and `zod` and on nothing else; every import specifier in its source is relative, `node:`-prefixed, or
 one of those two. `packages/core/src/boundary.test.ts` walks `src/**/*.ts` and fails with the
 file, the line and the specifier, and `packages/cli/src/boundary.test.ts` does the cut-down
 version for the CLI. They run under the ordinary `npm test`; there is no linter in this repo and
@@ -213,9 +213,9 @@ ceiling 16. Two branches on one ticket derive the ticket id `platformwork-3941`,
 characters. Exactly at the limit, which is the point: the arithmetic has no slack to lose.
 
 **Scope.** The check happens where the collision can be seen: `addWorktree`, which has the
-sibling worktrees in hand. It therefore covers worktrees sandboxr cuts, under
+sibling worktrees in hand. It therefore covers worktrees sandboxer cuts, under
 `<workspace>/<project>/wt` (§4.1). A worktree somebody keeps in their own `.worktrees/`
-directory is not managed by sandboxr, has no record, and can still collide — the fix there
+directory is not managed by sandboxer, has no record, and can still collide — the fix there
 is an explicit slug. **Collisions already on disk are not migrated**: renaming a worktree
 that already has a running sandbox would orphan its container and its volumes under the old
 name, which is worse than the problem.
@@ -229,7 +229,7 @@ name, which is worse than the problem.
 
 - `label` comes from the project's config (`frontends[].label`, `backends[].label`).
 - `project` is `project` in the config file.
-- `domain` is `SANDBOXR_DOMAIN`, default `sbx.lcl`.
+- `domain` is `SANDBOXER_DOMAIN`, default `sbx.lcl`.
 
 Example: `feat-123--app--acme.sbx.lcl`
 
@@ -273,24 +273,41 @@ The paths under that one hostname are Jef's §3.
 
 ### 3.3 Docker names
 
-- Container: `sandboxr-<project>-<slug>`
-- Session containers and volumes: `sandboxr-ws-<session>` and `sandboxr-work-<session>` — Jef's §9.2
-- Network: `sandboxr` (one, shared)
-- Volumes: `sandboxr-<purpose>-<project>-<slug>` where purpose is one of
+> [!IMPORTANT] The old names are not read, anywhere, and there is no compatibility window
+> This engine was called `sandboxr` and every name in this section began with it. All of them
+> moved in one commit — the config filenames (`sandboxer.yaml`, `sandboxer.yml`,
+> `.sandboxer.yaml`), the `SANDBOXER_` environment prefix, the `sandboxer.*` labels, every
+> container, volume and image name, and the shared network. **Nothing accepts the old spelling
+> as a fallback.** A project still carrying `sandboxr.yaml` is "this is not a project"; a
+> sandbox started by the old build carries `sandboxr.*` labels and is therefore invisible to
+> `ls`, `gc` and `expire` rather than half-visible to them.
+>
+> That is deliberate, and it is §3.4's rule applied to the rename: two label sets is exactly the
+> second opinion about the truth that labels-only state exists to prevent, and a reader that
+> believes both can reap the newer thing on the older thing's evidence. The cost is a migration
+> done by hand, once, on a single-operator tool — stop everything under the old build first,
+> because once the labels change the old sandboxes can only be reached with `docker` directly.
+> `sandboxer init` says so when it finds a `~/.sandboxr` and no `~/.sandboxer`, and it moves
+> nothing itself.
+
+- Container: `sandboxer-<project>-<slug>`
+- Session containers and volumes: `sandboxer-ws-<session>` and `sandboxer-work-<session>` — Jef's §9.2
+- Network: `sandboxer` (one, shared)
+- Volumes: `sandboxer-<purpose>-<project>-<slug>` where purpose is one of
   `data` (database), `blob` (object storage), `bin` (built binaries), `www` (built sites).
-- Shared volumes, the engine's own: `sandboxr-deps-<hash>` (node_modules, keyed on lockfile),
-  `sandboxr-gocache`, `sandboxr-gomod`. `SHARED_VOLUMES` names the last two and nothing else.
+- Shared volumes, the engine's own: `sandboxer-deps-<hash>` (node_modules, keyed on lockfile),
+  `sandboxer-gocache`, `sandboxer-gomod`. `SHARED_VOLUMES` names the last two and nothing else.
 - **An embedder's shared volume is the embedder's**, mounted by handing `up` a
   `UpOptions.volumes` row and reserved by naming it in `protectVolumes`. Jef's is
-  `sandboxr-claude`, an agent's credential store at `/root/.claude` with `CLAUDE_CONFIG_DIR`
+  `sandboxer-claude`, an agent's credential store at `/root/.claude` with `CLAUDE_CONFIG_DIR`
   pointing at it — Jef's §4. The engine mounts what it is handed and has no name for any of it.
 
-**A shared volume is populated only when it says so itself.** `sandboxr-deps-<hash>` is
+**A shared volume is populated only when it says so itself.** `sandboxer-deps-<hash>` is
 filled in by the container on first boot, and *shared*: every sandbox on that lockfile
 mounts the same one. A boot interrupted part-way through the copy leaves a directory that is
 non-empty and incomplete, so "non-empty" cannot be the test for "installed" — it poisons the
 volume permanently, and every sandbox on the lockfile inherits a tree that is silently short
-of packages. The container writes `node_modules/.sandboxr-deps` — the lockfile hash it
+of packages. The container writes `node_modules/.sandboxer-deps` — the lockfile hash it
 installed from — as the *last* step, by rename, and treats only that marker as done. Same
 shape as a seed artifact's `.partial`, and for the same reason.
 
@@ -313,13 +330,13 @@ usually not a login at all, which has a consequence worth knowing. See Jef's §4
 
 Images are named under one namespace, and the split between them decides what may be reclaimed:
 
-- Project layer: `sandboxr/<project>:<12 hex>`, the hash covering the tool version, the rendered
+- Project layer: `sandboxer/<project>:<12 hex>`, the hash covering the tool version, the rendered
   Dockerfile and every staged manifest. Content-addressed, so every sandbox of a project shares one
   image and a rebuild is triggered by exactly the things the build reads.
-- The machine's own: `sandboxr/base`, tagged by tool version and by `latest`. **`init` builds this
-  one and no other**, and it is on the never-reclaimed list. `sandboxr/dashboard`,
-  `sandboxr/workstation` and `sandboxr/orchestrator` are **reserved names the engine never
-  builds**: a product tags its machine images under `sandboxr/` (Jef's §9.3) and the engine
+- The machine's own: `sandboxer/base`, tagged by tool version and by `latest`. **`init` builds this
+  one and no other**, and it is on the never-reclaimed list. `sandboxer/dashboard`,
+  `sandboxer/workstation` and `sandboxer/orchestrator` are **reserved names the engine never
+  builds**: a product tags its machine images under `sandboxer/` (Jef's §9.3) and the engine
   promises never to reap one, whether or not the thing that built it is installed here.
 - An embedder's own base is another — Jef's is `jef/base`, the engine's base with an agent on it,
   built by `jef init` and named to `up` as `baseImage`. It is **content-addressed on the engine
@@ -332,7 +349,7 @@ Images are named under one namespace, and the split between them decides what ma
   argument that a machine which never creates a session never needs it — and the cost landed in
   the one place it must not, as several silent minutes inside a request that answers one JSON body
   and has nowhere to stream a build log to (Jef's §9.6.2). The engine's half of that lesson is why
-  `sandboxr init` builds the base rather than leaving it to the first `up`: a verb that sets a
+  `sandboxer init` builds the base rather than leaving it to the first `up`: a verb that sets a
   machine up is expected to take a while and says so.
 - **The base image's digest covers `container/base/` and `container/scripts/`, and nothing else.**
   Those are the two directories `base/Dockerfile` copies from, so they are exactly what the build
@@ -359,13 +376,13 @@ against them, and Docker's build cache when it is asked. Both are bound by five 
   machine can say what is in it, so an unrecognised name must read as "something holds it". This
   is §3.4's failure-is-an-absence rule applied where it costs the most.
 
-  **`sandboxr-work-` is the reserved prefix, and it belongs to the embedder.** Jef's work volumes
+  **`sandboxer-work-` is the reserved prefix, and it belongs to the embedder.** Jef's work volumes
   live under it (Jef's §9.5): a session whose workstation is stopped has no container at all, which is
   the ordinary state of a session somebody comes back to next week, and what would go is every
   clone and every uncommitted change in it. The engine promises never to reclaim one, without
   knowing what a session is. `isWorkVolume` in `packages/core/src/naming.ts` is the test, beside
   `WORK_VOLUME_PREFIX` which is the name it reserves.
-- `sandboxr/base`, and the `sandboxr/` names reserved for a product's machine images, are never
+- `sandboxer/base`, and the `sandboxer/` names reserved for a product's machine images, are never
   removed as superseded: they are tagged by version rather than by content, so "older tag" does not
   mean "replaced". An embedder adds names outside that namespace by passing them, and `jef/base` is
   on it that way.
@@ -374,7 +391,7 @@ against them, and Docker's build cache when it is asked. Both are bound by five 
 - An image any container references — running or stopped — is never removed, and neither is one
   docker would not give a creation time or a container count for. Every absent answer is read as
   "something holds it". Dangling and untagged images are out of scope entirely: they are `docker
-  image prune`'s, not addressable by a name sandboxr gave them, and indistinguishable here from the
+  image prune`'s, not addressable by a name sandboxer gave them, and indistinguishable here from the
   layers a build running right now is producing.
 
 **Superseded images belong to the routine command.** They were `prune`'s alone, and the accounting
@@ -446,36 +463,42 @@ about a sandbox is read from it.
 
 | Label | Meaning |
 |---|---|
-| `sandboxr.project` | project name from the config |
-| `sandboxr.slug` | the slug |
-| `sandboxr.branch` | branch name, or `?` if it cannot be resolved |
-| `sandboxr.commit` | short commit sha |
-| `sandboxr.dirty` | `true` / `false` — uncommitted changes present |
-| `sandboxr.worktree` | absolute path on the host |
-| `sandboxr.driver` | database driver in use |
-| `sandboxr.created` | ISO 8601 UTC |
-| `sandboxr.access` | `public` / `private` — whether app hostnames need auth |
-| `sandboxr.ttl` | seconds the sandbox may sit unused for, or `never` |
-| `sandboxr.env` | digest of the environment the sandbox was created with — see §5.2. A record, not a comparison; empty means *unknown* |
+| `sandboxer.project` | project name from the config |
+| `sandboxer.slug` | the slug |
+| `sandboxer.branch` | branch name, or `?` if it cannot be resolved |
+| `sandboxer.commit` | short commit sha |
+| `sandboxer.dirty` | `true` / `false` — uncommitted changes present |
+| `sandboxer.worktree` | absolute path on the host |
+| `sandboxer.driver` | database driver in use |
+| `sandboxer.created` | ISO 8601 UTC |
+| `sandboxer.access` | `public` / `private` — whether app hostnames need auth |
+| `sandboxer.ttl` | seconds the sandbox may sit unused for, or `never` |
+| `sandboxer.env` | digest of the environment the sandbox was created with — see §5.2. A record, not a comparison; empty means *unknown* |
+
+**A `sandboxr.*` label is not one of these.** `SANDBOX_FILTER` keys on `sandboxer.slug` alone, so
+a container from the build before the rename is not a sandbox this engine has any opinion about:
+it is not listed, not expired, not reaped, and its volumes are not reclaimed. Absent is read as
+absent, which is §3.4's own rule — the alternative, reading both label sets for a version, would
+give `list` and `gc` two answers to "what is this", and the one that loses is invisible.
 
 Two more are **opaque group labels**, and that is the whole of what the engine knows about them:
 
 | Label | Meaning to the engine |
 |---|---|
-| `sandboxr.kind` | what sort of container this is. The engine stamps `runtime` on everything it starts, and **absent reads as `runtime`** — every sandbox created before the label existed has none, and reading one of those as anything else would put a container that mounts a host worktree into somebody's list of something it is not |
-| `sandboxr.session` | a group id an embedder supplied. The engine stamps it when a caller hands one over, filters on it in `list`, and never looks inside it |
+| `sandboxer.kind` | what sort of container this is. The engine stamps `runtime` on everything it starts, and **absent reads as `runtime`** — every sandbox created before the label existed has none, and reading one of those as anything else would put a container that mounts a host worktree into somebody's list of something it is not |
+| `sandboxer.session` | a group id an embedder supplied. The engine stamps it when a caller hands one over, filters on it in `list`, and never looks inside it |
 
 **The engine does not know what a session is, and these labels do not teach it.** They are how an
 embedder — Jef, or anything else built on this — puts several containers under one name and gets
 them back with one `docker ps`, without a manifest file the engine would have to keep. `gc` needs
-`sandboxr.session` for one thing only: a container carrying it is somebody's, so it is not a
+`sandboxer.session` for one thing only: a container carrying it is somebody's, so it is not a
 stray. Jef gives both labels a meaning in its own §9.3, and that meaning is Jef's.
 
-`sandboxr.session` is deliberately **absent** rather than empty on a container belonging to no
+`sandboxer.session` is deliberately **absent** rather than empty on a container belonging to no
 group. An empty string is a value something will one day compare against.
 
 **Labels hold durable state only.** Everything above is fixed when the sandbox is created
-and does not change while it runs — and `sandboxr.env` is worth a note, because it is a label
+and does not change while it runs — and `sandboxer.env` is worth a note, because it is a label
 that deliberately records the *past* and must not be mistaken for a live answer.
 
 It says what the environment was when the container was created. It is **not** what decides
@@ -496,8 +519,8 @@ migration verdict the sandbox exposes. A failed migration deliberately leaves th
 running, so anything reading only the container's state will report a degraded sandbox as
 healthy — the one case where it matters most.
 
-**There is deliberately no `sandboxr.expires` label**, and the reason generalises. `sandboxr.ttl`
-is a *duration*, which is durable; a deadline is not. `sandboxr.created` is stamped once and never
+**There is deliberately no `sandboxer.expires` label**, and the reason generalises. `sandboxer.ttl`
+is a *duration*, which is durable; a deadline is not. `sandboxer.created` is stamped once and never
 moves, so a deadline of `created + ttl` is already in the past the moment the reaper stops a
 sandbox — restarting it would get it stopped again on the very next pass, and the button would
 look broken.
@@ -522,7 +545,7 @@ the derive-at-read-time rule cannot hold, for the reason given underneath:
 | A terminal or agent socket **held open** on the sandbox | the mtime of `state/attach/<project>/<slug>`, re-stamped by whatever holds the socket or the run (§4.2.2) | a session somebody is sitting in, or an agent running in one, for longer than the ttl |
 
 **A front end is a container the embedder put on the bare domain, and the engine is told which
-they are.** It carries `sandboxr.frontend` (§7.2) and answers on the domain itself rather than on
+they are.** It carries `sandboxer.frontend` (§7.2) and answers on the domain itself rather than on
 a sandbox hostname, so its lines in the access log are *about* sandboxes rather than *to* one:
 the router name is the front end's, and the sandbox is named in the request path. The engine has
 one route shape of its own here — `…/p/<project>/[sw]/<slug>/…`, which is how Jef's §3 addresses a
@@ -568,7 +591,7 @@ evidence is that a live connection into the container exists, and stopping the c
 is the failure being fixed. It is bounded by the socket having to keep answering — see §4.2.2.
 
 **A live run re-stamps the same marker, and that is what keeps the engine's own reaper honest.**
-The third row is a parameter, so an embedder that forgets to pass it leaves `sandboxr expire`
+The third row is a parameter, so an embedder that forgets to pass it leaves `sandboxer expire`
 with no sight of a running agent at all — and the sandbox it would then stop is one with work in
 it nobody can get back. The marker closes that hole without teaching the engine anything: whoever
 holds a run re-stamps `state/attach/<project>/<slug>` on the same heartbeat and the same grace
@@ -598,10 +621,10 @@ Three consequences are part of the contract:
 
 ## 4. Host paths
 
-`SANDBOXR_HOME`, default `~/.sandboxr`. Never inside a repo, so `git clean` cannot destroy it.
+`SANDBOXER_HOME`, default `~/.sandboxer`. Never inside a repo, so `git clean` cannot destroy it.
 
 ```
-~/.sandboxr/
+~/.sandboxer/
   cache/                 database seed artifacts, content-addressed
   logs/<project>/<slug>/ per-sandbox logs, outlive a stop and go with a `down` — see §3.3
   tls/                   certificate and key
@@ -615,17 +638,17 @@ Three consequences are part of the contract:
   state/slug/<project>/<worktree dir>  the slug a worktree was given on a collision — see §4.2.3
   state/attach/<project>/<slug>  a socket is being held open on this sandbox — see §4.2.2
   workspace/<project>/   a project the dashboard can start a sandbox for — see §4.1
-  workspace/<project>/sandboxr.yaml  optional project-level config — see §5.6
+  workspace/<project>/sandboxer.yaml  optional project-level config — see §5.6
 ```
 
 ### 4.1 The workspace
 
-`SANDBOXR_WORKSPACE`, default `~/.sandboxr/workspace`. Its own variable because the repositories
+`SANDBOXER_WORKSPACE`, default `~/.sandboxer/workspace`. Its own variable because the repositories
 are the one part of the tree worth putting on a different disk.
 
 ```
 <workspace>/<project>/
-  sandboxr.yaml        optional: the project-level config — see §5.6
+  sandboxer.yaml        optional: the project-level config — see §5.6
   repo.git/            a bare clone
   wt/<branch>/         one worktree per branch, all peers
 ```
@@ -652,10 +675,10 @@ Two rules follow, and both are load-bearing:
   workspace must still appear; a list that could hide something running is the staleness this
   whole design exists to avoid.
 
-The directory name is the key. The `project:` field in that repo's `sandboxr.yaml` is what
+The directory name is the key. The `project:` field in that repo's `sandboxer.yaml` is what
 hostnames and container names are built from (§3.2, §3.3), and the two need not match.
 
-`<project>/sandboxr.yaml` is the only file sandboxr itself may put in a project directory, and
+`<project>/sandboxer.yaml` is the only file sandboxer itself may put in a project directory, and
 it is put there by hand. It is a fallback for worktrees that carry no config of their own, and
 it never becomes a sandbox's `/workspace` — see §5.6.
 
@@ -830,7 +853,7 @@ fixed.** Freshening decides which *commit* the worktree lands on, so it has to h
 there is still a ref to move and no working tree hanging off it. Claiming decides what the
 worktree is *called*, which needs the directory to exist and the sibling listing to compare
 against. They share nothing: one writes refs in the mirror, the other writes a file under
-`SANDBOXR_HOME`, and no slug is ever read out of a ref.
+`SANDBOXER_HOME`, and no slug is ever read out of a ref.
 
 A worktree that already exists is handed back before any of this — starting a sandbox never
 pulls a checkout somebody may be working in. That is what the button in §8 is for.
@@ -853,7 +876,7 @@ container's labels are immutable, and Docker exposes no way to change one — so
 is the one piece of per-sandbox state that lives on the host.
 
 The rule that makes this legal rather than a second manifest: **the file records operator intent,
-not observed reality, and it names the instance it applies to.** It contains the `sandboxr.created`
+not observed reality, and it names the instance it applies to.** It contains the `sandboxer.created`
 value of the container it applies to, and a marker whose stamp does not match the live container is
 ignored. Slugs are derived from ticket ids (§3.1), so the same `project/slug` is recreated routinely;
 without the stamp a leftover marker would silently keep the *next* sandbox to take that name alive.
@@ -889,7 +912,7 @@ stating in full, because it reaches the **opposite** conclusion about the stamp:
 - **It records intent, not observed reality.** Nothing derives it, nothing reconciles it, and no
   lifecycle command writes it. `docker ps` has no opinion about what somebody calls a worktree.
 - **It names the worktree, and a worktree is what persists.** The keep marker carries a
-  `sandboxr.created` because it applies to one *container instance*, and keeping a dead sandbox's
+  `sandboxer.created` because it applies to one *container instance*, and keeping a dead sandbox's
   successor alive would be wrong. A name applies to the directory the sandbox is cut from, which
   outlives every sandbox on it. **Stamping it would be the bug, not the safeguard**: the name would
   be thrown away the moment a sandbox was stopped and recreated, so a rename would quietly undo
@@ -901,7 +924,7 @@ stating in full, because it reaches the **opposite** conclusion about the stamp:
 Two rules about the key and the value:
 
 - **`<project>` is the workspace *directory* name** — §4.1's key, the one the worktree's own path is
-  built from — and **not** the `project:` a `sandboxr.yaml` declares, which is what `state/keep/`
+  built from — and **not** the `project:` a `sandboxer.yaml` declares, which is what `state/keep/`
   beside it is keyed on. The two are allowed to differ (§4.1), and this file names a directory on
   disk rather than a container.
 - **The value is validated on the way in and on the way back out.** It is trimmed; the empty string
@@ -913,7 +936,7 @@ Two rules about the key and the value:
 
 The vocabulary is fixed: the file is `state/name/<project>/<slug>`, core's functions are
 `readDisplayName` / `writeDisplayName` / `removeDisplayName` with `normaliseDisplayName` as the
-validator, the CLI is `sandboxr worktree name`, the API field is `displayName` (`null` when there is
+validator, the CLI is `sandboxer worktree name`, the API field is `displayName` (`null` when there is
 none, never the branch name), and the route is `PUT /api/p/:project/w/:slug/name` (Jef's §3). It is
 **not** one of the §8 actions: it runs nothing, streams nothing and touches no container.
 
@@ -941,7 +964,7 @@ which is what makes it state rather than a cache.
 It passes §4.2's test — *does this file's correctness depend on a container?* — the same way
 §4.2.1's display name does. It records a decision nothing observes, `docker ps` has no
 opinion about it, and it names the **worktree**, which outlives every sandbox cut from it,
-so there is no `sandboxr.created` stamp and there must not be one: stamping it would move a
+so there is no `sandboxer.created` stamp and there must not be one: stamping it would move a
 live sandbox's name the first time somebody pressed Rebuild.
 
 Three rules about the key and the value:
@@ -986,7 +1009,7 @@ is not, and the exception has to be argued rather than assumed.
 
 **There is nothing to derive it from.** A websocket does not appear in the router's log until it
 closes, and the line is stamped when it opened (§3.4), so the log cannot answer "is one open now".
-The only process that knows is the dashboard holding the socket — and `sandboxr expire` on the
+The only process that knows is the dashboard holding the socket — and `sandboxer expire` on the
 command line runs somewhere else entirely. A set of open sockets kept in memory would give the CLI
 and the dashboard two different answers to "is this in use", which is the drift
 [state.md](state.md) exists to forbid. So the dashboard re-stamps
@@ -996,7 +1019,7 @@ It passes §4.2's test — *does its correctness depend on a container?* — and
 conclusion as §4.2.1 about the stamp, for a different reason:
 
 - **It records observation, not permission, and a timestamp is all it records.** A keep marker
-  carries a `sandboxr.created` because it is an exemption: a stale one would silently keep the next
+  carries a `sandboxer.created` because it is an exemption: a stale one would silently keep the next
   sandbox to take that name alive. This says only "at time T a live process held a connection to
   this name", and the deadline is `max(startedAt, lastActive)` — so a marker older than the
   container it now names contributes nothing at all. There is nothing for a stale one to get wrong,
@@ -1030,7 +1053,7 @@ Three rules bound what an open socket may mean:
   exactly what the router's start-stamped line cannot supply.
 
 The vocabulary is fixed: the file is `state/attach/<project>/<slug>` keyed on the container's
-`sandboxr.project` (like `state/keep/`, unlike `state/name/`), core's functions are `markAttached` /
+`sandboxer.project` (like `state/keep/`, unlike `state/name/`), core's functions are `markAttached` /
 `attachFileFor` / `attachedActivity`, and the server's holder is `createAttachedTracker` in
 `packages/server/src/attached.ts`, whose `forget` is the one thing that stops it writing. It is not
 an action, not a route and not a field of any DTO: it only ever reaches a reader as part of
@@ -1038,8 +1061,8 @@ an action, not a route and not a field of any DTO: it only ever reaches a reader
 
 ### 4.3 `config.yaml`: the machine's own settings
 
-`sandboxr.yaml` (§5) belongs to the project being sandboxed and is versioned with its code.
-`~/.sandboxr/config.yaml` belongs to the machine, and holds what is a property of the machine rather
+`sandboxer.yaml` (§5) belongs to the project being sandboxed and is versioned with its code.
+`~/.sandboxer/config.yaml` belongs to the machine, and holds what is a property of the machine rather
 than of any project:
 
 ```yaml
@@ -1053,7 +1076,7 @@ projects:
 ```
 
 **A `projects:` key is either of a project's two names** — its workspace directory (§4.1) or the
-`project:` its own `sandboxr.yaml` declares (§5) — and the directory is tried first. The example
+`project:` its own `sandboxer.yaml` declares (§5) — and the directory is tried first. The example
 above spells the two differently on purpose. It used to read `acme:`, with both names the same
 string, and that is precisely how the trap stayed invisible: the lookup matched the *declared*
 name alone, so an operator whose workspace held `acme-monorepo` wrote down the only name the
@@ -1079,9 +1102,9 @@ surfaces where both halves are already in hand:
 
 | Where | What it says |
 |---|---|
-| `sandboxr doctor` | names each unmatched key, and lists every name that *would* match |
-| `sandboxr config` | what this project's `ttl` and `github` resolved to, and the key that decided |
-| `sandboxr up` | when the token is off, the key that would turn it on |
+| `sandboxer doctor` | names each unmatched key, and lists every name that *would* match |
+| `sandboxer config` | what this project's `ttl` and `github` resolved to, and the key that decided |
+| `sandboxer up` | when the token is off, the key that would turn it on |
 | the dashboard | `ProjectDto.github`, resolved server-side, per project |
 
 `reviewProjectEntries` answers the first two against `projectIdentities` in
@@ -1096,7 +1119,7 @@ error naming the key. Precedence for `ttl`, most specific first, and this order 
 1. `--ttl` on the command (or the dashboard's field)
 2. the project's entry in `config.yaml`, under either of its names
 3. the file's top-level `ttl`
-4. `SANDBOXR_TTL_HOURS` — what a service unit sets
+4. `SANDBOXER_TTL_HOURS` — what a service unit sets
 5. the built-in default, **12h**
 
 `github` is `none` or `token`, and decides whether that project's sandboxes are handed this
@@ -1109,7 +1132,7 @@ variable**. A lifetime is a scheduling preference worth overriding per run; this
 about which code may act as the person running it, and a decision like that belongs in one file
 somebody can read, not in whatever started the process.
 
-**It lives here and not in `sandboxr.yaml`, and that is a rule rather than a convenience.** The
+**It lives here and not in `sandboxer.yaml`, and that is a rule rather than a convenience.** The
 token is the operator's, not the project's, and a setting that lives in a repository is a setting a
 repository can ask for: clone something, start a sandbox, and its committed config would have
 helped itself to a credential reaching every repository you can push to. The machine decides which
@@ -1143,10 +1166,10 @@ Two rules, and both are the engine failing closed:
 
 A **missing** file is not an error: it means the defaults. A **malformed** one is, reported by name
 with the path, because silently falling back to a default lifetime after somebody has edited the
-file is how work gets destroyed. `sandboxr init` writes a commented example if there is none, and
+file is how work gets destroyed. `sandboxer init` writes a commented example if there is none, and
 never touches an existing one.
 
-## 5. The config file: `sandboxr.yaml`
+## 5. The config file: `sandboxer.yaml`
 
 Lives at the **root of the project being sandboxed**, not in this repo. It is versioned
 with that project's code, so a new service and its config land in the same commit. That is
@@ -1158,14 +1181,14 @@ the human description; if the two disagree, the schema wins and this file gets f
 
 ```yaml
 project: acme                  # required, [a-z0-9-] with no `--`, used in hostnames
-sandboxr: ">=0.1.0"            # minimum tool version; a mismatch is a clear error
+sandboxer: ">=0.1.0"            # minimum tool version; a mismatch is a clear error
 
 database:
   driver: mysql                # mysql | d1 | sqlite | none
   version: "8.4"               # driver-specific
   seed_from:
     local:  { container: acme_db, database: acme }           # fork a running container
-    file:   /var/sandboxr/seeds/acme.sql.zst                 # or restore a dump
+    file:   /var/sandboxer/seeds/acme.sql.zst                 # or restore a dump
     fixtures: db/migrations/seeds/fixtures.sql               # applied after migrations
   migrate:
     workdir: services
@@ -1203,14 +1226,14 @@ access:
   credentials: dummy           # dummy | real — see §5.3
 
 env:                           # the project's own names for what the sandbox computes
-  DB_HOST: "${SANDBOXR_DB_HOST}"
-  VITE_API_URL: "${SANDBOXR_URL_API}"
+  DB_HOST: "${SANDBOXER_DB_HOST}"
+  VITE_API_URL: "${SANDBOXER_URL_API}"
 ```
 
 The `env:` map is the join between the two halves of a sandbox's environment, and it is the
 half a project cannot do without. The sandbox works out *where* everything is — its own
 database, its own object storage, each app's own hostname — and exports those under a
-`SANDBOXR_` prefix; only the project knows what its own code calls the same things, so it says
+`SANDBOXER_` prefix; only the project knows what its own code calls the same things, so it says
 so here. Values are expanded by **substitution, never by a shell**, so a value is data.
 
 It is also the last word. The map is exported after everything else inside the container, so a
@@ -1239,12 +1262,12 @@ is not a display preference: the per-app build button is the only place a *first
 so a tile that appeared only once the app was built could never be the thing that built it.
 
 **`optional: true` means dormant by choice, not broken.** An optional service is written into
-the plan and its supervisor entry, and is left disabled unless it is named in `SANDBOXR_WITH`
+the plan and its supervisor entry, and is left disabled unless it is named in `SANDBOXER_WITH`
 (`container/README.md`, "Three runtime kinds"). It exists for the things that are expensive to
 run and rarely wanted. Two consequences bind everything downstream:
 
 - **The router does not advertise a dormant service.** No app hostname, no
-  `/__sandboxr/health/<service>` route. The status surface answers the missing health route
+  `/__sandboxer/health/<service>` route. The status surface answers the missing health route
   with a 404 (§5.1 note below), which is the router saying it has no route at all — not a
   service answering "no".
 - **Nothing may report a dormant service as a fault.** `optional` is carried out of the plan
@@ -1252,8 +1275,8 @@ run and rarely wanted. Two consequences bind everything downstream:
   — never `down`. A deliberate choice displayed as a failure is a bug, and it is the kind that
   trains people to ignore the panel that tells them what is wrong.
 
-**The status surface is reserved, and answers before any app.** `/__sandboxr/*` belongs to
-sandboxr on every hostname the sandbox serves, and a path under it that names nothing answers
+**The status surface is reserved, and answers before any app.** `/__sandboxer/*` belongs to
+sandboxer on every hostname the sandbox serves, and a path under it that names nothing answers
 **404** — it must never fall through to an app's own site block. This was learnt the hard way:
 the health probe of a dormant service fell into the front-end's catch-all, so an unbuilt app
 answered it with its own 503 "not built yet" page and the dashboard read every dormant service
@@ -1263,7 +1286,7 @@ whether an unrelated front-end has been built.
 
 ### 5.2 Secrets rules
 
-`~/.sandboxr/secrets/<project>.env`, mode 0600, is the one file sandboxr keeps that holds real
+`~/.sandboxer/secrets/<project>.env`, mode 0600, is the one file sandboxer keeps that holds real
 values. **It is a file people edit.** Two things write it and they must not fight:
 
 - `secrets import` reads the `.env` files the config names and **merges** them in. A name it
@@ -1287,13 +1310,13 @@ that loses is invisible.
   **never** imported. A sandbox computes those itself. Importing them would point a sandbox at the
   developer's own database or at real cloud storage.
 - **The names a sandbox derives for itself are refused outright**, whoever typed them, whatever the
-  project's own rules say. That set is `SANDBOXR_SLUG`, `SANDBOXR_PROJECT`, `SANDBOXR_DOMAIN`,
-  `SANDBOXR_ACCESS`, `SANDBOXR_SCHEME`, `SANDBOXR_PUBLIC_PORT`, `SANDBOXR_WITH`, `SANDBOXR_SEED`,
-  `SANDBOXR_PLAN`, `SANDBOXR_SCRIPTS`, `SANDBOXR_SANDBOX`, `SANDBOXR_ENV_READY`, and the whole of
-  `SANDBOXR_DB_*`, `SANDBOXR_S3_*`, `SANDBOXR_D1_*`, `SANDBOXR_URL_*` and `SANDBOXR_PORT_*`. A
-  project's *own* `SANDBOXR_`-prefixed names are fine, and are the reason this is a list rather than
+  project's own rules say. That set is `SANDBOXER_SLUG`, `SANDBOXER_PROJECT`, `SANDBOXER_DOMAIN`,
+  `SANDBOXER_ACCESS`, `SANDBOXER_SCHEME`, `SANDBOXER_PUBLIC_PORT`, `SANDBOXER_WITH`, `SANDBOXER_SEED`,
+  `SANDBOXER_PLAN`, `SANDBOXER_SCRIPTS`, `SANDBOXER_SANDBOX`, `SANDBOXER_ENV_READY`, and the whole of
+  `SANDBOXER_DB_*`, `SANDBOXER_S3_*`, `SANDBOXER_D1_*`, `SANDBOXER_URL_*` and `SANDBOXER_PORT_*`. A
+  project's *own* `SANDBOXER_`-prefixed names are fine, and are the reason this is a list rather than
   the prefix: `rename` legitimately carries a browser-side Auth0 domain across to
-  `SANDBOXR_AUTH0_SPA_DOMAIN`, which is a value only the project can supply.
+  `SANDBOXER_AUTH0_SPA_DOMAIN`, which is a value only the project can supply.
 - `rename` exists because the same value legitimately has two names in different files, and
   because some pairs must **not** be merged (a browser-side Auth0 domain and a server-side one can
   differ, and merging them makes every API call 401).
@@ -1314,7 +1337,7 @@ problem.
 
 #### How it reaches a sandbox, and what wins
 
-The file is **bind-mounted read-only** at `/sandboxr/secrets.env`. It must not be passed to
+The file is **bind-mounted read-only** at `/sandboxer/secrets.env`. It must not be passed to
 `docker run` as an `--env-file`: an env-file is read once and baked into the container's
 configuration, so an edited credential cannot reach a running sandbox at all — `restart` and
 `stop`/`start` keep the environment the container was created with, and only recreating it picks
@@ -1328,7 +1351,7 @@ for the whole environment — lowest to highest:
 1. the project's secrets file;
 2. what the host passes in (`--env-file` for the generated per-sandbox environment, and `-e` for
    the git identity and any GitHub token);
-3. what the sandbox derives for itself — `SANDBOXR_DB_*`, `SANDBOXR_S3_*`, `SANDBOXR_URL_*`;
+3. what the sandbox derives for itself — `SANDBOXER_DB_*`, `SANDBOXER_S3_*`, `SANDBOXER_URL_*`;
 4. the project's `env:` map, expanded with `envsubst` against all of the above.
 
 Two consequences worth stating plainly, because each one has a failure mode that does not resemble
@@ -1356,14 +1379,14 @@ If `access.apps` is `public`, the tool **must refuse to start** unless both hold
 
 This is a refusal, not a warning. `access: private` is the escape hatch.
 
-For the first requirement to be checkable, `sandboxr.yaml` must be able to say so. A
+For the first requirement to be checkable, `sandboxer.yaml` must be able to say so. A
 `seed_from` entry takes an optional `anonymised: true`, and that flag is the only thing the
 refusal accepts as marking a dump safe:
 
 ```yaml
 database:
   seed_from:
-    file: /var/sandboxr/seeds/acme.sql.zst
+    file: /var/sandboxer/seeds/acme.sql.zst
     anonymised: true      # asserts this dump carries no real personal data
 ```
 
@@ -1391,18 +1414,18 @@ are part of the contract.
 Two driver-specific notes:
 
 - `migrate.since` is passed to the project's migration command as the environment variable
-  `SANDBOXR_MIGRATE_SINCE`. The tool cannot guess a runner's flag spelling, so the command
+  `SANDBOXER_MIGRATE_SINCE`. The tool cannot guess a runner's flag spelling, so the command
   in the config must consume it if it wants it.
 - For file-backed drivers, both the `serve` and `migrate` commands must direct the runtime
-  at the sandbox's own state directory (`$SANDBOXR_D1_DIR` for wrangler's `--persist-to`),
+  at the sandbox's own state directory (`$SANDBOXER_D1_DIR` for wrangler's `--persist-to`),
   or the runtime writes into the worktree instead of the sandbox.
 
 ### 5.5 `plan.json` — the container's view of a project
 
-`sandboxr.yaml` is the human-facing file. Nothing inside a container ever reads it.
+`sandboxer.yaml` is the human-facing file. Nothing inside a container ever reads it.
 
 `packages/core` **must** emit a flattened, fully-resolved projection of it to
-`/sandboxr/plan.json`: defaults merged into every entry, one `services` array carrying all
+`/sandboxer/plan.json`: defaults merged into every entry, one `services` array carrying all
 three runtime kinds with an explicit `kind`, computed addresses, and the resolved
 environment. Nothing in the container names a service, port, package or route — the
 container is a generic runtime and the plan is its only input.
@@ -1413,14 +1436,14 @@ for this boundary and keep the emitter in step with them.
 
 The plan is not the container's *only* mounted input, and the distinction is about secrecy. The
 plan is written at ordinary permissions and carries addresses, never values — so the project's
-credentials arrive as a second, 0600 file mounted at `/sandboxr/secrets.env` (§5.2), and the
+credentials arrive as a second, 0600 file mounted at `/sandboxer/secrets.env` (§5.2), and the
 plan's `env:` map refers to them by name. Both are read-only: a container that could rewrite
 either could change what it claims to be running or what it is authorised to reach.
 
 ### 5.6 The project-level config, and why `file` is not always inside `root`
 
-A worktree is a separate checkout, so an **uncommitted** `sandboxr.yaml` in one worktree does
-not exist in any other. A project being brought onto sandboxr for the first time therefore has
+A worktree is a separate checkout, so an **uncommitted** `sandboxer.yaml` in one worktree does
+not exist in any other. A project being brought onto sandboxer for the first time therefore has
 to have the file hand-copied into every worktree, for as long as committing it upstream is
 blocked. That is the case this exception exists for, and nothing else.
 
@@ -1428,9 +1451,9 @@ blocked. That is the case this exception exists for, and nothing else.
 project that does not carry its own uses it:
 
 ```
-<workspace>/<project>/sandboxr.yaml   applies to every worktree of this project
+<workspace>/<project>/sandboxer.yaml   applies to every worktree of this project
 <workspace>/<project>/repo.git
-<workspace>/<project>/wt/<branch>/    a worktree; its own sandboxr.yaml still wins
+<workspace>/<project>/wt/<branch>/    a worktree; its own sandboxer.yaml still wins
 ```
 
 Three rules, and all three are load-bearing:
@@ -1454,7 +1477,7 @@ and the invariant `root === dirname(file)` no longer holds anywhere. Code that w
 directory a declared path resolves against wants `root`, or `projectPath()`.
 
 `ResolvedConfig` carries `origin`: `repo` when the file is inside `root`, `project` when it is
-the workspace fallback. `sandboxr config` prints it, because a project running from a config
+the workspace fallback. `sandboxer config` prints it, because a project running from a config
 that is not in its own repository is a thing a user must be able to see rather than deduce.
 
 Nothing here changes a repository outside the workspace: its walk-up is unbounded exactly as
@@ -1467,7 +1490,7 @@ export interface DriverContext {
   project: string;
   slug: string;
   config: ResolvedConfig;
-  home: string;             // SANDBOXR_HOME
+  home: string;             // SANDBOXER_HOME
   worktree: string;
   exec(cmd: string[]): Promise<ExecResult>;   // inside the sandbox container
   log(line: string): void;
@@ -1527,7 +1550,7 @@ populated schema fails on Error 1050. **An already-populated database is kept, o
 > **The host authenticates as `root` with a password the container does not set.**
 > `mysql-init.sh` initialises the server with `--initialize-insecure` — root has no password,
 > deliberately and for a reason it states — while `mysqlSettings` defaults `rootPassword` to
-> `sandboxr` (and `docs/reference/environment.md` documents that default). Every host-side
+> `sandboxer` (and `docs/reference/environment.md` documents that default). Every host-side
 > `mysql` exec against a sandbox therefore fails with `Error 1045: Access denied`, which is
 > why `up` reports "Provisioning did not complete" against a sandbox the container has
 > brought up perfectly. The container half does all the work, so nothing is lost — but
@@ -1553,8 +1576,8 @@ name the single service that owns it.
 There are two kinds of seed artifact and they are not interchangeable, which is the whole
 reason this subsection exists:
 
-- **A cached dump**, which sandboxr produced itself and content-addressed into
-  `~/.sandboxr/cache`. The filename is the identity and the directory is fixed on both
+- **A cached dump**, which sandboxer produced itself and content-addressed into
+  `~/.sandboxer/cache`. The filename is the identity and the directory is fixed on both
   sides, so a bare name is enough to find it.
 - **A declared `file:`**, which the project named in `database.seed_from.file` and which may
   live anywhere the user keeps it — deliberately outside every repo, so `git clean` cannot
@@ -1566,8 +1589,8 @@ know about.** The host decides:
 
 | Artifact | Container path | Mount |
 |---|---|---|
-| inside `~/.sandboxr/cache` | `/sandboxr/cache/<name>` | the cache directory, already mounted read-only |
-| anywhere else | `/sandboxr/seed/<name>` | that **one file**, bind-mounted read-only |
+| inside `~/.sandboxer/cache` | `/sandboxer/cache/<name>` | the cache directory, already mounted read-only |
+| anywhere else | `/sandboxer/seed/<name>` | that **one file**, bind-mounted read-only |
 
 The declared file is bind-mounted rather than copied into the cache. A copy would have to be
 re-made or re-fingerprinted on every `up` — a dump is routinely tens of gigabytes — and a
@@ -1590,7 +1613,7 @@ mechanism, not a login.
   and forwards it only on a 200. A `public` project's hostnames skip the middleware entirely, and
   that is the whole of the difference (§5.3 is what a public project must prove first).
 - **The bare domain is the one address the middleware trusts**, and the container serving it
-  claims it with `sandboxr.frontend` (§7.2). A container that holds that label is claiming to own
+  claims it with `sandboxer.frontend` (§7.2). A container that holds that label is claiming to own
   the machine's authentication.
 - **The forwarded host is how a verifier knows what is being asked for.** The engine sends the
   original hostname, so the front end can resolve which project the request is for and answer
@@ -1605,7 +1628,7 @@ Non-negotiables, and they bind the engine and any front end equally:
   patterns, and they are the same ones §3.1 defines.
 - **A private project is private on every hostname it has.** There is no per-app exception, and
   `access.apps` is read once when the routes are written, so a project that changes to `private`
-  is protected on the next `up` and not before — which is why `sandboxr config` reports the
+  is protected on the next `up` and not before — which is why `sandboxer config` reports the
   resolved value rather than the file's.
 - **No credential the engine handles is ever logged or echoed.** The secrets file (§5.2), the
   GitHub token (§7.1) and anything a `share:` row mounts (§4.3) are read and passed on; none of
@@ -1681,7 +1704,7 @@ session rather than the first. So:
   and a message naming one of them sends the reader to fix the wrong thing: the token may be off,
   and the session may not be allowed to run `git push` or `gh`. Anything written about this symptom
   says both.
-- **`sandboxr config` and the dashboard answer it on demand** — the resolved mode, and the
+- **`sandboxer config` and the dashboard answer it on demand** — the resolved mode, and the
   `projects:` key that decided it. `ProjectDto.github` carries it to the browser as a fact; the
   page writes the sentence.
 
@@ -1691,12 +1714,12 @@ The handshake of §7 needs something to answer it, and the engine offers nothing
 mechanism that puts a control plane on the bare domain is not Jef's** — it is
 `access/router.ts`'s, and it needs only a name.
 
-**`sandboxr.frontend` is the label that says "this container answers on the bare domain".** One
+**`sandboxer.frontend` is the label that says "this container answers on the bare domain".** One
 container, whatever it is; the engine starts none of them.
 
 ```ts
 // packages/core/src/access/frontend.ts
-export const FRONTEND_LABEL = "sandboxr.frontend";
+export const FRONTEND_LABEL = "sandboxer.frontend";
 
 export interface FrontendRoute {
   container: string;
@@ -1718,9 +1741,9 @@ bare domain's router, the forward-auth middleware, and the port the router forwa
 end is what the middleware protects and what answers `GET /auth/verify`, so putting a container
 here is a claim to own the machine's authentication, not a routing convenience.
 
-**`sandboxr init` prepares the bare domain and does not fill it.** It makes the directories,
+**`sandboxer init` prepares the bare domain and does not fill it.** It makes the directories,
 builds the base image, issues the certificate, writes the router config, starts the router and
-writes `host.env` — and then says that nothing is serving `https://<domain>`, because `sandboxr`
+writes `host.env` — and then says that nothing is serving `https://<domain>`, because `sandboxer`
 is a command-line tool. `AccessReport.frontend` is where a front end must listen and what the
 router will send it:
 
@@ -1782,7 +1805,7 @@ cut before the collision guard existed can still answer to one slug (§3.1), and
 name that cannot collide.
 
 **Nothing has a lifetime unless something runs `expire`.** The engine has no reaper of its own and
-starts no daemon: `sandboxr expire` is the whole mechanism, it is a pure plan followed by stops,
+starts no daemon: `sandboxer expire` is the whole mechanism, it is a pure plan followed by stops,
 and it is meant to be run from cron. A machine that never runs it keeps every sandbox it ever
 started. See [the CLI-only setup](../setups/cli-only.md).
 

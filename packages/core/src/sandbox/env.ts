@@ -3,7 +3,7 @@
  *
  * Deliberately small. The container *derives* where everything is — the
  * database inside it, the object storage inside it, each app's own hostname —
- * and exports those under a `SANDBOXR_` prefix; the plan's `env` map then joins
+ * and exports those under a `SANDBOXER_` prefix; the plan's `env` map then joins
  * those to the project's own variable names. So the host supplies only the
  * handful of facts the container cannot work out for itself: which slug this is,
  * which domain it answers on, and the credentials its own services are created
@@ -34,7 +34,7 @@ export interface ContainerEnvInput {
   /**
    * The port the router is published on, when it is not the scheme's default.
    *
-   * The container builds every SANDBOXR_URL_<LABEL> from this, and a URL with
+   * The container builds every SANDBOXER_URL_<LABEL> from this, and a URL with
    * the port missing points at whatever else owns 443 on the machine.
    */
   publicPort?: string | undefined;
@@ -47,33 +47,33 @@ export function envKeyFor(label: string): string {
 
 export function containerEnv(input: ContainerEnvInput): Record<string, string> {
   const domain = input.domain ?? DEFAULT_DOMAIN;
-  const database = input.database ?? { user: "sandboxr", password: "sandboxr" };
-  const storage = input.storage ?? { key: "sandboxr", secret: "sandboxr" };
+  const database = input.database ?? { user: "sandboxer", password: "sandboxer" };
+  const storage = input.storage ?? { key: "sandboxer", secret: "sandboxer" };
 
   const env: Record<string, string> = {
     // The one required variable: the container knows its project from the plan,
     // but only the host knows which worktree this is.
-    SANDBOXR_SLUG: input.slug,
-    SANDBOXR_PROJECT: input.config.project,
-    SANDBOXR_DOMAIN: domain,
-    SANDBOXR_ACCESS: input.config.access.apps,
-    // The container builds SANDBOXR_URL_<LABEL> from these two. Only the host
+    SANDBOXER_SLUG: input.slug,
+    SANDBOXER_PROJECT: input.config.project,
+    SANDBOXER_DOMAIN: domain,
+    SANDBOXER_ACCESS: input.config.access.apps,
+    // The container builds SANDBOXER_URL_<LABEL> from these two. Only the host
     // knows whether the shared router found a certificate to serve, and on which
     // port it ended up.
-    SANDBOXR_SCHEME: input.scheme ?? "https",
-    SANDBOXR_PUBLIC_PORT: input.publicPort ?? "",
+    SANDBOXER_SCHEME: input.scheme ?? "https",
+    SANDBOXER_PUBLIC_PORT: input.publicPort ?? "",
   };
 
   if (input.config.database.driver === "mysql") {
-    env.SANDBOXR_DB_USER = database.user;
-    env.SANDBOXR_DB_PASSWORD = database.password;
+    env.SANDBOXER_DB_USER = database.user;
+    env.SANDBOXER_DB_PASSWORD = database.password;
   }
   if (input.config.storage.driver === "minio") {
-    env.SANDBOXR_S3_KEY = storage.key;
-    env.SANDBOXR_S3_SECRET = storage.secret;
+    env.SANDBOXER_S3_KEY = storage.key;
+    env.SANDBOXER_S3_SECRET = storage.secret;
   }
-  if (input.with && input.with.length > 0) env.SANDBOXR_WITH = input.with.join(",");
-  if (input.seed) env.SANDBOXR_SEED = input.seed;
+  if (input.with && input.with.length > 0) env.SANDBOXER_WITH = input.with.join(",");
+  if (input.seed) env.SANDBOXER_SEED = input.seed;
 
   return env;
 }

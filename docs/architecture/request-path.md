@@ -40,10 +40,10 @@ tkt-4821 . app  . acme    . sbx.localhost
   slug     label  project   domain
 ```
 
-The shared router is a single Traefik container called `sandboxr-router`, started by `sandboxr
+The shared router is a single Traefik container called `sandboxer-router`, started by `sandboxer
 init`. It publishes `127.0.0.1:80` and `127.0.0.1:443` by default, and it is the only thing on the
 machine that publishes anything. Sandbox containers get **no published ports at all**. They join
-one shared Docker network called `sandboxr`, and the router reaches them by container name.
+one shared Docker network called `sandboxer`, and the router reaches them by container name.
 
 ### It reconciles from labels, not from a config file
 
@@ -54,7 +54,7 @@ sandbox's own `docker run` carries everything the router needs.
 <summary><b>Details for an agent</b> — every router label a sandbox container carries</summary>
 
 Written by `sandboxRouteLabels` in `packages/core/src/access/router.ts`. `<container>` is
-`sandboxr-<project>-<slug>`.
+`sandboxer-<project>-<slug>`.
 
 | Label | Value |
 |---|---|
@@ -64,13 +64,13 @@ Written by `sandboxRouteLabels` in `packages/core/src/access/router.ts`. `<conta
 | `traefik.http.routers.<container>.service` | `<container>` |
 | `traefik.http.routers.<container>.tls` | `true`, only when the router terminates TLS |
 | `traefik.http.services.<container>.loadbalancer.server.port` | `80` |
-| `traefik.http.routers.<container>.middlewares` | `sandboxr-auth@file`, **only** when `access.apps` is `private` |
+| `traefik.http.routers.<container>.middlewares` | `sandboxer-auth@file`, **only** when `access.apps` is `private` |
 
 The slug and the project are escaped as regular-expression literals, so a name containing a dot
 cannot widen the rule. The middle of the pattern is deliberately `[a-z0-9]+(?:-[a-z0-9]+)*` and not
 `[a-z0-9-]+`: single hyphens only, so a label containing `--` cannot match. `--` is what divides a
 hostname into its three parts, and a rule that read `a--b` as one label would disagree with the rest
-of sandboxr about where a hostname divides.
+of sandboxer about where a hostname divides.
 
 There is **one router entry per sandbox, not per app**: the label in the middle of the rule is a
 wildcard. Adding a front-end to a project therefore never requires telling the shared router about
@@ -80,8 +80,8 @@ Traefik's Docker provider runs with `exposedByDefault: false`. This router sits 
 with every sandbox, and a default of "expose everything" would publish a container to the
 internet-facing entry point the moment it joined.
 
-The router carries a label of its own, `sandboxr.role=router`, and it is what keeps the router out
-of every sandbox listing. A second label, `sandboxr.frontend`, marks whatever answers on the bare
+The router carries a label of its own, `sandboxer.role=router`, and it is what keeps the router out
+of every sandbox listing. A second label, `sandboxer.frontend`, marks whatever answers on the bare
 domain. The engine starts nothing there — see [contracts](contracts.md) §7.2 — so that label is
 worn by an embedder's container.
 
@@ -109,7 +109,7 @@ When no trusted certificate authority is present, the router serves plain HTTP a
 entry point is **not written at all**. Redirecting to a scheme nothing serves would take the whole
 machine off the air rather than upgrading it.
 
-The scheme sandboxr prints in a URL is read from what `init` actually wrote, not from whether
+The scheme sandboxer prints in a URL is read from what `init` actually wrote, not from whether
 mkcert is installed. The two disagree in the common case — mkcert installed *after* the last `init`
 — and a URL printed for a scheme nothing is listening on sends you to a connection refused.
 
@@ -118,7 +118,7 @@ produces no certificate at all and a router that quietly falls back to plain HTT
 
 The certificate covers the domain, one wildcard under it, `localhost`, `127.0.0.1` and `::1` — and
 the wildcard is what covers every sandbox, because a sandbox hostname is one label deep.
-mkcert is the only issuer sandboxr supports, because it is the only one that can make a browser
+mkcert is the only issuer sandboxer supports, because it is the only one that can make a browser
 trust a local name with no public DNS record. There is no ACME support — see
 [What is built](../reference/status.md).
 
@@ -144,12 +144,12 @@ A second router entry sits on the front end's own container, written by `fronten
 
 | Label | Value |
 |---|---|
-| `traefik.http.routers.sandboxr-handshake.rule` | `` HostRegexp(`^[a-z0-9-]+\.[a-z0-9-]+\.[a-z0-9-]+\.<domain>$`) && PathPrefix(`/.sandboxr/auth`) `` |
-| `traefik.http.routers.sandboxr-handshake.service` | the front end's container name — two routers, one service |
-| `traefik.http.routers.sandboxr-handshake.priority` | `10000` |
+| `traefik.http.routers.sandboxer-handshake.rule` | `` HostRegexp(`^[a-z0-9-]+\.[a-z0-9-]+\.[a-z0-9-]+\.<domain>$`) && PathPrefix(`/.sandboxer/auth`) `` |
+| `traefik.http.routers.sandboxer-handshake.service` | the front end's container name — two routers, one service |
+| `traefik.http.routers.sandboxer-handshake.priority` | `10000` |
 
 The middleware has to name a container before any front end exists to be listed, so the router
-config is written with a default, `sandboxr-dashboard`. An embedder calling its container anything
+config is written with a default, `sandboxer-dashboard`. An embedder calling its container anything
 else says so, and `init` rewrites the file.
 
 The priority is explicit because Traefik defaults it to the **length of the rule**, which would
@@ -163,7 +163,7 @@ cannot be asked to present that credential first.
 
 Two consequences:
 
-- **`/.sandboxr/` is reserved on every sandbox hostname**, public projects included. One rule for
+- **`/.sandboxer/` is reserved on every sandbox hostname**, public projects included. One rule for
   the machine rather than one per private sandbox, because the rule has to exist before the sandbox
   it is for. Reconciling it from a sandbox's own labels would make it appear and disappear as a
   project's `access` changed.
@@ -174,8 +174,8 @@ Two consequences:
   asking for HTML. Everything else gets the identical `401 application/json {"ok":false}`, so an
   app's own `fetch` and every API client see a refusal rather than a login page.
 
-Note the two prefixes are different and both are reserved. `/.sandboxr/auth` belongs to the
-**front end on the bare domain**, on every sandboxr hostname. `/__sandboxr/` belongs to the
+Note the two prefixes are different and both are reserved. `/.sandboxer/auth` belongs to the
+**front end on the bare domain**, on every sandboxer hostname. `/__sandboxer/` belongs to the
 **sandbox's own router**, below.
 
 </details>
@@ -204,26 +204,26 @@ hostname.
 <details class="agent">
 <summary><b>Details for an agent</b> — every rule the router generator applies</summary>
 
-Written by `container/scripts/gen-caddyfile.sh` into `/run/sandboxr/Caddyfile` at every boot.
+Written by `container/scripts/gen-caddyfile.sh` into `/run/sandboxer/Caddyfile` at every boot.
 
 - **Prefixes are emitted longest-first**, so declaring `"/api"` above `"/api/admin"` is harmless.
 - **A route target may be a backend's `name` or any service's `label`**, and `name` wins — so a
   backend is never shadowed by a front-end sharing its label. A target holding no port is skipped
   with a warning rather than written as a broken proxy.
 - **An optional service nobody requested gets no site block at all.** Its hostname 404s exactly as
-  a misspelling would. `sandboxr up --with cms` is what starts it. It gets no
-  `/__sandboxr/health/<id>` route either, which is how a caller tells a service that was never
+  a misspelling would. `sandboxer up --with cms` is what starts it. It gets no
+  `/__sandboxer/health/<id>` route either, which is how a caller tells a service that was never
   started from one that is failing.
 - **A health route is written only for a service that will run, and only when it declares one.** A
   service needs a port, a `health` path, and to have been requested.
-- **`/__sandboxr/` is reserved and answers before any app.** A path under it that names nothing is
-  a 404 from the router itself, with the body `sandboxr: no such status route <path>`.
+- **`/__sandboxer/` is reserved and answers before any app.** A path under it that names nothing is
+  a 404 from the router itself, with the body `sandboxer: no such status route <path>`.
 - **A label is sanitised the way a slug is** — lower-cased, anything outside `[a-z0-9-]` replaced
   by `-`. A label with an underscore in the config is not the label in the URL.
 - **`s3` is a reserved label** when the project declares object storage. `/console/*` reaches the
   object store's console; everything else on that hostname reaches its API.
 - **An unknown hostname answers 404 naming the host it was asked for**, as
-  `sandboxr: no route for <host>`. The usual cause is a label the shared router matched by
+  `sandboxer: no route for <host>`. The usual cause is a label the shared router matched by
   wildcard that this project's plan does not declare. The 404 is the only place that shows up.
 - Service ids are what the health routes and the per-service log files use: a backend is its
   sanitised `name`, and a front-end of either kind is `web-<label>`.
@@ -233,7 +233,7 @@ Written by `container/scripts/gen-caddyfile.sh` into `/run/sandboxr/Caddyfile` a
 <details class="why">
 <summary><b>Why it works this way</b> — the reserved status prefix, and what it cost to learn</summary>
 
-Without the reserved prefix, a path under `/__sandboxr/` that named nothing fell through to the
+Without the reserved prefix, a path under `/__sandboxer/` that named nothing fell through to the
 site block for whatever hostname it arrived on. A host matcher matches every path, so this was
 inevitable rather than unlucky.
 
@@ -278,11 +278,11 @@ the database is still restoring**.
 
 | Path | What it gives you |
 |---|---|
-| `/__sandboxr/live` | `ok`, unconditionally |
-| `/__sandboxr/status.json` | `booting` / `ok` / `degraded`, plus the migration verdict |
-| `/__sandboxr/built.json` | Each label, and when it was last built |
-| `/__sandboxr/health/<service>` | Proxied to that service's own declared health path |
-| anything else under `/__sandboxr/` | 404, from the router itself |
+| `/__sandboxer/live` | `ok`, unconditionally |
+| `/__sandboxer/status.json` | `booting` / `ok` / `degraded`, plus the migration verdict |
+| `/__sandboxer/built.json` | Each label, and when it was last built |
+| `/__sandboxer/health/<service>` | Proxied to that service's own declared health path |
+| anything else under `/__sandboxer/` | 404, from the router itself |
 
 They answer during a first boot because the sandbox's router is deliberately not gated on the
 database. During a restore that takes minutes, these are the only way to tell a slow sandbox from
@@ -295,36 +295,36 @@ diagnostic in this whole section.
 
 | What you got | What it means | What to do |
 |---|---|---|
-| **Connection refused** | Nothing reached the shared router | `sandboxr doctor` — is the router running, and on which port? |
-| **404 from Traefik itself** | The shared router is up and no sandbox matched the hostname | `sandboxr ls`, then check the slug and the project |
-| **404 reading `sandboxr: no route for …`** | You reached a sandbox and it serves no such hostname. Wrong label, wrong project, wrong slug, or a domain the sandbox was not started with | Check the label against the config, and the domain against `SANDBOXR_DOMAIN` |
-| **404 reading `sandboxr: no such status route …`** | You reached a sandbox and asked for a `/__sandboxr/` path that names nothing. For a health route, that means the service is dormant, not broken | `sandboxr up --with <name>` if you wanted it running |
-| **502** | The label is right and the service behind it is not up — still building, crashed, or waiting on the database | `sandboxr status`, then `sandboxr logs <slug>` |
-| **503 with build instructions** | The label is right and that app has never been built in this sandbox. Not a failure | `sandboxr reload <slug> --web=<label>` |
+| **Connection refused** | Nothing reached the shared router | `sandboxer doctor` — is the router running, and on which port? |
+| **404 from Traefik itself** | The shared router is up and no sandbox matched the hostname | `sandboxer ls`, then check the slug and the project |
+| **404 reading `sandboxer: no route for …`** | You reached a sandbox and it serves no such hostname. Wrong label, wrong project, wrong slug, or a domain the sandbox was not started with | Check the label against the config, and the domain against `SANDBOXER_DOMAIN` |
+| **404 reading `sandboxer: no such status route …`** | You reached a sandbox and asked for a `/__sandboxer/` path that names nothing. For a health route, that means the service is dormant, not broken | `sandboxer up --with <name>` if you wanted it running |
+| **502** | The label is right and the service behind it is not up — still building, crashed, or waiting on the database | `sandboxer status`, then `sandboxer logs <slug>` |
+| **503 with build instructions** | The label is right and that app has never been built in this sandbox. Not a failure | `sandboxer reload <slug> --web=<label>` |
 | **404 from something that is clearly an API** | You reached the right app, and a `routes` prefix points at the wrong service — or none matched, so the request fell through to the static files | Check the `routes` block for that label |
 | **`{"ok":false}`** | A `private` project's forward-auth refused a request that did not ask for a page — usually the app's own `fetch`, since a navigation is redirected to the login form instead | Open the app's own URL in a tab and sign in there first |
-| **A certificate warning** | The router is serving a certificate the browser does not trust | `mkcert -install`, then `sandboxr init` |
-| **`ok` from `/__sandboxr/live`** | The container and its own router are both up. Anything still wrong is one specific service | — |
+| **A certificate warning** | The router is serving a certificate the browser does not trust | `mkcert -install`, then `sandboxer init` |
+| **`ok` from `/__sandboxer/live`** | The container and its own router are both up. Anything still wrong is one specific service | — |
 
 That last row is the single fastest check:
 
 ```bash
-curl -s https://tkt-4821--app--acme.sbx.localhost/__sandboxr/live
+curl -s https://tkt-4821--app--acme.sbx.localhost/__sandboxer/live
 ```
 
 > [!NOTE] The 503 page names a command that does not exist yet
-> The "not built yet" page a sandbox serves says `sandboxr build <slug> --app <label>`. There is no
-> `build` verb in the command line today. Use `sandboxr reload <slug> --web=<label>`. The message
+> The "not built yet" page a sandbox serves says `sandboxer build <slug> --app <label>`. There is no
+> `build` verb in the command line today. Use `sandboxer reload <slug> --web=<label>`. The message
 > in `container/scripts/gen-caddyfile.sh` is stale.
 
 <details class="why">
 <summary><b>Why it works this way</b> — the domain is read in exactly one place</summary>
 
-The internal tool sandboxr was ported from wrote its domain into a static router config, in thirteen
+The internal tool sandboxer was ported from wrote its domain into a static router config, in thirteen
 places. Its domain setting therefore silently did nothing: every request landed on the catch-all 404
 and nothing said why.
 
-Here the config is generated at every boot and the domain is read once, from `SANDBOXR_DOMAIN`. Its
+Here the config is generated at every boot and the domain is read once, from `SANDBOXER_DOMAIN`. Its
 default is `sbx.localhost`, and that ending is deliberate. Every current browser and macOS's own
 resolver answer any name under `.localhost` with the loopback address, so there is no resolver file
 to install, no `/etc/hosts` line, and nothing that needs an administrator password.

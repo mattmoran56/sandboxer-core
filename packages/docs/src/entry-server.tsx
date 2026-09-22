@@ -59,7 +59,7 @@ export const render = async (path: string): Promise<{ html: string; head: string
   if (!page) {
     return {
       head: [
-        "<title>Not found — sandboxr</title>",
+        "<title>Not found — sandboxer</title>",
         // No canonical and no Open Graph: this file answers every wrong URL on
         // the site, and a canonical link would be claiming they are all one page.
         '<meta name="robots" content="noindex" />',

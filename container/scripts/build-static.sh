@@ -16,9 +16,9 @@ set -euo pipefail
 
 LOG_TAG="build-static"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
-BUILT_MANIFEST="$SANDBOXR_WWW/.built.json"
+BUILT_MANIFEST="$SANDBOXER_WWW/.built.json"
 
 build_one() {
   local label="$1" record pkg_dir out build memory limit
@@ -48,8 +48,8 @@ build_one() {
       warn ""
       warn "'$label' declares it needs $memory to build; this sandbox has $((limit / 1073741824)) GB."
       warn "Restart the sandbox with more and try again:"
-      warn "    sandboxr down $SANDBOXR_SLUG"
-      warn "    SANDBOXR_MEMORY=$memory sandboxr up"
+      warn "    sandboxer down $SANDBOXER_SLUG"
+      warn "    SANDBOXER_MEMORY=$memory sandboxer up"
       warn ""
       return 1
     fi
@@ -70,7 +70,7 @@ build_one() {
 
   # Swapped rather than written in place, so a page load mid-build never sees a
   # half-written bundle.
-  local dest="$SANDBOXR_WWW/$label"
+  local dest="$SANDBOXER_WWW/$label"
   rm -rf "$dest.new" "$dest.old"
   cp -a "$out" "$dest.new"
   mv "$dest" "$dest.old" 2>/dev/null || true
@@ -99,7 +99,7 @@ record_built() {
 
 labels_all() {
   jq -r '.services[]? | select(.kind == "static") | select(.in_build_all != false) | .label' \
-    "$SANDBOXR_PLAN"
+    "$SANDBOXER_PLAN"
 }
 
 labels_built() {

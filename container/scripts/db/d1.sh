@@ -13,15 +13,15 @@ set -uo pipefail
 
 LOG_TAG="d1"
 # shellcheck source-path=SCRIPTDIR source=../lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
-DIR="${SANDBOXR_D1_DIR:?}"
+DIR="${SANDBOXER_D1_DIR:?}"
 
 seed_artifact() {
   local named
   named=$(plan .database.seed.path)
   [[ -z "$named" ]] && return 0
-  [[ "$named" == /* ]] && printf '%s\n' "$named" || printf '/sandboxr/cache/%s\n' "$named"
+  [[ "$named" == /* ]] && printf '%s\n' "$named" || printf '/sandboxer/cache/%s\n' "$named"
 }
 
 # The SQLite file inside miniflare's state directory. Located by glob rather than

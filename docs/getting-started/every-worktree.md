@@ -12,23 +12,23 @@ You want [Your first sandbox](first-sandbox.md) working before this.
 Start a sandbox for every worktree of this project and report the URLs.
 
 Read docs/getting-started/every-worktree.md and follow it. Start one sandbox per worktree, then run
-`sandboxr ls` and give me the table plus one URL per sandbox.
+`sandboxer ls` and give me the table plus one URL per sandbox.
 
 Stop and ask me if:
 - Any sandbox comes up degraded (exit code 3). Report which and show me its logs.
 - There are more than five worktrees. Tell me how many and wait — each one costs memory.
 - Docker reports it is out of disk or memory.
 
-Do not run `sandboxr down` or `sandboxr gc` on anything. Both delete databases.
+Do not run `sandboxer down` or `sandboxer gc` on anything. Both delete databases.
 ```
 
 ## Start them all
 
 ```bash
 for wt in .worktrees/*/; do
-  sandboxr up --worktree "$wt"
+  sandboxer up --worktree "$wt"
 done
-sandboxr ls
+sandboxer ls
 ```
 
 ```
@@ -53,13 +53,13 @@ is the next section.
 
 ## What that gets you
 
-| | Without sandboxr | With every worktree running |
+| | Without sandboxer | With every worktree running |
 |---|---|---|
 | Comparing two branches | Stash, checkout, rebuild, look, repeat | Two tabs |
 | Testing a migration | The shared database has already run it once | Each sandbox migrates its own copy |
 | Reviewing a pull request | Check it out and hope the dependencies match | Open the URL |
 | Three agents working unsupervised | They fight over one dev server and one database | Three sandboxes, three URLs |
-| A branch that corrupts the database | You spend the afternoon repairing it | `sandboxr down`, `sandboxr up` |
+| A branch that corrupts the database | You spend the afternoon repairing it | `sandboxer down`, `sandboxer up` |
 
 ## What is shared, and what is not
 
@@ -91,7 +91,7 @@ flowchart TB
 
 ### Shared
 
-- **The base image.** Built once by `sandboxr init`, used by every sandbox on the machine.
+- **The base image.** Built once by `sandboxer init`, used by every sandbox on the machine.
 - **The project's image layer** — its toolchains and its installed dependencies. Its tag is a hash
   of what went into it, so two branches that changed neither the toolchain nor the lockfile use the
   same image and build nothing at all.
@@ -116,7 +116,7 @@ flowchart TB
 - **The generated environment file, the plan, the log directory and the TLS certificate**, all
   named after the project and the slug.
 
-So `sandboxr down` on one branch destroys that branch's data and nothing else. Nothing has to be
+So `sandboxer down` on one branch destroys that branch's data and nothing else. Nothing has to be
 repaired afterwards.
 
 <details class="agent">
@@ -126,28 +126,28 @@ repaired afterwards.
 
 | Name | Scope | Holds |
 |---|---|---|
-| `sandboxr-data-<project>-<slug>` | one sandbox | the database, or a file driver's private copy |
-| `sandboxr-blob-<project>-<slug>` | one sandbox | object storage, when storage is declared |
-| `sandboxr-bin-<project>-<slug>` | one sandbox | built backend binaries |
-| `sandboxr-www-<project>-<slug>` | one sandbox | built front-ends |
-| `sandboxr-deps-<lockfile hash>` | every sandbox on that lockfile | `node_modules` |
-| `sandboxr-gocache` | the machine | Go's build cache |
-| `sandboxr-gomod` | the machine | Go's module cache |
+| `sandboxer-data-<project>-<slug>` | one sandbox | the database, or a file driver's private copy |
+| `sandboxer-blob-<project>-<slug>` | one sandbox | object storage, when storage is declared |
+| `sandboxer-bin-<project>-<slug>` | one sandbox | built backend binaries |
+| `sandboxer-www-<project>-<slug>` | one sandbox | built front-ends |
+| `sandboxer-deps-<lockfile hash>` | every sandbox on that lockfile | `node_modules` |
+| `sandboxer-gocache` | the machine | Go's build cache |
+| `sandboxer-gomod` | the machine | Go's module cache |
 
 Those are the engine's own shared volumes and the whole of them. An embedder that mounts a
 volume of its own into every sandbox — a credential store, say — hands it to `up` as a
 `volumes` row and reserves it from the collector by naming it in `protectVolumes`. The engine
 mounts what it is handed and has no name for any of it.
 
-**Images**: `sandboxr/base:<tool version>` is the machine's, and is never reclaimed as
-superseded. `sandboxr/<project>:<content hash>` is a project's layer. An embedder's own base —
+**Images**: `sandboxer/base:<tool version>` is the machine's, and is never reclaimed as
+superseded. `sandboxer/<project>:<content hash>` is a project's layer. An embedder's own base —
 built `FROM` this one and passed back as `UpOptions.baseImage` — is kept the same way, by being
 named in `protectImages`.
 
-**Containers**: `sandboxr-router`, one per sandbox, and whatever somebody put on the bare
+**Containers**: `sandboxer-router`, one per sandbox, and whatever somebody put on the bare
 domain.
 
-**Host paths, all under `~/.sandboxr`**: `cache/` is the seed cache, mounted read-only into every
+**Host paths, all under `~/.sandboxer`**: `cache/` is the seed cache, mounted read-only into every
 sandbox. `build/<project>/<slug>.plan.json` and `build/<project>/<slug>.env` are per sandbox.
 `logs/<project>/<slug>/` is per sandbox and outlives the container. `tls/` holds certificates.
 Full list in [Paths](../reference/paths.md).
@@ -169,7 +169,7 @@ the number that decides how many fit is real usage, not the cap — and real usa
 service on a file database is tens of megabytes.
 
 The cap only bites when something spikes, which in practice means a large front-end build. A build
-killed for memory reports nothing but an exit code, so sandboxr names the cause for you when it
+killed for memory reports nothing but an exit code, so sandboxer names the cause for you when it
 sees one.
 
 Raising `memory:` on one app raises the ceiling for the **whole** sandbox, because the kernel
@@ -181,9 +181,9 @@ the sizing arithmetic.
 Three commands, and they do genuinely different things.
 
 ```bash
-sandboxr expire --dry-run   # which sandboxes have sat unused past their limit
-sandboxr gc --dry-run       # which sandboxes have lost their worktree
-sandboxr prune              # what disk could be handed back
+sandboxer expire --dry-run   # which sandboxes have sat unused past their limit
+sandboxer gc --dry-run       # which sandboxes have lost their worktree
+sandboxer prune              # what disk could be handed back
 ```
 
 **`expire` stops sandboxes that have sat idle.** The [ttl](../reference/glossary.md) measures
@@ -192,13 +192,13 @@ arrived", plus its ttl, and last-activity comes from the shared router's own acc
 sandbox. It never removes one, so it reclaims memory and CPU and does nothing about disk.
 
 > [!IMPORTANT] Nothing runs `expire` for you
-> sandboxr starts no daemon and has no reaper of its own, so a ttl is enforced only when
+> sandboxer starts no daemon and has no reaper of its own, so a ttl is enforced only when
 > something runs the command. On a machine where nothing does, sandboxes live until something
 > stops them. A cron entry every fifteen minutes is the whole fix — see
 > [Just the CLI, on my laptop](../setups/cli-only.md).
 
 **`gc` reaps sandboxes whose worktree is gone.** Delete a worktree and its sandbox is left behind;
-`gc` removes those, and then any `sandboxr-` volume nothing owns and nothing has mounted, and then
+`gc` removes those, and then any `sandboxer-` volume nothing owns and nothing has mounted, and then
 any project image a newer build has replaced — about six gigabytes each, and nothing will ask for
 their tags again. Shared volumes, dependency volumes and every project's newest image are left
 alone.
@@ -214,9 +214,9 @@ the daemon.
 > removal path is tested against a fake daemon only. [What is built](../reference/status.md) keeps
 > the detail.
 
-Keep one sandbox out of the clock's reach with `sandboxr keep <slug>`, and hand it back with
-`sandboxr unkeep <slug>`. A kept sandbox shows `kept` in the TTL column instead of its limit.
-`sandboxr expire --dry-run` is where you see how much idle time each one has left.
+Keep one sandbox out of the clock's reach with `sandboxer keep <slug>`, and hand it back with
+`sandboxer unkeep <slug>`. A kept sandbox shows `kept` in the TTL column instead of its limit.
+`sandboxer expire --dry-run` is where you see how much idle time each one has left.
 
 **Next:** [Start, stop, list, clean up](../guides/lifecycle.md) — the day-to-day commands in full.
 Or [One repo, many branches](../setups/one-repo-many-worktrees.md), which takes this case further:

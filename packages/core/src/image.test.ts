@@ -30,11 +30,11 @@ import type { Docker } from "./docker.js";
 import type { ResolvedConfig } from "./config/types.js";
 
 const config = (overrides: Partial<ResolvedConfig> = {}): ResolvedConfig => ({
-  file: "/p/sandboxr.yaml",
+  file: "/p/sandboxer.yaml",
   root: "/p",
   origin: "repo",
   project: "acme",
-  sandboxr: ">=0.1.0",
+  sandboxer: ">=0.1.0",
   database: { driver: "none" },
   backends: [],
   frontendRoot: "",
@@ -50,12 +50,12 @@ const config = (overrides: Partial<ResolvedConfig> = {}): ResolvedConfig => ({
 
 const TEMPLATE = [
   "FROM base",
-  "# >>> sandboxr:block go",
+  "# >>> sandboxer:block go",
   "RUN install go {{GO_VERSION}}",
-  "# <<< sandboxr:block go",
-  "# >>> sandboxr:block node",
+  "# <<< sandboxer:block go",
+  "# >>> sandboxer:block node",
   "RUN install node {{NODE_VERSION}}",
-  "# <<< sandboxr:block node",
+  "# <<< sandboxer:block node",
   "WORKDIR /workspace",
 ].join("\n");
 
@@ -64,7 +64,7 @@ describe("applyBlocks", () => {
     const kept = applyBlocks(TEMPLATE, new Set(["go"]));
     expect(kept).toContain("RUN install go {{GO_VERSION}}");
     expect(kept).not.toContain("RUN install node");
-    expect(kept).not.toContain("sandboxr:block");
+    expect(kept).not.toContain("sandboxer:block");
   });
 
   it("keeps everything outside every block", () => {
@@ -75,7 +75,7 @@ describe("applyBlocks", () => {
   });
 
   it("refuses a block that is never closed", () => {
-    expect(() => applyBlocks("# >>> sandboxr:block go\nRUN x\n", new Set())).toThrow(/never closed/);
+    expect(() => applyBlocks("# >>> sandboxer:block go\nRUN x\n", new Set())).toThrow(/never closed/);
   });
 });
 
@@ -152,7 +152,7 @@ describe("staging a build context", () => {
   let dir: string;
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "sandboxr-image-test-"));
+    dir = await mkdtemp(join(tmpdir(), "sandboxer-image-test-"));
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -194,7 +194,7 @@ describe("staging a build context", () => {
     const staged = [{ source: manifest, target: "manifests/package.json" }];
 
     const first = await imageTag("acme", "FROM a", staged);
-    expect(first).toMatch(/^sandboxr\/acme:[0-9a-f]{12}$/);
+    expect(first).toMatch(/^sandboxer\/acme:[0-9a-f]{12}$/);
     expect(await imageTag("acme", "FROM a", staged)).toBe(first);
     expect(await imageTag("acme", "FROM b", staged)).not.toBe(first);
 
@@ -206,14 +206,14 @@ describe("staging a build context", () => {
   // toolchain — but the base tag arrives as a `--build-arg` and never appears in
   // the Dockerfile text, so nothing here used to see it. A base rebuilt with new
   // container scripts left every project image pinned to the old one, and `up`
-  // said "Image sandboxr/acme:… is current" while starting a sandbox without the
+  // said "Image sandboxer/acme:… is current" while starting a sandbox without the
   // scripts the host had already started relying on.
   it("keys the tag on the base image it is built from", async () => {
     const staged: StagedFile[] = [];
-    const onOld = await imageTag("acme", "FROM base", staged, "sandboxr/base:0.1.0-aaaa");
+    const onOld = await imageTag("acme", "FROM base", staged, "sandboxer/base:0.1.0-aaaa");
 
-    expect(await imageTag("acme", "FROM base", staged, "sandboxr/base:0.1.0-aaaa")).toBe(onOld);
-    expect(await imageTag("acme", "FROM base", staged, "sandboxr/base:0.1.0-bbbb")).not.toBe(onOld);
+    expect(await imageTag("acme", "FROM base", staged, "sandboxer/base:0.1.0-aaaa")).toBe(onOld);
+    expect(await imageTag("acme", "FROM base", staged, "sandboxer/base:0.1.0-bbbb")).not.toBe(onOld);
   });
 });
 
@@ -258,7 +258,7 @@ describe("ensureProjectImage", () => {
   let worktree: string;
 
   beforeEach(async () => {
-    worktree = await mkdtemp(join(tmpdir(), "sandboxr-image-build-"));
+    worktree = await mkdtemp(join(tmpdir(), "sandboxer-image-build-"));
   });
 
   afterEach(async () => {
@@ -284,13 +284,13 @@ describe("ensureProjectImage", () => {
       config: config({ toolchain: { node: "24" } }),
       worktree,
       docker,
-      baseImage: "sandboxr/base:9.9.9",
+      baseImage: "sandboxer/base:9.9.9",
     });
 
     expect(built.built).toBe(true);
     const args = calls[0] ?? [];
     expect(args.slice(0, 2)).toEqual(["build", "-f"]);
-    expect(args.join(" ")).toContain("--build-arg BASE_IMAGE=sandboxr/base:9.9.9");
+    expect(args.join(" ")).toContain("--build-arg BASE_IMAGE=sandboxer/base:9.9.9");
 
     // Mapped here rather than taken from archBuildArgs, so the test would catch
     // the mapping changing under it.

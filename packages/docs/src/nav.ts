@@ -40,7 +40,7 @@ export const NAV: readonly NavGroup[] = [
     label: null,
     pages: [
       { slug: "", label: "Welcome" },
-      { slug: "introduction", label: "What sandboxr is" },
+      { slug: "introduction", label: "What sandboxer is" },
       { slug: "how-it-works", label: "How it works, in five steps" },
     ],
   },
@@ -79,7 +79,7 @@ export const NAV: readonly NavGroup[] = [
     label: "Describing your project",
     pages: [
       { slug: "configuration", label: "Build your config, step by step" },
-      { slug: "configuration/sandboxr-yaml", label: "sandboxr.yaml, field by field" },
+      { slug: "configuration/sandboxer-yaml", label: "sandboxer.yaml, field by field" },
       { slug: "configuration/rules", label: "The rules a config must obey" },
       { slug: "configuration/runtime-kinds", label: "The three runtime kinds" },
       { slug: "configuration/secrets", label: "Secrets" },

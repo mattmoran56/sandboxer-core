@@ -3,7 +3,7 @@ title: What is built
 description: What has been run for real, what is written but unproven, and what does not exist at all.
 ---
 
-sandboxr is early. This page is the honest inventory of the engine — the CLI, the container layer
+sandboxer is early. This page is the honest inventory of the engine — the CLI, the container layer
 and the code underneath them — so no other page has to carry a disclaimer.
 
 Read it before you trust anything. Where a page describes something that has never been run, this is
@@ -13,9 +13,9 @@ where it says so.
 
 The Workers demo in `examples/demo-worker` has been taken all the way through.
 
-- `sandboxr init` set up the network, built the base image, issued a certificate, and started the
+- `sandboxer init` set up the network, built the base image, issued a certificate, and started the
   router.
-- `sandboxr up` built a project image layer, started a container, created its D1 database, ran the
+- `sandboxer up` built a project image layer, started a container, created its D1 database, ran the
   project's own migrations, applied fixtures, and served a page over HTTPS.
 - It was then run **twice at once**, from two git worktrees. Each had its own database, its own
   hostname and its own container.
@@ -23,7 +23,7 @@ The Workers demo in `examples/demo-worker` has been taken all the way through.
   container. A file written inside the container appeared in `git status` on the host.
 - `ls`, `logs`, `config` and `doctor` have all been run for real.
 - **The mounted secrets file has been run end to end on a live sandbox.** A credential in
-  `~/.sandboxr/secrets/<project>.env` reached a running application process, did not appear in
+  `~/.sandboxer/secrets/<project>.env` reached a running application process, did not appear in
   `docker inspect`, and a changed value was picked up by a restart.
 
 That is the only path proven end to end for a *project*.
@@ -46,10 +46,10 @@ one thing wrong in the details.
 | **`sqlite`** | The `d1` path has run. The plain `sqlite` driver has not |
 | **A `private` project** | The forward-auth middleware is written and unit-tested. The engine answers none of it, and nothing has been put on the bare domain here to answer it, so the handshake has never been watched running against a live private project. [Access and security](../access.md) says the same on the page it affects |
 | **A sandbox expiring on its own over a full lifetime** | See below |
-| **Removing an image** — `sandboxr prune --yes`, and the same images under `sandboxr gc` | See below |
+| **Removing an image** — `sandboxer prune --yes`, and the same images under `sandboxer gc` | See below |
 | **`gh` against a private repository** | Pull requests list against a public repo. Cloning and fetching a private one with the machine's own `gh` credentials has not been done |
 
-### Removing an image: `sandboxr prune --yes` and `sandboxr gc`
+### Removing an image: `sandboxer prune --yes` and `sandboxer gc`
 
 `prune`'s report has been run against a live daemon with two projects and 440 build cache records on
 it, and its figures match `docker system df`.
@@ -65,7 +65,7 @@ will not answer costs the image reaping and not the sandbox reaping, which has b
 
 ## The project-level config
 
-A project in the workspace may keep a `sandboxr.yaml` beside its mirror, for every worktree of it
+A project in the workspace may keep a `sandboxer.yaml` beside its mirror, for every worktree of it
 that carries none of its own. The workspace itself is §4.1 of
 [the contract](../architecture/contracts.md).
 
@@ -73,7 +73,7 @@ that carries none of its own. The workspace itself is §4.1 of
 which had had the same draft config copied into them by hand. Moving the single copy up to the
 project directory and deleting both worktree copies left every worktree resolving the same config —
 with `root` equal to each worktree, never the project directory it read the file from — and
-`sandboxr config` naming the file it used and warning that neither worktree carries its own.
+`sandboxer config` naming the file it used and warning that neither worktree carries its own.
 
 **No sandbox has yet been started from a project-level config.** That project needs a database seed
 and credentials that are not settled.
@@ -92,12 +92,12 @@ recent, so here is precisely what has been done with it on a real machine.
 
 **Run for real:**
 
-- The parse against a live `docker logs sandboxr-router`, which reports one last-activity time per
+- The parse against a live `docker logs sandboxer-router`, which reports one last-activity time per
   sandbox and none for the bare domain or for an unrouted 404.
 - A single `curl` at one sandbox moved *that* sandbox's time to the second the request arrived, and
   left the other sandbox's untouched — over a period in which both were being health-probed
   directly, off the router.
-- `sandboxr expire --dry-run --json` then reported `1h 59m left, idle 21s` for the one that had been
+- `sandboxer expire --dry-run --json` then reported `1h 59m left, idle 21s` for the one that had been
   visited and `3h 25m left, idle 34m` for the one that had not. `--json` is where those two lines
   are: the human dry-run prints only what it would stop, and neither sandbox was due to stop.
 - `keep` and `unkeep` were driven end to end, and the ttl precedence chain was exercised against a
@@ -125,7 +125,7 @@ nothing about disk. The container and its volumes remain, so a machine left alon
 databases automatically, which is not a thing to switch on untested. `prune` is the safer of the two
 to put on a timer, because everything it removes is rebuildable.
 
-**Nothing enforces a lifetime.** `sandboxr expire` is the whole mechanism, and the engine starts no
+**Nothing enforces a lifetime.** `sandboxer expire` is the whole mechanism, and the engine starts no
 daemon and has no reaper of its own — a CLI process exits the moment it has printed its answer, so
 there is nowhere for a timer to live. On a machine with no `cron` or `launchd` entry running it,
 sandboxes live until something stops them. [Just the CLI, on my laptop](../setups/cli-only.md) has
@@ -167,7 +167,7 @@ that path did not exist. The symptom named the cause and nobody read it that way
 
 **A named sandbox no longer needs `--worktree`.** `status`, `logs`, `shell` and `reload` take the
 worktree from the sandbox's own label when a slug names exactly one, so they work from any directory.
-Verified by running `sandboxr status <slug>` from an unrelated directory. Not unit-tested: resolving
+Verified by running `sandboxer status <slug>` from an unrelated directory. Not unit-tested: resolving
 it reads the container list, and `docker` is a module singleton the CLI tests deliberately do not
 reach.
 
@@ -180,7 +180,7 @@ does not.
 
 **Remote deployment.** No code requests a certificate over ACME, writes a DNS record, or installs a
 service unit. mkcert is the only certificate issuer, and it issues a certificate one machine trusts.
-`sandboxr init --bind ADDR` publishes the router beyond loopback and is the only part of running on
+`sandboxer init --bind ADDR` publishes the router beyond loopback and is the only part of running on
 a server that exists. [On a server, for a team](../setups/shared-server.md) has the arithmetic and
 names the missing pieces one by one.
 
@@ -206,7 +206,7 @@ so it is currently a no-op.
 - Both example plans generate a service tree and a router config, and both generated Caddyfiles pass
   `caddy validate`.
 - A built app serves, a deep path falls back to `index.html`, an unbuilt app answers 503 with
-  instructions, `/__sandboxr/live` answers on any hostname, and an unknown host answers 404 naming
+  instructions, `/__sandboxer/live` answers on any hostname, and an unknown host answers 404 naming
   the host it was asked for.
 - The database-init → migrate → status chain produces the right verdict for each outcome: no
   migration command gives `ok`/`skipped`; a command that fails gives `degraded`/`failed` with the

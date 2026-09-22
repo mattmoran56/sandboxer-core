@@ -21,7 +21,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "./load.js";
 import { findConfig, isWorkspaceProjectDir, locateConfig, workspaceWorktree } from "./locate.js";
 
-const CONFIG = (project: string) => `project: ${project}\nsandboxr: '>=0.1.0'\naccess:\n  apps: private\n`;
+const CONFIG = (project: string) => `project: ${project}\nsandboxer: '>=0.1.0'\naccess:\n  apps: private\n`;
 
 interface Tree {
   /** The workspace root, and the environment that points at it. */
@@ -52,22 +52,22 @@ async function workspaceTree(): Promise<Tree> {
   await mkdir(join(projectDir, "repo.git"), { recursive: true });
   await mkdir(deep, { recursive: true });
 
-  return { workspace, env: { SANDBOXR_HOME: home }, projectDir, worktree, deep };
+  return { workspace, env: { SANDBOXER_HOME: home }, projectDir, worktree, deep };
 }
 
 describe("findConfig", () => {
   it("finds a config in the directory it starts in", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sbx-find-"));
-    await writeFile(join(dir, "sandboxr.yaml"), CONFIG("x"));
-    expect(await findConfig(dir)).toBe(join(dir, "sandboxr.yaml"));
+    await writeFile(join(dir, "sandboxer.yaml"), CONFIG("x"));
+    expect(await findConfig(dir)).toBe(join(dir, "sandboxer.yaml"));
   });
 
   it("walks up to the project root", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sbx-find-"));
-    await writeFile(join(dir, "sandboxr.yaml"), CONFIG("x"));
+    await writeFile(join(dir, "sandboxer.yaml"), CONFIG("x"));
     const deep = join(dir, "a", "b", "c");
     await mkdir(deep, { recursive: true });
-    expect(await findConfig(deep)).toBe(join(dir, "sandboxr.yaml"));
+    expect(await findConfig(deep)).toBe(join(dir, "sandboxer.yaml"));
   });
 
   it("returns nothing when there is no config anywhere above", async () => {
@@ -83,17 +83,17 @@ describe("findConfig", () => {
     const top = join(dir, "top");
     const deep = join(top, "a", "b");
     await mkdir(deep, { recursive: true });
-    await writeFile(join(dir, "sandboxr.yaml"), CONFIG("above"));
-    await writeFile(join(top, "sandboxr.yaml"), CONFIG("top"));
+    await writeFile(join(dir, "sandboxer.yaml"), CONFIG("above"));
+    await writeFile(join(top, "sandboxer.yaml"), CONFIG("top"));
 
-    expect(await findConfig(deep, { stopAt: top })).toBe(join(top, "sandboxr.yaml"));
+    expect(await findConfig(deep, { stopAt: top })).toBe(join(top, "sandboxer.yaml"));
   });
 
   it("does not look above stopAt", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sbx-stop-"));
     const top = join(dir, "top");
     await mkdir(top, { recursive: true });
-    await writeFile(join(dir, "sandboxr.yaml"), CONFIG("above"));
+    await writeFile(join(dir, "sandboxer.yaml"), CONFIG("above"));
 
     expect(await findConfig(top, { stopAt: top })).toBeUndefined();
   });
@@ -140,27 +140,27 @@ describe("a managed worktree", () => {
   });
 
   it("uses its own config, with the worktree as the root", async () => {
-    await writeFile(join(tree.worktree, "sandboxr.yaml"), CONFIG("own"));
+    await writeFile(join(tree.worktree, "sandboxer.yaml"), CONFIG("own"));
 
     const config = await loadConfig(tree.worktree, { env: tree.env });
     expect(config.project).toBe("own");
-    expect(config.file).toBe(join(tree.worktree, "sandboxr.yaml"));
+    expect(config.file).toBe(join(tree.worktree, "sandboxer.yaml"));
     expect(config.root).toBe(tree.worktree);
     expect(config.origin).toBe("repo");
   });
 
   it("falls back to the project-level config, and the root is still the worktree", async () => {
-    await writeFile(join(tree.projectDir, "sandboxr.yaml"), CONFIG("shared"));
+    await writeFile(join(tree.projectDir, "sandboxer.yaml"), CONFIG("shared"));
 
     const config = await loadConfig(tree.worktree, { env: tree.env });
     expect(config.project).toBe("shared");
-    expect(config.file).toBe(join(tree.projectDir, "sandboxr.yaml"));
+    expect(config.file).toBe(join(tree.projectDir, "sandboxer.yaml"));
     expect(config.root).toBe(tree.worktree);
     expect(config.origin).toBe("project");
   });
 
   it("falls back from a subdirectory too", async () => {
-    await writeFile(join(tree.projectDir, "sandboxr.yaml"), CONFIG("shared"));
+    await writeFile(join(tree.projectDir, "sandboxer.yaml"), CONFIG("shared"));
 
     const config = await loadConfig(tree.deep, { env: tree.env });
     expect(config.root).toBe(tree.worktree);
@@ -170,29 +170,29 @@ describe("a managed worktree", () => {
   it("prefers its own config over the project-level one", async () => {
     // A repository that has said how it should be run is never overruled by a
     // file outside it, which its authors cannot see and did not write.
-    await writeFile(join(tree.projectDir, "sandboxr.yaml"), CONFIG("shared"));
-    await writeFile(join(tree.worktree, "sandboxr.yaml"), CONFIG("own"));
+    await writeFile(join(tree.projectDir, "sandboxer.yaml"), CONFIG("shared"));
+    await writeFile(join(tree.worktree, "sandboxer.yaml"), CONFIG("own"));
 
     const config = await loadConfig(tree.worktree, { env: tree.env });
     expect(config.project).toBe("own");
-    expect(config.file).toBe(join(tree.worktree, "sandboxr.yaml"));
+    expect(config.file).toBe(join(tree.worktree, "sandboxer.yaml"));
     expect(config.root).toBe(tree.worktree);
     expect(config.origin).toBe("repo");
   });
 
   it("gives the ordinary error when neither exists", async () => {
     await expect(loadConfig(tree.worktree, { env: tree.env })).rejects.toThrow(
-      /no sandboxr\.yaml here or in any parent directory/,
+      /no sandboxer\.yaml here or in any parent directory/,
     );
   });
 
   it("names the project-level file when that file is the broken one", async () => {
     // The error has to name the file whose author has to edit it, and that file
     // is not in the worktree the command was run from.
-    await writeFile(join(tree.projectDir, "sandboxr.yaml"), "project: 4\nsandboxr: '>=0.1.0'\n");
+    await writeFile(join(tree.projectDir, "sandboxer.yaml"), "project: 4\nsandboxer: '>=0.1.0'\n");
 
     await expect(loadConfig(tree.worktree, { env: tree.env })).rejects.toThrow(
-      join(tree.projectDir, "sandboxr.yaml"),
+      join(tree.projectDir, "sandboxer.yaml"),
     );
   });
 });
@@ -201,7 +201,7 @@ describe("a managed worktree", () => {
  * The bug the project-level config is the sanctioned version of.
  *
  * `findConfig` walks up to the filesystem root, so a file at
- * `<workspace>/<project>/sandboxr.yaml` was *already* found from inside a
+ * `<workspace>/<project>/sandboxer.yaml` was *already* found from inside a
  * worktree — and `root` was `dirname(file)`, so `/workspace` would have been the
  * project directory, with `repo.git` and every sibling worktree mounted into the
  * sandbox and every declared path resolving one directory too high.
@@ -211,7 +211,7 @@ describe("the walk-up out of a worktree (regression)", () => {
     const tree = await workspaceTree();
     const sibling = join(tree.projectDir, "wt", "feature");
     await mkdir(sibling, { recursive: true });
-    await writeFile(join(tree.projectDir, "sandboxr.yaml"), CONFIG("shared"));
+    await writeFile(join(tree.projectDir, "sandboxer.yaml"), CONFIG("shared"));
 
     for (const from of [tree.worktree, tree.deep, sibling]) {
       const located = await locateConfig(from, { env: tree.env });
@@ -225,7 +225,7 @@ describe("the walk-up out of a worktree (regression)", () => {
 
   it("refuses to run the project-level config from the project directory itself", async () => {
     const tree = await workspaceTree();
-    const file = join(tree.projectDir, "sandboxr.yaml");
+    const file = join(tree.projectDir, "sandboxer.yaml");
     await writeFile(file, CONFIG("shared"));
 
     // Both ways in: standing in the directory, and naming the file outright.
@@ -240,7 +240,7 @@ describe("a repository outside the workspace", () => {
     const repo = await mkdtemp(join(tmpdir(), "sbx-own-"));
     const deep = join(repo, "services", "api");
     await mkdir(deep, { recursive: true });
-    await writeFile(join(repo, "sandboxr.yaml"), CONFIG("outside"));
+    await writeFile(join(repo, "sandboxer.yaml"), CONFIG("outside"));
 
     const config = await loadConfig(deep, { env: tree.env });
     expect(config.project).toBe("outside");
@@ -255,7 +255,7 @@ describe("a repository outside the workspace", () => {
     const repo = await mkdtemp(join(tmpdir(), "sbx-sub-"));
     const inner = join(repo, "apps", "web");
     await mkdir(inner, { recursive: true });
-    await writeFile(join(inner, "sandboxr.yaml"), CONFIG("inner"));
+    await writeFile(join(inner, "sandboxer.yaml"), CONFIG("inner"));
 
     const config = await loadConfig(inner, { env: tree.env });
     expect(config.root).toBe(inner);
@@ -263,9 +263,9 @@ describe("a repository outside the workspace", () => {
 
   it("does not see a project-level config from a workspace it is not in", async () => {
     const tree = await workspaceTree();
-    await writeFile(join(tree.projectDir, "sandboxr.yaml"), CONFIG("shared"));
+    await writeFile(join(tree.projectDir, "sandboxer.yaml"), CONFIG("shared"));
 
     const outside = await mkdtemp(join(tmpdir(), "sbx-elsewhere-"));
-    await expect(loadConfig(outside, { env: tree.env })).rejects.toThrow(/no sandboxr\.yaml/);
+    await expect(loadConfig(outside, { env: tree.env })).rejects.toThrow(/no sandboxer\.yaml/);
   });
 });

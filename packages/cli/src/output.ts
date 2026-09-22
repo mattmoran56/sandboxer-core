@@ -2,7 +2,7 @@
  * Where output goes, and why the split matters.
  *
  * **Human-readable output goes to stderr. Machine-readable JSON goes to
- * stdout.** That way `sandboxr ls --json | jq` works while the person running
+ * stdout.** That way `sandboxer ls --json | jq` works while the person running
  * it still sees the progress, and an agent driving the CLI can read stdout
  * without having to strip a spinner out of it.
  *
@@ -95,7 +95,7 @@ export class Output {
    * Text that is itself the result, on stdout and unaltered.
    *
    * A schema dump and a log are the answer rather than a description of it, so
-   * `sandboxr db snapshot > before.sql` has to produce the file it looks like it
+   * `sandboxer db snapshot > before.sql` has to produce the file it looks like it
    * produces. Nothing is added, so the output is byte-for-byte what was read.
    */
   raw(text: string): void {

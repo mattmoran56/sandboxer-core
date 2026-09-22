@@ -1,4 +1,4 @@
-# `@sandboxr/tokens`
+# `@sandboxer/tokens`
 
 The design system, as one stylesheet: the palette, the three colour schemes, the two themes,
 the fonts, the light/dark mechanism, the base layer and the named shapes.
@@ -6,7 +6,7 @@ the fonts, the light/dark mechanism, the base layer and the named shapes.
 One file, `tokens.css`. No build, one export:
 
 ```css
-@import "@sandboxr/tokens/tokens.css";
+@import "@sandboxer/tokens/tokens.css";
 ```
 
 **Its header comment is the document for it**, and [`docs/brand.md`](../../docs/brand.md) is

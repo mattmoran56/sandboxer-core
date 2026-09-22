@@ -1,12 +1,12 @@
 /**
  * Keep-alive: one file that exempts one sandbox from the idle clock.
  *
- * A keep-alive marker lives at `~/.sandboxr/state/keep/<project>/<slug>`
- * (contracts §4). It is the one piece of sandboxr's state that cannot live in a
+ * A keep-alive marker lives at `~/.sandboxer/state/keep/<project>/<slug>`
+ * (contracts §4). It is the one piece of sandboxer's state that cannot live in a
  * container label, because asking to keep a sandbox must work on one that is
  * already running and labels are fixed at creation.
  *
- * **The file is not an empty marker: it holds the `sandboxr.created` value of
+ * **The file is not an empty marker: it holds the `sandboxer.created` value of
  * the container it applies to, and it only counts when that stamp matches the
  * live sandbox.** Slugs come from ticket ids and branch names (contracts §3.1),
  * so the same project/slug is recreated routinely — same ticket, second
@@ -47,7 +47,7 @@ export async function readKeep(project: string, slug: string, env?: NodeJS.Proce
   }
 }
 
-/** Keeps one sandbox alive, recording the `sandboxr.created` it was asked for. */
+/** Keeps one sandbox alive, recording the `sandboxer.created` it was asked for. */
 export async function writeKeep(project: string, slug: string, stamp: string, env?: NodeJS.ProcessEnv): Promise<void> {
   const file = paths(env).keepFile(project, slug);
   await mkdir(dirname(file), { recursive: true });

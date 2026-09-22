@@ -1,5 +1,5 @@
 {
-  "name": "sandboxr",
+  "name": "sandboxer",
   "version": "0.1.0",
   "private": true,
   "description": "Turn any git worktree into a running copy of a whole project, on its own hostname.",
@@ -16,8 +16,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "docs:dev": "npm --workspace @sandboxr/docs run dev",
-    "docs:build": "npm --workspace @sandboxr/docs run build"
+    "docs:dev": "npm --workspace @sandboxer/docs run dev",
+    "docs:build": "npm --workspace @sandboxer/docs run build"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

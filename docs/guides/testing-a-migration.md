@@ -18,14 +18,14 @@ migration fails — do not try to fix my migration unless I ask.
 
 ## Nothing you do here touches the real database
 
-The starting data for a sandbox is a [seed](../reference/glossary.md). sandboxr reads
+The starting data for a sandbox is a [seed](../reference/glossary.md). sandboxer reads
 your source database, or a dump file, once. It writes the result into a cache. Each
 sandbox then gets its own copy of that.
 
 ```mermaid
 flowchart LR
   src[("Your database,<br/>or a dump file")]
-  cache[("The cached seed<br/>~/.sandboxr/cache")]
+  cache[("The cached seed<br/>~/.sandboxer/cache")]
   sbx[("The sandbox's own<br/>copy")]
   src -->|"read only, always"| cache
   cache --> sbx
@@ -33,7 +33,7 @@ flowchart LR
 ```
 
 The left-hand box is never written to. That is the first of four rules every database
-driver in sandboxr obeys, and it is the one that makes the rest of this page safe.
+driver in sandboxer obeys, and it is the one that makes the rest of this page safe.
 
 <details class="facts">
 <summary><b>Fact sheet</b> — the four rules every database driver obeys</summary>
@@ -48,8 +48,8 @@ From `packages/core/src/drivers/types.ts` and `docs/architecture/contracts.md` �
    migration is a reason the sandbox exists.
 3. **The schema baseline survives a failed run.** The baseline is taken before
    migrating, and only re-taken after a *success*.
-4. **The project's migration logic is never reimplemented.** sandboxr shells out to
-   the command in your `sandboxr.yaml`. It may *read* migration state to show
+4. **The project's migration logic is never reimplemented.** sandboxer shells out to
+   the command in your `sandboxer.yaml`. It may *read* migration state to show
    progress; what runs is always your own program.
 
 The interface is five methods — `prepareSeed`, `provision`, `migrate`, `snapshot`,
@@ -62,10 +62,10 @@ The interface is five methods — `prepareSeed`, `provision`, `migrate`, `snapsh
 Four, and they are the whole surface.
 
 ```bash
-sandboxr db seed        # produce or refresh the seed artifact
-sandboxr db migrate     # run the project's own migration command inside the sandbox
-sandboxr db snapshot    # print the schema — structure, not rows
-sandboxr db shell       # an interactive database prompt inside the sandbox
+sandboxer db seed        # produce or refresh the seed artifact
+sandboxer db migrate     # run the project's own migration command inside the sandbox
+sandboxer db snapshot    # print the schema — structure, not rows
+sandboxer db shell       # an interactive database prompt inside the sandbox
 ```
 
 Only `db seed` works without a running sandbox. It is host-side work: it reads your
@@ -73,7 +73,7 @@ source and writes the cache. The other three run inside the container, so the sa
 has to be up.
 
 `db snapshot` puts the schema on **stdout** and nothing else there. So
-`sandboxr db snapshot > before.sql` always gives you a usable file, with or without
+`sandboxer db snapshot > before.sql` always gives you a usable file, with or without
 `--json`.
 
 <details class="agent">
@@ -83,10 +83,10 @@ From `packages/cli/src/main.ts` (`cmdDb`) and the `USAGE` constant.
 
 | Command | Runs where | Notes |
 |---|---|---|
-| `sandboxr db seed [--seed local\|file\|fixtures]` | host | Idempotent. Content-addressed into `~/.sandboxr/cache`. `--seed` forces a source. Prints `<kind> from <source> (<key>)` |
-| `sandboxr db migrate [slug]` | in the container | Exit `0` on success, `1` on failure. On failure it prints the migration it stopped on, where the baseline is, and that the database is left as-is |
-| `sandboxr db snapshot [slug]` | in the container | Schema to stdout, raw, newline-terminated. `--json` wraps it as `{project, slug, schema}` |
-| `sandboxr db shell [slug]` | in the container | Interactive. **Do not run this from a non-interactive agent — it will hang.** |
+| `sandboxer db seed [--seed local\|file\|fixtures]` | host | Idempotent. Content-addressed into `~/.sandboxer/cache`. `--seed` forces a source. Prints `<kind> from <source> (<key>)` |
+| `sandboxer db migrate [slug]` | in the container | Exit `0` on success, `1` on failure. On failure it prints the migration it stopped on, where the baseline is, and that the database is left as-is |
+| `sandboxer db snapshot [slug]` | in the container | Schema to stdout, raw, newline-terminated. `--json` wraps it as `{project, slug, schema}` |
+| `sandboxer db shell [slug]` | in the container | Interactive. **Do not run this from a non-interactive agent — it will hang.** |
 
 Every one of them also takes the global flags: `--worktree PATH`, `--project NAME`,
 `--slug NAME`, `--json`.
@@ -95,7 +95,7 @@ Where the slug is omitted, it is derived from the current worktree. Where a slug
 named and matches exactly one sandbox, the worktree comes off that sandbox's own
 Docker label — so these work from any directory.
 
-`db migrate` runs the command in `database.migrate` from your `sandboxr.yaml`, through
+`db migrate` runs the command in `database.migrate` from your `sandboxer.yaml`, through
 `sh -lc`, inside the container. Nothing a caller supplies is interpolated into that
 string; a slug or a branch name travels as an environment variable and can never
 become shell syntax.
@@ -107,32 +107,32 @@ become shell syntax.
 Snapshot, run it, snapshot again, compare.
 
 ```bash
-sandboxr db snapshot > before.sql     # 1. the schema as it is now
-sandboxr db migrate                   # 2. run it
-sandboxr db snapshot > after.sql       # 3. the schema now
+sandboxer db snapshot > before.sql     # 1. the schema as it is now
+sandboxer db migrate                   # 2. run it
+sandboxer db snapshot > after.sql       # 3. the schema now
 diff -u before.sql after.sql           # 4. what actually changed
 ```
 
 Step four is where the answer is. Columns added, indexes created, types changed — and,
 after a failure, exactly how far it got.
 
-> [!IMPORTANT] There is no `sandboxr db diff` and no `sandboxr db reset`
+> [!IMPORTANT] There is no `sandboxer db diff` and no `sandboxer db reset`
 > Comparing two schemas is two snapshots and your own `diff`, as above. Starting from
-> clean is `sandboxr down` then `sandboxr up`. The driver interface has `snapshot` and
+> clean is `sandboxer down` then `sandboxer up`. The driver interface has `snapshot` and
 > nothing that compares two snapshots, and no command returns a database to a fresh
 > restore. See [What is built](../reference/status.md).
 
 To start clean:
 
 ```bash
-sandboxr down tkt-4821 && sandboxr up tkt-4821
+sandboxer down tkt-4821 && sandboxer up tkt-4821
 ```
 
 On a file-backed database that is close to instant. On MySQL it is a restore from the
 cached seed, so it takes as long as the restore does.
 
 > [!TIP] Iterating without a full rebuild
-> `sandboxr reload --migrate` re-runs this sandbox's migrations in place. It is much
+> `sandboxer reload --migrate` re-runs this sandbox's migrations in place. It is much
 > faster. But it runs against whatever the last attempt left behind, which is a state
 > that will never exist in production. Iterate with it, then do the final run from a
 > clean sandbox.
@@ -146,14 +146,14 @@ That is deliberate. Looking at a failed migration is one of the main reasons to 
 sandbox at all, and you cannot look at one inside a container that has exited.
 
 ```bash
-sandboxr ls                # the sandbox shows as degraded
-sandboxr logs tkt-4821     # the migration output, including what it stopped on
-sandboxr db shell          # the state it left behind
+sandboxer ls                # the sandbox shows as degraded
+sandboxer logs tkt-4821     # the migration output, including what it stopped on
+sandboxer db shell          # the state it left behind
 ```
 
 `degraded` is a state of its own rather than a shade of `running`, because Docker would
 call that container `running` and be right. The sandbox writes its own verdict, and
-sandboxr reads it. So the one row worth acting on is not painted the same green as a
+sandboxer reads it. So the one row worth acting on is not painted the same green as a
 healthy one.
 
 ### The baseline is what makes the comparison possible
@@ -178,19 +178,19 @@ attempt.
 So the useful sequence after a failure is:
 
 ```bash
-sandboxr db snapshot > after-failure.sql
-diff -u ~/.sandboxr/logs/acme/tkt-4821/schema-before.sql after-failure.sql
-sandboxr db shell        # look at the state it left behind
-sandboxr logs tkt-4821   # what the runner printed
+sandboxer db snapshot > after-failure.sql
+diff -u ~/.sandboxer/logs/acme/tkt-4821/schema-before.sql after-failure.sql
+sandboxer db shell        # look at the state it left behind
+sandboxer logs tkt-4821   # what the runner printed
 # fix the migration, then:
-sandboxr down tkt-4821 && sandboxr up tkt-4821
+sandboxer down tkt-4821 && sandboxer up tkt-4821
 ```
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — the four files a migration leaves on the host, and what each proves</summary>
 
-Under `~/.sandboxr/logs/<project>/<slug>/`. They outlive the container, so they are
-still there after `sandboxr down`.
+Under `~/.sandboxer/logs/<project>/<slug>/`. They outlive the container, so they are
+still there after `sandboxer down`.
 
 | File | What it is |
 |---|---|
@@ -208,11 +208,11 @@ Two more things worth knowing about how a failure is decided:
 - **The exit code is the truth.** What is read out of the migration command's output —
   which files it mentioned, which one it stopped on — is for display only.
 - **A runner that exits zero while printing its own failure summary produces a false
-  green.** Declare `database.migrate.failure_pattern` in your `sandboxr.yaml` if your
-  runner does that. sandboxr builds that runner from the branch under test, so it
+  green.** Declare `database.migrate.failure_pattern` in your `sandboxer.yaml` if your
+  runner does that. sandboxer builds that runner from the branch under test, so it
   cannot know.
 
-The verdict itself is written inside the container, to `/run/sandboxr/migrate.json`, in
+The verdict itself is written inside the container, to `/run/sandboxer/migrate.json`, in
 the same shape whether the host ran the migration or the container did at boot. Two
 writers of one fact produce one file. When they did not, a container-side run left the
 file saying `ok` while the host read absent markers as `pending`, and every such
@@ -266,7 +266,7 @@ collide on one lock.
 defects. Neither is fixed, and both are written down in
 `docs/architecture/contracts.md` §6.1. The short version: the container brings a MySQL
 sandbox up correctly and does all the real work, while every host-side `mysql` exec
-against it fails on an access-denied error. So `sandboxr up` can report "Provisioning
+against it fails on an access-denied error. So `sandboxer up` can report "Provisioning
 did not complete" against a sandbox that is in fact fine. Nothing is lost, but nothing
 the *host* driver does to a running MySQL sandbox runs at all.
 

@@ -20,7 +20,7 @@ function configFor(overrides: {
   return resolveConfig(
     {
       project: "acme",
-      sandboxr: ">=0.1.0",
+      sandboxer: ">=0.1.0",
       access: { apps: "private" },
       database: {
         driver,
@@ -32,16 +32,16 @@ function configFor(overrides: {
         apps: overrides.apps ?? [{ label: "app", package: ".", serve: "npx wrangler dev --port 8787", port: 8787 }],
       },
     },
-    "/repo/sandboxr.yaml",
+    "/repo/sandboxer.yaml",
   );
 }
 
 describe("pointsAtSandboxState", () => {
   it.each([
-    ["d1 named directly", "npx wrangler dev --persist-to $SANDBOXR_D1_DIR", "d1", true],
+    ["d1 named directly", "npx wrangler dev --persist-to $SANDBOXER_D1_DIR", "d1", true],
     ["d1 not named at all", "npx wrangler dev", "d1", false],
-    ["the shared directory variable", "npx wrangler dev --persist-to $SANDBOXR_DB_DIR", "d1", true],
-    ["sqlite named directly", 'sqlite3 "$SANDBOXR_DB_FILE"', "sqlite", true],
+    ["the shared directory variable", "npx wrangler dev --persist-to $SANDBOXER_DB_DIR", "d1", true],
+    ["sqlite named directly", 'sqlite3 "$SANDBOXER_DB_FILE"', "sqlite", true],
     ["sqlite pointed at a literal path", "sqlite3 ./local.db", "sqlite", false],
     ["a driver with no state directory", "mysql -e 'select 1'", "mysql", true],
     ["no database at all", "anything", "none", true],
@@ -57,7 +57,7 @@ describe("persistenceAdvice", () => {
   it("names a migration command that would write into the worktree", () => {
     const advice = persistenceAdvice(configFor({}));
     expect(advice.map((a) => a.field)).toContain("database.migrate.command");
-    expect(advice[0]?.fix).toContain("--persist-to $SANDBOXR_D1_DIR");
+    expect(advice[0]?.fix).toContain("--persist-to $SANDBOXER_D1_DIR");
   });
 
   it("names a serve command that would write into the worktree", () => {
@@ -66,12 +66,12 @@ describe("persistenceAdvice", () => {
 
   it("says nothing when both commands point at the sandbox", () => {
     const config = configFor({
-      migrate: "npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXR_D1_DIR",
+      migrate: "npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXER_D1_DIR",
       apps: [
         {
           label: "app",
           package: ".",
-          serve: "npx wrangler dev --port 8787 --persist-to $SANDBOXR_D1_DIR",
+          serve: "npx wrangler dev --port 8787 --persist-to $SANDBOXER_D1_DIR",
           port: 8787,
         },
       ],
@@ -83,10 +83,10 @@ describe("persistenceAdvice", () => {
   // not the owner, so a non-owner without the flag is correct rather than wrong.
   it("checks only the service that owns the database", () => {
     const config = configFor({
-      migrate: "npx wrangler d1 migrations apply DB --persist-to $SANDBOXR_D1_DIR",
+      migrate: "npx wrangler d1 migrations apply DB --persist-to $SANDBOXER_D1_DIR",
       owner: "app",
       apps: [
-        { label: "app", package: ".", serve: "npx wrangler dev --persist-to $SANDBOXR_D1_DIR", port: 8787 },
+        { label: "app", package: ".", serve: "npx wrangler dev --persist-to $SANDBOXER_D1_DIR", port: 8787 },
         { label: "other", package: "other", serve: "npx wrangler dev --port 8788", port: 8788 },
       ],
     });
@@ -100,11 +100,11 @@ describe("persistenceAdvice", () => {
         : resolveConfig(
             {
               project: "acme",
-              sandboxr: ">=0.1.0",
+              sandboxer: ">=0.1.0",
               access: { apps: "private" },
               frontends: { apps: [{ label: "app", package: ".", serve: "npm start", port: 3000 }] },
             },
-            "/repo/sandboxr.yaml",
+            "/repo/sandboxer.yaml",
           );
     expect(persistenceAdvice(config)).toEqual([]);
   });
@@ -113,14 +113,14 @@ describe("persistenceAdvice", () => {
     const config = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "private" },
         database: { driver: "d1", seed_from: { fixtures: "f.sql" }, owner: "app" },
         frontends: {
-          apps: [{ label: "app", package: ".", serve: "npx wrangler dev --persist-to $SANDBOXR_D1_DIR", port: 1 }],
+          apps: [{ label: "app", package: ".", serve: "npx wrangler dev --persist-to $SANDBOXER_D1_DIR", port: 1 }],
         },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
     expect(persistenceAdvice(config)).toEqual([]);
   });

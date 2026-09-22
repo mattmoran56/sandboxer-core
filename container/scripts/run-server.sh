@@ -15,7 +15,7 @@ set -euo pipefail
 
 LOG_TAG="run-server"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
 LABEL="${1:?run-server.sh needs a front-end label}"
 RECORD=$(service_by server label "$LABEL")
@@ -27,19 +27,19 @@ SERVE=$(field "$RECORD" serve)
 PKG_DIR="$WORKSPACE/$(field "$RECORD" root .)/$(field "$RECORD" package .)"
 [[ -d "$PKG_DIR" ]] || die "no package directory at $PKG_DIR"
 
-"$SANDBOXR_SCRIPTS/build-server.sh" "$LABEL"
+"$SANDBOXER_SCRIPTS/build-server.sh" "$LABEL"
 
 # One writer per file-backed database (contracts §6.1). Two processes opening the
 # same file deadlock, so the database's directory is handed only to the service the
 # config names as its owner; every other server runs without it and fails loudly
 # on a missing binding rather than quietly hanging on a lock.
-if [[ "${SANDBOXR_DB_DRIVER:-none}" =~ ^(d1|sqlite)$ ]]; then
+if [[ "${SANDBOXER_DB_DRIVER:-none}" =~ ^(d1|sqlite)$ ]]; then
   OWNER=$(plan .database.owner)
   if [[ -z "$OWNER" ]]; then
-    warn "the ${SANDBOXR_DB_DRIVER} driver needs 'database.owner' to name the one service"
+    warn "the ${SANDBOXER_DB_DRIVER} driver needs 'database.owner' to name the one service"
     warn "that may open the database; without it two servers can deadlock on it"
   elif [[ "$OWNER" != "$LABEL" ]]; then
-    unset SANDBOXR_D1_DIR SANDBOXR_DB_FILE
+    unset SANDBOXER_D1_DIR SANDBOXER_DB_FILE
     log "'$LABEL' does not own the database; it is not exposed to this process"
   fi
 fi

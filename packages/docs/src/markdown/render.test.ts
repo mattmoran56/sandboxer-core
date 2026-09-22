@@ -78,14 +78,14 @@ describe("headings", () => {
 
 describe("a ```prompt fence", () => {
   it("becomes the prompt card, not a highlighted block", async () => {
-    const { html } = await page("```prompt\nInstall sandboxr.\n```\n");
+    const { html } = await page("```prompt\nInstall sandboxer.\n```\n");
     expect(html).toContain('<div class="sbx-prompt">');
     expect(html).toContain("Prompt for your agent");
     expect(html).not.toContain("shiki");
   });
 
   it("carries the fence's content byte for byte, escaping and all", async () => {
-    const source = ['Read https://x.test/?a=1&b=2 first.', '', `Then: sandboxr up --env 'A="1"' <<'EOF'`, '  x & y > z'].join("\n");
+    const source = ['Read https://x.test/?a=1&b=2 first.', '', `Then: sandboxer up --env 'A="1"' <<'EOF'`, '  x & y > z'].join("\n");
     const { html } = await page(`\`\`\`prompt\n${source}\n\`\`\`\n`);
     const code = /<pre class="sbx-prompt__pre"><code>([\s\S]*?)<\/code><\/pre>/.exec(html)?.[1] ?? "";
     expect(decode(code)).toBe(source);
@@ -116,7 +116,7 @@ describe("a ```mermaid fence", () => {
 
 describe("every other fence", () => {
   it("becomes the code block, highlighted in both themes", async () => {
-    const { html } = await page('```bash\nsandboxr up --ttl 12h\n```\n');
+    const { html } = await page('```bash\nsandboxer up --ttl 12h\n```\n');
     expect(html).toContain('<div class="sbx-code" data-lang="bash">');
     expect(html).toContain('<span class="sbx-code__lang">bash</span>');
     expect(html).toContain("data-copy");
@@ -137,17 +137,17 @@ describe("every other fence", () => {
   });
 
   it("highlights a fence inside a list item", async () => {
-    const { html } = await page("1. Run it:\n\n   ```bash\n   sandboxr up\n   ```\n");
+    const { html } = await page("1. Run it:\n\n   ```bash\n   sandboxer up\n   ```\n");
     expect(html).toContain('<div class="sbx-code" data-lang="bash">');
   });
 
   it("highlights a fence inside a blockquote", async () => {
-    const { html } = await page("> Try:\n>\n> ```bash\n> sandboxr up\n> ```\n");
+    const { html } = await page("> Try:\n>\n> ```bash\n> sandboxer up\n> ```\n");
     expect(html).toContain('<div class="sbx-code" data-lang="bash">');
   });
 
   it("leaves inline code as inline code", async () => {
-    expect((await page("A `sandboxr up` command.\n")).html).toContain("<code>sandboxr up</code>");
+    expect((await page("A `sandboxer up` command.\n")).html).toContain("<code>sandboxer up</code>");
   });
 });
 
@@ -190,10 +190,10 @@ describe("a <details> block", () => {
 
   it("splits a conventional summary into a chip and a text", async () => {
     const { html } = await page(
-      detail("agent", "<b>Details for an agent</b> — every flag <code>sandboxr up</code> accepts", "Body."),
+      detail("agent", "<b>Details for an agent</b> — every flag <code>sandboxer up</code> accepts", "Body."),
     );
     expect(html).toContain('<span class="sbx-detail__chip">Details for an agent</span>');
-    expect(html).toContain('<span class="sbx-detail__text">every flag <code>sandboxr up</code> accepts</span>');
+    expect(html).toContain('<span class="sbx-detail__text">every flag <code>sandboxer up</code> accepts</span>');
   });
 
   it("labels a summary with no bold opening from its kind", async () => {
@@ -203,7 +203,7 @@ describe("a <details> block", () => {
   });
 
   it("renders the body as Markdown: a table and a fence", async () => {
-    const body = "| Flag | Means |\n|---|---|\n| `--ttl 12h` | Stop it |\n\n```bash\nsandboxr up\n```";
+    const body = "| Flag | Means |\n|---|---|\n| `--ttl 12h` | Stop it |\n\n```bash\nsandboxer up\n```";
     const { html } = await page(detail("agent", "<b>Details for an agent</b> — flags", body));
     expect(html).toContain("<table>");
     expect(html).toContain("<code>--ttl 12h</code>");
@@ -231,14 +231,14 @@ describe("a <details> block", () => {
 
 describe("links", () => {
   it("rewrites a relative .md link to the URL this site serves", async () => {
-    const { html } = await page("See [the CLI](../reference/cli.md#sandboxr-up).\n");
-    expect(html).toContain('<a href="/reference/cli/#sandboxr-up">the CLI</a>');
+    const { html } = await page("See [the CLI](../reference/cli.md#sandboxer-up).\n");
+    expect(html).toContain('<a href="/reference/cli/#sandboxer-up">the CLI</a>');
   });
 
   it("sends a link to the contract off the site, in a new tab", async () => {
     const { html } = await page("See [the contract](../architecture/contracts.md).\n");
     expect(html).toContain(
-      '<a href="https://github.com/mattmoran56/sandboxr/blob/main/docs/architecture/contracts.md" target="_blank" rel="noreferrer">',
+      '<a href="https://github.com/mattmoran56/sandboxer-core/blob/main/docs/architecture/contracts.md" target="_blank" rel="noreferrer">',
     );
   });
 

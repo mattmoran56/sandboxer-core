@@ -1,8 +1,8 @@
 /**
- * Where this installation of sandboxr keeps the files it is not the only reader
+ * Where this installation of sandboxer keeps the files it is not the only reader
  * of: the container image sources.
  *
- * `~/.sandboxr` (see paths.ts) is state. This is the *installation* — the
+ * `~/.sandboxer` (see paths.ts) is state. This is the *installation* — the
  * checkout or the published package the running code came out of — and the two
  * are separate because state survives an upgrade and an installation does not.
  *
@@ -19,7 +19,7 @@ export class InstallError extends Error {
 }
 
 /**
- * Files that only exist together at the top of a sandboxr installation.
+ * Files that only exist together at the top of a sandboxer installation.
  *
  * **Both are the engine's own**, and that is the rule rather than an accident.
  * This used to name `packages/server/package.json`, which is the *product's* —
@@ -33,9 +33,9 @@ export class InstallError extends Error {
 const MARKERS = ["container/base/Dockerfile", "packages/core/package.json"];
 
 /**
- * The top of the sandboxr installation.
+ * The top of the sandboxer installation.
  *
- * `SANDBOXR_INSTALL` overrides it, which is what a packaged install uses;
+ * `SANDBOXER_INSTALL` overrides it, which is what a packaged install uses;
  * otherwise the search walks up from this file.
  *
  * `from` exists so the walk itself can be tested. Without it a test can only
@@ -44,7 +44,7 @@ const MARKERS = ["container/base/Dockerfile", "packages/core/package.json"];
  * this repository runs inside a tree that satisfies any plausible list.
  */
 export function installRoot(env: NodeJS.ProcessEnv = process.env, from?: string): string {
-  const declared = env.SANDBOXR_INSTALL;
+  const declared = env.SANDBOXER_INSTALL;
   if (declared && declared !== "") return resolve(declared);
 
   let dir = from ?? dirname(fileURLToPath(import.meta.url));
@@ -53,7 +53,7 @@ export function installRoot(env: NodeJS.ProcessEnv = process.env, from?: string)
     const parent = dirname(dir);
     if (parent === dir) {
       throw new InstallError(
-        "cannot find the sandboxr installation (no container/base beside packages/core) — set SANDBOXR_INSTALL",
+        "cannot find the sandboxer installation (no container/base beside packages/core) — set SANDBOXER_INSTALL",
       );
     }
     dir = parent;

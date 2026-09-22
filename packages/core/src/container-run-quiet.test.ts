@@ -55,7 +55,7 @@ describe("run_quiet", () => {
 
   beforeAll(async () => {
     tools = (await present("bash")) && (await present("jq"));
-    dir = await mkdtemp(join(tmpdir(), "sandboxr-run-quiet-"));
+    dir = await mkdtemp(join(tmpdir(), "sandboxer-run-quiet-"));
 
     // `driver: none` and no services, so sourcing `lib.sh` — which sources
     // `env.sh` — runs the whole way through without needing a database or a
@@ -86,16 +86,16 @@ describe("run_quiet", () => {
     const script = `
 set -euo pipefail
 LOG_TAG="test"
-source "$SANDBOXR_SCRIPTS/lib.sh"
+source "$SANDBOXER_SCRIPTS/lib.sh"
 ${snippet}
 `;
     try {
       const { stdout, stderr } = await exec("bash", ["-c", script], {
         env: {
           PATH: process.env.PATH ?? "",
-          SANDBOXR_SCRIPTS: SCRIPTS,
-          SANDBOXR_PLAN: join(dir, "plan.json"),
-          SANDBOXR_SLUG: "tkt-1",
+          SANDBOXER_SCRIPTS: SCRIPTS,
+          SANDBOXER_PLAN: join(dir, "plan.json"),
+          SANDBOXER_SLUG: "tkt-1",
         },
       });
       return { code: 0, stdout, stderr };

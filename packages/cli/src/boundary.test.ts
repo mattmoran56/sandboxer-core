@@ -1,9 +1,9 @@
-// The `sandboxr` command imports nothing from the product (contracts §2).
+// The `sandboxer` command imports nothing from the product (contracts §2).
 //
 // Covers:
 // - every import specifier under src/, tests included, is relative, `node:`-prefixed,
-//   `@sandboxr/core`, or vitest
-// - package.json declares `@sandboxr/core` as its only dependency and names no
+//   `@sandboxer/core`, or vitest
+// - package.json declares `@sandboxer/core` as its only dependency and names no
 //   `@jef/*` anywhere in the file
 //
 // The cut-down half of `packages/core/src/boundary.test.ts`, and it exists for
@@ -22,7 +22,7 @@ const SRC = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_JSON = join(SRC, "..", "package.json");
 
 /** The engine, and the test runner. Nothing else. */
-const ALLOWED = new Set(["@sandboxr/core", "vitest"]);
+const ALLOWED = new Set(["@sandboxer/core", "vitest"]);
 
 /** This file, exempt for core's copy's reason: it must spell what it forbids. */
 const SELF = fileURLToPath(import.meta.url);
@@ -53,7 +53,7 @@ describe("the CLI imports nothing from the product", () => {
     expect(sources.length).toBeGreaterThan(3);
   });
 
-  it("names only relative paths, node: builtins, @sandboxr/core and vitest", async () => {
+  it("names only relative paths, node: builtins, @sandboxer/core and vitest", async () => {
     const offenders: string[] = [];
     for (const file of sources) {
       const text = await readFile(file, "utf8");
@@ -71,10 +71,10 @@ describe("the CLI imports nothing from the product", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("declares @sandboxr/core as its only dependency, and names no @jef package", async () => {
+  it("declares @sandboxer/core as its only dependency, and names no @jef package", async () => {
     const text = await readFile(PACKAGE_JSON, "utf8");
     const manifest = JSON.parse(text) as { dependencies?: Record<string, string> };
-    expect(Object.keys(manifest.dependencies ?? {})).toEqual(["@sandboxr/core"]);
+    expect(Object.keys(manifest.dependencies ?? {})).toEqual(["@sandboxer/core"]);
     expect(text).not.toContain("@jef/");
   });
 });

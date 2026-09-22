@@ -19,43 +19,43 @@ anything in that directory nothing else has a copy of.
 ```prompt
 Show me the sandboxes on this machine and explain what state each one is in.
 
-Read docs/guides/lifecycle.md first. Run `sandboxr ls`, then `sandboxr status <slug>`
+Read docs/guides/lifecycle.md first. Run `sandboxer ls`, then `sandboxer status <slug>`
 for anything that is not `running`, and tell me in plain words what is wrong with it.
 
-Do not run `sandboxr down`, `sandboxr worktree delete`, `sandboxr gc` or
-`sandboxr prune --yes` without asking me first — those four remove things, and
+Do not run `sandboxer down`, `sandboxer worktree delete`, `sandboxer gc` or
+`sandboxer prune --yes` without asking me first — those four remove things, and
 `worktree delete` removes the directory on disk as well. Stop and tell me if Docker is
 not running.
 ```
 
 Every command takes an optional **slug** — the short name a sandbox is known by. You rarely
-type it. Standing in the worktree is enough, so `sandboxr down` run from
-`.worktrees/tkt-4821` and `sandboxr down tkt-4821` run from anywhere are the same command.
+type it. Standing in the worktree is enough, so `sandboxer down` run from
+`.worktrees/tkt-4821` and `sandboxer down tkt-4821` run from anywhere are the same command.
 
 ## `up` — start one
 
-`sandboxr up` reads the project's `sandboxr.yaml`, prepares a copy of the database, builds
+`sandboxer up` reads the project's `sandboxer.yaml`, prepares a copy of the database, builds
 the project's image layer if it is not already there, starts one container, waits for it to
 come up, and prints one URL per app.
 
 ```bash
 cd .worktrees/tkt-4821
-sandboxr up
+sandboxer up
 ```
 
 **Starting a sandbox that already exists is not an error.** The container is replaced from
 the current config and the current commit. Its volumes are untouched, so the database, the
 uploads and anything already built carry over. That makes `up` the right command after you
-edit `sandboxr.yaml`, and after a dependency change — the shared dependency volume is named
+edit `sandboxer.yaml`, and after a dependency change — the shared dependency volume is named
 after a hash of the lockfile, so a new lockfile means a different volume, and only a fresh
 container can pick it up.
 
 > [!NOTE] The source database is only ever read
-> Wherever the data comes from, sandboxr copies it first and works on the copy. Nothing a
+> Wherever the data comes from, sandboxer copies it first and works on the copy. Nothing a
 > sandbox does can reach back into the database it was copied from.
 
 <details class="agent">
-<summary><b>Details for an agent</b> — every flag <code>sandboxr up</code> accepts, and its exit codes</summary>
+<summary><b>Details for an agent</b> — every flag <code>sandboxer up</code> accepts, and its exit codes</summary>
 
 | Flag | Default | What it does |
 |---|---|---|
@@ -68,7 +68,7 @@ container can pick it up.
 | `--with a,b` | none | Also start these `optional: true` runtimes |
 | `--seed local\|file\|fixtures` | whatever the config allows | Force the seed source |
 | `--detach` | off | Do not wait for it, and skip the database provisioning step |
-| `--timeout N` | `180` | Seconds to wait for the container. Accepted but not listed in `sandboxr help` |
+| `--timeout N` | `180` | Seconds to wait for the container. Accepted but not listed in `sandboxer help` |
 | `--json` | off | The whole result as JSON on stdout |
 
 | Exit | Means |
@@ -85,10 +85,10 @@ Order of operations, from `up()` in `packages/core/src/sandbox/index.ts`:
 3. Derive the slug.
 4. Refuse if Docker is not running.
 5. Refuse if the project serves public apps and its secrets file holds any credential.
-6. Create the host directories and the `sandboxr` network.
+6. Create the host directories and the `sandboxer` network.
 7. Warn if the shared router is not running.
 8. Produce the seed artifact, **on the host**.
-9. Write `~/.sandboxr/build/<project>/<slug>.env`.
+9. Write `~/.sandboxer/build/<project>/<slug>.env`.
 10. Write the plan.
 11. Replace any existing container.
 12. Resolve the ttl.
@@ -102,12 +102,12 @@ Two refusals happen before any work is done, so a typo costs nothing: an unreada
 `--seed` value, and an unreadable `--ttl`.
 
 `--ttl` is only the first step of a precedence chain that also reads
-`~/.sandboxr/config.yaml` and `SANDBOXR_TTL_HOURS`. The rules are in
+`~/.sandboxer/config.yaml` and `SANDBOXER_TTL_HOURS`. The rules are in
 [Environment variables](../reference/environment.md#the-setting-that-is-a-file-not-a-variable).
 
 The URLs `up` prints are `<slug>--<label>--<project>.<domain>`, with the domain defaulting to
 `sbx.localhost` — see [How it works, in five steps](../how-it-works.md). Every field the
-config may declare is in [sandboxr.yaml, field by field](../configuration/sandboxr-yaml.md),
+config may declare is in [sandboxer.yaml, field by field](../configuration/sandboxer-yaml.md),
 and every command's full flag list is in [CLI commands](../reference/cli.md).
 
 </details>
@@ -118,7 +118,7 @@ and every command's full flag list is in [CLI commands](../reference/cli.md).
 **"Docker is not running."** Nothing has been done. Start Docker and run it again.
 
 **"`<project>` serves public apps, so it may not carry the real credentials in
-`~/.sandboxr/secrets/<project>.env`."** A refusal, not a warning: anyone who can reach a
+`~/.sandboxer/secrets/<project>.env`."** A refusal, not a warning: anyone who can reach a
 public app could make it send real email or spend real credit. The two ways out are named
 in the message — set `access.credentials` to `real`, or set `access.apps` to `private`. See
 [Access and security](../access.md).
@@ -128,7 +128,7 @@ seconds, or `never`. It never guesses, because silently substituting a lifetime 
 for is the one mistake here that destroys work.
 
 A fourth case is not a refusal at all: *"The shared router is not running, so this sandbox
-will have no hostname."* The sandbox still starts and is still worth having. Run `sandboxr
+will have no hostname."* The sandbox still starts and is still worth having. Run `sandboxer
 init` to fix the hostname.
 
 </details>
@@ -162,7 +162,7 @@ and says so.
 
 The `TTL` column shows one of three things: the sandbox's configured limit, `kept` if
 somebody exempted it from the clock, or `-` if the limit cannot be read. It is the limit
-itself, not the time remaining — `sandboxr expire --dry-run` is what reports how long each
+itself, not the time remaining — `sandboxer expire --dry-run` is what reports how long each
 sandbox has left.
 
 ## `status` — one sandbox in detail
@@ -191,8 +191,8 @@ condition `gc` reaps on, further down this page.
 ## `stop` and `start` — pause without deleting
 
 ```bash
-sandboxr stop tkt-4821
-sandboxr start tkt-4821
+sandboxer stop tkt-4821
+sandboxer start tkt-4821
 ```
 
 `stop` stops the container and nothing else. The labels survive, so the sandbox still
@@ -207,7 +207,7 @@ machine](docker-capacity.md).
 <summary><b>Details for an agent</b> — the two exit codes, and why they differ</summary>
 
 Both take `<slug>` and an optional `--project NAME`. Both resolve the slug against
-`sandboxr ls` first and fall back to the config in the current directory, so they work from
+`sandboxer ls` first and fall back to the config in the current directory, so they work from
 anywhere. A slug that matches sandboxes in two projects is an error naming both; `--project`
 is the way out.
 
@@ -222,19 +222,19 @@ failed.
 ## `down` — remove it
 
 ```bash
-sandboxr down            # the container and everything it owned
-sandboxr down --keep     # the container only; the volumes stay
+sandboxer down            # the container and everything it owned
+sandboxer down --keep     # the container only; the volumes stay
 ```
 
 | What `down` removes | What `down` never touches |
 |---|---|
 | The container | Your worktree, branch, commits and uncommitted changes |
-| `sandboxr-data-…` — the database | The database it was seeded from |
-| `sandboxr-blob-…` — file storage | The seed cache in `~/.sandboxr/cache` |
-| `sandboxr-bin-…` — built binaries | The shared dependency volume |
-| `sandboxr-www-…` — built front-ends | The project's image, and Go's caches |
-| Its logs in `~/.sandboxr/logs/<project>/<slug>/` | The name you gave the worktree |
-| Its generated plan and environment in `~/.sandboxr/build/` | Any other sandbox |
+| `sandboxer-data-…` — the database | The database it was seeded from |
+| `sandboxer-blob-…` — file storage | The seed cache in `~/.sandboxer/cache` |
+| `sandboxer-bin-…` — built binaries | The shared dependency volume |
+| `sandboxer-www-…` — built front-ends | The project's image, and Go's caches |
+| Its logs in `~/.sandboxer/logs/<project>/<slug>/` | The name you gave the worktree |
+| Its generated plan and environment in `~/.sandboxer/build/` | Any other sandbox |
 | Its keep-alive marker, if it had one | |
 
 Everything in the left column is named after the sandbox, and nothing else on the machine
@@ -248,7 +248,7 @@ sandbox would be a name that undid itself.
 > [!NOTE] There is no per-sandbox certificate to remove
 > There was one, once. Every sandbox now answers on a single hostname label under the
 > machine's domain, which the machine's own `*.<domain>` certificate already covers, so
-> `up` issues nothing per sandbox and `down` has nothing to take away. `sandboxr init`
+> `up` issues nothing per sandbox and `down` has nothing to take away. `sandboxer init`
 > sweeps up any left behind by an older version.
 
 `down` on a sandbox that does not exist is not an error. It says so and returns `0`.
@@ -265,12 +265,12 @@ altogether, this is the command that removes both — **in that order, which is 
 point of it being one command**:
 
 ```bash
-sandboxr worktree delete acme feat/tkt-4821
+sandboxer worktree delete acme feat/tkt-4821
 ```
 
 The sandbox goes first because a volume cannot be removed while its container is running,
 and because everything a sandbox owns is named after the worktree it was cut from. Remove
-the directory first — with `git worktree remove`, or the older `sandboxr worktree rm` — and
+the directory first — with `git worktree remove`, or the older `sandboxer worktree rm` — and
 the container is left running with nothing left to name it, waiting for `gc`.
 
 **It refuses if there is anything in that worktree nothing else has a copy of**, and says
@@ -297,26 +297,26 @@ not a confirmation.
 <details class="agent">
 <summary><b>Details for an agent</b> — what a delete removes, in order, and every refusal</summary>
 
-`sandboxr worktree delete <project> <branch> [--force]`. `<project>` is the workspace
+`sandboxer worktree delete <project> <branch> [--force]`. `<project>` is the workspace
 directory name, `<branch>` the branch that worktree has checked out. The verb is scoped to
 the *worktree*, not to a sandbox, because a worktree exists whether or not a container does.
 
 The order, and it is fixed:
 
 1. resolve every worktree of the project and the slug each one **answers to** — core's
-   `slugFor`, which reads `~/.sandboxr/state/slug/<project>/<worktree dir>` before it
+   `slugFor`, which reads `~/.sandboxer/state/slug/<project>/<worktree dir>` before it
    derives anything, so a worktree that was given a slug is compared under that one
    (contracts §3.1, §4.2.3);
 2. keep the sandbox if another worktree answers to the same slug — it is named, and only
    step 4 runs. Siblings are matched by path, never by slug: the slug is the thing that may
    not be unique;
 3. `down` on the sandbox: container (forced, running or not), the four volumes,
-   `~/.sandboxr/build/<project>/<slug>.plan.json` and `.env`,
-   `~/.sandboxr/logs/<project>/<slug>/`, `~/.sandboxr/state/attach/<project>/<slug>` and
+   `~/.sandboxer/build/<project>/<slug>.plan.json` and `.env`,
+   `~/.sandboxer/logs/<project>/<slug>/`, `~/.sandboxer/state/attach/<project>/<slug>` and
    the keep-alive marker;
 4. `git -C <workspace>/<project>/repo.git worktree remove --force <path>`, then
    `worktree prune` — which also forgets the given slug, if there was one;
-5. `~/.sandboxr/state/name/<project>/<slug>` — the display name — unless a sibling worktree
+5. `~/.sandboxer/state/name/<project>/<slug>` — the display name — unless a sibling worktree
    shares that slug, in which case it is that sibling's name too and it stays.
 
 Exit codes: `0` when it happened, `1` for every refusal. Nothing is removed before a
@@ -342,8 +342,8 @@ why the removal passes `--force` to git *after* this check has decided.
 ## `expire` — stop whatever has gone idle
 
 ```bash
-sandboxr expire --dry-run
-sandboxr expire
+sandboxer expire --dry-run
+sandboxer expire
 ```
 
 Each sandbox carries a lifetime, and the lifetime measures **idleness rather than uptime**.
@@ -361,23 +361,23 @@ commands](../reference/cli.md).
 ## `gc` — reap sandboxes whose work is over
 
 ```bash
-sandboxr gc --dry-run
-sandboxr gc
+sandboxer gc --dry-run
+sandboxer gc
 ```
 
 `gc` reaps a sandbox when the worktree it was started from **no longer exists on disk**. You
 deleted the branch's directory; the sandbox for it is now pointing at nothing. `gc` runs
 `down` on it, which means the database goes too.
 
-It then removes any `sandboxr-` volume that no surviving sandbox owns and nothing has
-mounted. The shared volumes are never offered — `sandboxr-gocache` and `sandboxr-gomod` are an
+It then removes any `sandboxer-` volume that no surviving sandbox owns and nothing has
+mounted. The shared volumes are never offered — `sandboxer-gocache` and `sandboxer-gomod` are an
 expensive rebuild — and neither is a volume whose name the engine did not mint, so a volume an
 embedder shares across sandboxes is out of scope before any list is consulted.
 
 Last, it removes **project images a newer build has replaced**. Each project's image is tagged
-with a hash of what went into building it, so rebuilding the base image or upgrading sandboxr
+with a hash of what went into building it, so rebuilding the base image or upgrading sandboxer
 strands the old one: nothing will ever ask for that tag again. They are about six gigabytes
-each. The newest image of every project stays, because that is the one your next `sandboxr up`
+each. The newest image of every project stays, because that is the one your next `sandboxer up`
 starts from.
 
 > [!NOTE] `gc` removing images has not been watched on a real machine
@@ -394,11 +394,11 @@ entry would keep the sandbox looking alive for ever.
 
 Orphaned volumes are found by asking which volumes the *survivors* would have, and removing
 what is left over. They are never found by parsing volume names. Both a project name and a
-slug may contain dashes, so `sandboxr-data-acme-web-tkt-4821` cannot be split back into its
+slug may contain dashes, so `sandboxer-data-acme-web-tkt-4821` cannot be split back into its
 parts unambiguously — and a wrong split here deletes somebody's database.
 
 Images follow the same doctrine, which is to keep on any doubt. An image survives if it is the
-newest of its project, if it is `sandboxr/base`, if it is outside the `sandboxr/` namespace, if
+newest of its project, if it is `sandboxer/base`, if it is outside the `sandboxer/` namespace, if
 any container references it — running *or* stopped — or if Docker declined to say when it was
 built or how many containers hold it. Dangling and untagged images
 are not touched at all: they belong to `docker image prune`, and nothing here can tell one
@@ -415,9 +415,9 @@ from the command line `gc` reaps on the missing worktree alone.
 ## `prune` — reclaim what building left behind
 
 ```bash
-sandboxr prune                      # a report; removes nothing
-sandboxr prune --yes                # remove what it listed
-sandboxr prune --build-cache --yes  # and Docker's build cache with it
+sandboxer prune                      # a report; removes nothing
+sandboxer prune --yes                # remove what it listed
+sandboxer prune --build-cache --yes  # and Docker's build cache with it
 ```
 
 `prune` is the whole-machine report. It covers the same ground as `gc` and puts a number
@@ -425,24 +425,24 @@ against each item:
 
 - **Orphaned per-sandbox volumes** — the same ones `gc` finds.
 - **Superseded project images** — the same ones `gc` finds, with the disk each would return.
-- **Docker's build cache**, only with `--build-cache`, because sandboxr is not its only
+- **Docker's build cache**, only with `--build-cache`, because sandboxer is not its only
   writer. Every project on the same Docker daemon built into it. This is the part `gc` does
   not do.
 
 Each project's newest image always survives. Its tag is a content hash, so the next `up`
 finds it and starts in seconds instead of rebuilding a toolchain — which is the only reason
-to keep an image at all. `sandboxr/base` is never removed as superseded either: it is tagged
+to keep an image at all. `sandboxer/base` is never removed as superseded either: it is tagged
 by version rather than by content, so "older tag" does not mean "replaced".
 
 ```
 WOULD REMOVE  NAME                        SIZE    WHY
-image         sandboxr/acme:40ed880f9db8  5.3 GB  sandboxr/acme:48273eacdece replaced it
-image         sandboxr/demo:664cb3e82b64  452 MB  sandboxr/demo:de1aab947f66 replaced it
+image         sandboxer/acme:40ed880f9db8  5.3 GB  sandboxer/acme:48273eacdece replaced it
+image         sandboxer/demo:664cb3e82b64  452 MB  sandboxer/demo:de1aab947f66 replaced it
 
 About 5.8 GB in total. Add --yes to remove it.
 ```
 
-> [!IMPORTANT] `sandboxr prune --yes` has never removed anything
+> [!IMPORTANT] `sandboxer prune --yes` has never removed anything
 > The report has been run against a live Docker daemon and its figures match `docker system
 > df`. The removal path is unit-tested only, against a fake daemon. What a real run would
 > settle is that `docker image rm` accepts the references the plan builds, and that the space
@@ -489,12 +489,12 @@ of them on it. A command you have to remember to run reclaims nothing on the day
 | `prune` | never touched | orphans only | **superseded ones** | **no** — `--yes` to act |
 | `prune --build-cache` | never touched | orphans only | superseded ones, plus Docker's build cache | **no** — `--yes` to act |
 
-Never removed by anything sandboxr does: your worktree; the seed cache; `~/.sandboxr/logs`;
-`sandboxr-gocache`; `sandboxr-gomod`; `sandboxr-deps-<hash>` while any container has it
-mounted; `sandboxr/base`; anything outside the `sandboxr-` and `sandboxr/` namespaces.
+Never removed by anything sandboxer does: your worktree; the seed cache; `~/.sandboxer/logs`;
+`sandboxer-gocache`; `sandboxer-gomod`; `sandboxer-deps-<hash>` while any container has it
+mounted; `sandboxer/base`; anything outside the `sandboxer-` and `sandboxer/` namespaces.
 
 Volume names, from `packages/core/src/naming.ts`:
-`sandboxr-<data|blob|bin|www>-<project>-<slug>`.
+`sandboxer-<data|blob|bin|www>-<project>-<slug>`.
 
 </details>
 

@@ -1,9 +1,9 @@
 ---
 title: The shape of it
-description: The five pieces sandboxr is made of, what each one owns, and what each one is deliberately not allowed to know.
+description: The five pieces sandboxer is made of, what each one owns, and what each one is deliberately not allowed to know.
 ---
 
-sandboxr is five pieces of code. This page names each one and says what it owns. Every other page
+sandboxer is five pieces of code. This page names each one and says what it owns. Every other page
 in this section is a detail of one of the boundaries drawn here.
 
 One rule explains the whole layout. **One piece decides what a sandbox is, and everything else
@@ -24,12 +24,12 @@ Core is a library. It has no command line and no web server of its own.
 
 ## The face over it
 
-`packages/cli` is the `sandboxr` command. It parses arguments, calls one core function, and
+`packages/cli` is the `sandboxer` command. It parses arguments, calls one core function, and
 prints the result. That is all it does.
 
 It is the only face this repository ships. An embedder that wants a web control plane writes its
 own and puts it on the bare domain — [contracts](contracts.md) §7.2 is what that takes — and it
-calls core **in the same process**, never the `sandboxr` command.
+calls core **in the same process**, never the `sandboxer` command.
 
 ## The one that runs inside
 
@@ -55,7 +55,7 @@ like one thing.
 
 ```mermaid
 flowchart TB
-  cli["packages/cli<br/>the sandboxr command"]
+  cli["packages/cli<br/>the sandboxer command"]
   emb["An embedder<br/>its own control plane"]
   core["packages/core<br/>every decision about a sandbox"]
   dk["Docker"]
@@ -70,13 +70,13 @@ flowchart TB
 ## What each one may not know
 
 The prohibitions matter more than the responsibilities, because each one closes off a way for two
-parts of sandboxr to disagree.
+parts of sandboxer to disagree.
 
 | Piece | May never |
 |---|---|
 | `packages/core` | Print for a human, or know that a web server exists |
 | `packages/cli` | Decide anything. If an embedder could disagree with it, the logic is in the wrong place |
-| `container/` | Read `sandboxr.yaml`, or name a service, port, package or route of its own |
+| `container/` | Read `sandboxer.yaml`, or name a service, port, package or route of its own |
 | `packages/docs` | Be required for a page to be readable |
 | `packages/tokens` | Contain a component, a script, or anything specific to one app |
 

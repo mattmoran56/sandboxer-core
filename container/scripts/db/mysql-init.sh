@@ -8,9 +8,9 @@ set -euo pipefail
 
 LOG_TAG="mysql-init"
 # shellcheck source-path=SCRIPTDIR source=../lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
-DATADIR="$SANDBOXR_STATE/data/mysql"
+DATADIR="$SANDBOXER_STATE/data/mysql"
 
 if [[ -d "$DATADIR/mysql" ]]; then
   log "data directory already initialised"

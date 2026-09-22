@@ -146,7 +146,7 @@ const hrefOf = (slug: string, heading: Heading | null): string =>
 const STARTERS: readonly string[] = [
   "getting-started/install",
   "getting-started/first-sandbox",
-  "configuration/sandboxr-yaml",
+  "configuration/sandboxer-yaml",
   "reference/cli",
   "reference/cheat-sheet",
   "troubleshooting",

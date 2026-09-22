@@ -4,7 +4,7 @@ description: Whether a sandbox's apps are open to anyone with the URL, what a pu
 ---
 
 A sandbox has one access setting — whether its apps are open — and one mechanism for everything
-else, which sandboxr builds and does not answer. This page describes both, plus the refusals
+else, which sandboxer builds and does not answer. This page describes both, plus the refusals
 that come with making apps public.
 
 ```prompt
@@ -13,7 +13,7 @@ localhost.
 
 Read docs/access.md and work through the checklist at the bottom of it. Report, per
 project, its `access.apps`, its `access.credentials`, and which seed source it would
-actually use. Then run `sandboxr doctor` and tell me whether the router is serving https
+actually use. Then run `sandboxer doctor` and tell me whether the router is serving https
 and what, if anything, is answering on the bare domain.
 
 Stop and tell me — do not change anything — if any project is `public` while seeding from
@@ -22,8 +22,8 @@ a live database or carrying real credentials.
 
 | | Default | Who decides |
 |---|---|---|
-| **The apps** a sandbox serves | `public` — anyone who can reach the URL | `access.apps: private` in the project's `sandboxr.yaml` |
-| **The bare domain** — whatever control plane you put there | Nothing is serving it | Whoever starts a container there. sandboxr starts none |
+| **The apps** a sandbox serves | `public` — anyone who can reach the URL | `access.apps: private` in the project's `sandboxer.yaml` |
+| **The bare domain** — whatever control plane you put there | Nothing is serving it | Whoever starts a container there. sandboxer starts none |
 
 ```mermaid
 flowchart TB
@@ -43,7 +43,7 @@ ticket should not need an account on your machine to see a preview of unreleased
 
 By default the router publishes on `127.0.0.1` only, so "public" means *public to this
 machine's browsers*. Binding beyond loopback is what makes it public in the ordinary sense —
-`sandboxr init --bind 0.0.0.0`, or running on a server. Read the rest of this page first.
+`sandboxer init --bind 0.0.0.0`, or running on a server. Read the rest of this page first.
 
 ## The `private` tier
 
@@ -59,7 +59,7 @@ Use `private` when the branch itself is sensitive, when the sandbox needs real d
 it needs real third-party credentials.
 
 The check is a **forward-auth middleware**, and what it asks is a front end on the bare
-domain. sandboxr writes the middleware, routes the hostnames and knows which of them must be
+domain. sandboxer writes the middleware, routes the hostnames and knows which of them must be
 protected. It does not decide anything: whoever put a container on the bare domain does, and
 the engine forwards the request only when that container answers `200`. There is no per-app
 exception — a private project is private on every hostname it has.
@@ -73,14 +73,14 @@ exception — a private project is private on every hostname it has.
 <details class="agent">
 <summary><b>Details for an agent</b> — the middleware, the label it points at, and how the router knows</summary>
 
-`sandboxr init` writes `dynamic/middlewares.yml` under the router's config directory:
+`sandboxer init` writes `dynamic/middlewares.yml` under the router's config directory:
 
 ```yaml
 http:
   middlewares:
-    sandboxr-auth:
+    sandboxer-auth:
       forwardAuth:
-        address: "http://sandboxr-dashboard:8080/auth/verify"
+        address: "http://sandboxer-dashboard:8080/auth/verify"
         trustForwardHeader: true
 ```
 
@@ -90,20 +90,20 @@ to look up at the moment the address has to be decided. The values above are the
 `trustForwardHeader: true` is what sends the original hostname across, so a verifier can
 answer per project rather than per machine.
 
-A sandbox's container carries the label `sandboxr.access`, set to `public` or `private` from
+A sandbox's container carries the label `sandboxer.access`, set to `public` or `private` from
 the config. The router reconciles from Docker labels, so starting or stopping a sandbox never
 regenerates a config file and never triggers a reload. A `private` sandbox's route labels name
-the `sandboxr-auth@file` middleware; a `public` one's do not.
+the `sandboxer-auth@file` middleware; a `public` one's do not.
 
 `access.apps` is read once, when the routes are written. A project changed to `private` is
-protected on the next `up` and not before, which is why `sandboxr config` reports the resolved
+protected on the next `up` and not before, which is why `sandboxer config` reports the resolved
 value rather than the file's.
 
-The container is told the same thing as `SANDBOXR_ACCESS`. **Nothing reads it back** — no
+The container is told the same thing as `SANDBOXER_ACCESS`. **Nothing reads it back** — no
 container script and no host package. It is a fact a project's own code may read, not a second
 copy of the decision, and the decision is enforced at the router or not at all.
 
-`/.sandboxr/` is a reserved path on **every** sandbox hostname on the machine, public projects
+`/.sandboxer/` is a reserved path on **every** sandbox hostname on the machine, public projects
 included. The router sends it to the front end rather than to the sandbox, because the cookie
 that opens a private app has to be set on that app's own hostname and only something answering
 there can set it. A project that serves a route of its own under that prefix will find the
@@ -111,12 +111,12 @@ front end answering instead.
 
 </details>
 
-## The bare domain, and what `sandboxr init` does not do
+## The bare domain, and what `sandboxer init` does not do
 
-`sandboxr init` prepares the whole domain and then leaves it empty. It makes the directories,
+`sandboxer init` prepares the whole domain and then leaves it empty. It makes the directories,
 creates the shared Docker network, builds the base image, issues the certificate, writes the
 router config, starts the router and writes `host.env` — and then prints that **nothing is
-serving `https://<domain>`**, because sandboxr is a command-line tool.
+serving `https://<domain>`**, because sandboxer is a command-line tool.
 
 That is not a failure to report. There is no control plane in this repository and no password:
 whatever answers on the bare domain is somebody else's container, and the engine's whole part
@@ -125,7 +125,7 @@ in it is a label.
 <details class="agent">
 <summary><b>Details for an agent</b> — claiming the bare domain, and what the report hands you</summary>
 
-A container claims the bare domain with the label `sandboxr.frontend`, whatever the container
+A container claims the bare domain with the label `sandboxer.frontend`, whatever the container
 is. `frontendRouteLabels` in `packages/core/src/access/frontend.ts` builds the rest: two
 routers onto one service, the bare domain and the reserved handshake path on sandbox
 hostnames. `listFrontends` is one `docker ps` for everything currently claiming it.
@@ -134,13 +134,13 @@ Holding that label is a claim to own the machine's authentication, not a routing
 It is what the forward-auth middleware calls, and the engine believes its answer.
 
 `AccessReport.frontend` from `initAccess` is where a front end must listen and what the router
-will send it — `{ port, domain, tls }`. `sandboxr doctor` reports what is actually there, and
-says `nothing is serving <url> — sandboxr is a command-line tool` when the answer is nothing.
+will send it — `{ port, domain, tls }`. `sandboxer doctor` reports what is actually there, and
+says `nothing is serving <url> — sandboxer is a command-line tool` when the answer is nothing.
 An empty bare domain is **not** a failed check: it is the ordinary state of a machine that has
 run `init`, and reporting it as a fault would point somebody back at `init` in a loop that
 cannot end.
 
-`access.controls` in `sandboxr.yaml` accepts exactly one value, `password`, and there is no
+`access.controls` in `sandboxer.yaml` accepts exactly one value, `password`, and there is no
 setting that removes it. The engine parses the field and enforces nothing: it is a statement
 about the control plane, for the control plane to keep.
 
@@ -168,7 +168,7 @@ anonymised only where the author said so, in the config:
 ```yaml
 database:
   seed_from:
-    file: /var/sandboxr/seeds/acme.sql.zst
+    file: /var/sandboxer/seeds/acme.sql.zst
     anonymised: true
 ```
 
@@ -202,7 +202,7 @@ access:
   credentials: dummy    # the default
 ```
 
-With `credentials: dummy` and a secrets file that **holds something**, `sandboxr up` refuses
+With `credentials: dummy` and a secrets file that **holds something**, `sandboxer up` refuses
 to start and names both ways out: `credentials: real`, or `apps: private`. What matters is
 whether anything is in the file, not whether the file is there — an empty one carries no
 credentials and is no reason to refuse.
@@ -225,7 +225,7 @@ Git works in every sandbox. `status`, `diff`, `log` and `commit` all behave, and
 carries the same name and address as one made on the host. None of that needs a credential.
 
 Pushing does. `gh` is in every sandbox, but it is logged out until you say otherwise, in
-`~/.sandboxr/config.yaml`:
+`~/.sandboxer/config.yaml`:
 
 ```yaml
 github: none          # the default: no sandbox gets a token
@@ -235,8 +235,8 @@ projects:
 ```
 
 The key is the project's directory in the workspace — the name every URL carries — or the
-`project:` its own `sandboxr.yaml` declares. Either works, and a key that is neither quietly
-does nothing; `sandboxr doctor` names one that matches no project.
+`project:` its own `sandboxer.yaml` declares. Either works, and a key that is neither quietly
+does nothing; `sandboxer doctor` names one that matches no project.
 
 `github: token` hands that project's sandboxes the credential `gh auth token` prints on this
 machine. `gh` picks it up on its own, and git's https helper asks `gh` for it. So both
@@ -253,12 +253,12 @@ To turn it off, set `github: none` (or delete the entry) and start the sandbox a
 Nothing is stored: the token is read at `up` and lives only in the container's environment.
 
 **You are told when it is off, at the start rather than at the push.** `up` prints a line naming
-the exact key that would turn it on, and `sandboxr config` in the worktree prints the resolved mode
+the exact key that would turn it on, and `sandboxer config` in the worktree prints the resolved mode
 with the key that decided it. That exists because `git commit` works either way, so the absence has
 no symptom at all until a push fails — which, for an agent working unattended, is hours later.
 
 <details class="why">
-<summary><b>Why it works this way</b> — two behaviours of the token, and why the setting is not in <code>sandboxr.yaml</code></summary>
+<summary><b>Why it works this way</b> — two behaviours of the token, and why the setting is not in <code>sandboxer.yaml</code></summary>
 
 - **It is not refused for a `public` project**, unlike a real secrets file. Nothing serves
   `GH_TOKEN` over http, so reading it means executing code inside the container. A public
@@ -286,7 +286,7 @@ make git work at all.
 - [ ] `credentials` is `dummy` everywhere it should be, and you know why anywhere it is
       `real`.
 - [ ] You know what is answering on the bare domain, and it has authentication of its own.
-      `sandboxr doctor` names it, and names nothing unless you put something there.
+      `sandboxer doctor` names it, and names nothing unless you put something there.
 - [ ] The router is serving HTTPS, not plain HTTP.
 - [ ] Only 80 and 443 are open. Sandbox containers publish **no** host ports; the router
       reaches them by container name on the shared Docker network.

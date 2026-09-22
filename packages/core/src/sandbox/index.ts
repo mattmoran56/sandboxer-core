@@ -84,7 +84,7 @@ const noop = (): void => {};
  * that the person reading the message has never seen and cannot look in. And it
  * stops the walk-up there: `loadConfig` searches every parent to the filesystem
  * root, which for a temporary directory means it could find somebody else's
- * `sandboxr.yaml` and run this checkout as that project.
+ * `sandboxer.yaml` and run this checkout as that project.
  *
  * §5.6's project-level fallback is deliberately not offered here. It exists
  * because an uncommitted config in one worktree does not exist in any other, and
@@ -155,10 +155,10 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   const worktree = provided?.manifests ?? options.worktree ?? (await resolveWorktree(options, log));
 
   // `env` matters here: it is what says where the workspace is, and so whether
-  // this worktree may fall back to its project's own `sandboxr.yaml`.
+  // this worktree may fall back to its project's own `sandboxer.yaml`.
   //
   // §5.6's project-level fallback is deliberately *not* extended to a provided
-  // workspace. It exists because an uncommitted `sandboxr.yaml` in one worktree
+  // workspace. It exists because an uncommitted `sandboxer.yaml` in one worktree
   // does not exist in any other, and a provided workspace is not a worktree of
   // anything the host can see — so a project that does not describe itself is
   // refused here, naming the workspace, rather than being run against a file its
@@ -242,7 +242,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // Warned rather than refused: a sandbox that is up but unreachable is still
   // worth having, and the fix is one command rather than a reason to stop.
   if (!(await docker.containerRunning(ROUTER_CONTAINER))) {
-    log("The shared router is not running, so this sandbox will have no hostname. Run: sandboxr init");
+    log("The shared router is not running, so this sandbox will have no hostname. Run: sandboxer init");
   }
 
   const driver = getDriver(config.database.driver);
@@ -278,7 +278,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   );
 
   // The plan is the container's only view of the project: nothing inside reads
-  // sandboxr.yaml, so everything project-specific is resolved here first.
+  // sandboxer.yaml, so everything project-specific is resolved here first.
   const deps = await resolveDeps(config, projectRoot);
   // Where the container will find the artifact, and what has to be mounted for
   // it to be there — one answer, used by both the plan below and `runArgs`
@@ -328,8 +328,8 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
 
   // The idle limit, resolved once here so the CLI and the dashboard cannot
   // disagree about it: `--ttl` beats the project's entry in
-  // `~/.sandboxr/config.yaml`, which beats that file's top-level `ttl`, which
-  // beats `SANDBOXR_TTL_HOURS`, which beats the built-in twelve hours.
+  // `~/.sandboxer/config.yaml`, which beats that file's top-level `ttl`, which
+  // beats `SANDBOXER_TTL_HOURS`, which beats the built-in twelve hours.
   const wanted = resolveTtl({
     explicit: options.ttl,
     ...projectKey,
@@ -360,7 +360,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
       env: envDigest(secrets, config.env),
     }),
     // Over the engine's rather than under, so an embedder correcting one of them
-    // is doing so visibly. `sandboxr.session` arrives this way (§3.4) — it is an
+    // is doing so visibly. `sandboxer.session` arrives this way (§3.4) — it is an
     // opaque group id, and the engine has nothing to compute it from.
     ...(provided?.labels ?? {}),
   };
@@ -369,7 +369,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   // database engine, so a project whose plan names `npx` needs this before its
   // first service can start.
   const image =
-    env.SANDBOXR_IMAGE ??
+    env.SANDBOXER_IMAGE ??
     (
       await ensureProjectImage({
         config,
@@ -555,7 +555,7 @@ export async function down(project: string, slug: string, options: DownOptions =
   // container that no longer exists means nothing. It is tidiness rather than
   // correctness — the marker records which instance it was written for, so a
   // leftover one fails closed — but leaving it would make `docker rm` and
-  // `sandboxr down` differ for no reason.
+  // `sandboxer down` differ for no reason.
   await removeKeep(project, slug, env);
 
   if (options.keep) {
@@ -575,7 +575,7 @@ export async function down(project: string, slug: string, options: DownOptions =
   // by the next `up`, and the log directory is a bind mount the container fills.
   // Left behind they are a leak with no route back — nothing but this call knows
   // the slug, and once the worktree is gone nothing can derive it again — which
-  // is how `~/.sandboxr/build` and `~/.sandboxr/logs` fill up with the names of
+  // is how `~/.sandboxer/build` and `~/.sandboxer/logs` fill up with the names of
   // sandboxes that stopped existing months ago.
   //
   // Under `--keep` none of it goes, and that is the same line the volumes are on:
@@ -625,9 +625,9 @@ export async function list(options: ListOptions = {}): Promise<Sandbox[]> {
   const docker = options.docker ?? defaultDocker;
   const filters = [SANDBOX_FILTER];
   if (options.project) filters.push(`label=${LABELS.project}=${options.project}`);
-  // A group of sandboxes, joined on the opaque `sandboxr.session` label the
+  // A group of sandboxes, joined on the opaque `sandboxer.session` label the
   // caller stamped (contracts §3.4). `SANDBOX_FILTER` stays in front of it, so a
-  // container carrying the group label and no `sandboxr.slug` — a workstation,
+  // container carrying the group label and no `sandboxer.slug` — a workstation,
   // say — cannot arrive here and be read as a sandbox of the project it has
   // none of. The engine never looks inside the value.
   if (options.session) filters.push(`label=${LABELS.session}=${options.session}`);
@@ -737,7 +737,7 @@ export async function reload(project: string, slug: string, options: ReloadOptio
         built.push(backend.name);
         // The running process is left alone when a build fails, so a broken
         // branch does not also take the sandbox's services down.
-        await docker.exec(container, ["sh", "-lc", `sandboxr-restart ${backend.name} || true`]);
+        await docker.exec(container, ["sh", "-lc", `sandboxer-restart ${backend.name} || true`]);
       } else {
         failed.push(backend.name);
         log(`${backend.name} failed to build — the running process was left alone`);
@@ -751,7 +751,7 @@ export async function reload(project: string, slug: string, options: ReloadOptio
   for (const app of apps) {
     if (app.kind === "server") {
       log(`${app.label} is a long-running server, so it is restarted rather than built`);
-      const result = await docker.exec(container, ["sh", "-lc", `sandboxr-restart ${app.label} || true`]);
+      const result = await docker.exec(container, ["sh", "-lc", `sandboxer-restart ${app.label} || true`]);
       output += result.stdout + result.stderr;
       built.push(app.label);
       continue;
@@ -777,7 +777,7 @@ export async function reload(project: string, slug: string, options: ReloadOptio
       // guess.
       if (/137|Killed/.test(output)) {
         log(`${app.label} was killed — that is the kernel taking it for memory, not a code error.`);
-        log(`  Give the sandbox more: set \`memory\` on that app in sandboxr.yaml and start it again.`);
+        log(`  Give the sandbox more: set \`memory\` on that app in sandboxer.yaml and start it again.`);
       }
     }
   }
@@ -805,7 +805,7 @@ async function resolveWorktree(
   if (!project) {
     throw new SandboxError(
       `No project called ${options.project} in the workspace.\n` +
-        "  Clone one first: sandboxr project clone <url>",
+        "  Clone one first: sandboxer project clone <url>",
     );
   }
   if (!options.branch) {
@@ -873,7 +873,7 @@ export async function startSandbox(project: string, slug: string, options: Commo
  * Stops every sandbox that has sat unused past its limit.
  *
  * The clock runs from the later of the container's current start time and the
- * last time anybody used it — not from `sandboxr.created`, see the note on the
+ * last time anybody used it — not from `sandboxer.created`, see the note on the
  * ttl label in ./labels.ts. So restarting a sandbox buys it a full lifetime, and
  * so does using it: a request to one of its apps, opening it through a front end
  * on the bare domain, or a terminal or a live agent run held on it.
@@ -898,7 +898,7 @@ export async function expire(options: ExpireOptions = {}): Promise<ExpiryPlan> {
 
   const active = await activityFor(sandboxes, {
     docker,
-    // The home the attach markers live under, so `sandboxr expire` reads the
+    // The home the attach markers live under, so `sandboxer expire` reads the
     // same held-socket and live-run heartbeats the dashboard's reaper does
     // rather than a subset.
     env,
@@ -964,7 +964,7 @@ export async function gc(options: GcOptions = {}): Promise<GcPlan> {
   const sandboxes = await list({ docker, env: options.env });
   const plan = planGc({
     sandboxes,
-    volumes: await docker.volumes("sandboxr-"),
+    volumes: await docker.volumes("sandboxer-"),
     worktreeExists: (path) => existsSync(path),
     mergedBranches: options.mergedBranches ? new Set(options.mergedBranches) : undefined,
     mountedVolumes: await mountedVolumes(docker, sandboxes),
@@ -1023,7 +1023,7 @@ async function storedImages(docker: Docker): Promise<ImageRow[] | undefined> {
  * round from `gc` and `expire`. The superseded images are no longer what that
  * guards — `gc` takes exactly the same ones, and losing one costs nothing,
  * because its tag names a build that no future `up` can ask for. What is left is
- * Docker's build cache, which sandboxr shares with every other project on the
+ * Docker's build cache, which sandboxer shares with every other project on the
  * daemon, and the report itself: a whole-machine reclaim is worth reading before
  * it runs.
  */
@@ -1161,7 +1161,7 @@ async function waitForContainer(docker: Docker, container: string, seconds: numb
       const ready = await docker.exec(container, ["sh", "-lc", "test -d /workspace"]);
       if (ready.code === 0) return;
     } else if (waited > 2) {
-      throw new SandboxError(`${container} exited while starting — see: sandboxr logs ${container}`);
+      throw new SandboxError(`${container} exited while starting — see: sandboxer logs ${container}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }

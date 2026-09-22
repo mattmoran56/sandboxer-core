@@ -1,5 +1,5 @@
 {
-  "name": "@sandboxr/tokens",
+  "name": "@sandboxer/tokens",
   "version": "0.1.0",
   "private": true,
   "description": "The design system, as tokens: one stylesheet both the dashboard and the documentation site render from.",

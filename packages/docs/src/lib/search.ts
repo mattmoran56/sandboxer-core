@@ -9,12 +9,12 @@
 // **Nothing is tokenised.** The obvious implementation splits the text into words
 // and the query into words and intersects them, and it cannot find any of the
 // terms this documentation is mostly made of: a word-splitter turns
-// `sandboxr.yaml` into `sandboxr` + `yaml`, `--ttl` into `ttl`, `plan.json` into
+// `sandboxer.yaml` into `sandboxer` + `yaml`, `--ttl` into `ttl`, `plan.json` into
 // two, and `edit-and-reload` into three — so a reader who types the string they
 // are looking at gets nothing, which is the worst possible failure for a docs
 // search. Instead the whole folded text is scanned for the term as typed, and a
 // *word boundary* is any non-alphanumeric character. That gives dotted and
-// hyphenated terms both halves: `sandboxr.yaml` is one findable string, and
+// hyphenated terms both halves: `sandboxer.yaml` is one findable string, and
 // `yaml` still matches it as a whole word because `.` is a boundary.
 //
 // **Every query term has to appear somewhere in the document.** `docker memory`
@@ -288,7 +288,7 @@ const scoreDoc = (entry: IndexedDoc, terms: readonly string[], phrase: string): 
  * The section that matched best, so a hit can link to `#anchor`.
  *
  * This is most of the value of search on a reference site: the pages are long,
- * and an answer that lands a reader at the top of "sandboxr.yaml, field by field"
+ * and an answer that lands a reader at the top of "sandboxer.yaml, field by field"
  * has told them almost nothing. A section counts as matching if the terms are in
  * its heading *or* anywhere in the body underneath it, which is why searching for
  * a value that only appears in a table still lands on the right heading.

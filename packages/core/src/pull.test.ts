@@ -44,7 +44,7 @@ const dirs: string[] = [];
 
 /** A directory that really exists, because `pullWorktree` stats the worktree. */
 function realDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "sandboxr-pull-"));
+  const dir = mkdtempSync(join(tmpdir(), "sandboxer-pull-"));
   dirs.push(dir);
   return dir;
 }

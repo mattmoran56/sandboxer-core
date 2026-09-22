@@ -36,10 +36,10 @@ export const Header = ({
       >
         <Mark />
       </span>
-      <span className="font-serif text-xl leading-none text-ink">sandboxr</span>
+      <span className="font-serif text-xl leading-none text-ink">sandboxer</span>
       {/*
         The word "docs" as a chip rather than as part of the wordmark. The product
-        is called sandboxr in both tabs; this is the one saying which tab you are
+        is called sandboxer in both tabs; this is the one saying which tab you are
         in.
       */}
       <span className="hidden rounded-full bg-brand-soft px-2 py-0.5 text-[0.6875rem] font-semibold tracking-wide text-brand sm:inline">
@@ -70,7 +70,7 @@ export const Header = ({
         href={REPO}
         target="_blank"
         rel="noreferrer"
-        title="sandboxr on GitHub"
+        title="sandboxer on GitHub"
         className="hidden h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm text-ink-muted transition-colors hover:bg-hover hover:text-ink md:inline-flex"
       >
         GitHub

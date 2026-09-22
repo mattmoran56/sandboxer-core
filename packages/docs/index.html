@@ -27,7 +27,7 @@
     <script>
       (function () {
         try {
-          var raw = localStorage.getItem("sandboxr.docs.prefs.v1");
+          var raw = localStorage.getItem("sandboxer.docs.prefs.v1");
           var prefs = raw ? JSON.parse(raw) : {};
           var choice = prefs && prefs.theme;
           var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -47,12 +47,12 @@
       `build/prerender.mjs` strips this element before it substitutes the
       per-page `<head>` below, because a document with two `<title>`s keeps the
       *first* — leaving this one in place gave every prerendered page the title
-      "sandboxr documentation" with the correct tag sitting inert a few lines
+      "sandboxer documentation" with the correct tag sitting inert a few lines
       down. So this is the dev-server and pre-hydration fallback; the real
       per-page title comes from `src/lib/head.ts`. Renaming this element means
       changing that regex too.
     -->
-    <title>sandboxr documentation</title>
+    <title>sandboxer documentation</title>
     <!--app-head-->
   </head>
   <body>

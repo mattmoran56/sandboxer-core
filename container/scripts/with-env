@@ -21,5 +21,5 @@
 # this silently widened what the command it prefixed was permitted to do.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 exec "$@"

@@ -5,8 +5,8 @@
 // - planPrune: an older project image is superseded by the newest one of the same project
 // - planPrune: the newest image of every project survives, so the next `up` is a start
 // - planPrune: an image a container still holds is left alone, even when it is old
-// - planPrune: sandboxr/base and sandboxr/dashboard are never superseded
-// - planPrune: an image outside the sandboxr namespace is not ours to remove
+// - planPrune: sandboxer/base and sandboxer/dashboard are never superseded
+// - planPrune: an image outside the sandboxer namespace is not ours to remove
 // - planPrune: an untagged image is left to `docker image prune`
 // - planPrune: sizes are the unique ones, so the total is what removal would really free
 // - planPrune: the build cache is reported either way, and only in scope when asked for
@@ -24,9 +24,9 @@ import { BASE_IMAGE } from "../access/index.js";
  * the engine cannot import the product. The reservation is the engine's; what is
  * behind each name is not its business.
  */
-const DASHBOARD_IMAGE_NAME = "sandboxr/dashboard";
-const WORKSTATION_IMAGE_NAME = "sandboxr/workstation";
-const ORCHESTRATOR_IMAGE_NAME = "sandboxr/orchestrator";
+const DASHBOARD_IMAGE_NAME = "sandboxer/dashboard";
+const WORKSTATION_IMAGE_NAME = "sandboxer/workstation";
+const ORCHESTRATOR_IMAGE_NAME = "sandboxer/orchestrator";
 import type { BuildCacheRow, ImageRow, VolumeRow } from "../docker.js";
 import { PROTECTED_IMAGES } from "../naming.js";
 import { formatBytes, planPrune } from "./prune.js";
@@ -48,7 +48,7 @@ function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
     kind: "runtime",
     session: "",
     state: "running",
-    container: "sandboxr-acme-tkt-1",
+    container: "sandboxer-acme-tkt-1",
     ...overrides,
   };
 }
@@ -74,10 +74,10 @@ describe("planPrune volumes", () => {
   it("offers a volume no sandbox owns", () => {
     const plan = planPrune({
       ...empty,
-      volumes: [volume("sandboxr-data-acme-tkt-9", 412_000_000)],
+      volumes: [volume("sandboxer-data-acme-tkt-9", 412_000_000)],
       mountedVolumes: new Set(),
     });
-    expect(plan.volumes).toEqual([{ name: "sandboxr-data-acme-tkt-9", size: 412_000_000 }]);
+    expect(plan.volumes).toEqual([{ name: "sandboxer-data-acme-tkt-9", size: 412_000_000 }]);
     expect(plan.freed).toBe(412_000_000);
   });
 
@@ -85,7 +85,7 @@ describe("planPrune volumes", () => {
     const plan = planPrune({
       ...empty,
       sandboxes: [sandbox()],
-      volumes: [volume("sandboxr-data-acme-tkt-1"), volume("sandboxr-www-acme-tkt-1")],
+      volumes: [volume("sandboxer-data-acme-tkt-1"), volume("sandboxer-www-acme-tkt-1")],
       mountedVolumes: new Set(),
     });
     expect(plan.volumes).toEqual([]);
@@ -97,9 +97,9 @@ describe("planPrune volumes", () => {
   it("never offers a shared volume, or one the caller reserved", () => {
     const plan = planPrune({
       ...empty,
-      volumes: [volume("sandboxr-jef-agent"), volume("sandboxr-gocache"), volume("sandboxr-gomod")],
+      volumes: [volume("sandboxer-jef-agent"), volume("sandboxer-gocache"), volume("sandboxer-gomod")],
       mountedVolumes: new Set(),
-      protectVolumes: ["sandboxr-jef-agent"],
+      protectVolumes: ["sandboxer-jef-agent"],
     });
     expect(plan.volumes).toEqual([]);
   });
@@ -112,23 +112,23 @@ describe("planPrune volumes", () => {
   it("never offers a session's work volume, however large it is", () => {
     const plan = planPrune({
       ...empty,
-      volumes: [volume("sandboxr-work-eng-3941", 9_000_000_000), volume("sandboxr-data-acme-tkt-9", 1_000)],
+      volumes: [volume("sandboxer-work-eng-3941", 9_000_000_000), volume("sandboxer-data-acme-tkt-9", 1_000)],
       mountedVolumes: new Set(),
     });
-    expect(plan.volumes).toEqual([{ name: "sandboxr-data-acme-tkt-9", size: 1_000 }]);
+    expect(plan.volumes).toEqual([{ name: "sandboxer-data-acme-tkt-9", size: 1_000 }]);
     expect(plan.freed).toBe(1_000);
   });
 });
 
 describe("planPrune images", () => {
   const older = image({
-    repository: "sandboxr/acme",
+    repository: "sandboxer/acme",
     tag: "40ed880f9db8",
     created: new Date("2026-08-01T00:00:00.000Z"),
     uniqueSize: 5_340_000_000,
   });
   const newer = image({
-    repository: "sandboxr/acme",
+    repository: "sandboxer/acme",
     tag: "48273eacdece",
     created: new Date("2026-08-27T00:00:00.000Z"),
     uniqueSize: 5_340_000_000,
@@ -138,7 +138,7 @@ describe("planPrune images", () => {
   it("supersedes the older image of a project, naming what replaced it", () => {
     const plan = planPrune({ ...empty, images: [older, newer] });
     expect(plan.images).toHaveLength(1);
-    expect(plan.images[0]?.reference).toBe("sandboxr/acme:40ed880f9db8");
+    expect(plan.images[0]?.reference).toBe("sandboxer/acme:40ed880f9db8");
     expect(plan.images[0]?.reason).toContain("48273eacdece");
   });
 
@@ -194,7 +194,7 @@ describe("planPrune images", () => {
   it("leaves an untagged image to docker's own prune", () => {
     const plan = planPrune({
       ...empty,
-      images: [image({ repository: "sandboxr/acme", tag: "<none>" }), newer],
+      images: [image({ repository: "sandboxer/acme", tag: "<none>" }), newer],
     });
     expect(plan.images).toEqual([]);
   });
@@ -210,9 +210,9 @@ describe("planPrune images", () => {
     const plan = planPrune({
       ...empty,
       images: [
-        image({ repository: "sandboxr/demo", tag: "old", uniqueSize: 452_000_000 }),
+        image({ repository: "sandboxer/demo", tag: "old", uniqueSize: 452_000_000 }),
         image({
-          repository: "sandboxr/demo",
+          repository: "sandboxer/demo",
           tag: "new",
           created: new Date("2026-08-27T00:00:00.000Z"),
         }),
@@ -221,8 +221,8 @@ describe("planPrune images", () => {
       ],
     });
     expect(plan.images.map((entry) => entry.reference)).toEqual([
-      "sandboxr/acme:40ed880f9db8",
-      "sandboxr/demo:old",
+      "sandboxer/acme:40ed880f9db8",
+      "sandboxer/demo:old",
     ]);
   });
 });

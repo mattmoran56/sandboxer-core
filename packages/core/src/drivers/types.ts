@@ -25,7 +25,7 @@ export interface DriverContext {
   project: string;
   slug: string;
   config: ResolvedConfig;
-  /** SANDBOXR_HOME. */
+  /** SANDBOXER_HOME. */
   home: string;
   worktree: string;
   /** Runs a command inside the sandbox container. */
@@ -88,7 +88,7 @@ export interface MigrateResult {
 export interface DatabaseDriver {
   readonly name: "mysql" | "d1" | "sqlite" | "none";
 
-  /** Host-side: produce a reusable seed artifact in ~/.sandboxr/cache. Idempotent. */
+  /** Host-side: produce a reusable seed artifact in ~/.sandboxer/cache. Idempotent. */
   prepareSeed(ctx: DriverContext): Promise<SeedArtifact>;
 
   /** Inside the container, first boot: get from empty to seeded-and-migrated. */

@@ -1,18 +1,18 @@
 ---
 title: Which setup is yours
-description: The four ways people run sandboxr, what each one gives you, what it costs, and which page to read next.
+description: The four ways people run sandboxer, what each one gives you, what it costs, and which page to read next.
 ---
 
-sandboxr works the same way on every machine. What changes is **which machine it runs on**, and
+sandboxer works the same way on every machine. What changes is **which machine it runs on**, and
 **what you point it at** — and those are two separate decisions. This page makes both of them, then
 sends you to one page.
 
 ```prompt
-Work out which sandboxr setup fits this machine and tell me which one, with your reasoning.
+Work out which sandboxer setup fits this machine and tell me which one, with your reasoning.
 
 Read docs/setups/index.md, then read the page for the setup you pick. Check what is actually
 here first: is Docker running, how much memory has it been given, is there a git repository in
-this directory, and does anything already exist under ~/.sandboxr. Do not install anything yet.
+this directory, and does anything already exist under ~/.sandboxer. Do not install anything yet.
 
 Stop and ask me if the answer depends on whether other people need to open these URLs, or if
 this machine looks like a shared server rather than somebody's laptop.
@@ -30,10 +30,10 @@ If a term in the table is unfamiliar, [the glossary](../reference/glossary.md) h
 
 | Setup | What you get | What it costs | What it needs |
 |---|---|---|---|
-| [Just the CLI, on my laptop](cli-only.md) | **The default.** Every command. Real sandboxes on real hostnames. Nothing to log in to | Nothing enforces a lifetime, so `sandboxr expire` is yours to run. No private apps | Docker, Node 22, git. Give Docker about 8 GB |
+| [Just the CLI, on my laptop](cli-only.md) | **The default.** Every command. Real sandboxes on real hostnames. Nothing to log in to | Nothing enforces a lifetime, so `sandboxer expire` is yours to run. No private apps | Docker, Node 22, git. Give Docker about 8 GB |
 | [On a server, for a team](shared-server.md) | Branches your colleagues can open without a laptop of their own | `--bind` is the only part built. No certificate automation, no DNS, no service unit — and nothing in front of a public app | Somebody to build the missing pieces, and the security audit first |
-| [One repo, many branches](one-repo-many-worktrees.md) | Every branch of one project running at once, out of worktrees you already keep | Memory, mostly. Two worktrees on one ticket want one name, which sandboxr settles for the ones it cuts | One repository, with git worktrees cut from it |
-| [Several repositories at once](many-projects.md) | sandboxr keeps the repositories itself. Pick a branch, get a sandbox | A managed workspace to learn, and `--project NAME` on most commands | Disk for the clones. `gh` for the convenient parts |
+| [One repo, many branches](one-repo-many-worktrees.md) | Every branch of one project running at once, out of worktrees you already keep | Memory, mostly. Two worktrees on one ticket want one name, which sandboxer settles for the ones it cuts | One repository, with git worktrees cut from it |
+| [Several repositories at once](many-projects.md) | sandboxer keeps the repositories itself. Pick a branch, get a sandbox | A managed workspace to learn, and `--project NAME` on most commands | Disk for the clones. `gh` for the convenient parts |
 
 ## If you are not sure
 
@@ -48,15 +48,15 @@ have no checkout of. Nothing you set up has to be redone.
 
 | Thing | Default | Set by |
 |---|---|---|
-| Domain | `sbx.localhost` | `SANDBOXR_DOMAIN` |
+| Domain | `sbx.localhost` | `SANDBOXER_DOMAIN` |
 | Sandbox hostname | `<slug>--<label>--<project>.<domain>` | derived — see [how it works](../how-it-works.md) |
 | The bare domain | `<domain>` itself, left empty for a control plane of your own, and never a sandbox hostname | fixed |
-| Router bind address | `127.0.0.1`, ports 80 and 443 | `sandboxr init --bind`, `--http-port`, `--https-port` |
-| Host state | `~/.sandboxr` | `SANDBOXR_HOME` |
-| Managed repositories | `~/.sandboxr/workspace` | `SANDBOXR_WORKSPACE` |
-| Idle limit | `12h` | `~/.sandboxr/config.yaml`, `--ttl`, `SANDBOXR_TTL_HOURS` |
-| What enforces that limit | `sandboxr expire`, when you run it | a `cron` or `launchd` timer of your own |
-| Sandbox memory cap | the largest `memory:` any one app declares, floor `4g` | the project's `sandboxr.yaml` |
+| Router bind address | `127.0.0.1`, ports 80 and 443 | `sandboxer init --bind`, `--http-port`, `--https-port` |
+| Host state | `~/.sandboxer` | `SANDBOXER_HOME` |
+| Managed repositories | `~/.sandboxer/workspace` | `SANDBOXER_WORKSPACE` |
+| Idle limit | `12h` | `~/.sandboxer/config.yaml`, `--ttl`, `SANDBOXER_TTL_HOURS` |
+| What enforces that limit | `sandboxer expire`, when you run it | a `cron` or `launchd` timer of your own |
+| Sandbox memory cap | the largest `memory:` any one app declares, floor `4g` | the project's `sandboxer.yaml` |
 | Certificate issuer | mkcert, and nothing else | — |
 
 Every variable is listed on [Environment variables](../reference/environment.md). Every command

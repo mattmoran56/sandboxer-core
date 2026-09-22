@@ -9,6 +9,6 @@ set -euo pipefail
 
 LOG_TAG="caddy"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
-exec caddy run --config "$SANDBOXR_RUN/Caddyfile" --adapter caddyfile
+exec caddy run --config "$SANDBOXER_RUN/Caddyfile" --adapter caddyfile

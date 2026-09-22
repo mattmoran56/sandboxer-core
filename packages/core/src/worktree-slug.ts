@@ -28,7 +28,7 @@
  * this file. It follows worktree-name.ts's precedent for where mutable host
  * state may live (§4.2, §4.2.1) and passes the same test — it records a decision
  * nothing observes, it names the worktree rather than a container instance, so
- * there is no `sandboxr.created` stamp, and a stale file is inert. Two
+ * there is no `sandboxer.created` stamp, and a stale file is inert. Two
  * differences from the display name are worth stating, because both follow from
  * what this value *is*:
  *
@@ -262,9 +262,9 @@ export interface WorktreeKey {
  * worktree itself.
  *
  * **A checkout outside the workspace has no key, and that is the scope of the
- * whole mechanism.** sandboxr only cuts worktrees under `<workspace>/<project>/wt`
+ * whole mechanism.** sandboxer only cuts worktrees under `<workspace>/<project>/wt`
  * (§4.1), so those are the only ones it can have detected a collision for. A
- * worktree somebody keeps in their own `.worktrees/` is theirs, sandboxr never
+ * worktree somebody keeps in their own `.worktrees/` is theirs, sandboxer never
  * created it, and keying it on some enclosing directory's name would invent a
  * record for a directory this code has never seen — and read it back into a
  * hostname.

@@ -102,7 +102,7 @@ describe("matchesAny", () => {
 describe("filterSecrets", () => {
   const rules = {
     keep: ["API_TOKEN", "VENDOR_API_URL"],
-    rename: { CLIENT_TOKEN: "PUBLIC_TOKEN", WIDGET_SDK_URL: "SANDBOXR_WIDGET_SDK_URL" },
+    rename: { CLIENT_TOKEN: "PUBLIC_TOKEN", WIDGET_SDK_URL: "SANDBOXER_WIDGET_SDK_URL" },
     never: ["DB_*", "STORE_*", "*_URL", "PORT"],
   };
 
@@ -142,7 +142,7 @@ describe("filterSecrets", () => {
   // An explicit rename is its own permission: the author named both ends of it,
   // so a pattern must not silently drop the result.
   it("lets an explicit rename outrank the never list", () => {
-    expect(filter({ WIDGET_SDK_URL: "u" }).get("SANDBOXR_WIDGET_SDK_URL")).toBe("u");
+    expect(filter({ WIDGET_SDK_URL: "u" }).get("SANDBOXER_WIDGET_SDK_URL")).toBe("u");
   });
 
   it("lets a later file win", () => {
@@ -163,7 +163,7 @@ function configFor(root: string, read: string[]): ResolvedConfig {
   const config = resolveConfig(
     {
       project: "acme",
-      sandboxr: ">=0.1.0",
+      sandboxer: ">=0.1.0",
       access: { apps: "private" },
       secrets: {
         read,
@@ -172,7 +172,7 @@ function configFor(root: string, read: string[]): ResolvedConfig {
         never: ["DB_*"],
       },
     },
-    join(root, "sandboxr.yaml"),
+    join(root, "sandboxer.yaml"),
   );
   return config;
 }
@@ -184,7 +184,7 @@ describe("importSecrets", () => {
     await mkdir(join(root, "svc"), { recursive: true });
     await writeFile(join(root, "svc", ".env"), "API_TOKEN=real-token\nDB_HOST=localhost\nCLIENT_TOKEN=pub\n");
 
-    const report = await importSecrets(configFor(root, ["svc/.env"]), { env: { SANDBOXR_HOME: home } });
+    const report = await importSecrets(configFor(root, ["svc/.env"]), { env: { SANDBOXER_HOME: home } });
 
     expect(report.names).toEqual(["API_TOKEN", "PUBLIC_TOKEN"]);
     expect(report.count).toBe(2);
@@ -201,7 +201,7 @@ describe("importSecrets", () => {
     const root = await mkdtemp(join(tmpdir(), "sbx-secrets-"));
     await writeFile(join(root, ".env"), "API_TOKEN=t\n");
     const report = await importSecrets(configFor(root, [".env"]), {
-      env: { SANDBOXR_HOME: join(root, "home") },
+      env: { SANDBOXER_HOME: join(root, "home") },
     });
     expect((await stat(report.file)).mode & 0o777).toBe(0o600);
   });
@@ -209,7 +209,7 @@ describe("importSecrets", () => {
   it("reports a file the config names but the developer does not have", async () => {
     const root = await mkdtemp(join(tmpdir(), "sbx-secrets-"));
     const report = await importSecrets(configFor(root, ["nowhere/.env"]), {
-      env: { SANDBOXR_HOME: join(root, "home") },
+      env: { SANDBOXER_HOME: join(root, "home") },
     });
     expect(report.missing).toEqual([join(root, "nowhere", ".env")]);
     expect(report.count).toBe(0);
@@ -220,7 +220,7 @@ describe("importSecrets", () => {
     await writeFile(join(root, "a.env"), "API_TOKEN=first\n");
     await writeFile(join(root, "b.env"), "API_TOKEN=second\n");
     const report = await importSecrets(configFor(root, ["a.env", "b.env"]), {
-      env: { SANDBOXR_HOME: join(root, "home") },
+      env: { SANDBOXER_HOME: join(root, "home") },
     });
     expect(await readFile(report.file, "utf8")).toContain('API_TOKEN="second"');
   });
@@ -229,7 +229,7 @@ describe("importSecrets", () => {
 describe("checkSecrets", () => {
   it("reports a missing file rather than throwing", async () => {
     const root = await mkdtemp(join(tmpdir(), "sbx-check-"));
-    const check = await checkSecrets(configFor(root, []), { env: { SANDBOXR_HOME: join(root, "home") } });
+    const check = await checkSecrets(configFor(root, []), { env: { SANDBOXER_HOME: join(root, "home") } });
     expect(check.exists).toBe(false);
     expect(check.absent).toEqual(["API_TOKEN", "PUBLIC_TOKEN", "VENDOR_KEY"]);
     expect(check.present).toEqual([]);
@@ -240,9 +240,9 @@ describe("checkSecrets", () => {
     const home = join(root, "home");
     await writeFile(join(root, ".env"), "API_TOKEN=t\nCLIENT_TOKEN=p\n");
     const config = configFor(root, [".env"]);
-    await importSecrets(config, { env: { SANDBOXR_HOME: home } });
+    await importSecrets(config, { env: { SANDBOXER_HOME: home } });
 
-    const check = await checkSecrets(config, { env: { SANDBOXR_HOME: home } });
+    const check = await checkSecrets(config, { env: { SANDBOXER_HOME: home } });
     expect(check.exists).toBe(true);
     expect(check.present).toEqual(["API_TOKEN", "PUBLIC_TOKEN"]);
     expect(check.absent).toEqual(["VENDOR_KEY"]);
@@ -257,10 +257,10 @@ describe("importSecrets, now that the file is also edited by hand", () => {
     const root = await mkdtemp(join(tmpdir(), "sbx-merge-"));
     const home = join(root, "home");
     const config = configFor(root, [".env"]);
-    await editProjectSecrets("acme", config, { set: { VENDOR_KEY: "typed-by-hand" } }, { env: { SANDBOXR_HOME: home } });
+    await editProjectSecrets("acme", config, { set: { VENDOR_KEY: "typed-by-hand" } }, { env: { SANDBOXER_HOME: home } });
 
     await writeFile(join(root, ".env"), "API_TOKEN=imported\n");
-    const report = await importSecrets(config, { env: { SANDBOXR_HOME: home } });
+    const report = await importSecrets(config, { env: { SANDBOXER_HOME: home } });
 
     const written = await readFile(report.file, "utf8");
     expect(written).toContain('VENDOR_KEY="typed-by-hand"');
@@ -274,33 +274,33 @@ describe("importSecrets, now that the file is also edited by hand", () => {
     const root = await mkdtemp(join(tmpdir(), "sbx-replace-"));
     const home = join(root, "home");
     const config = configFor(root, [".env"]);
-    await editProjectSecrets("acme", config, { set: { VENDOR_KEY: "typed-by-hand" } }, { env: { SANDBOXR_HOME: home } });
+    await editProjectSecrets("acme", config, { set: { VENDOR_KEY: "typed-by-hand" } }, { env: { SANDBOXER_HOME: home } });
 
     await writeFile(join(root, ".env"), "API_TOKEN=imported\n");
-    const report = await importSecrets(config, { env: { SANDBOXR_HOME: home }, replace: true });
+    const report = await importSecrets(config, { env: { SANDBOXER_HOME: home }, replace: true });
 
     expect(await readFile(report.file, "utf8")).not.toContain("VENDOR_KEY");
   });
 });
 
 describe("isReservedEnvName", () => {
-  it.each(["SANDBOXR_SLUG", "SANDBOXR_DOMAIN", "SANDBOXR_PLAN", "SANDBOXR_ENV_READY"])("reserves %s", (name) => {
+  it.each(["SANDBOXER_SLUG", "SANDBOXER_DOMAIN", "SANDBOXER_PLAN", "SANDBOXER_ENV_READY"])("reserves %s", (name) => {
     expect(isReservedEnvName(name)).toBe(true);
   });
 
-  it.each(["SANDBOXR_DB_HOST", "SANDBOXR_S3_ENDPOINT", "SANDBOXR_D1_DIR", "SANDBOXR_URL_APP", "SANDBOXR_PORT_API"])(
+  it.each(["SANDBOXER_DB_HOST", "SANDBOXER_S3_ENDPOINT", "SANDBOXER_D1_DIR", "SANDBOXER_URL_APP", "SANDBOXER_PORT_API"])(
     "reserves the whole %s family",
     (name) => {
       expect(isReservedEnvName(name)).toBe(true);
     },
   );
 
-  // A project's own SANDBOXR_-prefixed names are a real pattern, not an
+  // A project's own SANDBOXER_-prefixed names are a real pattern, not an
   // accident: the example monorepo config renames a browser-side Auth0 domain to
-  // SANDBOXR_AUTH0_SPA_DOMAIN precisely so it cannot be confused with the
+  // SANDBOXER_AUTH0_SPA_DOMAIN precisely so it cannot be confused with the
   // server-side one. Reserving the whole prefix would have made that config
   // unimportable.
-  it.each(["SANDBOXR_AUTH0_SPA_DOMAIN", "API_TOKEN", "DATABASE", "SANDBOXR_"])("leaves %s alone", (name) => {
+  it.each(["SANDBOXER_AUTH0_SPA_DOMAIN", "API_TOKEN", "DATABASE", "SANDBOXER_"])("leaves %s alone", (name) => {
     expect(isReservedEnvName(name)).toBe(false);
   });
 });
@@ -322,7 +322,7 @@ describe("envNameRefusal", () => {
   });
 
   it("refuses a name the sandbox derives for itself", () => {
-    expect(envNameRefusal("SANDBOXR_DB_PASSWORD", "x", config())).toMatch(/works out for itself/);
+    expect(envNameRefusal("SANDBOXER_DB_PASSWORD", "x", config())).toMatch(/works out for itself/);
   });
 
   it("refuses a name matching the project's own never pattern, and names the pattern", () => {
@@ -334,7 +334,7 @@ describe("envNameRefusal", () => {
   // nobody typed the name on purpose.
   it("still applies the rules that do not need a config", () => {
     expect(envNameRefusal("DB_HOST", "10.0.0.1", null)).toBeUndefined();
-    expect(envNameRefusal("SANDBOXR_SLUG", "x", null)).toMatch(/works out for itself/);
+    expect(envNameRefusal("SANDBOXER_SLUG", "x", null)).toMatch(/works out for itself/);
     expect(envNameRefusal("OK_NAME", "x")).toBeUndefined();
   });
 
@@ -367,13 +367,13 @@ describe("describeProjectSecrets", () => {
   const home = async () => join(await mkdtemp(join(tmpdir(), "sbx-view-")), "home");
 
   it("reports an absent file as absent rather than throwing", async () => {
-    const view = await describeProjectSecrets("acme", null, { env: { SANDBOXR_HOME: await home() } });
+    const view = await describeProjectSecrets("acme", null, { env: { SANDBOXER_HOME: await home() } });
     expect(view.exists).toBe(false);
     expect(view.vars).toEqual([]);
   });
 
   it("carries names, a hint and a length — and no value anywhere", async () => {
-    const env = { SANDBOXR_HOME: await home() };
+    const env = { SANDBOXER_HOME: await home() };
     const config = configFor("/nowhere", []);
     await editProjectSecrets("acme", config, { set: { API_TOKEN: "sk-live-0123456789ab", SHORT: "abc" } }, { env });
 
@@ -389,7 +389,7 @@ describe("describeProjectSecrets", () => {
   // not fail — it falls back to whatever its code defaults to, which for a real
   // project we looked at is a production URL.
   it("names what the project declares and the file does not have", async () => {
-    const env = { SANDBOXR_HOME: await home() };
+    const env = { SANDBOXER_HOME: await home() };
     const config = configFor("/nowhere", []);
     await editProjectSecrets("acme", config, { set: { API_TOKEN: "t" } }, { env });
 
@@ -403,15 +403,15 @@ describe("describeProjectSecrets", () => {
   // the variable has a value — the wrong one. A real project's map runs to forty
   // names, so this is not a corner case.
   it("names a variable the project's env map will overwrite", async () => {
-    const env = { SANDBOXR_HOME: await home() };
+    const env = { SANDBOXER_HOME: await home() };
     const config = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "private" },
-        env: { DB_HOST: "${SANDBOXR_DB_HOST}" },
+        env: { DB_HOST: "${SANDBOXER_DB_HOST}" },
       },
-      "/nowhere/sandboxr.yaml",
+      "/nowhere/sandboxer.yaml",
     );
     await editProjectSecrets("acme", config, { set: { DB_HOST: "10.0.0.1", API_TOKEN: "t" } }, { env });
 
@@ -420,13 +420,13 @@ describe("describeProjectSecrets", () => {
   });
 
   it("shadows nothing when it had no config to compare against", async () => {
-    const env = { SANDBOXR_HOME: await home() };
+    const env = { SANDBOXER_HOME: await home() };
     await editProjectSecrets("acme", null, { set: { DB_HOST: "10.0.0.1" } }, { env });
     expect((await describeProjectSecrets("acme", null, { env })).shadowed).toEqual([]);
   });
 
   it("says so when it had no config, rather than presenting a guess", async () => {
-    const view = await describeProjectSecrets("acme", null, { env: { SANDBOXR_HOME: await home() } });
+    const view = await describeProjectSecrets("acme", null, { env: { SANDBOXER_HOME: await home() } });
     expect(view.configKnown).toBe(false);
     expect(view.absent).toEqual([]);
     // Permissive: refusing to let somebody edit because a config could not be
@@ -437,17 +437,17 @@ describe("describeProjectSecrets", () => {
 
   it("is not editable for a public project that has not opted in", async () => {
     const config = resolveConfig(
-      { project: "acme", sandboxr: ">=0.1.0", access: { apps: "public" } },
-      "/nowhere/sandboxr.yaml",
+      { project: "acme", sandboxer: ">=0.1.0", access: { apps: "public" } },
+      "/nowhere/sandboxer.yaml",
     );
-    const view = await describeProjectSecrets("acme", config, { env: { SANDBOXR_HOME: await home() } });
+    const view = await describeProjectSecrets("acme", config, { env: { SANDBOXER_HOME: await home() } });
     expect(view.editable).toBe(false);
   });
 });
 
 describe("revealProjectSecret", () => {
   it("is the one function that answers with a value", async () => {
-    const env = { SANDBOXR_HOME: join(await mkdtemp(join(tmpdir(), "sbx-reveal-")), "home") };
+    const env = { SANDBOXER_HOME: join(await mkdtemp(join(tmpdir(), "sbx-reveal-")), "home") };
     await editProjectSecrets("acme", null, { set: { API_TOKEN: "real-token" } }, { env });
 
     expect(await revealProjectSecret("acme", "API_TOKEN", env ? { env } : {})).toBe("real-token");
@@ -456,7 +456,7 @@ describe("revealProjectSecret", () => {
 });
 
 describe("editProjectSecrets", () => {
-  const fresh = async () => ({ env: { SANDBOXR_HOME: join(await mkdtemp(join(tmpdir(), "sbx-edit-")), "home") } });
+  const fresh = async () => ({ env: { SANDBOXER_HOME: join(await mkdtemp(join(tmpdir(), "sbx-edit-")), "home") } });
 
   it("adds, updates and removes, and says which it did", async () => {
     const options = await fresh();
@@ -531,12 +531,12 @@ describe("editProjectSecrets", () => {
     const report = await editProjectSecrets(
       "acme",
       configFor("/nowhere", []),
-      { text: "API_TOKEN=good\nDB_HOST=10.0.0.1\nSANDBOXR_DB_PASSWORD=x\nVENDOR_KEY=also-good\n" },
+      { text: "API_TOKEN=good\nDB_HOST=10.0.0.1\nSANDBOXER_DB_PASSWORD=x\nVENDOR_KEY=also-good\n" },
       options,
     );
 
     expect(report.vars.map((entry) => entry.name)).toEqual(["API_TOKEN", "VENDOR_KEY"]);
-    expect(report.refused.map((entry) => entry.name)).toEqual(["DB_HOST", "SANDBOXR_DB_PASSWORD"]);
+    expect(report.refused.map((entry) => entry.name)).toEqual(["DB_HOST", "SANDBOXER_DB_PASSWORD"]);
     expect(report.refused[0]?.reason).toContain('"DB_*"');
   });
 
@@ -596,12 +596,12 @@ describe("envDigest", () => {
     expect(envDigest(new Map([["A", "1"]]))).not.toBe(envDigest(new Map([["A", "2"]])));
   });
 
-  // Both halves of the environment, because a renamed VITE_* in sandboxr.yaml
+  // Both halves of the environment, because a renamed VITE_* in sandboxer.yaml
   // and a rotated key are the same problem to whoever has to press the button.
   it("changes when the plan's env map changes", () => {
     const secrets = new Map([["A", "1"]]);
-    expect(envDigest(secrets, { VITE_API: "${SANDBOXR_URL_API}" })).not.toBe(
-      envDigest(secrets, { VITE_API: "${SANDBOXR_URL_WWW}" }),
+    expect(envDigest(secrets, { VITE_API: "${SANDBOXER_URL_API}" })).not.toBe(
+      envDigest(secrets, { VITE_API: "${SANDBOXER_URL_WWW}" }),
     );
   });
 

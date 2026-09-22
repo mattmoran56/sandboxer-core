@@ -13,16 +13,16 @@ its config is short enough to read every line of, which is the fastest way to un
 you will write for your own project.
 
 ```prompt
-Run the sandboxr demo project and confirm it serves a page.
+Run the sandboxer demo project and confirm it serves a page.
 
-Read docs/getting-started/demo-project.md and follow it. From the sandboxr checkout, cd into
-examples/demo-worker, run `sandboxr up demo1`, then fetch
+Read docs/getting-started/demo-project.md and follow it. From the sandboxer checkout, cd into
+examples/demo-worker, run `sandboxer up demo1`, then fetch
 https://demo1--app--demo.sbx.localhost/api/notes and confirm it returns two seeded notes. Report the
 JSON you got back.
 
 Stop and ask me if:
-- `sandboxr init` has not been run on this machine yet.
-- `sandboxr up` exits with code 3, meaning the migrations failed. Show me `sandboxr logs demo1`.
+- `sandboxer init` has not been run on this machine yet.
+- `sandboxer up` exits with code 3, meaning the migrations failed. Show me `sandboxer logs demo1`.
 - The URL returns anything other than 200, or the notes array is empty.
 
 Leave the sandbox running when you are done unless I ask you to remove it.
@@ -30,19 +30,19 @@ Leave the sandbox running when you are done unless I ask you to remove it.
 
 ## Run it
 
-You need a machine that has had [`sandboxr init`](install.md) run on it. You already have the demo
+You need a machine that has had [`sandboxer init`](install.md) run on it. You already have the demo
 if you installed from the repository checkout.
 
 ```bash
-cd sandboxr/examples/demo-worker
-sandboxr up demo1
+cd sandboxer/examples/demo-worker
+sandboxer up demo1
 ```
 
 ```
 ==> Seeding: empty, then migrations and seeds/fixtures.sql
-==> Building sandboxr/demo:9d41f0c37a58
+==> Building sandboxer/demo:9d41f0c37a58
 ==> demo has no GitHub token: git commit works in this sandbox, gh and git push do not.
-      Set projects.demo.github: token in /home/you/.sandboxr/config.yaml, and check
+      Set projects.demo.github: token in /home/you/.sandboxer/config.yaml, and check
       whatever runs commands in there may use gh and git push.
 ==> Starting demo1 from main@a1b2c3d
 ==> Applied fixtures from seeds/fixtures.sql
@@ -69,25 +69,25 @@ was created, your migration ran against it, the fixtures applied, the dev server
 shared router put it on a hostname.
 
 > [!TIP] Pass the slug explicitly here
-> `demo1` is given by hand on purpose. Left to itself, sandboxr derives the slug from the git
-> repository the directory belongs to — which for the demo is the *sandboxr* checkout, so you would
+> `demo1` is given by hand on purpose. Left to itself, sandboxer derives the slug from the git
+> repository the directory belongs to — which for the demo is the *sandboxer* checkout, so you would
 > get a sandbox named after whatever branch you have out. Naming it keeps the URL predictable.
 
 Throw it away when you are done:
 
 ```bash
-sandboxr down demo1
+sandboxer down demo1
 ```
 
 That deletes the container and the database. The files in `examples/demo-worker` are untouched.
 
 ## Now read the config
 
-Here is `examples/demo-worker/sandboxr.yaml` in full, then one block at a time.
+Here is `examples/demo-worker/sandboxer.yaml` in full, then one block at a time.
 
 ```yaml
 project: demo
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 
 database:
   driver: d1
@@ -95,7 +95,7 @@ database:
     fixtures: seeds/fixtures.sql
   migrate:
     workdir: .
-    command: npx wrangler d1 migrations apply demo --local --persist-to "$SANDBOXR_D1_DIR"
+    command: npx wrangler d1 migrations apply demo --local --persist-to "$SANDBOXER_D1_DIR"
   owner: app
 
 frontends:
@@ -104,8 +104,8 @@ frontends:
       package: .
       serve: >-
         npx wrangler dev --port 8787 --ip 127.0.0.1
-        --persist-to "$SANDBOXR_D1_DIR"
-        --var SANDBOXR_SLUG:"$SANDBOXR_SLUG"
+        --persist-to "$SANDBOXER_D1_DIR"
+        --var SANDBOXER_SLUG:"$SANDBOXER_SLUG"
       port: 8787
       health: /health
 
@@ -123,18 +123,18 @@ env:
   WRANGLER_SEND_METRICS: "false"
 ```
 
-### `project` and `sandboxr`
+### `project` and `sandboxer`
 
 ```yaml
 project: demo
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 ```
 
 `project` is the name that appears in every hostname, every container name and every volume name.
 It is why the URL above reads `…--app--demo.sbx.localhost`. Change it and every name for this
 project changes with it.
 
-`sandboxr` is the version of the tool this config expects. It is a range, and it is checked before
+`sandboxer` is the version of the tool this config expects. It is a range, and it is checked before
 anything else is read. **Without it the config is refused** — both keys are required. That is
 deliberate: a config that outlives a breaking change should say so rather than half-work.
 
@@ -146,7 +146,7 @@ database:
 ```
 
 The demo uses `d1`, which underneath is a SQLite file that miniflare owns. That choice is why the
-demo is the cheapest thing sandboxr can run: **a file database has no server**. Nothing to install
+demo is the cheapest thing sandboxer can run: **a file database has no server**. Nothing to install
 into the image, nothing to wait for at boot, no version skew, no dump to restore. Seeding is a
 directory copy.
 
@@ -179,18 +179,18 @@ would render and say `Nothing here yet`.
 ```yaml
   migrate:
     workdir: .
-    command: npx wrangler d1 migrations apply demo --local --persist-to "$SANDBOXR_D1_DIR"
+    command: npx wrangler d1 migrations apply demo --local --persist-to "$SANDBOXER_D1_DIR"
 ```
 
-**sandboxr never reimplements your migration runner.** It runs the command you give it, inside the
+**sandboxer never reimplements your migration runner.** It runs the command you give it, inside the
 sandbox, against the sandbox's own copy of the database, and records whether it succeeded.
 
 Two things in that command are the load-bearing parts:
 
-- `--persist-to "$SANDBOXR_D1_DIR"` points wrangler at the sandbox's own state directory instead of
-  wrangler's default, which is a `.wrangler/state` folder inside the worktree. `SANDBOXR_D1_DIR` is
+- `--persist-to "$SANDBOXER_D1_DIR"` points wrangler at the sandbox's own state directory instead of
+  wrangler's default, which is a `.wrangler/state` folder inside the worktree. `SANDBOXER_D1_DIR` is
   exported by the sandbox itself. Drop it and the database lands in the worktree — on your host
-  disk, outside the volume, surviving `sandboxr down`, and shared with anything else pointed at that
+  disk, outside the volume, surviving `sandboxer down`, and shared with anything else pointed at that
   same directory. The whole point of the sandbox's own volume is that the database is disposable,
   and this flag is what puts it there. The `serve:` command below carries the same flag for exactly
   the same reason.
@@ -200,7 +200,7 @@ Two things in that command are the load-bearing parts:
   meant it to see. For this project that would fail with wrangler unable to find its config.
 
 The command's exit status decides the sandbox's state. A failure does **not** stop the sandbox: it
-comes up `degraded`, `sandboxr up` exits `3`, and you can go and look at what broke.
+comes up `degraded`, `sandboxer up` exits `3`, and you can go and look at what broke.
 
 ### `database.owner`
 
@@ -212,7 +212,7 @@ comes up `degraded`, `sandboxr up` exits `3`, and you can go and look at what br
 that hangs with nothing in the log. So a file-backed database names the single service allowed to
 open it, and everything else either runs before that service starts or does not run at all.
 
-Here `app` is the wrangler dev server. That is also why `sandboxr db shell` on this project gives
+Here `app` is the wrangler dev server. That is also why `sandboxer db shell` on this project gives
 you a **read-only** prompt: the owning service is holding the file, and read-only is the honest
 offer.
 
@@ -229,7 +229,7 @@ frontends:
   apps:
     - label: app
       package: .
-      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXR_D1_DIR"
+      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXER_D1_DIR"
       port: 8787
       health: /health
 ```
@@ -241,7 +241,7 @@ its own hostname.
 Field by field:
 
 - `label: app` becomes the second part of the hostname — `demo1--**app**--demo.sbx.localhost` — and
-  it is what you name in `sandboxr reload --web=app`.
+  it is what you name in `sandboxer reload --web=app`.
 - `package: .` is where the app lives, relative to the worktree.
 - `serve:` is the command. Its presence is what makes this a server rather than a static build. An
   app with `out:` instead is built on demand and served as files.
@@ -252,7 +252,7 @@ Field by field:
 - `health: /health` is the path probed to decide whether the app is up. The worker answers it with
   `ok`. Without it, "is this up" falls back to whether the process is running.
 
-Because this is a server and not a build, `sandboxr reload --web=app` **restarts** it rather than
+Because this is a server and not a build, `sandboxer reload --web=app` **restarts** it rather than
 building anything, and says so.
 
 ### `deps`
@@ -273,7 +273,7 @@ What it buys: the project image installs the dependencies once, and every sandbo
 matches the same hash shares one `node_modules`. A branch that changes its dependencies
 transparently gets its own. That is most of why the second sandbox on a project starts in seconds.
 
-`lockfile` and `install` can be set too. Left out, sandboxr looks for a lockfile it recognises —
+`lockfile` and `install` can be set too. Left out, sandboxer looks for a lockfile it recognises —
 `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lockb` — and uses that package manager's
 frozen-install command. The demo has `package-lock.json`, so it gets
 `npm ci --no-audit --no-fund`. A project with no lockfile at all gets no shared volume, which costs
@@ -304,8 +304,8 @@ access:
 `apps: public` means anyone whose browser can reach the hostname gets the guestbook with no login.
 On a laptop that is your own browsers only — the router binds loopback.
 
-`controls: password` is the other half, and it is the only value the field accepts. sandboxr
-itself serves no controls over http — starting, stopping and deleting sandboxes is the `sandboxr`
+`controls: password` is the other half, and it is the only value the field accepts. sandboxer
+itself serves no controls over http — starting, stopping and deleting sandboxes is the `sandboxer`
 command, run by whoever is at the machine — so the field is a statement about any control plane
 the machine runs, and the engine parses it and enforces nothing.
 [Access and security](../access.md) is the full picture.
@@ -323,7 +323,7 @@ env:
 ```
 
 This is the join between two vocabularies. The sandbox works out **where** everything is — its
-database, its object storage, each app's own URL — and exports those under a `SANDBOXR_` prefix.
+database, its object storage, each app's own URL — and exports those under a `SANDBOXER_` prefix.
 Your project reads its own names for the same things. Only your project knows its own spelling, so
 it says so here.
 
@@ -334,16 +334,16 @@ Values are expanded by **substitution, never by a shell**, so a value is data an
 command.
 
 > [!NOTE] A Worker's `env` is wrangler's, not the process environment
-> `src/index.js` reads `env.SANDBOXR_SLUG`, and that `env` is the bindings wrangler was given —
+> `src/index.js` reads `env.SANDBOXER_SLUG`, and that `env` is the bindings wrangler was given —
 > never the variables the process was started with. So the slug travels on the serve command as
-> `--var SANDBOXR_SLUG:"$SANDBOXR_SLUG"`, expanded by the same shell that already expands
-> `$SANDBOXR_D1_DIR`. Mapping it in the block above instead looked like it was doing this job and
+> `--var SANDBOXER_SLUG:"$SANDBOXER_SLUG"`, expanded by the same shell that already expands
+> `$SANDBOXER_D1_DIR`. Mapping it in the block above instead looked like it was doing this job and
 > was not: every sandbox called itself `local`.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — every other file in the demo, and what each line is doing</summary>
 
-**`wrangler.jsonc`** — wrangler's own config, not sandboxr's.
+**`wrangler.jsonc`** — wrangler's own config, not sandboxer's.
 
 ```jsonc
 {
@@ -359,14 +359,14 @@ command.
 
 - `main` is the single source file. No build step, deliberately.
 - `migrations_dir` is where `wrangler d1 migrations apply` looks. It is wrangler's setting, not
-  sandboxr's — sandboxr only runs the command.
+  sandboxer's — sandboxer only runs the command.
 - `binding: "DB"` is the name the worker code uses: `env.DB.prepare(...)`.
 - `database_id` is a zero UUID. wrangler requires the field and nothing here ever talks to
   Cloudflare, because the sandbox's database is a file in its own state directory.
 
 **`package.json`** — one dev dependency, `wrangler` pinned to an exact version. `type: "module"`.
-Its `scripts` are convenience for running outside a sandbox; sandboxr uses the commands in
-`sandboxr.yaml`, never the scripts. `package-lock.json` beside it is what keys the shared
+Its `scripts` are convenience for running outside a sandbox; sandboxer uses the commands in
+`sandboxer.yaml`, never the scripts. `package-lock.json` beside it is what keys the shared
 dependency volume.
 
 **`migrations/0001_create_notes.sql`**
@@ -408,24 +408,24 @@ two-writer deadlock the `owner` rule exists to prevent.
 | `GET /health` | `ok`, which is the `health:` path in the config |
 | anything else | `404` |
 
-It reads `env.SANDBOXR_SLUG` to print which sandbox served the page, and escapes every value it
+It reads `env.SANDBOXER_SLUG` to print which sandbox served the page, and escapes every value it
 renders.
 
 **The full command sequence, with expected exit codes**
 
 ```bash
 cd examples/demo-worker
-sandboxr up demo1                                            # 0 healthy, 3 degraded
-sandboxr status demo1                                        # 0 healthy, 3 degraded
-curl -sf https://demo1--app--demo.sbx.localhost/__sandboxr/live # ok
+sandboxer up demo1                                            # 0 healthy, 3 degraded
+sandboxer status demo1                                        # 0 healthy, 3 degraded
+curl -sf https://demo1--app--demo.sbx.localhost/__sandboxer/live # ok
 curl -sf https://demo1--app--demo.sbx.localhost/api/notes       # two notes
-sandboxr db shell demo1                                      # read-only sqlite prompt
-sandboxr logs demo1 --tail 200
-sandboxr down demo1
+sandboxer db shell demo1                                      # read-only sqlite prompt
+sandboxer logs demo1 --tail 200
+sandboxer down demo1
 ```
 
 If the router is serving plain HTTP rather than HTTPS, every URL above is `http://` instead. Run
-`sandboxr doctor` to see which.
+`sandboxer doctor` to see which.
 
 </details>
 
@@ -441,15 +441,15 @@ honest inventory, kept per area.
 <details class="failure">
 <summary><b>If it goes wrong</b> — the failures specific to the demo</summary>
 
-**`no sandboxr.yaml here or in any parent`** — you are not in `examples/demo-worker`. The demo's
+**`no sandboxer.yaml here or in any parent`** — you are not in `examples/demo-worker`. The demo's
 config is in that directory, not at the top of the repository.
 
 **The sandbox is named after your branch, not `demo1`** — you left the slug off. The slug is
-derived from the git repository this directory belongs to, which is the sandboxr checkout. Pass it
+derived from the git repository this directory belongs to, which is the sandboxer checkout. Pass it
 explicitly.
 
 **`up` exits `3` and the page says `Nothing here yet`** — the migration failed, so no database file
-was created, so the fixtures had nothing to apply to. `sandboxr logs demo1` shows the wrangler
+was created, so the fixtures had nothing to apply to. `sandboxer logs demo1` shows the wrangler
 output. The usual cause is a `--persist-to` that lost its variable.
 
 **The page loads but shows zero notes and the migration says `ok`** — the fixtures did not apply.

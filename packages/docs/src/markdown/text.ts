@@ -16,7 +16,7 @@
 // The chip on a `<details>` is deliberately kept. AUTHORING.md has the author write
 // it themselves, as `<b>Details for an agent</b>`, and it is a real part of the
 // page; it is only this pipeline's words in the rare block that forgot the bold
-// opening. Code *contents* are kept too — a reader searching for `sandboxr up`
+// opening. Code *contents* are kept too — a reader searching for `sandboxer up`
 // should find the page that shows it.
 
 /** The chrome this pipeline adds, removed whole, contents and all. */

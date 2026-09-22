@@ -4,10 +4,10 @@
 #
 # `acme` is a fictional project used throughout the docs and examples.
 #
-# Copy to your repo root as `sandboxr.yaml`.
+# Copy to your repo root as `sandboxer.yaml`.
 
 project: acme
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 
 database:
   driver: mysql
@@ -21,7 +21,7 @@ database:
       container: acme_db
       database: acme
     # On a server: restore a dump instead. Must be anonymised if apps are public (§5.3).
-    file: /var/sandboxr/seeds/acme.sql.zst
+    file: /var/sandboxer/seeds/acme.sql.zst
     # Applied after migrations. Non-fatal: a fixture that no longer matches the schema is
     # a useful signal, not a reason to refuse to start.
     fixtures: db/seeds/fixtures.sql
@@ -105,9 +105,9 @@ secrets:
     # serve one tenant on both a custom domain and a provider domain, and mixing the two
     # across services makes one reject the other's token as an invalid issuer: login
     # succeeds and every API call comes back 401.
-    VITE_AUTH0_DOMAIN: SANDBOXR_AUTH0_SPA_DOMAIN
-    VITE_AUTH0_CLIENT_ID: SANDBOXR_AUTH0_SPA_CLIENT_ID
-    VITE_AUTH0_AUDIENCE: SANDBOXR_AUTH0_SPA_AUDIENCE
+    VITE_AUTH0_DOMAIN: SANDBOXER_AUTH0_SPA_DOMAIN
+    VITE_AUTH0_CLIENT_ID: SANDBOXER_AUTH0_SPA_CLIENT_ID
+    VITE_AUTH0_AUDIENCE: SANDBOXER_AUTH0_SPA_AUDIENCE
   never:
     # Anything describing WHERE something runs. A sandbox computes these itself; importing
     # them would point it at the developer's own database or at real cloud storage.
@@ -131,21 +131,21 @@ access:
   apps: public
   controls: password
 
-# The environment every process in the sandbox gets. `${SANDBOXR_*}` placeholders are
+# The environment every process in the sandbox gets. `${SANDBOXER_*}` placeholders are
 # substituted with values the sandbox computes for itself — its own database, its own
 # object storage, its own hostnames — so nothing here can point at a real service. Anything
 # genuinely secret comes from the secrets block above instead, and never appears here.
 env:
-  DB_HOST: "${SANDBOXR_DB_HOST}"
-  DB_PORT: "${SANDBOXR_DB_PORT}"
-  DB_NAME: "${SANDBOXR_DB_NAME}"
-  DB_USER: "${SANDBOXR_DB_USER}"
-  DB_PASSWORD: "${SANDBOXR_DB_PASSWORD}"
-  S3_ENDPOINT: "${SANDBOXR_S3_ENDPOINT}"
-  S3_KEY: "${SANDBOXR_S3_KEY}"
-  S3_SECRET: "${SANDBOXR_S3_SECRET}"
+  DB_HOST: "${SANDBOXER_DB_HOST}"
+  DB_PORT: "${SANDBOXER_DB_PORT}"
+  DB_NAME: "${SANDBOXER_DB_NAME}"
+  DB_USER: "${SANDBOXER_DB_USER}"
+  DB_PASSWORD: "${SANDBOXER_DB_PASSWORD}"
+  S3_ENDPOINT: "${SANDBOXER_S3_ENDPOINT}"
+  S3_KEY: "${SANDBOXER_S3_KEY}"
+  S3_SECRET: "${SANDBOXER_S3_SECRET}"
   S3_BUCKET: uploads
   # Same-origin paths, so a built bundle makes no cross-origin request.
   VITE_API_URL: /api
-  VITE_APP_URL: "${SANDBOXR_URL_APP}"
-  VITE_ADMIN_URL: "${SANDBOXR_URL_ADMIN}"
+  VITE_APP_URL: "${SANDBOXER_URL_APP}"
+  VITE_ADMIN_URL: "${SANDBOXER_URL_ADMIN}"

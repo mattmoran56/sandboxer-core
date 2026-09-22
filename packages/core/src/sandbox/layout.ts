@@ -17,10 +17,10 @@ export const WORKSPACE = "/workspace";
  *
  * Not a mount — it is part of the image — but it belongs here for the same
  * reason the mounts do: it is a path both sides have to spell identically, and
- * the container half already spells it once, as `SANDBOXR_SCRIPTS`'s default in
+ * the container half already spells it once, as `SANDBOXER_SCRIPTS`'s default in
  * `container/scripts/lib.sh`.
  */
-export const SCRIPTS_DIR = "/opt/sandboxr/scripts";
+export const SCRIPTS_DIR = "/opt/sandboxer/scripts";
 
 /**
  * The prefix that gives a command the environment the sandbox computed for
@@ -41,7 +41,7 @@ export const SCRIPTS_DIR = "/opt/sandboxr/scripts";
 export const WITH_ENV = `${SCRIPTS_DIR}/with-env`;
 
 /** The plan: the container's only view of the project, mounted read-only. */
-export const PLAN_FILE = "/sandboxr/plan.json";
+export const PLAN_FILE = "/sandboxer/plan.json";
 
 /**
  * The project's third-party credentials, mounted read-only.
@@ -56,16 +56,16 @@ export const PLAN_FILE = "/sandboxr/plan.json";
  * Read-only for the reason `PLAN_FILE` is, and one further one: the values also
  * stop appearing in `docker inspect`, which they did as an env-file.
  */
-export const SECRETS_FILE = "/sandboxr/secrets.env";
+export const SECRETS_FILE = "/sandboxer/secrets.env";
 
 /** The host seed cache, mounted read-only: a sandbox restores, never writes. */
-export const CACHE_DIR = "/sandboxr/cache";
+export const CACHE_DIR = "/sandboxer/cache";
 
 /**
- * Where a seed the project *declared* is mounted, as opposed to one sandboxr cached.
+ * Where a seed the project *declared* is mounted, as opposed to one sandboxer cached.
  *
  * Separate from CACHE_DIR because the two artifacts are found in different ways.
- * A cached dump is content-addressed into `~/.sandboxr/cache`, so its filename is
+ * A cached dump is content-addressed into `~/.sandboxer/cache`, so its filename is
  * its identity and the directory is fixed at both ends. A `database.seed_from.file`
  * is a path the project wrote down and may be anywhere — outside every repo on
  * purpose, so `git clean` cannot destroy it — and its *directory* is the only thing
@@ -74,22 +74,22 @@ export const CACHE_DIR = "/sandboxr/cache";
  * One code path used to serve both, and it took the basename: correct for the cache
  * and fatal for the declared file, which was then looked for in a directory it had
  * never been in. Nothing failed loudly. The sandbox reported "no seed artifact in
- * /sandboxr/cache", started empty, and the project's migrations failed one by one
+ * /sandboxer/cache", started empty, and the project's migrations failed one by one
  * against a database with no tables — a documented feature that had never once run.
  */
-export const SEED_DIR = "/sandboxr/seed";
+export const SEED_DIR = "/sandboxer/seed";
 
 /** Per-sandbox logs, on a host directory so they outlive the container. */
-export const LOG_DIR = "/var/log/sandboxr";
+export const LOG_DIR = "/var/log/sandboxer";
 
 /** The database volume: MySQL's data directory, or a file driver's state. */
-export const DATA_DIR = "/var/lib/sandboxr/data";
+export const DATA_DIR = "/var/lib/sandboxer/data";
 
 /** Object storage inside the sandbox. */
-export const BLOB_DIR = "/var/lib/sandboxr/blob";
+export const BLOB_DIR = "/var/lib/sandboxer/blob";
 
 /** Built binaries, on a volume so a rebuild survives a restart. */
-export const BIN_DIR = "/var/lib/sandboxr/bin";
+export const BIN_DIR = "/var/lib/sandboxer/bin";
 
 /**
  * Go's caches, on machine-wide volumes.
@@ -115,7 +115,7 @@ export const GOMOD_DIR = "/go/pkg/mod";
 export const WWW_DIR = "/srv/www";
 
 /** Runtime state, on a tmpfs: gone when the container stops, as it should be. */
-export const RUN_DIR = "/run/sandboxr";
+export const RUN_DIR = "/run/sandboxer";
 
 /**
  * Markers the container writes as it comes up.
@@ -130,7 +130,7 @@ export const RUN_DIR = "/run/sandboxr";
  * One JSON file and not a pair of touch-files: the container has to record
  * *which* migration failed and what it said, not merely that something did, and
  * `container/scripts/migrate-run.sh` composes exactly this — the same file
- * `status.sh` reads to build `/__sandboxr/status.json`. Reading it here rather
+ * `status.sh` reads to build `/__sandboxer/status.json`. Reading it here rather
  * than probing for a second set of markers is what stops the host and the
  * container from holding two different opinions about the same run.
  */
@@ -180,8 +180,8 @@ export interface SeedMount {
 
 export function seedMount(hostPath: string, cacheDir: string): SeedMount {
   const name = basename(hostPath);
-  // Compared as a path rather than as a string prefix: `~/.sandboxr/cache-old`
-  // starts with `~/.sandboxr/cache` and is not in it, and the artifact there
+  // Compared as a path rather than as a string prefix: `~/.sandboxer/cache-old`
+  // starts with `~/.sandboxer/cache` and is not in it, and the artifact there
   // would then be named in the plan as a cache entry nothing had mounted.
   const inCache = resolve(hostPath).startsWith(resolve(cacheDir) + sep);
   return inCache ? { inside: `${CACHE_DIR}/${name}` } : { inside: `${SEED_DIR}/${name}`, bind: hostPath };

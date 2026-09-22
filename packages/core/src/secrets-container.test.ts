@@ -51,9 +51,9 @@ const UNSET = "<unset>";
  */
 const DUMP = `
 set -euo pipefail
-source "$SANDBOXR_SCRIPTS/lib.sh"
-for sandboxr_test_name in "$@"; do
-  printf '%s=%s\\0' "$sandboxr_test_name" "\${!sandboxr_test_name-${UNSET}}"
+source "$SANDBOXER_SCRIPTS/lib.sh"
+for sandboxer_test_name in "$@"; do
+  printf '%s=%s\\0' "$sandboxer_test_name" "\${!sandboxer_test_name-${UNSET}}"
 done
 `;
 
@@ -91,7 +91,7 @@ describe("the container's reader and the host's writer", () => {
 
   beforeAll(async () => {
     tools = (await present("bash")) && (await present("jq")) && (await present("envsubst"));
-    dir = await mkdtemp(join(tmpdir(), "sandboxr-secrets-"));
+    dir = await mkdtemp(join(tmpdir(), "sandboxer-secrets-"));
 
     // `driver: none` and no services, so everything below the secrets block still
     // runs — that is what a real sourcing does — without needing a database or a
@@ -107,7 +107,7 @@ describe("the container's reader and the host's writer", () => {
         // secret, which only works because the secrets are read first. The second
         // shows the order does not run the other way — a derived name is the
         // sandbox's own.
-        env: { APP_TOKEN: "${API_TOKEN}", APP_DRIVER: "${SANDBOXR_DB_DRIVER}" },
+        env: { APP_TOKEN: "${API_TOKEN}", APP_DRIVER: "${SANDBOXER_DB_DRIVER}" },
       }),
     );
   });
@@ -124,10 +124,10 @@ describe("the container's reader and the host's writer", () => {
     const { stdout } = await exec("bash", ["-c", DUMP, "dump", ...names], {
       env: {
         PATH: process.env.PATH ?? "",
-        SANDBOXR_SCRIPTS: SCRIPTS,
-        SANDBOXR_PLAN: join(dir, "plan.json"),
-        SANDBOXR_SECRETS: secretsFile,
-        SANDBOXR_SLUG: "feat-checkout",
+        SANDBOXER_SCRIPTS: SCRIPTS,
+        SANDBOXER_PLAN: join(dir, "plan.json"),
+        SANDBOXER_SECRETS: secretsFile,
+        SANDBOXER_SLUG: "feat-checkout",
         ...extra,
       },
     });

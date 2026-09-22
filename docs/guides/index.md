@@ -10,13 +10,13 @@ structure, and get the disk back.
 Each page is one task. Start with the first one; the rest you can read when you need them.
 
 ```prompt
-I want to learn my way around sandboxr day to day.
+I want to learn my way around sandboxer day to day.
 
 Read docs/guides/index.md, then docs/guides/lifecycle.md and
-docs/guides/edit-and-reload.md. Then tell me, in your own words: what `sandboxr down`
+docs/guides/edit-and-reload.md. Then tell me, in your own words: what `sandboxer down`
 removes, what it can never remove, and what I have to run after I edit a file.
 
-Stop and ask me if `sandboxr ls` reports no sandboxes — that means there is nothing
+Stop and ask me if `sandboxer ls` reports no sandboxes — that means there is nothing
 here to look at yet, and we should do docs/getting-started/first-sandbox.md instead.
 ```
 

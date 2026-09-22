@@ -8,7 +8,7 @@ set -uo pipefail
 
 LOG_TAG="db"
 # shellcheck source-path=SCRIPTDIR source=../lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
 case "${1:-}" in
   ready | provision)

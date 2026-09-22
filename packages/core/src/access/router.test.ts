@@ -104,7 +104,7 @@ describe("handshakeRule", () => {
   it("matches the reserved path on any sandbox hostname", () => {
     const component = "[a-z0-9]+(?:-[a-z0-9]+)*";
     expect(handshakeRule("sbx.localhost")).toBe(
-      `HostRegexp(\`^${component}--${component}--${component}\\.sbx\\.localhost$\`) && PathPrefix(\`/.sandboxr/auth\`)`,
+      `HostRegexp(\`^${component}--${component}--${component}\\.sbx\\.localhost$\`) && PathPrefix(\`/.sandboxer/auth\`)`,
     );
   });
 
@@ -136,22 +136,22 @@ describe("handshakeRule", () => {
 });
 
 describe("sandboxRouteLabels", () => {
-  const base = { container: "sandboxr-acme-tkt-1", slug: "tkt-1", project: "acme", domain: "sbx.localhost" };
+  const base = { container: "sandboxer-acme-tkt-1", slug: "tkt-1", project: "acme", domain: "sbx.localhost" };
 
   it("sends traffic to the sandbox's own router on port 80", () => {
     const labels = sandboxRouteLabels({ ...base, tls: true, access: "public" });
-    expect(labels["traefik.http.services.sandboxr-acme-tkt-1.loadbalancer.server.port"]).toBe("80");
+    expect(labels["traefik.http.services.sandboxer-acme-tkt-1.loadbalancer.server.port"]).toBe("80");
   });
 
   it("puts a private project behind forward-auth and a public one in front of nothing", () => {
     expect(
       sandboxRouteLabels({ ...base, tls: true, access: "private" })[
-        "traefik.http.routers.sandboxr-acme-tkt-1.middlewares"
+        "traefik.http.routers.sandboxer-acme-tkt-1.middlewares"
       ],
-    ).toBe("sandboxr-auth@file");
+    ).toBe("sandboxer-auth@file");
     expect(
       sandboxRouteLabels({ ...base, tls: true, access: "public" })[
-        "traefik.http.routers.sandboxr-acme-tkt-1.middlewares"
+        "traefik.http.routers.sandboxer-acme-tkt-1.middlewares"
       ],
     ).toBeUndefined();
   });
@@ -179,7 +179,7 @@ describe("routerArgs", () => {
     expect(routerArgs({ files, bind: "0.0.0.0" })).toContain("0.0.0.0:80:80");
   });
 
-  // The one thing on the machine sandboxr cannot assume it owns. Another local
+  // The one thing on the machine sandboxer cannot assume it owns. Another local
   // router already on 80 makes `docker run` fail with nothing that names a fix.
   it("publishes the ports it is given, and keeps the container's own at 80/443", () => {
     const args = routerArgs({ files, cert, tlsDir: "/h/tls", bind: "127.0.0.1", ports: { http: 8080, https: 8443 } });
@@ -196,12 +196,12 @@ describe("routerPorts and portSuffix", () => {
   });
 
   it("reads an override and then puts it in the URL", () => {
-    const ports = routerPorts({ SANDBOXR_HTTP_PORT: "8080", SANDBOXR_HTTPS_PORT: "8443" });
+    const ports = routerPorts({ SANDBOXER_HTTP_PORT: "8080", SANDBOXER_HTTPS_PORT: "8443" });
     expect(ports).toEqual({ http: 8080, https: 8443 });
     expect(portSuffix("https", ports)).toBe(":8443");
   });
 
   it.each(["", "0", "70000", "not-a-port"])("ignores %s and keeps the default", (value) => {
-    expect(routerPorts({ SANDBOXR_HTTP_PORT: value }).http).toBe(80);
+    expect(routerPorts({ SANDBOXER_HTTP_PORT: value }).http).toBe(80);
   });
 });

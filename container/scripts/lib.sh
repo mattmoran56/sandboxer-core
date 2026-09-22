@@ -8,17 +8,17 @@
 # The plan is the container's whole view of the project. Everything else about
 # the sandbox -- which services exist, which ports they hold, how the router is
 # wired -- is derived from it, so nothing in here is hardcoded per project.
-SANDBOXR_PLAN="${SANDBOXR_PLAN:-/sandboxr/plan.json}"
+SANDBOXER_PLAN="${SANDBOXER_PLAN:-/sandboxer/plan.json}"
 
-SANDBOXR_SCRIPTS="${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}"
-SANDBOXR_RUN="${SANDBOXR_RUN:-/run/sandboxr}"
-SANDBOXR_LOGS="${SANDBOXR_LOGS:-/var/log/sandboxr}"
-SANDBOXR_STATE="${SANDBOXR_STATE:-/var/lib/sandboxr}"
-SANDBOXR_WWW="${SANDBOXR_WWW:-/srv/www}"
+SANDBOXER_SCRIPTS="${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}"
+SANDBOXER_RUN="${SANDBOXER_RUN:-/run/sandboxer}"
+SANDBOXER_LOGS="${SANDBOXER_LOGS:-/var/log/sandboxer}"
+SANDBOXER_STATE="${SANDBOXER_STATE:-/var/lib/sandboxer}"
+SANDBOXER_WWW="${SANDBOXER_WWW:-/srv/www}"
 WORKSPACE="${WORKSPACE:-/workspace}"
 
-log() { printf '%s: %s\n' "${LOG_TAG:-sandboxr}" "$*"; }
-warn() { printf '%s: %s\n' "${LOG_TAG:-sandboxr}" "$*" >&2; }
+log() { printf '%s: %s\n' "${LOG_TAG:-sandboxer}" "$*"; }
+warn() { printf '%s: %s\n' "${LOG_TAG:-sandboxer}" "$*" >&2; }
 die() {
   warn "$*"
   exit 1
@@ -34,7 +34,7 @@ die() {
 # (empty when none is given) rather than the string "null".
 plan() {
   local filter="$1" fallback="${2-}" out
-  out=$(jq -r "${filter} // empty" "$SANDBOXR_PLAN" 2>/dev/null) || out=""
+  out=$(jq -r "${filter} // empty" "$SANDBOXER_PLAN" 2>/dev/null) || out=""
   [[ -n "$out" ]] && printf '%s\n' "$out" || printf '%s\n' "$fallback"
 }
 
@@ -42,7 +42,7 @@ plan() {
 # each record without a second pass over the plan and without inventing a
 # delimiter that a command string might contain.
 services() {
-  jq -c --arg kind "$1" '.services[]? | select(.kind == $kind)' "$SANDBOXR_PLAN" 2>/dev/null
+  jq -c --arg kind "$1" '.services[]? | select(.kind == $kind)' "$SANDBOXER_PLAN" 2>/dev/null
 }
 
 # field <json> <key> [default]
@@ -56,20 +56,20 @@ field() {
 service_by() {
   jq -c --arg k "$1" --arg f "$2" --arg v "$3" \
     '[ .services[]? | select(.kind == $k and (.[$f] // "") == $v) ][0] // empty' \
-    "$SANDBOXR_PLAN" 2>/dev/null
+    "$SANDBOXER_PLAN" 2>/dev/null
 }
 
 # requested <json> -- whether this service runs in this sandbox.
 #
 # A service the plan marks optional is defined but dormant until it is named in
-# SANDBOXR_WITH, a comma-separated list of names or labels. Optional exists for
+# SANDBOXER_WITH, a comma-separated list of names or labels. Optional exists for
 # the things that are expensive to run and rarely wanted -- a dev server holding
 # a whole module graph in memory, a service nothing under test talks to.
 #
 # Both generators consult this, so the router never advertises a hostname for a
 # service that is not going to answer: the 404 then names the real cause.
 requested() {
-  local record="$1" with=",${SANDBOXR_WITH:-}," key
+  local record="$1" with=",${SANDBOXER_WITH:-}," key
   [[ "$(field "$record" optional false)" != "true" ]] && return 0
   for key in "$(field "$record" name)" "$(field "$record" label)"; do
     [[ -n "$key" && "$with" == *",$key,"* ]] && return 0
@@ -118,10 +118,10 @@ svc_id() {
 # Caddy on a request the router was right to forward.
 fqdn() {
   printf '%s--%s--%s.%s\n' \
-    "${SANDBOXR_SLUG:?SANDBOXR_SLUG is required}" \
+    "${SANDBOXER_SLUG:?SANDBOXER_SLUG is required}" \
     "$1" \
     "$(plan .project)" \
-    "${SANDBOXR_DOMAIN:-sbx.localhost}"
+    "${SANDBOXER_DOMAIN:-sbx.localhost}"
 }
 
 # --- misc --------------------------------------------------------------------
@@ -180,7 +180,7 @@ to_bytes() {
 # Sourced last, because it uses the helpers above. Every script gets it, not just
 # the entrypoint: `docker exec` inherits the container's *configured* environment
 # and never sees the entrypoint's exports, so a script reached that way would
-# otherwise run with an empty $SANDBOXR_DB_FILE or $SANDBOXR_D1_DIR and point the
+# otherwise run with an empty $SANDBOXER_DB_FILE or $SANDBOXER_D1_DIR and point the
 # runtime at nothing.
 # shellcheck source-path=SCRIPTDIR source=env.sh
-source "$SANDBOXR_SCRIPTS/env.sh"
+source "$SANDBOXER_SCRIPTS/env.sh"

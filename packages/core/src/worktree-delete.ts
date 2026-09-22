@@ -130,7 +130,7 @@ export async function worktreeSlugs(
         slug: await slugFor({
           worktree: worktree.path,
           // The workspace *directory* name, which is what a slug record is keyed
-          // on (§4.2.3) — not the `project:` a sandboxr.yaml declares.
+          // on (§4.2.3) — not the `project:` a sandboxer.yaml declares.
           project: project.name,
           branch: worktree.branch,
           max,
@@ -186,7 +186,7 @@ export interface WorktreeDeletion {
    *
    * Named separately from `slug` above because the two are allowed to differ: a
    * worktree is keyed on the workspace directory (§4.1) and a container on the
-   * name its sandboxr.yaml declares. A caller that has to do something about the
+   * name its sandboxer.yaml declares. A caller that has to do something about the
    * sandbox afterwards — the dashboard stops writing its attach heartbeat — needs
    * the container's pair and not the worktree's.
    */
@@ -297,7 +297,7 @@ export async function deleteWorktree(input: DeleteWorktreeInput): Promise<Worktr
  * Found by the worktree on its label rather than by rebuilding a container name,
  * because the two names in play are allowed to differ: a worktree is keyed on
  * the workspace *directory* (§4.1) and a container on the `project:` its
- * sandboxr.yaml declares. The derived slug is the fallback, for a sandbox
+ * sandboxer.yaml declares. The derived slug is the fallback, for a sandbox
  * started before the worktree label existed, and it is matched against the
  * declared project name for the same reason.
  */

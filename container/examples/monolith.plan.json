@@ -5,7 +5,7 @@
     "version": "8.4",
     "name": "acme",
     "fixtures": "migrations/seeds/fixtures.sql",
-    "seed": { "path": "/sandboxr/cache/acme-3f2a1b.sql.zst", "anonymised": true },
+    "seed": { "path": "/sandboxer/cache/acme-3f2a1b.sql.zst", "anonymised": true },
     "migrate": {
       "workdir": "services",
       "command": "go run ./cmd/migrate --env local --dir ../migrations",
@@ -106,17 +106,17 @@
     "admin": { "/api/admin": "adminApi", "/api": "api" }
   },
   "env": {
-    "DB_HOST": "${SANDBOXR_DB_HOST}",
-    "DB_PORT": "${SANDBOXR_DB_PORT}",
-    "DB_NAME": "${SANDBOXR_DB_NAME}",
-    "DB_USER": "${SANDBOXR_DB_USER}",
-    "DB_PASSWORD": "${SANDBOXR_DB_PASSWORD}",
-    "S3_ENDPOINT": "${SANDBOXR_S3_ENDPOINT}",
-    "S3_KEY": "${SANDBOXR_S3_KEY}",
-    "S3_SECRET": "${SANDBOXR_S3_SECRET}",
+    "DB_HOST": "${SANDBOXER_DB_HOST}",
+    "DB_PORT": "${SANDBOXER_DB_PORT}",
+    "DB_NAME": "${SANDBOXER_DB_NAME}",
+    "DB_USER": "${SANDBOXER_DB_USER}",
+    "DB_PASSWORD": "${SANDBOXER_DB_PASSWORD}",
+    "S3_ENDPOINT": "${SANDBOXER_S3_ENDPOINT}",
+    "S3_KEY": "${SANDBOXER_S3_KEY}",
+    "S3_SECRET": "${SANDBOXER_S3_SECRET}",
     "S3_BUCKET": "uploads",
     "VITE_API_URL": "/api",
-    "VITE_APP_URL": "${SANDBOXR_URL_APP}",
-    "VITE_ADMIN_URL": "${SANDBOXR_URL_ADMIN}"
+    "VITE_APP_URL": "${SANDBOXER_URL_APP}",
+    "VITE_ADMIN_URL": "${SANDBOXER_URL_ADMIN}"
   }
 }

@@ -8,7 +8,7 @@
  * - **Container uptime** is what this used to measure. It says nothing about
  *   use: a sandbox nobody has opened for two days looks identical to one
  *   somebody is typing into.
- * - **The per-sandbox logs** under `~/.sandboxr/logs/<project>/<slug>/` are
+ * - **The per-sandbox logs** under `~/.sandboxer/logs/<project>/<slug>/` are
  *   written every few seconds by the dashboard's own health probes — a `GET /`
  *   from `sandboxes/probe.ts`, which dials the container directly on the docker
  *   network. An idle timer keyed on their mtime would never fire.
@@ -19,7 +19,7 @@
  *   they do not go through the router.
  *
  * So last-activity is **derived at read time** from `docker logs
- * sandboxr-router`, and nothing new is stored. That is the argument of
+ * sandboxer-router`, and nothing new is stored. That is the argument of
  * docs/architecture/state.md applied to a timer: the truth is already in a
  * place we have to read anyway, and a second copy of it would only be a thing
  * that can drift.
@@ -74,7 +74,7 @@
  * agent going and walks away. Nothing goes through the router for an hour, the
  * sandbox looks idle, and the reaper stops it mid-run — the one failure that
  * loses work nobody can get back. A caller that forgets `extra` gets exactly
- * that, and `sandboxr expire` from a cron job has no caller to forget.
+ * that, and `sandboxer expire` from a cron job has no caller to forget.
  *
  * So the engine keeps a signal of its own for it: **whoever holds a live run
  * re-stamps `state/attach/<project>/<slug>`**, on the same heartbeat and the
@@ -94,7 +94,7 @@
  * reaped out from under a live connection.
  *
  * That one cannot be derived: the only process that knows a socket is open is
- * the dashboard holding it, and `sandboxr expire` runs somewhere else. So the
+ * the dashboard holding it, and `sandboxer expire` runs somewhere else. So the
  * dashboard re-stamps `state/attach/<project>/<slug>` while it holds one, and
  * ./attach.ts is where the whole argument for writing anything at all lives.
  * What is read here is only the mtime, on the same terms as a live agent run: a
@@ -235,7 +235,7 @@ const MONTHS: Record<string, number> = {
  *
  * Anchored at the end rather than counting fields from the front. The line is
  *
- *     IP - - [26/Aug/2026:14:14:13 +0000] "GET / HTTP/1.1" 200 1773 "-" "-" 35 "sandboxr-demo-tkt-4821@docker" "http://172.18.0.3:80" 11ms
+ *     IP - - [26/Aug/2026:14:14:13 +0000] "GET / HTTP/1.1" 200 1773 "-" "-" 35 "sandboxer-demo-tkt-4821@docker" "http://172.18.0.3:80" 11ms
  *
  * and the request line in the middle is attacker-controlled: a path could
  * contain quotes, brackets, or the word `@docker`. The last three fields are
@@ -401,7 +401,7 @@ export async function mtimeOf(file: string): Promise<Date | undefined> {
 
 export interface AttachedActivityOptions {
   env?: NodeJS.ProcessEnv | undefined;
-  /** `$SANDBOXR_HOME`, for a caller that already has it. Derived from `env` otherwise. */
+  /** `$SANDBOXER_HOME`, for a caller that already has it. Derived from `env` otherwise. */
   home?: string | undefined;
   now?: Date | undefined;
 }

@@ -8,19 +8,19 @@ set -euo pipefail
 
 LOG_TAG="db"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
 DRIVER=$(plan .database.driver none)
-DB_SCRIPT="$SANDBOXR_SCRIPTS/db/$DRIVER.sh"
-SCHEMA_DIR="$SANDBOXR_STATE/schema"
+DB_SCRIPT="$SANDBOXER_SCRIPTS/db/$DRIVER.sh"
+SCHEMA_DIR="$SANDBOXER_STATE/schema"
 
 [[ -x "$DB_SCRIPT" ]] || die "no driver script for '$DRIVER'"
 
 case "${1:-}" in
   shell) exec "$DB_SCRIPT" shell ;;
   snapshot) exec "$DB_SCRIPT" snapshot ;;
-  migrate) exec "$SANDBOXR_SCRIPTS/migrate-run.sh" ;;
-  provision) exec "$SANDBOXR_SCRIPTS/db-init.sh" ;;
+  migrate) exec "$SANDBOXER_SCRIPTS/migrate-run.sh" ;;
+  provision) exec "$SANDBOXER_SCRIPTS/db-init.sh" ;;
   fixtures)
     FIXTURES=$(plan .database.fixtures)
     [[ -n "$FIXTURES" ]] || die "this project declares no fixtures"

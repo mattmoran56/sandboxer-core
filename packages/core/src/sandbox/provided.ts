@@ -17,14 +17,14 @@
  * Three things are worth saying about the shape.
  *
  * **`manifests` is never mounted anywhere.** It is a host directory holding a
- * copy of the project's `sandboxr.yaml`, its lockfiles and its `package.json`s,
+ * copy of the project's `sandboxer.yaml`, its lockfiles and its `package.json`s,
  * for the host to read and for `ensureProjectImage` to build from. Whoever made
  * it disposes of it; a stale copy would be a second opinion about what the
  * project is.
  *
  * **`facts` is handed in rather than read**, because there is no checkout on
- * the host to run `git` against. They go on `sandboxr.branch`, `sandboxr.commit`
- * and `sandboxr.dirty` exactly as a worktree's do (§3.4), and they are the
+ * the host to run `git` against. They go on `sandboxer.branch`, `sandboxer.commit`
+ * and `sandboxer.dirty` exactly as a worktree's do (§3.4), and they are the
  * caller's to get right.
  *
  * **`mounts` replaces the worktree bind and `gitMounts` outright.** `gitMounts`
@@ -53,7 +53,7 @@ export interface ProvidedWorkspace {
   slug: string;
   /** A host directory holding the project's manifests. Never mounted anywhere. */
   manifests: string;
-  /** What `/workspace` *is*, as a name. Goes on `sandboxr.worktree`. */
+  /** What `/workspace` *is*, as a name. Goes on `sandboxer.worktree`. */
   workspace: string;
   /** Branch, commit and dirtiness, since the host has no checkout to read. */
   facts: GitFacts;

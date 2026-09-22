@@ -10,16 +10,16 @@ set -euo pipefail
 
 LOG_TAG="minio"
 # shellcheck source-path=SCRIPTDIR source=../lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
-export MINIO_ROOT_USER="${SANDBOXR_S3_KEY:-sandboxr}"
-export MINIO_ROOT_PASSWORD="${SANDBOXR_S3_SECRET:-sandboxrlocal}"
+export MINIO_ROOT_USER="${SANDBOXER_S3_KEY:-sandboxer}"
+export MINIO_ROOT_PASSWORD="${SANDBOXER_S3_SECRET:-sandboxerlocal}"
 
 # Quiet the update check: a sandbox has no business reaching out.
 export MINIO_UPDATE=off
 
-mkdir -p "$SANDBOXR_STATE/blob"
+mkdir -p "$SANDBOXER_STATE/blob"
 
-exec minio server "$SANDBOXR_STATE/blob" \
+exec minio server "$SANDBOXER_STATE/blob" \
   --address 127.0.0.1:9000 \
   --console-address 127.0.0.1:9001

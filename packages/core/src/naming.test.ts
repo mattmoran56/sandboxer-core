@@ -321,32 +321,32 @@ describe("parseHost", () => {
 
 describe("docker names", () => {
   it("names a container", () => {
-    expect(containerName("acme", "tkt-4821")).toBe("sandboxr-acme-tkt-4821");
+    expect(containerName("acme", "tkt-4821")).toBe("sandboxer-acme-tkt-4821");
   });
 
   it.each(["data", "blob", "bin", "www"] as const)("names the %s volume", (purpose) => {
-    expect(volumeName(purpose, "p", "s")).toBe(`sandboxr-${purpose}-p-s`);
+    expect(volumeName(purpose, "p", "s")).toBe(`sandboxer-${purpose}-p-s`);
   });
 
   it("keys the shared dependency volume on a hash", () => {
-    expect(depsVolumeName("abc123")).toBe("sandboxr-deps-abc123");
+    expect(depsVolumeName("abc123")).toBe("sandboxer-deps-abc123");
   });
 
   it("names a session's workstation and work volume", () => {
-    expect(workstationName("eng-3941")).toBe("sandboxr-ws-eng-3941");
-    expect(workVolumeName("eng-3941")).toBe("sandboxr-work-eng-3941");
+    expect(workstationName("eng-3941")).toBe("sandboxer-ws-eng-3941");
+    expect(workVolumeName("eng-3941")).toBe("sandboxer-work-eng-3941");
   });
 
   // What `gc` asks before it deletes somebody's uncommitted work (contracts
   // §3.3). The near misses matter as much as the hit: this is a prefix test, so
   // anything that merely starts with the letters has to fall out.
   it("recognises the reserved prefix, and nothing that merely looks like it", () => {
-    expect(isWorkVolume("sandboxr-work-eng-3941")).toBe(true);
+    expect(isWorkVolume("sandboxer-work-eng-3941")).toBe(true);
     // The prefix with nothing after it names no session, so it is not one of
     // ours — and something has to be, for the reclaimers to leave it alone.
-    expect(isWorkVolume("sandboxr-work-")).toBe(false);
-    expect(isWorkVolume("sandboxr-data-acme-tkt-1")).toBe(false);
-    expect(isWorkVolume("sandboxr-workspace-acme")).toBe(false);
+    expect(isWorkVolume("sandboxer-work-")).toBe(false);
+    expect(isWorkVolume("sandboxer-data-acme-tkt-1")).toBe(false);
+    expect(isWorkVolume("sandboxer-workspace-acme")).toBe(false);
     expect(isWorkVolume("work-eng-3941")).toBe(false);
   });
 
@@ -363,14 +363,14 @@ describe("docker names", () => {
   // `protectVolumes`, and `orphanVolumes` never proposes a name of a shape the
   // engine does not mint. The list being short is the property under test.
   it("counts only the engine's own volumes among the machine-wide ones", () => {
-    expect([...SHARED_VOLUMES]).toEqual(["sandboxr-gocache", "sandboxr-gomod"]);
+    expect([...SHARED_VOLUMES]).toEqual(["sandboxer-gocache", "sandboxer-gomod"]);
   });
 
   // Spelt once, beside the name it prefixes: `orphanVolumes` recognises a volume
   // the engine minted by this prefix, because a name cannot be split back into a
   // project and a slug when either may contain a dash.
   it("prefixes every per-sandbox volume with its purpose", () => {
-    expect(volumePrefix("data")).toBe("sandboxr-data-");
+    expect(volumePrefix("data")).toBe("sandboxer-data-");
     for (const purpose of ["data", "blob", "bin", "www"] as const) {
       expect(volumeName(purpose, "acme-shop", "feat-a-b").startsWith(volumePrefix(purpose))).toBe(true);
     }
@@ -382,23 +382,23 @@ describe("docker names", () => {
   });
 
   it("splits at the first dash when the project is unknown", () => {
-    expect(parseContainerName("sandboxr-p-tkt-1")).toEqual({ project: "p", slug: "tkt-1" });
+    expect(parseContainerName("sandboxer-p-tkt-1")).toEqual({ project: "p", slug: "tkt-1" });
   });
 
   it.each([
     ["something else entirely", "postgres"],
-    ["the prefix alone", "sandboxr-"],
-    ["a project with no slug", "sandboxr-project-"],
-    ["a slug with no project", "sandboxr--slug"],
-    ["a different project than the one asked for", "sandboxr-other-slug"],
+    ["the prefix alone", "sandboxer-"],
+    ["a project with no slug", "sandboxer-project-"],
+    ["a slug with no project", "sandboxer--slug"],
+    ["a different project than the one asked for", "sandboxer-other-slug"],
   ])("refuses to guess at %s", (_name, input) => {
-    expect(parseContainerName(input, input === "sandboxr-other-slug" ? "mine" : undefined)).toBeUndefined();
+    expect(parseContainerName(input, input === "sandboxer-other-slug" ? "mine" : undefined)).toBeUndefined();
   });
 });
 
 describe("lockName", () => {
   it("folds to a legal identifier", () => {
-    expect(lockName("acme-shop", "tkt-1")).toBe("sandboxr_migrate_acme_shop_tkt_1");
+    expect(lockName("acme-shop", "tkt-1")).toBe("sandboxer_migrate_acme_shop_tkt_1");
   });
 
   it("is deterministic", () => {

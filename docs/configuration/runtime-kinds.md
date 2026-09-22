@@ -8,10 +8,10 @@ built, what it costs while nobody is looking at it, and what you run after you c
 This page is how you choose.
 
 ```prompt
-Classify every runnable thing in this project into sandboxr's three runtime kinds.
+Classify every runnable thing in this project into sandboxer's three runtime kinds.
 
 Read docs/configuration/runtime-kinds.md. For each app or service, say which kind it is
-and why, and write the sandboxr.yaml entry for it. Find the real build command, output
+and why, and write the sandboxer.yaml entry for it. Find the real build command, output
 directory and port by reading the project — do not guess.
 
 Stop and tell me if something is a long-running dev server with no static build, because
@@ -51,7 +51,7 @@ process alive". Without it, a service that started and immediately wedged still 
 up.
 
 ```bash
-sandboxr reload --go=api     # compile, then replace the process
+sandboxer reload --go=api     # compile, then replace the process
 ```
 
 > [!NOTE] No compiled backend has been built in a sandbox yet
@@ -67,7 +67,7 @@ the service itself rather than a wrapper shell. A supervised shell would survive
 `address already in use` while the old code carried on serving.
 
 The build is skipped when the binary exists and nothing under its `workdir` is newer than
-it. `node_modules` and `.git` are excluded from that walk. `SANDBOXR_FORCE_BUILD=true`
+it. `node_modules` and `.git` are excluded from that walk. `SANDBOXER_FORCE_BUILD=true`
 overrides the check.
 
 A build failure is not allowed to become a crash-loop that scrolls its own error away: the
@@ -117,7 +117,7 @@ app has not been built in this sandbox.
 Then run:
 
 ```bash
-sandboxr reload <slug> --web=app
+sandboxer reload <slug> --web=app
 ```
 
 A page rather than a 404, because a 404 at a sandbox hostname is indistinguishable from
@@ -125,12 +125,12 @@ broken DNS or a misconfigured router — you would go and debug the wrong layer.
 served with status 503.
 
 > [!NOTE] That page names a command that does not exist
-> The 503 page tells you to run `sandboxr build <slug> --app <label>`. There is no `build`
-> verb in the CLI. `sandboxr reload <slug> --web=<label>` is the command that works.
+> The 503 page tells you to run `sandboxer build <slug> --app <label>`. There is no `build`
+> verb in the CLI. `sandboxer reload <slug> --web=<label>` is the command that works.
 
 Two fields shape a static app further, and both are covered in the reference:
-[`static_mode`](sandboxr-yaml.md#static_mode) decides how unknown paths resolve, and
-[`in_build_all`](sandboxr-yaml.md#in_build_all) decides whether "rebuild everything"
+[`static_mode`](sandboxer-yaml.md#static_mode) decides how unknown paths resolve, and
+[`in_build_all`](sandboxer-yaml.md#in_build_all) decides whether "rebuild everything"
 includes it.
 
 <details class="failure">
@@ -150,7 +150,7 @@ The largest limit any runtime asks for becomes the whole sandbox's limit, over a
 4 GB. The build then also compares its declared limit against the container's real one and
 refuses in a second, naming both, instead of dying part-way through.
 
-The container's message suggests `SANDBOXR_MEMORY=6g sandboxr up`. Nothing on the host reads
+The container's message suggests `SANDBOXER_MEMORY=6g sandboxer up`. Nothing on the host reads
 that variable today; declaring `memory` in the config is the working fix.
 
 </details>
@@ -192,7 +192,7 @@ multiplied by every sandbox you are running.
 So mark it `optional: true`, and it is defined but dormant until you ask for it:
 
 ```bash
-sandboxr up --with cms
+sandboxer up --with cms
 ```
 
 Nothing about `optional` is specific to servers — a backend can be optional too — but a
@@ -203,12 +203,12 @@ server is the usual reason to want it.
 > the sandbox's own state directory:
 >
 > ```yaml
-> serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXR_D1_DIR"
+> serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXER_D1_DIR"
 > ```
 >
 > Leave it out and the runtime writes its database **into your worktree**. Sandbox data then
 > lands in your branch, and every sandbox of that project shares one file.
-> `sandboxr doctor` warns when it cannot see the variable in the command. It does not
+> `sandboxer doctor` warns when it cannot see the variable in the command. It does not
 > refuse, because a project can point its runtime at the right place through a config file
 > the tool cannot read.
 
@@ -226,7 +226,7 @@ An optional service is written into the plan and into its supervisor entry, and 
 disabled unless it is named in `--with`. Three things follow, and all three are binding:
 
 - **The router does not advertise it.** No app hostname, and no health route for it.
-- **A path under `/__sandboxr/` that names nothing answers 404.** That is the router saying
+- **A path under `/__sandboxer/` that names nothing answers 404.** That is the router saying
   it has no route at all — which is a different answer from a service saying "no".
 - **Nothing may report a dormant service as a fault.** The `optional` flag is carried out of
   the plan and all the way to the screen. The state derived for a dormant service is its own
@@ -249,7 +249,7 @@ yet" page, and whatever read those probes called every dormant service `down`. O
 never-started service read as `up`.
 
 A service's reachability must not depend on whether an unrelated front-end has been built.
-Reserving `/__sandboxr/*` and answering 404 there is what restores that.
+Reserving `/__sandboxer/*` and answering 404 there is what restores that.
 
 </details>
 
@@ -280,6 +280,6 @@ in one place.
 | A Workers project under `wrangler dev` | served | `serve:` and `port:` |
 | A worker with no HTTP interface at all | backend | an entry under `backends.services` |
 
-**Next:** [sandboxr.yaml, field by field](sandboxr-yaml.md) for every field each kind
+**Next:** [sandboxer.yaml, field by field](sandboxer-yaml.md) for every field each kind
 accepts, or [The edit–reload loop](../guides/edit-and-reload.md) for what you run after you
 change something.

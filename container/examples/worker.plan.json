@@ -4,9 +4,9 @@
     "driver": "d1",
     "owner": "app",
     "fixtures": "seeds/fixtures.sql",
-    "seed": { "path": "/sandboxr/cache/edge-thing-state", "anonymised": true },
+    "seed": { "path": "/sandboxer/cache/edge-thing-state", "anonymised": true },
     "migrate": {
-      "command": "npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXR_D1_DIR"
+      "command": "npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXER_D1_DIR"
     }
   },
   "storage": { "driver": "none" },
@@ -22,7 +22,7 @@
       "label": "app",
       "package": ".",
       "root": ".",
-      "serve": "npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to $SANDBOXR_D1_DIR",
+      "serve": "npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to $SANDBOXER_D1_DIR",
       "port": 8787,
       "health": "/health"
     }
@@ -30,6 +30,6 @@
   "routes": {},
   "env": {
     "API_TOKEN": "dummy",
-    "APP_URL": "${SANDBOXR_URL_APP}"
+    "APP_URL": "${SANDBOXER_URL_APP}"
   }
 }

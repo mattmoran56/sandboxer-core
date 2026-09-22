@@ -1,11 +1,11 @@
 {
-  "name": "@sandboxr/cli",
+  "name": "@sandboxer/cli",
   "version": "0.1.0",
-  "description": "The sandboxr command.",
+  "description": "The sandboxer command.",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "sandboxr": "./bin/sandboxr.js"
+    "sandboxer": "./bin/sandboxer.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,7 +19,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@sandboxr/core": "0.1.0"
+    "@sandboxer/core": "0.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

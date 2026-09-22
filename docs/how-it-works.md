@@ -9,7 +9,7 @@ explanation, because every page is describing one of these five steps in more de
 ```mermaid
 flowchart TB
   a["<b>1. A worktree</b><br/>a directory on your disk"]
-  b["<b>2. A config</b><br/>sandboxr.yaml, in the project"]
+  b["<b>2. A config</b><br/>sandboxer.yaml, in the project"]
   c["<b>3. A plan</b><br/>plan.json, resolved on the host"]
   d["<b>4. A container</b><br/>one per sandbox"]
   e["<b>5. A router</b><br/>one per machine"]
@@ -22,10 +22,10 @@ flowchart TB
 Everything starts from a directory.
 
 A [worktree](reference/glossary.md) is git's own feature for having more than one branch checked
-out at once, each in its own directory. You run `sandboxr up` inside one of them. That directory,
+out at once, each in its own directory. You run `sandboxer up` inside one of them. That directory,
 and the branch it is on, are the whole input.
 
-From it sandboxr works out a **slug**: a short name for this sandbox. A worktree at
+From it sandboxer works out a **slug**: a short name for this sandbox. A worktree at
 `.worktrees/tkt-4821` gets the slug `tkt-4821`. The slug turns up everywhere afterwards — in the
 hostname, in the container's name, in the names of its volumes — so it is worth knowing that it
 came from your directory or your branch, and nowhere else.
@@ -35,8 +35,8 @@ came from your directory or your branch, and nowhere else.
 
 In order of preference, stopping at the first that applies:
 
-1. An explicit argument (`sandboxr up my-name`).
-2. A slug recorded for this worktree, in `~/.sandboxr/state/slug/`. Written only when the
+1. An explicit argument (`sandboxer up my-name`).
+2. A slug recorded for this worktree, in `~/.sandboxer/state/slug/`. Written only when the
    slug the worktree would derive was already a sibling's — see below.
 3. A ticket-style id anywhere in the worktree **directory** name, matching `/[a-z]+-[0-9]+/i`.
 4. That same pattern in the **branch** name.
@@ -53,7 +53,7 @@ because a slug ends up inside a database advisory lock name, and two long branch
 share a prefix — truncation would let two sandboxes collide on one lock.
 
 **Two branches on one ticket derive one slug**, and a slug names the container, the volumes
-and the database lock — so that would be one sandbox for two branches. When sandboxr cuts the
+and the database lock — so that would be one sandbox for two branches. When sandboxer cuts the
 worktree itself it catches this and gives the new one `<slug>-<4 random characters>`, which is
 what rule 2 reads back. Four characters and not a UUID: the ceiling is a lock-name budget, and
 a name nobody can read defeats the point of the ticket-id rule.
@@ -68,9 +68,9 @@ on one machine: [One repo, many branches](setups/one-repo-many-worktrees.md).
 
 The project says what it is, once, in a file it keeps.
 
-That file is `sandboxr.yaml`, at the root of the repository, committed alongside the code. It
+That file is `sandboxer.yaml`, at the root of the repository, committed alongside the code. It
 names the project, its front-ends, its services, which database it wants, how to install
-dependencies, and which toolchains it needs. sandboxr has no built-in knowledge of any project.
+dependencies, and which toolchains it needs. sandboxer has no built-in knowledge of any project.
 If it is not in the config, it does not happen.
 
 Because the file is committed, it travels with the branch. A branch that adds a new service adds
@@ -85,10 +85,10 @@ block at a time.
 
 The config is written for people. The container needs something simpler.
 
-So before anything starts, sandboxr reads the config on your machine and resolves it into
+So before anything starts, sandboxer reads the config on your machine and resolves it into
 `plan.json`: every default filled in, every path made absolute, every choice already made. The
 plan is the container's entire view of the project. It is mounted read-only, and nothing inside a
-container ever reads `sandboxr.yaml`.
+container ever reads `sandboxer.yaml`.
 
 <details class="why">
 <summary><b>Why it works this way</b> — the container knows nothing about your config format</summary>
@@ -124,21 +124,21 @@ is what step 5 is for.
 
 | Thing | Value |
 |---|---|
-| Container | `sandboxr-<project>-<slug>` |
-| Docker network | `sandboxr` — one, shared by every sandbox and the router |
+| Container | `sandboxer-<project>-<slug>` |
+| Docker network | `sandboxer` — one, shared by every sandbox and the router |
 | The worktree, inside | `/workspace`, read-write bind mount |
-| The plan, inside | `/sandboxr/plan.json`, read-only |
-| Host state | everything under `SANDBOXR_HOME`, default `~/.sandboxr` |
+| The plan, inside | `/sandboxer/plan.json`, read-only |
+| Host state | everything under `SANDBOXER_HOME`, default `~/.sandboxer` |
 
-`SANDBOXR_HOME` sits deliberately outside any repository, so `git clean` cannot destroy a seed
+`SANDBOXER_HOME` sits deliberately outside any repository, so `git clean` cannot destroy a seed
 cache or a certificate. Full list: [Paths](reference/paths.md).
 
-Two images are involved, not one. `sandboxr/base` carries the operating system, the supervisor
-and the shared pieces, and is built once per machine by `sandboxr init`. `sandboxr/<project>`
-adds that project's toolchains and dependencies, and is built by its first `sandboxr up`.
+Two images are involved, not one. `sandboxer/base` carries the operating system, the supervisor
+and the shared pieces, and is built once per machine by `sandboxer init`. `sandboxer/<project>`
+adds that project's toolchains and dependencies, and is built by its first `sandboxer up`.
 
 There is no manifest of sandboxes anywhere. Durable facts — project, slug, branch, commit,
-worktree, driver — live as labels on the container, and `sandboxr ls` is a pure function of
+worktree, driver — live as labels on the container, and `sandboxer ls` is a pure function of
 `docker ps`. Nothing on the host can drift out of sync with what is running.
 [State lives in labels](architecture/state.md).
 
@@ -148,7 +148,7 @@ worktree, driver — live as labels on the container, and `sandboxr ls` is a pur
 
 One router sits in front of every sandbox on the machine, and decides which one a request is for.
 
-It is a single container, started by `sandboxr init`, and it is the only thing listening on your
+It is a single container, started by `sandboxer init`, and it is the only thing listening on your
 machine's ports. It works out where a request belongs from the **hostname**. Sandboxes do not
 have to be registered with it: it watches Docker and reconciles from the labels on each sandbox
 container, so starting or stopping a sandbox never edits a config file and never triggers a
@@ -168,8 +168,8 @@ Read left to right, it narrows:
 |---|---|---|
 | **slug** | which sandbox | your branch or worktree directory (step 1) |
 | **label** | which app inside that sandbox | the project's config: `app`, `api`, `admin` |
-| **project** | which project | the `project:` field in `sandboxr.yaml` |
-| **domain** | this machine's sandbox domain | `SANDBOXR_DOMAIN`, default `sbx.localhost` |
+| **project** | which project | the `project:` field in `sandboxer.yaml` |
+| **domain** | this machine's sandbox domain | `SANDBOXER_DOMAIN`, default `sbx.localhost` |
 
 So one sandbox of the `acme` project, with two apps in it, serves two hostnames on a machine
 using the default domain:
@@ -186,7 +186,7 @@ shape could be covered by no wildcard at all and needed a certificate issued per
 
 The cost is a length limit, and it is worth knowing about once: all three parts share the 63
 characters a single name is allowed. A long project name with a long label leaves less room for the
-slug, so sandboxr shortens slugs to fit — and refuses a config where there would be almost nothing
+slug, so sandboxer shortens slugs to fit — and refuses a config where there would be almost nothing
 left, rather than producing a hostname that does not work.
 
 There is no DNS to set up. Every current browser, and macOS's own resolver, answer any name
@@ -195,11 +195,11 @@ under `.localhost` with the loopback address by themselves.
 ### The bare domain is the exception
 
 The **bare domain** — `https://sbx.localhost` — is not a sandbox hostname and never becomes one.
-`sandboxr init` prepares it and serves nothing on it, so it is where a control plane goes if you
+`sandboxer init` prepares it and serves nothing on it, so it is where a control plane goes if you
 put one there.
 
 That separation is deliberate. A control plane can start and stop containers, so it must never be
-one guessed label away from an app that anyone can reach. sandboxr routes the bare domain and
+one guessed label away from an app that anyone can reach. sandboxer routes the bare domain and
 nothing more: whatever answers there brings its own authentication.
 [Access and security](access.md).
 
@@ -217,7 +217,7 @@ detail:
 | Step | Where it goes deeper |
 |---|---|
 | The worktree and its slug | [One repo, many branches](setups/one-repo-many-worktrees.md) |
-| The config | [sandboxr.yaml, field by field](configuration/sandboxr-yaml.md) |
+| The config | [sandboxer.yaml, field by field](configuration/sandboxer-yaml.md) |
 | The plan | [plan.json](architecture/plan-json.md) |
 | The container coming up | [The startup graph](architecture/startup.md) |
 | The router, in full | [How a request arrives](architecture/request-path.md) |

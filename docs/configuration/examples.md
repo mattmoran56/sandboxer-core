@@ -11,13 +11,13 @@ projects used throughout these pages.
 Pick the closest example config for this project and adapt it.
 
 Read docs/configuration/examples.md, then open the example file it points at in the
-sandboxr repository. Adapt it to this project by reading the project's own build scripts,
+sandboxer repository. Adapt it to this project by reading the project's own build scripts,
 ports and package layout. Explain each change you make.
 
 Stop and tell me if this project has a database engine none of the three examples uses.
 ```
 
-| | `demo-worker/sandboxr.yaml` | `workers.sandboxr.yaml` | `monorepo.sandboxr.yaml` |
+| | `demo-worker/sandboxer.yaml` | `workers.sandboxer.yaml` | `monorepo.sandboxer.yaml` |
 |---|---|---|---|
 | Project | `demo` | `worker-thing` | `acme` |
 | Database | D1, fixtures only | D1, seeded from a state directory | MySQL 8.4, forked or restored |
@@ -31,14 +31,14 @@ Stop and tell me if this project has a database engine none of the three example
 
 Only the demo has been run all the way through. See [What is built](../reference/status.md).
 
-## The demo: `examples/demo-worker/sandboxr.yaml`
+## The demo: `examples/demo-worker/sandboxer.yaml`
 
-The cheapest thing sandboxr can run, and the fixture its end-to-end check uses. A Cloudflare
+The cheapest thing sandboxer can run, and the fixture its end-to-end check uses. A Cloudflare
 Worker on D1.
 
 ```yaml
 project: demo
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 
 database:
   driver: d1
@@ -46,14 +46,14 @@ database:
     fixtures: seeds/fixtures.sql
   migrate:
     workdir: .
-    command: npx wrangler d1 migrations apply demo --local --persist-to "$SANDBOXR_D1_DIR"
+    command: npx wrangler d1 migrations apply demo --local --persist-to "$SANDBOXER_D1_DIR"
   owner: app
 
 frontends:
   apps:
     - label: app
       package: .
-      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXR_D1_DIR"
+      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to "$SANDBOXER_D1_DIR"
       port: 8787
       health: /health
 
@@ -68,7 +68,7 @@ access:
   controls: password
 
 env:
-  SANDBOXR_SLUG: "${SANDBOXR_SLUG}"
+  SANDBOXER_SLUG: "${SANDBOXER_SLUG}"
   WRANGLER_SEND_METRICS: "false"
 ```
 
@@ -80,7 +80,7 @@ Four things to notice, because they are the ones you would copy.
 **`serve:` and `port:`, not `out:`** — the worker *is* the app, so this is a served
 front-end rather than a static build. See [The three runtime kinds](runtime-kinds.md).
 
-**`--persist-to "$SANDBOXR_D1_DIR"` in both commands** — this is what points wrangler at the
+**`--persist-to "$SANDBOXER_D1_DIR"` in both commands** — this is what points wrangler at the
 sandbox's own state directory instead of the worktree. Leave it out of either one and the
 database lands in your branch.
 
@@ -91,13 +91,13 @@ This config is walked line by line, alongside the project's `wrangler.jsonc`, mi
 fixtures, on [Run the demo project](../getting-started/demo-project.md). Start there if you
 want the teaching version rather than the comparison.
 
-## A Workers project with data of its own: `examples/workers.sandboxr.yaml`
+## A Workers project with data of its own: `examples/workers.sandboxer.yaml`
 
 Almost the same shape, with three additions that a real Workers project needs.
 
 ```yaml
 project: worker-thing
-sandboxr: ">=0.1.0"
+sandboxer: ">=0.1.0"
 
 database:
   driver: d1
@@ -105,14 +105,14 @@ database:
     file: .wrangler/state
     fixtures: seeds/fixtures.sql
   migrate:
-    command: npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXR_D1_DIR
+    command: npx wrangler d1 migrations apply DB --local --persist-to $SANDBOXER_D1_DIR
   owner: app
 
 frontends:
   apps:
     - label: app
       package: .
-      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to $SANDBOXR_D1_DIR
+      serve: npx wrangler dev --port 8787 --ip 127.0.0.1 --persist-to $SANDBOXER_D1_DIR
       port: 8787
 
 secrets:
@@ -129,11 +129,11 @@ access:
 
 env:
   API_TOKEN: dummy
-  APP_URL: "${SANDBOXR_URL_APP}"
+  APP_URL: "${SANDBOXER_URL_APP}"
 ```
 
 **`seed_from.file: .wrangler/state`** is where the local Cloudflare runtime keeps its SQLite
-files. That directory is normally gitignored, so a fresh worktree has nothing in it. sandboxr
+files. That directory is normally gitignored, so a fresh worktree has nothing in it. sandboxer
 snapshots from a checkout that *does* have content, and falls back to migrating an empty
 database when it does not. An empty seed here is a normal state, not a failure.
 
@@ -143,11 +143,11 @@ address. See [Secrets](secrets.md).
 **`env: API_TOKEN: dummy`** is the other half of that. The project's apps are `public`, so
 real credentials are refused — a harmless placeholder comes through `env` instead.
 
-Note also `APP_URL: "${SANDBOXR_URL_APP}"`. Only the container knows both the slug and the
+Note also `APP_URL: "${SANDBOXER_URL_APP}"`. Only the container knows both the slug and the
 domain at the moment a build runs, so a slug-bearing URL has to come from a computed
 variable.
 
-## The hard case: `examples/monorepo.sandboxr.yaml`
+## The hard case: `examples/monorepo.sandboxer.yaml`
 
 A large monorepo on MySQL: several Go services, several Vite apps, a static site, a component
 library and a CMS. If the schema can express this project, it can express most.
@@ -165,7 +165,7 @@ database:
     local:
       container: acme_db
       database: acme
-    file: /var/sandboxr/seeds/acme.sql.zst
+    file: /var/sandboxer/seeds/acme.sql.zst
     fixtures: db/seeds/fixtures.sql
   migrate:
     workdir: services
@@ -186,7 +186,7 @@ would fail on columns that already exist.
 > `anonymised: true`. This example lists both — and the config still loads, because a config
 > is refused only when *none* of its sources is permissible, and `fixtures` is. What this
 > project actually gets on a public machine is the fixtures. Force one of the other two with
-> `sandboxr up --seed local` and it is refused at that point instead.
+> `sandboxer up --seed local` and it is refused at that point instead.
 > [The rules a config must obey](rules.md#public-projects-the-two-refusals) has the table.
 
 ### The runtimes
@@ -266,9 +266,9 @@ secrets:
          ANALYTICS_API_KEY, ANALYTICS_ENDPOINT, EMAIL_API_KEY, MAPS_API_KEY, JWT_SECRET]
   rename:
     ANALYTICS_API_HOST: ANALYTICS_ENDPOINT
-    VITE_AUTH0_DOMAIN: SANDBOXR_AUTH0_SPA_DOMAIN
-    VITE_AUTH0_CLIENT_ID: SANDBOXR_AUTH0_SPA_CLIENT_ID
-    VITE_AUTH0_AUDIENCE: SANDBOXR_AUTH0_SPA_AUDIENCE
+    VITE_AUTH0_DOMAIN: SANDBOXER_AUTH0_SPA_DOMAIN
+    VITE_AUTH0_CLIENT_ID: SANDBOXER_AUTH0_SPA_CLIENT_ID
+    VITE_AUTH0_AUDIENCE: SANDBOXER_AUTH0_SPA_AUDIENCE
   never: ["DB_*", "MYSQL_*", "S3_*", "*_URL", "PORT", "ENV"]
 
 storage:
@@ -287,22 +287,22 @@ block then supplies every address from the sandbox's own computed values:
 
 ```yaml
 env:
-  DB_HOST: "${SANDBOXR_DB_HOST}"
-  DB_PORT: "${SANDBOXR_DB_PORT}"
-  DB_NAME: "${SANDBOXR_DB_NAME}"
-  DB_USER: "${SANDBOXR_DB_USER}"
-  DB_PASSWORD: "${SANDBOXR_DB_PASSWORD}"
-  S3_ENDPOINT: "${SANDBOXR_S3_ENDPOINT}"
-  S3_KEY: "${SANDBOXR_S3_KEY}"
-  S3_SECRET: "${SANDBOXR_S3_SECRET}"
+  DB_HOST: "${SANDBOXER_DB_HOST}"
+  DB_PORT: "${SANDBOXER_DB_PORT}"
+  DB_NAME: "${SANDBOXER_DB_NAME}"
+  DB_USER: "${SANDBOXER_DB_USER}"
+  DB_PASSWORD: "${SANDBOXER_DB_PASSWORD}"
+  S3_ENDPOINT: "${SANDBOXER_S3_ENDPOINT}"
+  S3_KEY: "${SANDBOXER_S3_KEY}"
+  S3_SECRET: "${SANDBOXER_S3_SECRET}"
   S3_BUCKET: uploads
   VITE_API_URL: /api
-  VITE_APP_URL: "${SANDBOXR_URL_APP}"
-  VITE_ADMIN_URL: "${SANDBOXR_URL_ADMIN}"
+  VITE_APP_URL: "${SANDBOXER_URL_APP}"
+  VITE_ADMIN_URL: "${SANDBOXER_URL_ADMIN}"
 ```
 
 `VITE_API_URL: /api` is a same-origin path, so a built bundle makes no cross-origin request
-at all. The two `SANDBOXR_URL_*` values are for cross-app navigation, which does need an
+at all. The two `SANDBOXER_URL_*` values are for cross-app navigation, which does need an
 absolute, slug-bearing URL.
 
 <details class="agent">
@@ -310,9 +310,9 @@ absolute, slug-bearing URL.
 
 | Path in the repository | Copy it to | Blocks it uses |
 |---|---|---|
-| `examples/demo-worker/sandboxr.yaml` | already in place; it is a runnable project | `database` (`d1`, fixtures, `migrate`, `owner`), `frontends` (served), `deps`, `toolchain`, `access`, `env` |
-| `examples/workers.sandboxr.yaml` | the repo root, as `sandboxr.yaml` | the above plus `secrets`, and `seed_from.file` |
-| `examples/monorepo.sandboxr.yaml` | the repo root, as `sandboxr.yaml` | every block the schema has except `deps` — `database` (`mysql`, three seed sources, `since`), `backends` with `defaults`, `frontends` with `root` and `defaults`, `routes`, `secrets` with `rename`, `storage`, `toolchain`, `access`, `env` |
+| `examples/demo-worker/sandboxer.yaml` | already in place; it is a runnable project | `database` (`d1`, fixtures, `migrate`, `owner`), `frontends` (served), `deps`, `toolchain`, `access`, `env` |
+| `examples/workers.sandboxer.yaml` | the repo root, as `sandboxer.yaml` | the above plus `secrets`, and `seed_from.file` |
+| `examples/monorepo.sandboxer.yaml` | the repo root, as `sandboxer.yaml` | every block the schema has except `deps` — `database` (`mysql`, three seed sources, `since`), `backends` with `defaults`, `frontends` with `root` and `defaults`, `routes`, `secrets` with `rename`, `storage`, `toolchain`, `access`, `env` |
 
 The demo also ships `wrangler.jsonc`, `package.json`, `migrations/0001_create_notes.sql`,
 `seeds/fixtures.sql` and `src/index.js`, so it is the only one of the three you can run
@@ -324,7 +324,7 @@ every boot and a plain `INSERT` would grow a pile of duplicates.
 Fields none of the three uses: `frontends.prepare`, `static_mode`,
 `access.credentials`, `seed_from.anonymised`, `deps.lockfile`, `deps.install`, and
 `migrate.failure_pattern` with its two companions. All of them are in
-[sandboxr.yaml, field by field](sandboxr-yaml.md).
+[sandboxer.yaml, field by field](sandboxer-yaml.md).
 
 </details>
 
@@ -333,8 +333,8 @@ Fields none of the three uses: `frontends.prepare`, `static_mode`,
 | Your project | Start from |
 |---|---|
 | A Cloudflare Worker, no data of your own yet | the demo |
-| A Cloudflare Worker with local D1 state and secrets | `workers.sandboxr.yaml` |
-| Anything with a compiled service, several apps, or MySQL | `monorepo.sandboxr.yaml` |
+| A Cloudflare Worker with local D1 state and secrets | `workers.sandboxer.yaml` |
+| Anything with a compiled service, several apps, or MySQL | `monorepo.sandboxer.yaml` |
 | Something in between | the demo, then add blocks with [Build your config, step by step](index.md) |
 
 **Next:** [Run the demo project](../getting-started/demo-project.md) walks the first of

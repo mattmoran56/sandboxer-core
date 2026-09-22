@@ -1,5 +1,5 @@
 /**
- * The shapes `sandboxr.yaml` parses into.
+ * The shapes `sandboxer.yaml` parses into.
  *
  * `ProjectConfig` is the file as written, with its `defaults:` blocks still
  * separate. `ResolvedConfig` is what every other package consumes: defaults
@@ -34,7 +34,7 @@ export interface MigrateConfig {
   /** The project's own migration command. Never reimplemented, only invoked. */
   command: string;
   /**
-   * Cutoff passed to the project's runner as `SANDBOXR_MIGRATE_SINCE`.
+   * Cutoff passed to the project's runner as `SANDBOXER_MIGRATE_SINCE`.
    *
    * Exported rather than turned into a flag: the tool cannot guess a runner's
    * flag spelling, so the command in the config consumes the variable if it
@@ -157,7 +157,7 @@ export interface AccessConfig {
 /** The file as written, before defaults are merged. */
 export interface ProjectConfig {
   project: string;
-  sandboxr: string;
+  sandboxer: string;
   database?: DatabaseConfig | undefined;
   backends?: { defaults?: Partial<BackendService>; services: Array<Partial<BackendService>> } | undefined;
   frontends?:
@@ -178,7 +178,7 @@ export interface ResolvedConfig {
    *
    * > **`dirname(file)` is not always `root`.** It was, until project-level
    * > configs existed: a managed worktree with no config of its own is governed
-   * > by `<workspace>/<project>/sandboxr.yaml`, which sits one level *above*
+   * > by `<workspace>/<project>/sandboxer.yaml`, which sits one level *above*
    * > every worktree it applies to (contracts §5.6). Code that wants the
    * > directory a declared path resolves against wants `root`, or better
    * > `projectPath()` — never `dirname(file)`.
@@ -198,7 +198,7 @@ export interface ResolvedConfig {
   origin: ConfigOrigin;
   project: string;
   /** The version constraint as written, already checked against this tool. */
-  sandboxr: string;
+  sandboxer: string;
   database: DatabaseConfig;
   backends: BackendService[];
   /** Directory the front-end packages live under, relative to the root. */

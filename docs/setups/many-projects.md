@@ -1,23 +1,23 @@
 ---
 title: Several repositories at once
-description: Letting sandboxr keep the repositories — the managed workspace, the project and worktree commands, and how hostnames work with more than one project.
+description: Letting sandboxer keep the repositories — the managed workspace, the project and worktree commands, and how hostnames work with more than one project.
 ---
 
 Everything so far assumed you already had a checkout and were standing in it. This page is the other
-arrangement: **sandboxr keeps the repositories itself**, and starting a sandbox is picking a project
+arrangement: **sandboxer keeps the repositories itself**, and starting a sandbox is picking a project
 and a branch. It is what you want when there is more than one repository on the machine, or when the
 person starting a sandbox is not going to open a terminal at all.
 
 ```prompt
-Put a repository into sandboxr's managed workspace and start a sandbox for one of its branches.
+Put a repository into sandboxer's managed workspace and start a sandbox for one of its branches.
 
-Read docs/setups/many-projects.md first. Run `sandboxr project available` to see what this
-machine's gh can offer, clone the one I name, then `sandboxr worktree add`, then
-`sandboxr up --project <name> --branch <branch>`. Show me the URLs at the end.
+Read docs/setups/many-projects.md first. Run `sandboxer project available` to see what this
+machine's gh can offer, clone the one I name, then `sandboxer worktree add`, then
+`sandboxer up --project <name> --branch <branch>`. Show me the URLs at the end.
 
 Stop and ask me which repository if the list has more than one plausible match. Stop and tell me
 if `gh` is not installed or not logged in — you will need a clone URL from me instead. Stop if
-the branch has no sandboxr.yaml, and tell me so before you start writing one.
+the branch has no sandboxer.yaml, and tell me so before you start writing one.
 ```
 
 ## The workspace
@@ -25,19 +25,19 @@ the branch has no sandboxr.yaml, and tell me so before you start writing one.
 One directory holds every project this machine can start a sandbox for:
 
 ```
-~/.sandboxr/workspace/
+~/.sandboxer/workspace/
   acme/
     repo.git/            a bare clone of acme
     wt/staging/          one worktree per branch, all peers
     wt/tkt-4821/
   demo/
-    sandboxr.yaml        optional — see "a project that has not committed its config"
+    sandboxer.yaml        optional — see "a project that has not committed its config"
     repo.git/
     wt/main/
 ```
 
-Default `~/.sandboxr/workspace`. `SANDBOXR_WORKSPACE` moves it, and it has its own variable because
-the repositories are the one part of sandboxr's tree worth putting on a different disk.
+Default `~/.sandboxer/workspace`. `SANDBOXER_WORKSPACE` moves it, and it has its own variable because
+the repositories are the one part of sandboxer's tree worth putting on a different disk.
 
 **A project is a directory containing `repo.git`.** There is no list of projects anywhere. Adding one
 is cloning it; removing one is deleting the directory. That is the same reasoning as
@@ -54,7 +54,7 @@ the directory, the container and the hostname.
 > [!NOTE] Bare, and never `--mirror`
 > A mirror clone fetches `+refs/*:refs/*`, so every fetch force-updates `refs/heads/*` to match the
 > remote — and that is exactly where worktree branches live. A routine `fetch` would reset a branch
-> somebody was working on and discard their commits. sandboxr clones `--bare` and sets the ordinary
+> somebody was working on and discard their commits. sandboxer clones `--bare` and sets the ordinary
 > remote-tracking refspec by hand, so a fetch can never touch local work.
 
 ## Adding a project
@@ -63,7 +63,7 @@ If the machine has [`gh`](https://cli.github.com) logged in, you can pick from a
 going to find a URL:
 
 ```bash
-sandboxr project available
+sandboxer project available
 ```
 
 ```
@@ -81,11 +81,11 @@ recently. `added` means a project in the workspace was already cloned from it.
 Then clone it:
 
 ```bash
-sandboxr project clone git@github.com:acme/api.git
-sandboxr project clone https://github.com/acme/api --name acme-api   # a different local name
-sandboxr project ls
-sandboxr project fetch acme-api
-sandboxr project prs acme-api
+sandboxer project clone git@github.com:acme/api.git
+sandboxer project clone https://github.com/acme/api --name acme-api   # a different local name
+sandboxer project ls
+sandboxer project fetch acme-api
+sandboxer project prs acme-api
 ```
 
 A machine with no `gh`, or one that is not logged in, gets an empty list and is told which of those
@@ -94,12 +94,12 @@ it is. `project clone <url>` still works, and nothing else on the machine is aff
 ## Cutting a worktree
 
 ```bash
-sandboxr worktree ls acme
-sandboxr worktree add acme tkt-4821
-sandboxr worktree add acme tkt-5000 --base staging   # create the branch too
-sandboxr worktree name acme tkt-4821 "the checkout flow rewrite"
-sandboxr worktree rm acme tkt-4821          # the directory only
-sandboxr worktree delete acme tkt-4821      # its sandbox first, then the directory
+sandboxer worktree ls acme
+sandboxer worktree add acme tkt-4821
+sandboxer worktree add acme tkt-5000 --base staging   # create the branch too
+sandboxer worktree name acme tkt-4821 "the checkout flow rewrite"
+sandboxer worktree rm acme tkt-4821          # the directory only
+sandboxer worktree delete acme tkt-4821      # its sandbox first, then the directory
 ```
 
 `worktree add` finds or creates: asking twice for the same branch gives you the same worktree, not a
@@ -107,7 +107,7 @@ second one beside it. It handles four cases without you choosing between them �
 locally, one that exists only on the remote, one you are creating from a base, and one that is
 already checked out somewhere else.
 
-That last case is the interesting one. Git refuses to check a branch out twice, so sandboxr adds the
+That last case is the interesting one. Git refuses to check a branch out twice, so sandboxer adds the
 worktree **detached** and recovers the branch name from the commit. `worktree ls` marks it with a
 `~`. The sandbox is still labelled with the branch and still answers on the hostname you expect.
 
@@ -135,13 +135,13 @@ One command covers every case, because they differ only in what you pass:
 
 ```bash
 # A branch that exists, locally or on the remote
-sandboxr up --project acme --branch tkt-4821
+sandboxer up --project acme --branch tkt-4821
 
 # A new branch, cut from staging
-sandboxr up --project acme --branch tkt-5000 --base staging
+sandboxer up --project acme --branch tkt-5000 --base staging
 
 # A pull request: look up its head branch, then use exactly the first line
-sandboxr project prs acme
+sandboxer project prs acme
 ```
 
 With `--project` you do not have to be anywhere in particular. There is no worktree to be standing
@@ -179,7 +179,7 @@ https://sbx.localhost                          the bare domain, which serves not
 [How it works](../how-it-works.md) introduces the shape. Two things about the project part matter
 here:
 
-- **It comes from the `project:` field in that repository's `sandboxr.yaml`, not from the workspace
+- **It comes from the `project:` field in that repository's `sandboxer.yaml`, not from the workspace
   directory name.** The two need not match, and nothing forces them to. If you clone with
   `--name acme-api` but the config says `project: api`, the hostnames say `api`.
 - **A label must be unique within a project**, since the label is what distinguishes two apps of one
@@ -188,7 +188,7 @@ here:
 
 ## A project that has not committed its config
 
-A project describes itself in a `sandboxr.yaml` at its own root, versioned with its code. That is
+A project describes itself in a `sandboxer.yaml` at its own root, versioned with its code. That is
 where it belongs, and it is the rule everywhere else in these docs.
 
 There is one exception, for one situation. Getting a config right takes a first draft, and a draft
@@ -200,7 +200,7 @@ So a project in the workspace may keep a config beside its mirror, and every wor
 none of its own uses that one:
 
 ```bash
-mv ~/.sandboxr/workspace/demo/wt/main/sandboxr.yaml ~/.sandboxr/workspace/demo/sandboxr.yaml
+mv ~/.sandboxer/workspace/demo/wt/main/sandboxer.yaml ~/.sandboxer/workspace/demo/sandboxer.yaml
 ```
 
 Three things to know, and all three are load-bearing:
@@ -212,7 +212,7 @@ Three things to know, and all three are load-bearing:
   branch's own checkout, and every path in the config resolves inside it. The project directory
   itself is never mounted — it holds `repo.git` and every sibling worktree — and a config whose root
   would be that directory is refused outright.
-- **`sandboxr config` says so**, printing the file it used, the root it resolved to, and a warning
+- **`sandboxer config` says so**, printing the file it used, the root it resolved to, and a warning
   that this worktree has none of its own.
 
 Treat it as a stopgap with a clear end. It exists so a project can be tried before its config is
@@ -227,11 +227,11 @@ agreed, not so a config can live permanently outside the code it describes.
 <details class="agent">
 <summary><b>Details for an agent</b> — every verb, every flag, every path</summary>
 
-**Paths.** `SANDBOXR_WORKSPACE`, default `$SANDBOXR_HOME/workspace`, which is itself
-`~/.sandboxr/workspace`.
+**Paths.** `SANDBOXER_WORKSPACE`, default `$SANDBOXER_HOME/workspace`, which is itself
+`~/.sandboxer/workspace`.
 
 ```
-<workspace>/<project>/sandboxr.yaml    optional project-level config
+<workspace>/<project>/sandboxer.yaml    optional project-level config
 <workspace>/<project>/repo.git/        the bare clone — its presence is what makes this a project
 <workspace>/<project>/wt/<slug>/       one worktree per branch, <slug> = sanitised branch name
 ```
@@ -258,7 +258,7 @@ workspace path and handed to `rm` on a failed clone.
 | `worktree add <project> <branch>` | `--base REF` | Find-or-create. Refuses a branch name starting with `-` or containing `..` |
 | `worktree rm <project> <branch>` | `--force` | Maps branch to path through the listing, then `worktree remove` followed by `worktree prune`. The disk decides success, not the exit code |
 | `worktree delete <project> <branch>` | `--force` | `down` on the sandbox, then `worktree rm`, then the display name. Refuses on uncommitted changes or commits on no remote; keeps a sandbox another worktree resolves to |
-| `worktree name <project> <branch> <name>` | — | Writes `~/.sandboxr/state/name/<project>/<slug>`. Bounded at 60 characters, no line breaks; `""` removes it. Touches no identifier |
+| `worktree name <project> <branch> <name>` | — | Writes `~/.sandboxer/state/name/<project>/<slug>`. Bounded at 60 characters, no line breaks; `""` removes it. Touches no identifier |
 
 `worktree add` picks its git invocation like this:
 
@@ -290,7 +290,7 @@ a worktree somewhere it does not belong.
 **Config resolution in a managed worktree.** The walk up from the starting directory stops at the top
 of the worktree; the project-level file is the only sanctioned way to reach outside it. When it is
 used, `ResolvedConfig.file` and `ResolvedConfig.root` name different trees — the one place that
-happens — and `origin` is `project` rather than `repo`. `sandboxr config` prints all three.
+happens — and `origin` is `project` rather than `repo`. `sandboxer config` prints all three.
 
 **Listing projects.** The workspace is **unioned** with the projects that have running containers,
 never filtered by the workspace — a sandbox whose project is not in the workspace must still appear.
@@ -301,14 +301,14 @@ never filtered by the workspace — a sandbox whose project is not in the worksp
 <summary><b>If it goes wrong</b> — the five refusals you will actually hit</summary>
 
 **`no project called X in the workspace`.** The directory has no `repo.git`, or the name is spelled
-differently. `sandboxr project ls`.
+differently. `sandboxer project ls`.
 
 **`project "X" already exists at …`.** Cloning over an existing directory is refused rather than
 reused, because that directory may hold worktrees with uncommitted work in them. Delete it yourself
 or clone under `--name`.
 
 **`branch "X" does not exist locally or on origin — pass a base to create it`.** Either
-`sandboxr project fetch <name>` first, or `worktree add … --base origin/main`.
+`sandboxer project fetch <name>` first, or `worktree add … --base origin/main`.
 
 **A config whose root would be the workspace project directory is refused.** That directory holds
 `repo.git` and every sibling worktree, so mounting it as `/workspace` would put all of them inside

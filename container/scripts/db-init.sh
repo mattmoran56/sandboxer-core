@@ -13,18 +13,18 @@ set -uo pipefail
 
 LOG_TAG="db-init"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
-mkdir -p "$SANDBOXR_RUN"
-rm -f "$SANDBOXR_RUN/boot.ok" "$SANDBOXR_RUN/boot.fail"
+mkdir -p "$SANDBOXER_RUN"
+rm -f "$SANDBOXER_RUN/boot.ok" "$SANDBOXER_RUN/boot.fail"
 
 DRIVER=$(plan .database.driver none)
-DB="$SANDBOXR_SCRIPTS/db/$DRIVER.sh"
+DB="$SANDBOXER_SCRIPTS/db/$DRIVER.sh"
 
 if [[ ! -x "$DB" ]]; then
   warn "no driver script for '$DRIVER'"
-  : >"$SANDBOXR_RUN/boot.fail"
-  "$SANDBOXR_SCRIPTS/status.sh"
+  : >"$SANDBOXER_RUN/boot.fail"
+  "$SANDBOXER_SCRIPTS/status.sh"
   exit 0
 fi
 
@@ -33,26 +33,26 @@ if "$DB" provision; then
   log "$DRIVER provisioned"
 else
   warn "$DRIVER provisioning failed -- migrations and fixtures are skipped"
-  : >"$SANDBOXR_RUN/boot.fail"
-  "$SANDBOXR_SCRIPTS/status.sh"
+  : >"$SANDBOXER_RUN/boot.fail"
+  "$SANDBOXER_SCRIPTS/status.sh"
   exit 0
 fi
 
 # --- migrations ---------------------------------------------------------------
 # Delegated so a "Retry migrations" action and this boot path run exactly the
 # same thing.
-"$SANDBOXR_SCRIPTS/migrate-run.sh"
+"$SANDBOXER_SCRIPTS/migrate-run.sh"
 
 # --- object storage -----------------------------------------------------------
 if [[ "$(plan .storage.driver none)" == "minio" ]]; then
-  "$SANDBOXR_SCRIPTS/storage/storage-init.sh" || warn "object storage is not ready -- uploads will fail"
+  "$SANDBOXER_SCRIPTS/storage/storage-init.sh" || warn "object storage is not ready -- uploads will fail"
 fi
 
 # --- fixtures -----------------------------------------------------------------
 # Applied after migrations, and non-fatal: a fixture that no longer matches the
 # schema is a useful signal, not a reason to refuse to start.
 FIXTURES=$(plan .database.fixtures)
-if [[ -n "$FIXTURES" && "${SANDBOXR_SEED:-true}" == "true" ]]; then
+if [[ -n "$FIXTURES" && "${SANDBOXER_SEED:-true}" == "true" ]]; then
   if [[ -f "$WORKSPACE/$FIXTURES" ]]; then
     if "$DB" fixtures "$WORKSPACE/$FIXTURES"; then
       log "fixtures applied"
@@ -64,7 +64,7 @@ if [[ -n "$FIXTURES" && "${SANDBOXR_SEED:-true}" == "true" ]]; then
   fi
 fi
 
-: >"$SANDBOXR_RUN/boot.ok"
-"$SANDBOXR_SCRIPTS/status.sh"
+: >"$SANDBOXER_RUN/boot.ok"
+"$SANDBOXER_SCRIPTS/status.sh"
 log "done"
 exit 0

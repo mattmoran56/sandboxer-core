@@ -286,7 +286,7 @@ export function urlFor(parts: HostParts): string {
 }
 
 export function containerName(project: string, slug: string): string {
-  return `sandboxr-${project}-${slug}`;
+  return `sandboxer-${project}-${slug}`;
 }
 
 /**
@@ -307,7 +307,7 @@ export const SESSION_ID_MAX = SLUG_MAX;
 
 /** The workstation container for one session, from Jef's §9.2. */
 export function workstationName(session: string): string {
-  return `sandboxr-ws-${session}`;
+  return `sandboxer-ws-${session}`;
 }
 
 /**
@@ -320,7 +320,7 @@ export function workstationName(session: string): string {
  * mounted at `/work` — and a work volume with no running container is the
  * ordinary state of a stopped session somebody comes back to next week.
  */
-export const WORK_VOLUME_PREFIX = "sandboxr-work-";
+export const WORK_VOLUME_PREFIX = "sandboxer-work-";
 
 export function workVolumeName(session: string): string {
   // Guarded rather than trusting the caller, because an empty session id would
@@ -365,7 +365,7 @@ export function volumeName(purpose: VolumePurpose, project: string, slug: string
  * did.
  */
 export function volumePrefix(purpose: VolumePurpose): string {
-  return `sandboxr-${purpose}-`;
+  return `sandboxer-${purpose}-`;
 }
 
 /**
@@ -375,11 +375,11 @@ export function volumePrefix(purpose: VolumePurpose): string {
  * changes its dependencies transparently gets its own.
  */
 export function depsVolumeName(lockHash: string): string {
-  return `sandboxr-deps-${lockHash}`;
+  return `sandboxer-deps-${lockHash}`;
 }
 
-/** Every image sandboxr builds lives under this repository namespace. */
-export const IMAGE_NAMESPACE = "sandboxr/";
+/** Every image sandboxer builds lives under this repository namespace. */
+export const IMAGE_NAMESPACE = "sandboxer/";
 
 /**
  * The repository a project's image layer is tagged in.
@@ -393,11 +393,11 @@ export function imageRepository(project: string): string {
 }
 
 /**
- * Repositories under `sandboxr/` that are the machine's own images rather than
+ * Repositories under `sandboxer/` that are the machine's own images rather than
  * any project's layer, and are therefore never reclaimed as superseded.
  *
  * **These are reserved names, and only the first is the engine's own.** The
- * engine builds `sandboxr/base`; the other three are a product's — Jef's
+ * engine builds `sandboxer/base`; the other three are a product's — Jef's
  * dashboard, workstation and orchestrator — and are named here for the same
  * reason `WORK_VOLUME_PREFIX` is (§3.3): reclamation is the one direction where
  * an unrecognised name must read as "something holds it", and the engine
@@ -424,10 +424,10 @@ export function imageRepository(project: string): string {
  * which images are the machine's own.
  */
 export const PROTECTED_IMAGES = [
-  "sandboxr/base",
-  "sandboxr/dashboard",
-  "sandboxr/workstation",
-  "sandboxr/orchestrator",
+  "sandboxer/base",
+  "sandboxer/dashboard",
+  "sandboxer/workstation",
+  "sandboxer/orchestrator",
 ] as const;
 
 /**
@@ -440,8 +440,8 @@ export const PROTECTED_IMAGES = [
  * cheap, and it is why these are named here beside the sandbox-owned volumes
  * rather than derived per sandbox.
  */
-export const GOCACHE_VOLUME = "sandboxr-gocache";
-export const GOMOD_VOLUME = "sandboxr-gomod";
+export const GOCACHE_VOLUME = "sandboxer-gocache";
+export const GOMOD_VOLUME = "sandboxer-gomod";
 
 /**
  * Volumes shared by every sandbox on the machine, from contracts §3.3.
@@ -453,7 +453,7 @@ export const GOMOD_VOLUME = "sandboxr-gomod";
 export const SHARED_VOLUMES = [GOCACHE_VOLUME, GOMOD_VOLUME] as const;
 
 /** The one shared docker network, from contracts §3.3. */
-export const NETWORK = "sandboxr";
+export const NETWORK = "sandboxer";
 
 /**
  * Recovers `{ project, slug }` from a container name.
@@ -468,8 +468,8 @@ export function parseContainerName(
   name: string,
   knownProject?: string,
 ): { project: string; slug: string } | undefined {
-  if (!name.startsWith("sandboxr-")) return undefined;
-  const rest = name.slice("sandboxr-".length);
+  if (!name.startsWith("sandboxer-")) return undefined;
+  const rest = name.slice("sandboxer-".length);
   if (knownProject) {
     if (!rest.startsWith(`${knownProject}-`)) return undefined;
     return { project: knownProject, slug: rest.slice(knownProject.length + 1) };
@@ -487,7 +487,7 @@ export function parseContainerName(
  * and two names that truncate to the same thing are one lock.
  */
 export function lockName(project: string, slug: string): string {
-  const name = `sandboxr_migrate_${project}_${slug}`.replace(/[^A-Za-z0-9_]/g, "_");
+  const name = `sandboxer_migrate_${project}_${slug}`.replace(/[^A-Za-z0-9_]/g, "_");
   if (name.length > 64) {
     throw new NamingError(
       `lock name for ${project}/${slug} is ${name.length} characters, over MySQL's 64-character ceiling`,

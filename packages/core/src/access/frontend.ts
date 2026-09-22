@@ -1,9 +1,9 @@
 /**
  * A front end: the container that answers on the bare domain (contracts §7.2).
  *
- * The engine starts none. `sandboxr init` prepares the domain — the router, the
+ * The engine starts none. `sandboxer init` prepares the domain — the router, the
  * certificate, the base image, `host.env` — and then says that nothing is
- * serving it, because `sandboxr` is a command-line tool. Whoever wants a control
+ * serving it, because `sandboxer` is a command-line tool. Whoever wants a control
  * plane there puts a container of their own on the domain and labels it, and
  * everything below is the whole of what that takes.
  *
@@ -23,7 +23,7 @@ import type { Docker } from "../docker.js";
 import { HANDSHAKE_PRIORITY, HANDSHAKE_ROUTER, handshakeRule, routeLabels } from "./router.js";
 
 /** The label that says "this container answers on the bare domain". */
-export const FRONTEND_LABEL = "sandboxr.frontend";
+export const FRONTEND_LABEL = "sandboxer.frontend";
 
 /**
  * The port the router forwards the bare domain to, when nobody says otherwise.
@@ -45,7 +45,7 @@ export const DEFAULT_FRONTEND_PORT = 8080;
  * today has this string in `dynamic/middlewares.yml`. An embedder calling its
  * front end anything else says so, and `init` rewrites the file.
  */
-export const DEFAULT_FRONTEND_CONTAINER = "sandboxr-dashboard";
+export const DEFAULT_FRONTEND_CONTAINER = "sandboxer-dashboard";
 
 export interface FrontendRoute {
   container: string;

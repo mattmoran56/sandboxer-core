@@ -34,21 +34,21 @@ function configWith(migrate: Record<string, unknown>): ResolvedConfig {
   return resolveConfig(
     {
       project: "acme",
-      sandboxr: ">=0.1.0",
+      sandboxer: ">=0.1.0",
       access: { apps: "private" },
       database: { driver: "mysql", seed_from: { fixtures: "f.sql" }, migrate },
     },
-    "/repo/sandboxr.yaml",
+    "/repo/sandboxer.yaml",
   );
 }
 
 describe("migrationState", () => {
   it("puts everything under the per-sandbox log directory", () => {
-    const state = migrationState("/home/.sandboxr", "acme", "tkt-1");
-    expect(state.dir).toBe("/home/.sandboxr/logs/acme/tkt-1");
-    expect(state.baseline).toBe("/home/.sandboxr/logs/acme/tkt-1/schema-before.sql");
-    expect(state.after).toBe("/home/.sandboxr/logs/acme/tkt-1/schema-after.sql");
-    expect(state.failedMarker).toBe("/home/.sandboxr/logs/acme/tkt-1/.failed");
+    const state = migrationState("/home/.sandboxer", "acme", "tkt-1");
+    expect(state.dir).toBe("/home/.sandboxer/logs/acme/tkt-1");
+    expect(state.baseline).toBe("/home/.sandboxer/logs/acme/tkt-1/schema-before.sql");
+    expect(state.after).toBe("/home/.sandboxer/logs/acme/tkt-1/schema-after.sql");
+    expect(state.failedMarker).toBe("/home/.sandboxer/logs/acme/tkt-1/.failed");
   });
 });
 

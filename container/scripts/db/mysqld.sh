@@ -12,11 +12,11 @@ set -euo pipefail
 
 LOG_TAG="mysqld"
 # shellcheck source-path=SCRIPTDIR source=../lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
 exec mysqld \
   --user=mysql \
-  --datadir="$SANDBOXR_STATE/data/mysql" \
+  --datadir="$SANDBOXER_STATE/data/mysql" \
   --bind-address=127.0.0.1 \
   --skip-log-bin \
   --performance-schema=OFF \

@@ -1,13 +1,13 @@
 ---
 title: On a server, for a team
-description: The sizing, DNS and certificate arithmetic for running sandboxr for a team — and a plain statement of which parts are not built.
+description: The sizing, DNS and certificate arithmetic for running sandboxer for a team — and a plain statement of which parts are not built.
 ---
 
-**Deploying sandboxr to a server is not built.** No code in this repository requests a certificate
+**Deploying sandboxer to a server is not built.** No code in this repository requests a certificate
 over ACME, writes a DNS record, or installs a service unit. mkcert is the only certificate issuer
-sandboxr knows about, and it issues a certificate your own machine trusts and nobody else's.
+sandboxer knows about, and it issues a certificate your own machine trusts and nobody else's.
 
-What *is* built is one flag. `sandboxr init --bind ADDR` publishes the router somewhere other than
+What *is* built is one flag. `sandboxer init --bind ADDR` publishes the router somewhere other than
 `127.0.0.1`, which is the whole of what the engine does differently on a server — and it is a
 security decision rather than a convenience, because the engine ships no control plane and there is
 nothing in front of a sandbox's apps.
@@ -21,11 +21,11 @@ The arithmetic is what somebody building the missing pieces needs.
 Assess whether this project could run on a shared server, and produce a sizing plan.
 
 Read docs/setups/shared-server.md and docs/guides/docker-capacity.md. From this project's
-sandboxr.yaml, work out the per-sandbox memory cap, then tell me the memory, disk and CPU a
+sandboxer.yaml, work out the per-sandbox memory cap, then tell me the memory, disk and CPU a
 server would need for the number of concurrent sandboxes I name, and list the DNS records it
 would need.
 
-Do not try to deploy anything. Remote deployment does not exist in sandboxr: there is no ACME
+Do not try to deploy anything. Remote deployment does not exist in sandboxer: there is no ACME
 client, no DNS writer and no service unit. Stop and tell me if I ask you to install it anyway.
 ```
 
@@ -57,8 +57,8 @@ measure your own project before planning a fleet.
 **Disk is the constraint that bites first**, and Docker's build cache is the fastest-growing thing
 on the machine. On Linux there is no allocation to raise. The daemon writes to `/var/lib/docker` on
 the host's own filesystem, so the decision is which disk that is — `data-root` in
-`/etc/docker/daemon.json` — rather than any Docker Desktop setting. Put `sandboxr prune
---build-cache --yes` and `sandboxr gc` on a timer.
+`/etc/docker/daemon.json` — rather than any Docker Desktop setting. Put `sandboxer prune
+--build-cache --yes` and `sandboxer gc` on a timer.
 
 [Giving Docker the whole machine](../guides/docker-capacity.md) has the rest: what accumulates, what
 stopping a container does and does not free, and what each reclaim command costs.
@@ -87,7 +87,7 @@ which is exactly why it is the default.
 **A TLS wildcard matches exactly one label**, and `*.*.example.com` is not a valid certificate name
 — issuers reject it and mkcert refuses it outright.
 
-That is a fact about TLS and not about DNS, and it is worth separating the two because sandboxr's
+That is a fact about TLS and not about DNS, and it is worth separating the two because sandboxer's
 own documentation once had them confused. A *DNS* wildcard genuinely does match more than one label
 (RFC 4592's closest-encloser rule; Cloudflare and Route 53 both document it). So the older
 `<slug>.<label>.<project>.<domain>` shape resolved perfectly well — it was the *certificate* that
@@ -113,17 +113,17 @@ Two things not to do:
   correctly. Apps build absolute URLs from what they are told, and getting this wrong produces
   redirect loops that are miserable to debug.
 
-None of this is implemented. mkcert is the only issuer sandboxr knows about, and it is what issues
+None of this is implemented. mkcert is the only issuer sandboxer knows about, and it is what issues
 the same single wildcard locally.
 
 ## Binding beyond loopback, which is the decision this page is really about
 
-`sandboxr init --bind 0.0.0.0` is the one thing the engine gives a shared server that it does not
+`sandboxer init --bind 0.0.0.0` is the one thing the engine gives a shared server that it does not
 give a laptop, and it is the whole of it: the router publishes on an interface other people can
 reach, and every sandbox's apps become reachable at their own hostnames.
 
 ```bash
-sandboxr init --bind 0.0.0.0
+sandboxer init --bind 0.0.0.0
 ```
 
 **There is nothing to log in to, because the engine ships no control plane.** `init` prepares the
@@ -135,7 +135,7 @@ Two consequences, and they are the reason this section is not one line:
 
 - **`access.apps: private` needs something on the bare domain to answer.** The router adds a
   forward-auth middleware to a private project's hostnames and asks whatever holds the
-  `sandboxr.frontend` label whether a request is allowed. With nothing there, nothing answers, and
+  `sandboxer.frontend` label whether a request is allowed. With nothing there, nothing answers, and
   the hostname refuses every request rather than falling open. That is the right direction to fail,
   and it does mean `private` is unusable until you put a control plane there yourself.
 - **So `public` is the only tier that works on a bare engine, and it means public.** Audit every
@@ -153,7 +153,7 @@ it at a production database would be exactly the mistake the driver rules exist 
 ```yaml
 database:
   seed_from:
-    file: /var/sandboxr/seeds/acme-anonymised.sql.zst
+    file: /var/sandboxer/seeds/acme-anonymised.sql.zst
     anonymised: true
     fixtures: db/seeds/fixtures.sql
 ```
@@ -171,20 +171,20 @@ The Docker socket must not be exposed to the network under any circumstances.
 
 ## The pre-flight checklist
 
-- [ ] `SANDBOXR_HOME` is set in the service definition, on a disk with room.
+- [ ] `SANDBOXER_HOME` is set in the service definition, on a disk with room.
 - [ ] The router is publishing on the interface you meant, and you meant it.
 - [ ] Every project's `access.apps` is what you meant, checked one by one — and you know that
       `private` refuses every request until something is on the bare domain to answer for it.
-- [ ] You know what, if anything, is answering on the bare domain. `sandboxr doctor` names it,
+- [ ] You know what, if anything, is answering on the bare domain. `sandboxer doctor` names it,
       and names nothing unless you put something there.
 - [ ] No project seeds from `local`, and every `file` seed is genuinely anonymised.
 - [ ] `access.credentials` is `dummy` unless you have a reason.
 - [ ] `github:` is `none` for every project that does not need this machine's token.
 - [ ] The firewall opens 80 and 443 only.
 - [ ] `data-root` points at the disk with the room on it.
-- [ ] `sandboxr expire` is on a timer — nothing else stops an idle sandbox.
-- [ ] `sandboxr gc` and `sandboxr prune --build-cache --yes` are on a timer.
-- [ ] `sandboxr doctor` is clean.
+- [ ] `sandboxer expire` is on a timer — nothing else stops an idle sandbox.
+- [ ] `sandboxer gc` and `sandboxer prune --build-cache --yes` are on a timer.
+- [ ] `sandboxer doctor` is clean.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — exactly which pieces are missing, and what exists to build on</summary>
@@ -195,28 +195,28 @@ The Docker socket must not be exposed to the network under any circumstances.
 - A DNS writer. Nothing creates or updates a record anywhere.
 - A service unit. Nothing installs systemd units, launchd plists or any other supervisor definition.
   The router is a Docker container with `--restart unless-stopped`, which is the whole of what
-  survives a reboot today. A sandbox is not restarted by anything: `sandboxr up` again is how one
+  survives a reboot today. A sandbox is not restarted by anything: `sandboxer up` again is how one
   comes back.
 - Anything on the bare domain. The engine prepares it and starts nothing there, so a server gets
   no listing, no login and no buttons unless somebody builds them.
 
 **Present and usable on a server as-is:**
 
-- `sandboxr init --bind ADDR` publishes the router somewhere other than `127.0.0.1`, and
+- `sandboxer init --bind ADDR` publishes the router somewhere other than `127.0.0.1`, and
   `--http-port N` / `--https-port N` move it off 80 and 443.
-- `SANDBOXR_HOME` and `SANDBOXR_WORKSPACE` relocate all host state, and the workspace has its own
+- `SANDBOXER_HOME` and `SANDBOXER_WORKSPACE` relocate all host state, and the workspace has its own
   variable precisely so the repositories can sit on a different disk.
-- `~/.sandboxr/config.yaml` sets the idle limit machine-wide and per project, and decides which
+- `~/.sandboxer/config.yaml` sets the idle limit machine-wide and per project, and decides which
   projects are trusted with the machine's GitHub token (`github: none` by default). Key a project
-  on its workspace directory or on the `project:` its `sandboxr.yaml` declares; `sandboxr doctor`
+  on its workspace directory or on the `project:` its `sandboxer.yaml` declares; `sandboxer doctor`
   names any entry that matches neither, which on a server with many projects is worth running after
   every edit.
-- `SANDBOXR_TTL_HOURS` exists for exactly this case — it is what a service unit sets — and sits
+- `SANDBOXER_TTL_HOURS` exists for exactly this case — it is what a service unit sets — and sits
   *below* `config.yaml` in precedence, so an operator editing the file always wins over a variable
   set months ago and forgotten.
-- The managed workspace: `sandboxr project clone`, `worktree add`, and `up --project NAME --branch
+- The managed workspace: `sandboxer project clone`, `worktree add`, and `up --project NAME --branch
   NAME`. See [Several repositories at once](many-projects.md).
-- `sandboxr expire`, which is the whole lifetime mechanism and runs only when something runs it.
+- `sandboxer expire`, which is the whole lifetime mechanism and runs only when something runs it.
   A server is the case where that matters most, because nobody closes a laptop: put it on a
   `systemd` timer or a cron entry, as [Just the CLI, on my laptop](cli-only.md) sets out. It only
   ever stops a container, so a timer cannot lose work.
@@ -227,7 +227,7 @@ The Docker socket must not be exposed to the network under any circumstances.
 |---|---|---|
 | `sbx.example.com` | 0 — the bare domain | the certificate naming the domain itself |
 | `tkt-4821--app--acme.sbx.example.com` | 1 | `*.sbx.example.com` |
-| `a.tkt-4821--app--acme.sbx.example.com` | 2 | **nothing wildcard can express** — and nothing sandboxr serves is here |
+| `a.tkt-4821--app--acme.sbx.example.com` | 2 | **nothing wildcard can express** — and nothing sandboxer serves is here |
 
 The third row is the reason the second one is written the way it is. `packages/core/src/naming.ts`
 builds every sandbox hostname as a single label, and `packages/core/src/access/tls.ts` issues one
@@ -237,7 +237,7 @@ that single call; the issuer is not there.
 
 </details>
 
-## What sandboxr is not
+## What sandboxer is not
 
 A sandbox is disposable. There is no high availability, no backup of a sandbox's database, and no
 promise that a sandbox survives a host reboot with its data intact. The durable thing is the git

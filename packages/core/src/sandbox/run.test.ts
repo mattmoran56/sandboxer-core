@@ -23,7 +23,7 @@ import { labelsFor } from "./labels.js";
 import { BuildError, backendBuild, frontendBuild, lockHash, memoryFor, renderBuild, runArgs, toBytes } from "./run.js";
 
 function configOf(extra: Record<string, unknown>): ResolvedConfig {
-  return resolveConfig({ project: "acme", sandboxr: ">=0.1.0", access: { apps: "private" }, ...extra }, "/repo/sandboxr.yaml");
+  return resolveConfig({ project: "acme", sandboxer: ">=0.1.0", access: { apps: "private" }, ...extra }, "/repo/sandboxer.yaml");
 }
 
 const mysqlConfig = configOf({
@@ -56,17 +56,17 @@ const base = {
   slug: "tkt-1",
   worktree: "/repos/tkt-1",
   labels,
-  envFile: "/home/.sandboxr/build/acme/tkt-1.env",
-  planFile: "/home/.sandboxr/build/acme/tkt-1.plan.json",
-  cacheDir: "/home/.sandboxr/cache",
-  logDir: "/home/.sandboxr/logs/acme/tkt-1",
+  envFile: "/home/.sandboxer/build/acme/tkt-1.env",
+  planFile: "/home/.sandboxer/build/acme/tkt-1.plan.json",
+  cacheDir: "/home/.sandboxer/cache",
+  logDir: "/home/.sandboxer/logs/acme/tkt-1",
 };
 
 describe("runArgs", () => {
   const args = runArgs(base);
 
   it("names the container and joins the one shared network", () => {
-    expect(args.slice(0, 6)).toEqual(["run", "-d", "--name", "sandboxr-acme-tkt-1", "--network", "sandboxr"]);
+    expect(args.slice(0, 6)).toEqual(["run", "-d", "--name", "sandboxer-acme-tkt-1", "--network", "sandboxer"]);
   });
 
   it("carries every label", () => {
@@ -80,7 +80,7 @@ describe("runArgs", () => {
   // A branch name can contain a space, and an argument array is what keeps it
   // one argument rather than two.
   it("keeps a value containing a space as a single argument", () => {
-    expect(args).toContain("sandboxr.branch=feat/a b");
+    expect(args).toContain("sandboxer.branch=feat/a b");
   });
 
   it("bind-mounts the worktree, so a saved file is immediately live inside", () => {
@@ -122,15 +122,15 @@ describe("runArgs", () => {
     // replace.
     const mounts = [
       "-v",
-      "sandboxr-work-eng-3941:/work",
+      "sandboxer-work-eng-3941:/work",
       "--mount",
-      "type=volume,source=sandboxr-work-eng-3941,target=/workspace,volume-subpath=acme/feat-thing",
+      "type=volume,source=sandboxer-work-eng-3941,target=/workspace,volume-subpath=acme/feat-thing",
     ];
     const runtime = runArgs({ ...base, workspaceMounts: mounts, gitMounts: ["/repos/tkt-1", "/repos/acme.git"] });
 
     it("takes /workspace from the volume rather than binding a host path", () => {
-      expect(runtime).toContain("type=volume,source=sandboxr-work-eng-3941,target=/workspace,volume-subpath=acme/feat-thing");
-      expect(runtime).toContain("sandboxr-work-eng-3941:/work");
+      expect(runtime).toContain("type=volume,source=sandboxer-work-eng-3941,target=/workspace,volume-subpath=acme/feat-thing");
+      expect(runtime).toContain("sandboxer-work-eng-3941:/work");
       expect(runtime).not.toContain("/repos/tkt-1:/workspace");
     });
 
@@ -174,10 +174,10 @@ describe("runArgs", () => {
   });
 
   it.each([
-    ["binaries", "sandboxr-bin-acme-tkt-1:/var/lib/sandboxr/bin"],
-    ["built sites", "sandboxr-www-acme-tkt-1:/srv/www"],
-    ["the database", "sandboxr-data-acme-tkt-1:/var/lib/sandboxr/data"],
-    ["object storage", "sandboxr-blob-acme-tkt-1:/var/lib/sandboxr/blob"],
+    ["binaries", "sandboxer-bin-acme-tkt-1:/var/lib/sandboxer/bin"],
+    ["built sites", "sandboxer-www-acme-tkt-1:/srv/www"],
+    ["the database", "sandboxer-data-acme-tkt-1:/var/lib/sandboxer/data"],
+    ["object storage", "sandboxer-blob-acme-tkt-1:/var/lib/sandboxer/blob"],
   ])("gives the sandbox its own volume for %s", (_name, mount) => {
     expect(args).toContain(mount);
   });
@@ -190,32 +190,32 @@ describe("runArgs", () => {
         database: { driver: "sqlite", seed_from: { fixtures: "f.sql" }, migrate: { command: "m" } },
       }),
     });
-    expect(fileArgs).toContain("sandboxr-data-acme-tkt-1:/var/lib/sandboxr/data");
+    expect(fileArgs).toContain("sandboxer-data-acme-tkt-1:/var/lib/sandboxer/data");
   });
 
-  // The container reads the plan and never sandboxr.yaml, and a container that
+  // The container reads the plan and never sandboxer.yaml, and a container that
   // could rewrite the plan could change what it claims to be running.
   it("mounts the plan read-only", () => {
-    expect(args).toContain(`${base.planFile}:/sandboxr/plan.json:ro`);
+    expect(args).toContain(`${base.planFile}:/sandboxer/plan.json:ro`);
   });
 
   it("mounts the log directory from the host, so logs outlive the container", () => {
-    expect(args).toContain(`${base.logDir}:/var/log/sandboxr`);
+    expect(args).toContain(`${base.logDir}:/var/log/sandboxer`);
   });
 
   it("mounts no database volume for a project with no database", () => {
     const bare = runArgs({ ...base, config: configOf({ database: { driver: "none" } }) });
-    expect(bare.join(" ")).not.toContain("sandboxr-data-");
+    expect(bare.join(" ")).not.toContain("sandboxer-data-");
   });
 
   it("mounts no storage volume unless storage is declared", () => {
     const bare = runArgs({ ...base, config: configOf({ database: { driver: "none" } }) });
-    expect(bare.join(" ")).not.toContain("sandboxr-blob-");
+    expect(bare.join(" ")).not.toContain("sandboxer-blob-");
   });
 
   // A sandbox restores from the cache and never writes to it.
   it("mounts the seed cache read-only", () => {
-    expect(args).toContain("/home/.sandboxr/cache:/sandboxr/cache:ro");
+    expect(args).toContain("/home/.sandboxer/cache:/sandboxer/cache:ro");
   });
 
   // A declared `database.seed_from.file` may be anywhere, so the cache mount
@@ -224,21 +224,21 @@ describe("runArgs", () => {
   describe("a seed that is not in the cache", () => {
     const declared = runArgs({
       ...base,
-      seedFile: { host: "/home/dev/.sandboxr/seeds/acme-base.sql.zst", inside: "/sandboxr/seed/acme-base.sql.zst" },
+      seedFile: { host: "/home/dev/.sandboxer/seeds/acme-base.sql.zst", inside: "/sandboxer/seed/acme-base.sql.zst" },
     });
 
     it("mounts that one file, read-only, at the path the plan names", () => {
-      expect(declared).toContain("/home/dev/.sandboxr/seeds/acme-base.sql.zst:/sandboxr/seed/acme-base.sql.zst:ro");
+      expect(declared).toContain("/home/dev/.sandboxer/seeds/acme-base.sql.zst:/sandboxer/seed/acme-base.sql.zst:ro");
     });
 
     // The directory around it is not mounted: `file:` may point into somewhere
     // the user keeps other things, and mounting the parent buys nothing.
     it("does not mount the directory it came from", () => {
-      expect(declared.join(" ")).not.toContain("/home/dev/.sandboxr/seeds:");
+      expect(declared.join(" ")).not.toContain("/home/dev/.sandboxer/seeds:");
     });
 
     it("mounts nothing extra when the artifact is in the cache", () => {
-      expect(args.join(" ")).not.toContain("/sandboxr/seed");
+      expect(args.join(" ")).not.toContain("/sandboxer/seed");
     });
   });
 
@@ -251,20 +251,20 @@ describe("runArgs", () => {
     const go = runArgs({ ...base, config: configOf({ toolchain: { go: "1.25" } }) });
 
     it("mounts both on machine-wide volumes, at the paths the image sets GOCACHE and GOPATH to", () => {
-      expect(go).toContain("sandboxr-gocache:/go/cache");
-      expect(go).toContain("sandboxr-gomod:/go/pkg/mod");
+      expect(go).toContain("sandboxer-gocache:/go/cache");
+      expect(go).toContain("sandboxer-gomod:/go/pkg/mod");
     });
 
     it("shares them across projects, so the second project on a machine compiles less", () => {
       const other = runArgs({ ...base, slug: "tkt-2", config: configOf({ project: "other", toolchain: { go: "1.25" } }) });
-      expect(other).toContain("sandboxr-gocache:/go/cache");
-      expect(other).toContain("sandboxr-gomod:/go/pkg/mod");
+      expect(other).toContain("sandboxer-gocache:/go/cache");
+      expect(other).toContain("sandboxer-gomod:/go/pkg/mod");
     });
 
     // Two mounts nothing would ever read, on a sandbox that has no Go in it.
     it("adds neither when the project declares no Go toolchain", () => {
-      expect(args.join(" ")).not.toContain("sandboxr-gocache");
-      expect(args.join(" ")).not.toContain("sandboxr-gomod");
+      expect(args.join(" ")).not.toContain("sandboxer-gocache");
+      expect(args.join(" ")).not.toContain("sandboxer-gomod");
     });
   });
 
@@ -274,7 +274,7 @@ describe("runArgs", () => {
    *
    * Both of these used to be two hard-coded lines here — a machine-wide
    * credential volume for one particular coding agent, and the variable that
-   * agent reads — so `sandboxr up` on a machine with no such agent mounted a
+   * agent reads — so `sandboxer up` on a machine with no such agent mounted a
    * store for a program that was not in the image. An embedder supplies them
    * now, and what is asserted here is only that the engine passes on what it is
    * handed and adds nothing of its own.
@@ -369,46 +369,46 @@ describe("runArgs", () => {
       config: configOf({ database: { driver: "none" }, deps: { root: "web" } }),
       depsHash: "abc123",
     });
-    expect(withDeps).toContain("sandboxr-deps-abc123:/workspace/web/node_modules");
+    expect(withDeps).toContain("sandboxer-deps-abc123:/workspace/web/node_modules");
 
     const atRoot = runArgs({
       ...base,
       config: configOf({ database: { driver: "none" }, deps: { root: "." } }),
       depsHash: "abc123",
     });
-    expect(atRoot).toContain("sandboxr-deps-abc123:/workspace/node_modules");
+    expect(atRoot).toContain("sandboxer-deps-abc123:/workspace/node_modules");
   });
 
   it("mounts no dependency volume for a project that declares no node tree", () => {
-    expect(runArgs({ ...base, depsHash: "abc123" }).join(" ")).not.toContain("sandboxr-deps-");
+    expect(runArgs({ ...base, depsHash: "abc123" }).join(" ")).not.toContain("sandboxer-deps-");
   });
 
   // Mounted, never a second `--env-file`. An env-file is read once by `docker
   // run`, so an edited credential could not reach a running sandbox at all —
   // which is the whole reason this is a mount. See the note in run.ts.
   it("mounts the secrets file read-only rather than passing it as an env-file", () => {
-    const withSecrets = runArgs({ ...base, secretsFile: "/home/.sandboxr/secrets/acme.env" });
-    expect(withSecrets).toContain("/home/.sandboxr/secrets/acme.env:/sandboxr/secrets.env:ro");
+    const withSecrets = runArgs({ ...base, secretsFile: "/home/.sandboxer/secrets/acme.env" });
+    expect(withSecrets).toContain("/home/.sandboxer/secrets/acme.env:/sandboxer/secrets.env:ro");
     expect(withSecrets.filter((argument) => argument === "--env-file")).toEqual(["--env-file"]);
     expect(withSecrets[withSecrets.indexOf("--env-file") + 1]).toBe(base.envFile);
   });
 
   it("mounts nothing when the project has no secrets file", () => {
-    expect(runArgs(base).join(" ")).not.toContain("/sandboxr/secrets.env");
+    expect(runArgs(base).join(" ")).not.toContain("/sandboxer/secrets.env");
   });
 
   it("passes optional runtimes to the entrypoint", () => {
-    expect(runArgs({ ...base, with: ["cms"] })).toContain("SANDBOXR_WITH=cms");
+    expect(runArgs({ ...base, with: ["cms"] })).toContain("SANDBOXER_WITH=cms");
   });
 
   it("ends with the entrypoint and the image", () => {
     expect(args.at(-3)).toBe("--entrypoint");
-    expect(args.at(-2)).toBe("/opt/sandboxr/scripts/entrypoint.sh");
-    expect(args.at(-1)).toBe("sandboxr/base:latest");
+    expect(args.at(-2)).toBe("/opt/sandboxer/scripts/entrypoint.sh");
+    expect(args.at(-1)).toBe("sandboxer/base:latest");
   });
 
   it("takes an image override", () => {
-    expect(runArgs({ ...base, image: "sandboxr/base:dev" }).at(-1)).toBe("sandboxr/base:dev");
+    expect(runArgs({ ...base, image: "sandboxer/base:dev" }).at(-1)).toBe("sandboxer/base:dev");
   });
 
   it("never produces an argument that is a shell command line", () => {
@@ -450,8 +450,8 @@ describe("toBytes", () => {
 
 describe("renderBuild", () => {
   it("substitutes both placeholders", () => {
-    expect(renderBuild("go build -o {out} ./{name}", { name: "api", out: "/var/lib/sandboxr/bin/api" })).toBe(
-      "go build -o /var/lib/sandboxr/bin/api ./api",
+    expect(renderBuild("go build -o {out} ./{name}", { name: "api", out: "/var/lib/sandboxer/bin/api" })).toBe(
+      "go build -o /var/lib/sandboxer/bin/api ./api",
     );
   });
 
@@ -475,9 +475,9 @@ describe("backendBuild", () => {
     const backend = mysqlConfig.backends[0];
     expect(backend).toBeDefined();
     expect(backendBuild(backend as NonNullable<typeof backend>)).toEqual({
-      command: "go build -o /var/lib/sandboxr/bin/api ./api",
+      command: "go build -o /var/lib/sandboxer/bin/api ./api",
       workdir: "/workspace/services",
-      output: "/var/lib/sandboxr/bin/api",
+      output: "/var/lib/sandboxer/bin/api",
     });
   });
 });

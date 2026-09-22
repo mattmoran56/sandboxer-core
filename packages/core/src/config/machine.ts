@@ -1,8 +1,8 @@
 /**
- * `~/.sandboxr/config.yaml` — the machine's own settings, not a project's.
+ * `~/.sandboxer/config.yaml` — the machine's own settings, not a project's.
  *
- * `sandboxr.yaml` (see ./schema.ts) belongs to the project being sandboxed and
- * is versioned with its code. This file belongs to the machine sandboxr runs
+ * `sandboxer.yaml` (see ./schema.ts) belongs to the project being sandboxed and
+ * is versioned with its code. This file belongs to the machine sandboxer runs
  * on, and holds what is a property of the machine rather than of any project:
  * how long a sandbox may sit unused before it is stopped, and which projects may
  * be handed this machine's own credentials. A laptop and a shared server want
@@ -20,7 +20,7 @@
  * ```
  *
  * A `projects:` key is a project's **workspace directory name** or the
- * `project:` its `sandboxr.yaml` declares — either will do, directory first.
+ * `project:` its `sandboxer.yaml` declares — either will do, directory first.
  * The example above is written with the two spelled differently on purpose: an
  * example where they agree is what let this file's lookup match one name for a
  * year without anybody noticing. See `projectEntry`.
@@ -29,7 +29,7 @@
  * these are the *operator's* files, and which of them every sandbox on the
  * machine may read is the machine's decision.
  *
- * `github:` is here, and not in `sandboxr.yaml`, on purpose. The token is the
+ * `github:` is here, and not in `sandboxer.yaml`, on purpose. The token is the
  * *operator's*, not the project's, and a setting that lives in a repository is a
  * setting a repository can ask for — clone something, start a sandbox, and its
  * committed config has helped itself to a credential that reaches every
@@ -138,14 +138,14 @@ export const machineConfigSchema = z.strictObject({
 export type MachineConfig = z.infer<typeof machineConfigSchema>;
 
 /** The commented file `init` writes, and the documentation of record for it. */
-export const MACHINE_CONFIG_EXAMPLE = `# sandboxr, machine settings. Edit freely — nothing regenerates this file.
+export const MACHINE_CONFIG_EXAMPLE = `# sandboxer, machine settings. Edit freely — nothing regenerates this file.
 #
 # How long a sandbox may sit unused before it is stopped. The clock runs from
 # the last request that reached it through the router, so a sandbox somebody is
 # using never runs out; one nobody has opened since this morning does.
 #
 # An expired sandbox is stopped, never deleted: its database and its uploads are
-# still there, and \`sandboxr start <slug>\` brings it back in seconds.
+# still there, and \`sandboxer start <slug>\` brings it back in seconds.
 #
 # Forms: 30m, 12h, 3d, a plain number of seconds, or never.
 ttl: 12h
@@ -188,9 +188,9 @@ github: none
 # whole block if every project on this machine is the same.
 #
 # The key is a project's directory in the workspace — the name every listing
-# prints and every URL uses — or the \`project:\` its own sandboxr.yaml declares.
+# prints and every URL uses — or the \`project:\` its own sandboxer.yaml declares.
 # Either works; the directory wins if a machine has both. A key matching neither
-# does nothing at all, so \`sandboxr doctor\` names one it cannot match.
+# does nothing at all, so \`sandboxer doctor\` names one it cannot match.
 #projects:
 #  acme-monorepo: { ttl: 3d, github: token }
 #  demo: { ttl: never }
@@ -222,7 +222,7 @@ github: none
  * machine — with a valid credential sitting on the host the whole time.
  * Observed, not feared.
  *
- * Size, never contents. sandboxr has no reason to read a file somebody asked it
+ * Size, never contents. sandboxer has no reason to read a file somebody asked it
  * to share, and does not.
  *
  * A row that is skipped is skipped silently and one at a time. The alternative —
@@ -295,7 +295,7 @@ export type MachineProjectEntry = NonNullable<MachineConfig["projects"]>[string]
  *
  * **A project has two names and an operator sees the wrong one.** §3 and §4.1:
  * the workspace *directory* is what the dashboard lists, what every URL carries
- * and what is on disk, while the `project:` in that repo's `sandboxr.yaml` is
+ * and what is on disk, while the `project:` in that repo's `sandboxer.yaml` is
  * what hostnames, container names and labels are built from. They are allowed to
  * differ, and on any repository whose directory is `acme-monorepo` and whose
  * config says `project: acme`, they do.
@@ -313,7 +313,7 @@ export type MachineProjectEntry = NonNullable<MachineConfig["projects"]>[string]
  * matching on one here made the product disagree with itself.
  */
 export interface ProjectKey {
-  /** The `project:` the repo's own `sandboxr.yaml` declares (§5). */
+  /** The `project:` the repo's own `sandboxer.yaml` declares (§5). */
   project?: string | undefined;
   /** The workspace directory name (§4.1), when the project is a managed one. */
   directory?: string | undefined;
@@ -389,7 +389,7 @@ export interface TtlInput extends ProjectKey {
  * 1. what the command was told (`--ttl`)
  * 2. the project's entry in `config.yaml`, under either of its names (`projectEntry`)
  * 3. the file's top-level `ttl`
- * 4. `SANDBOXR_TTL_HOURS`, which is what a service unit sets
+ * 4. `SANDBOXER_TTL_HOURS`, which is what a service unit sets
  * 5. the built-in `DEFAULT_TTL`
  *
  * The environment variable sits *below* the file on purpose. It is set once by
@@ -406,7 +406,7 @@ export function resolveTtl(input: TtlInput = {}): string {
   if (forProject !== undefined) return forProject;
   if (config.ttl !== undefined) return config.ttl;
 
-  const hours = (input.env ?? process.env).SANDBOXR_TTL_HOURS;
+  const hours = (input.env ?? process.env).SANDBOXER_TTL_HOURS;
   if (hours !== undefined && hours.trim() !== "") {
     const candidate = `${hours.trim()}h`;
     // An unreadable variable falls through to the default rather than failing
@@ -475,7 +475,7 @@ export interface MachineConfigReview {
  * and asking it to walk the workspace would put a directory listing behind every
  * ttl lookup, including the ones inside the reaper's loop.
  *
- * So the question is asked by whoever can already see both halves: `sandboxr
+ * So the question is asked by whoever can already see both halves: `sandboxer
  * doctor`, which exists to hold the machine up against its config and name the
  * fix, and `up`, which says it about the one project it is starting. Neither
  * refuses.

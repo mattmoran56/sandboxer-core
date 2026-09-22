@@ -60,9 +60,9 @@ export interface GcInput {
    * in here.
    *
    * It is a promise and not the only thing keeping `jef/base` today: it is also
-   * outside the `sandboxr/` namespace, which `supersededImages` already refuses
+   * outside the `sandboxer/` namespace, which `supersededImages` already refuses
    * to look past. That is a fact about the name Jef happened to choose, and a
-   * product that tagged its own image under `sandboxr/` — as Jef's dashboard,
+   * product that tagged its own image under `sandboxer/` — as Jef's dashboard,
    * workstation and orchestrator all do — would have nothing but this.
    */
   protectImages?: readonly string[] | undefined;
@@ -116,8 +116,8 @@ export function planGc(input: GcInput): GcPlan {
 /**
  * Whether a volume name is one the engine mints.
  *
- * `volumeName` produces `sandboxr-<purpose>-<project>-<slug>` and
- * `depsVolumeName` produces `sandboxr-deps-<hash>`; those are the only two
+ * `volumeName` produces `sandboxer-<purpose>-<project>-<slug>` and
+ * `depsVolumeName` produces `sandboxer-deps-<hash>`; those are the only two
  * shapes `up` ever creates. The name is not split back into its parts — both a
  * project and a slug may contain dashes — only recognised by its purpose.
  */
@@ -148,7 +148,7 @@ export function orphanVolumes(input: {
 
   return (
     input.volumes
-      .filter((volume) => volume.startsWith("sandboxr-"))
+      .filter((volume) => volume.startsWith("sandboxer-"))
       // **A name under the reserved prefix is never an orphan** (contracts
       // §3.3). Everything else in this function reads "no container references
       // it" as "nothing wants it", and for a name the engine did not mint that
@@ -159,7 +159,7 @@ export function orphanVolumes(input: {
       // state of a session somebody comes back to next week — and what would go
       // is every clone and every uncommitted change in it. It is also invisible
       // to the mount list two lines down, which is built by inspecting the
-      // *sandboxes*: a workstation carries no `sandboxr.slug`, so `list` never
+      // *sandboxes*: a workstation carries no `sandboxer.slug`, so `list` never
       // sees it and nothing it holds ever reaches `mountedVolumes`.
       .filter((volume) => !isWorkVolume(volume))
       // **Only a name the engine itself mints is a candidate** — a per-sandbox
@@ -197,13 +197,13 @@ export function orphanVolumes(input: {
  * It is worth recording what made this urgent, because the symptom named none of
  * its cause. Roughly six gigabytes accumulates per project per rebuild and
  * nothing gave it back, so a machine reached a Docker VM at 100% with five
- * `sandboxr/<project>:<hash>` images holding about 31 GB between them. What that
+ * `sandboxer/<project>:<hash>` images holding about 31 GB between them. What that
  * looked like from inside a sandbox was a database that would not initialise.
  *
  * **The keep list is a union and never a filter**, exactly as `orphanVolumes` is.
  * An image survives if it is the newest of its repository, or its repository is
  * one of the machine's own, or the caller named it in `protect`, or it lies
- * outside the `sandboxr/` namespace, or any container references it, or docker
+ * outside the `sandboxer/` namespace, or any container references it, or docker
  * declined to say when it was created. Every one of those is a reason to keep,
  * and nothing here reads a missing answer as a licence to remove — a listing
  * that can hide something still in use is the staleness this whole design exists
@@ -211,7 +211,7 @@ export function orphanVolumes(input: {
  *
  * `protect` is the embedder's half of that union, and it is checked *before* the
  * namespace test rather than after: a product that tags its images under
- * `sandboxr/` — Jef's dashboard, workstation and orchestrator all do — gets the
+ * `sandboxer/` — Jef's dashboard, workstation and orchestrator all do — gets the
  * same promise as one that chose a namespace of its own, without the engine
  * having to spell the product's names. See `GcInput.protectImages`.
  */
@@ -227,7 +227,7 @@ export function supersededImages(images: ImageRow[], protect: readonly string[] 
     // namespace test above has already dropped it, and this is the second guard,
     // for the row shape where a repository outlives its tag. Nothing here can
     // tell such a layer apart from one a build running right now is producing,
-    // and it is not addressable by any name sandboxr gave it. `docker image
+    // and it is not addressable by any name sandboxer gave it. `docker image
     // prune` removes exactly this set and is the right tool for it.
     if (image.tag === "" || image.tag === "<none>") continue;
     if (image.created === undefined) continue;

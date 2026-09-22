@@ -37,22 +37,22 @@ describe("resolveDocHref", () => {
   });
 
   it("keeps an anchor", () => {
-    expect(resolveDocHref("../reference/cli.md#sandboxr-up", "guides/lifecycle.md").href).toBe(
-      "/reference/cli/#sandboxr-up",
+    expect(resolveDocHref("../reference/cli.md#sandboxer-up", "guides/lifecycle.md").href).toBe(
+      "/reference/cli/#sandboxer-up",
     );
   });
 
   it("sends a link to the contract off the site", () => {
     const resolved = resolveDocHref("../architecture/contracts.md", "guides/lifecycle.md");
     expect(resolved.href).toBe(
-      "https://github.com/mattmoran56/sandboxr/blob/main/docs/architecture/contracts.md",
+      "https://github.com/mattmoran56/sandboxer-core/blob/main/docs/architecture/contracts.md",
     );
     expect(resolved.external).toBe(true);
   });
 
   it("keeps the anchor on an off-site link", () => {
     expect(resolveDocHref("architecture/contracts.md#8-actions", "index.md").href).toBe(
-      "https://github.com/mattmoran56/sandboxr/blob/main/docs/architecture/contracts.md#8-actions",
+      "https://github.com/mattmoran56/sandboxer-core/blob/main/docs/architecture/contracts.md#8-actions",
     );
   });
 

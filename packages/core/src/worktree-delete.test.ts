@@ -91,8 +91,8 @@ function fakeDocker(rows: ContainerRow[] = []) {
 }
 
 const sandboxRow = (slug: string, worktree: string, project = "demo"): ContainerRow => ({
-  name: `sandboxr-${project}-${slug}`,
-  id: `sandboxr-${project}-${slug}`,
+  name: `sandboxer-${project}-${slug}`,
+  id: `sandboxer-${project}-${slug}`,
   state: "running",
   labels: labelsFor({
     project,
@@ -118,7 +118,7 @@ describe("deleteWorktree", () => {
     // Resolved, because git records a worktree by its real path and the system
     // temp directory is a symlink on macOS — comparing the two as strings
     // otherwise fails in a way that looks nothing like a symlink.
-    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxr-delete-")));
+    root = await realpath(await mkdtemp(join(tmpdir(), "sandboxer-delete-")));
     source = join(root, "source");
     home = join(root, "home");
     // The project lives **inside the workspace**, which is what makes the slug
@@ -145,17 +145,17 @@ describe("deleteWorktree", () => {
     await git(repo, "fetch", "origin");
 
     project = { name: "demo", repo, worktrees: join(projectDir, "wt"), base: "main", origin: source };
-    // No `SANDBOXR_WORKSPACE`: it defaults to `<home>/workspace`, which is where
+    // No `SANDBOXER_WORKSPACE`: it defaults to `<home>/workspace`, which is where
     // `projectDir` is, so `workspaceWorktree` recognises these worktrees exactly
     // as it does on a real machine.
-    env = { SANDBOXR_HOME: home };
+    env = { SANDBOXER_HOME: home };
   }, GIT_TIMEOUT);
 
   /**
    * Cuts a worktree the way the tool now does, slug record and all.
    *
    * `env` is not optional: without it `addWorktree` looks for the workspace
-   * under the real `~/.sandboxr`, decides these worktrees are not in one, and
+   * under the real `~/.sandboxer`, decides these worktrees are not in one, and
    * never records a collision — which would make every test below quietly
    * describe the world as it was before slugs could be given.
    */
@@ -188,12 +188,12 @@ describe("deleteWorktree", () => {
       const done = await deleteWorktree({ project, branch: "feat/eng-3941-answers", docker, env });
 
       expect(done.sandbox).toBe("removed");
-      expect(argsOf("rm")[0]?.[0]).toBe("sandboxr-demo-eng-3941");
+      expect(argsOf("rm")[0]?.[0]).toBe("sandboxer-demo-eng-3941");
       expect(argsOf("volumeRm").map((args) => args[0])).toEqual([
-        "sandboxr-data-demo-eng-3941",
-        "sandboxr-blob-demo-eng-3941",
-        "sandboxr-bin-demo-eng-3941",
-        "sandboxr-www-demo-eng-3941",
+        "sandboxer-data-demo-eng-3941",
+        "sandboxer-blob-demo-eng-3941",
+        "sandboxer-bin-demo-eng-3941",
+        "sandboxer-www-demo-eng-3941",
       ]);
       // The order is the whole point: a volume cannot be removed while the
       // container holds it, and the slug cannot be derived once the worktree is
@@ -202,7 +202,7 @@ describe("deleteWorktree", () => {
       expect(existsSync(worktree.path)).toBe(false);
 
       // Item by item, container and directory both.
-      expect(done.removed).toContain("sandboxr-demo-eng-3941");
+      expect(done.removed).toContain("sandboxer-demo-eng-3941");
       expect(done.removed).toContain(worktree.path);
     },
     GIT_TIMEOUT,
@@ -404,8 +404,8 @@ describe("deleteWorktree", () => {
       expect(done.sharedWith).toEqual([]);
       // …and the right container. Deleting `eng-3941` must not reach the one
       // named for the token.
-      expect(argsOf("rm").map((args) => args[0])).toEqual(["sandboxr-demo-eng-3941"]);
-      expect(argsOf("volumeRm").map((args) => args[0])).not.toContain(`sandboxr-data-demo-${given}`);
+      expect(argsOf("rm").map((args) => args[0])).toEqual(["sandboxer-demo-eng-3941"]);
+      expect(argsOf("volumeRm").map((args) => args[0])).not.toContain(`sandboxer-data-demo-${given}`);
       expect(existsSync(sibling.path)).toBe(true);
 
       // The sibling is still addressable by the name it actually has, and its
@@ -413,8 +413,8 @@ describe("deleteWorktree", () => {
       const second = await deleteWorktree({ project, branch: "feat/eng-3941-selector", docker, env });
       expect(second.slug).toBe(given);
       expect(argsOf("rm").map((args) => args[0])).toEqual([
-        "sandboxr-demo-eng-3941",
-        `sandboxr-demo-${given}`,
+        "sandboxer-demo-eng-3941",
+        `sandboxer-demo-${given}`,
       ]);
     },
     GIT_TIMEOUT,

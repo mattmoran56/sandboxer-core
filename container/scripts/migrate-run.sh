@@ -16,19 +16,19 @@ set -uo pipefail
 
 LOG_TAG="migrate"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
-LOG="$SANDBOXR_LOGS/migrate.log"
-SCHEMA_DIR="$SANDBOXR_STATE/schema"
+LOG="$SANDBOXER_LOGS/migrate.log"
+SCHEMA_DIR="$SANDBOXER_STATE/schema"
 DRIVER=$(plan .database.driver none)
-DB_SCRIPT="$SANDBOXR_SCRIPTS/db/$DRIVER.sh"
+DB_SCRIPT="$SANDBOXER_SCRIPTS/db/$DRIVER.sh"
 
-mkdir -p "$SANDBOXR_LOGS" "$SCHEMA_DIR" "$SANDBOXR_RUN"
+mkdir -p "$SANDBOXER_LOGS" "$SCHEMA_DIR" "$SANDBOXER_RUN"
 
 record() {
   jq -n --arg state "$1" --arg file "$2" --arg error "$3" \
-    '{ state: $state, file: $file, error: $error }' >"$SANDBOXR_RUN/migrate.json"
-  "$SANDBOXR_SCRIPTS/status.sh"
+    '{ state: $state, file: $file, error: $error }' >"$SANDBOXER_RUN/migrate.json"
+  "$SANDBOXER_SCRIPTS/status.sh"
 }
 
 COMMAND=$(plan .database.migrate.command)
@@ -58,7 +58,7 @@ fi
 # Informational, not appended to the command. A runner's cutoff flag is its own
 # interface, and guessing its spelling would be reimplementing the runner.
 SINCE=$(plan .database.migrate.since)
-export SANDBOXR_MIGRATE_SINCE="$SINCE"
+export SANDBOXER_MIGRATE_SINCE="$SINCE"
 
 # --- baseline -----------------------------------------------------------------
 #

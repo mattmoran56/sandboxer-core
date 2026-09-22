@@ -17,11 +17,11 @@ function configWith(seed: Record<string, unknown>, apps: "public" | "private" = 
   return resolveConfig(
     {
       project: "acme",
-      sandboxr: ">=0.1.0",
+      sandboxer: ">=0.1.0",
       access: { apps },
       database: { driver: "mysql", seed_from: seed, migrate: { command: "migrate" } },
     },
-    "/repo/sandboxr.yaml",
+    "/repo/sandboxer.yaml",
     { enforceAccess: false },
   );
 }
@@ -57,8 +57,8 @@ describe("chooseSeed", () => {
 
   it("answers none for a project with no database", () => {
     const config = resolveConfig(
-      { project: "acme", sandboxr: ">=0.1.0", database: { driver: "none" } },
-      "/repo/sandboxr.yaml",
+      { project: "acme", sandboxer: ">=0.1.0", database: { driver: "none" } },
+      "/repo/sandboxer.yaml",
     );
     expect(chooseSeed(config)).toEqual({ source: "none" });
   });
@@ -149,9 +149,9 @@ describe("chooseSeed", () => {
 
 describe("cacheEntry", () => {
   it("names the artifact after the project and the key", () => {
-    const entry = cacheEntry("/home/.sandboxr", "acme", "abc123", ".sql.zst");
-    expect(entry.path).toBe("/home/.sandboxr/cache/seed-acme-abc123.sql.zst");
-    expect(entry.metaPath).toBe("/home/.sandboxr/cache/seed-acme-abc123.meta.json");
+    const entry = cacheEntry("/home/.sandboxer", "acme", "abc123", ".sql.zst");
+    expect(entry.path).toBe("/home/.sandboxer/cache/seed-acme-abc123.sql.zst");
+    expect(entry.metaPath).toBe("/home/.sandboxer/cache/seed-acme-abc123.meta.json");
   });
 
   it("keeps two projects' seeds apart", () => {

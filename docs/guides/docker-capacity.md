@@ -1,6 +1,6 @@
 ---
 title: Giving Docker the whole machine
-description: Where Docker's disk and memory limits actually come from on each platform, what sandboxr accumulates, and how to get the space back without losing what is expensive to rebuild.
+description: Where Docker's disk and memory limits actually come from on each platform, what sandboxer accumulates, and how to get the space back without losing what is expensive to rebuild.
 ---
 
 Docker has run out of room. You stopped some sandboxes, and that gave nothing back. This page
@@ -9,11 +9,11 @@ explains why, and how to get the space back safely.
 ```prompt
 Docker on this machine is out of space. Work out where it went and reclaim it.
 
-Read docs/guides/docker-capacity.md first. Run `sandboxr prune` and `docker system df`
+Read docs/guides/docker-capacity.md first. Run `sandboxer prune` and `docker system df`
 and show me both reports before removing anything. Then reclaim in the order that page
 gives, least destructive first.
 
-Never run `docker system prune -a --volumes` — it deletes the shared volumes sandboxr
+Never run `docker system prune -a --volumes` — it deletes the shared volumes sandboxer
 protects, and any volume something else shares across sandboxes. Stop and ask me before
 anything with `--yes` or `-a` in it.
 ```
@@ -127,7 +127,7 @@ an unrelated storage error.
 | **Docker's build cache** | Every image build, for ever, unless pruned | No |
 | **Project images** | One per project *per content hash* — a new one whenever the base image, the tool version, the Dockerfile or a lockfile changes | No |
 | The base image | Once per machine, rebuilt on a version bump | No |
-| A sandbox's own volumes (`data`, `blob`, `bin`, `www`) | One set per sandbox | No — `sandboxr down` is what removes them |
+| A sandbox's own volumes (`data`, `blob`, `bin`, `www`) | One set per sandbox | No — `sandboxer down` is what removes them |
 | The shared `deps-<hash>`, `gocache` and `gomod` volumes | One per distinct lockfile; the Go caches grow with what has been built | No, and deliberately never automatically |
 | The container's own writable layer | Barely — everything that matters is on a volume or a mount | Not applicable |
 | **Your worktrees** | Your work | They are **mounted from your disk** and were never in Docker's storage at all |
@@ -136,8 +136,8 @@ That last row is the one people fear, so it is worth being blunt. Deleting Docke
 volumes cannot touch a worktree, a branch or a commit. The durable thing is always the git
 repository on your own filesystem.
 
-The row above it is the one that surprises people. `sandboxr-gocache` and `sandboxr-gomod` are
-an expensive rebuild. **Nothing in sandboxr ever removes them**, and the blunt Docker commands
+The row above it is the one that surprises people. `sandboxer-gocache` and `sandboxer-gomod` are
+an expensive rebuild. **Nothing in sandboxer ever removes them**, and the blunt Docker commands
 further down will. A volume an embedder shares across every sandbox — a credential store, say
 — is outside the collector's scope for the same reason, and just as exposed to those commands.
 
@@ -158,7 +158,7 @@ The build cache is the one that grows without bound, and the one nothing prunes 
 Its two numbers do not match, and that is not an error. On that machine, 21 GB of records
 held only **5.1 GB that no image was also holding**, and 5.1 GB is what a prune actually
 returns. Deleting a cache record whose bytes an image still has frees nothing. `docker system
-df` draws the line in the same place, and so does `sandboxr prune`.
+df` draws the line in the same place, and so does `sandboxer prune`.
 
 ## How much memory to give it
 
@@ -174,7 +174,7 @@ So the sum is simple:
 
 Four sandboxes of a project whose heaviest build asks for 6 GB wants 26 GB, not 16.
 
-**8 GB is the floor for using sandboxr at all**, and 40 GB of disk with it. Below that you
+**8 GB is the floor for using sandboxer at all**, and 40 GB of disk with it. Below that you
 will spend your time having things killed for memory, and the thing the kernel picks to kill
 may not be the thing that asked for too much.
 
@@ -189,35 +189,35 @@ much better failure.
 
 ## Reclaiming, least destructive first
 
-### 1. `sandboxr prune` — what sandboxr made, and nothing else
+### 1. `sandboxer prune` — what sandboxer made, and nothing else
 
 Start here. It reports before it removes anything:
 
 ```bash
-sandboxr prune                      # a report; removes nothing
-sandboxr prune --yes                # remove what it listed
-sandboxr prune --build-cache --yes  # and Docker's build cache with it
+sandboxer prune                      # a report; removes nothing
+sandboxer prune --yes                # remove what it listed
+sandboxer prune --build-cache --yes  # and Docker's build cache with it
 ```
 
 ```
 WOULD REMOVE  NAME                        SIZE    WHY
-image         sandboxr/acme:40ed880f9db8  5.3 GB  sandboxr/acme:48273eacdece replaced it
-image         sandboxr/demo:664cb3e82b64  452 MB  sandboxr/demo:de1aab947f66 replaced it
+image         sandboxer/acme:40ed880f9db8  5.3 GB  sandboxer/acme:48273eacdece replaced it
+image         sandboxer/demo:664cb3e82b64  452 MB  sandboxer/demo:de1aab947f66 replaced it
 
 About 5.8 GB in total. Add --yes to remove it.
 ```
 
 It offers three things and protects everything else:
 
-- **Orphaned per-sandbox volumes** — a `sandboxr-<purpose>-…` volume no surviving sandbox
+- **Orphaned per-sandbox volumes** — a `sandboxer-<purpose>-…` volume no surviving sandbox
   owns and no container has mounted.
 - **Superseded project images** — for each project, everything older than its newest image.
-- **Docker's build cache**, only with `--build-cache`, because sandboxr is not its only
+- **Docker's build cache**, only with `--build-cache`, because sandboxer is not its only
   writer.
 
 Each project's newest image survives, because its tag is a content hash and the next
-`sandboxr up` will find it and start in seconds instead of rebuilding a toolchain. It never
-touches `sandboxr-gocache` or `sandboxr-gomod`, never touches `sandboxr/base`, and never
+`sandboxer up` will find it and start in seconds instead of rebuilding a toolchain. It never
+touches `sandboxer-gocache` or `sandboxer-gomod`, never touches `sandboxer/base`, and never
 touches a volume or an image whose name the engine did not mint. Those are contract rules, not
 preferences.
 
@@ -230,15 +230,15 @@ preferences.
 The full detail of what `prune` and `gc` remove, and why one asks and the other acts, is in
 [Start, stop, list, clean up](lifecycle.md).
 
-> [!IMPORTANT] `sandboxr prune --yes` has never removed anything
+> [!IMPORTANT] `sandboxer prune --yes` has never removed anything
 > The report has been run against a live daemon and its figures match `docker system df`. The
 > removal path is unit-tested only. See [What is built](../reference/status.md).
 
-### 2. `sandboxr gc` — sandboxes whose work is over
+### 2. `sandboxer gc` — sandboxes whose work is over
 
 ```bash
-sandboxr gc --dry-run
-sandboxr gc
+sandboxer gc --dry-run
+sandboxer gc
 ```
 
 Reaps a sandbox whose worktree no longer exists on disk, and the volumes that went with it.
@@ -262,18 +262,18 @@ against, and `-v` breaks it down per image, volume and cache record.
 machine that has been building for a while. The cost is that the next build of *every*
 project on the daemon is a cold one: no cached dependency install, no cached toolchain
 download. On a big project that is tens of minutes, once.
-`sandboxr prune --build-cache --yes` runs exactly this and reports the same figure first.
+`sandboxer prune --build-cache --yes` runs exactly this and reports the same figure first.
 
 **`docker image prune`** — dangling images only. Safe, and usually small.
 
-**`docker image prune -a`** — every image no container is using. This takes `sandboxr/base`
-too, because nothing is *running* from the base image between sandboxes. `sandboxr init`
+**`docker image prune -a`** — every image no container is using. This takes `sandboxer/base`
+too, because nothing is *running* from the base image between sandboxes. `sandboxer init`
 rebuilds it, in several minutes.
 
 **`docker system prune -a --volumes`** — do not run this unless you want the machine empty.
 `--volumes` removes every volume no container has mounted, which includes:
 
-- **`sandboxr-gocache`** and **`sandboxr-gomod`** — an expensive rebuild.
+- **`sandboxer-gocache`** and **`sandboxer-gomod`** — an expensive rebuild.
 - **Any volume something else shares across sandboxes**, a credential store included. The
   engine protects it from its own collector and cannot protect it from Docker.
 - The `data` volume of every **stopped** sandbox, which is its database.
@@ -289,14 +289,14 @@ Three levers, and they are the whole sizing decision:
 
 - **`data-root` on the big disk.** There is no allocation to raise on Linux, so this is it.
 - **Swap on.** A hard out-of-memory kill becomes slowness.
-- **`sandboxr prune --build-cache --yes` and `sandboxr gc` on a timer.** Nothing prunes the
+- **`sandboxer prune --build-cache --yes` and `sandboxer gc` on a timer.** Nothing prunes the
   build cache on its own, and a build machine left alone will fill any disk you give it.
 
 Then declare `memory:` on any app that needs it, so a sandbox is given room rather than
 discovering the limit halfway through a build.
 
 [On a server, for a team](../setups/shared-server.md) has the rest of the arithmetic — and
-says plainly which parts of running sandboxr on a server do not exist yet.
+says plainly which parts of running sandboxer on a server do not exist yet.
 
 **Next:** [Start, stop, list, clean up](lifecycle.md) is the exact rule for what each
 reclaiming command removes. [Troubleshooting](../troubleshooting.md) covers the failures a

@@ -30,7 +30,7 @@
  * answer differently the question that actually matters — *when did the countdown
  * start* — because only the timestamp remembers when the agent stopped.
  *
- * `sandboxr.created` is deliberately not either of them. It is stamped once and
+ * `sandboxer.created` is deliberately not either of them. It is stamped once and
  * never moves, so a deadline derived from it stays in the past for ever: the
  * reaper would stop an expired sandbox, the developer would press Restart, and
  * the next pass would stop it again. Restarting a sandbox buys it a full ttl,

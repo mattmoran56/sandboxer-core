@@ -17,7 +17,7 @@ const page = (notes, sandbox) => `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sandboxr demo — guestbook</title>
+<title>sandboxer demo — guestbook</title>
 <style>
   :root { color-scheme: light dark; }
   body {
@@ -68,7 +68,7 @@ const page = (notes, sandbox) => `<!doctype html>
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const sandbox = { slug: env.SANDBOXR_SLUG ?? "local", host: url.host };
+    const sandbox = { slug: env.SANDBOXER_SLUG ?? "local", host: url.host };
 
     if (request.method === "POST" && url.pathname === "/notes") {
       const form = await request.formData();

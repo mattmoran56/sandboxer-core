@@ -21,14 +21,14 @@
  * There is nothing to derive it from. The container's exec is not something
  * `docker inspect` will describe reliably, the per-sandbox logs were rejected as
  * a signal for reasons that have not changed, and the only process that knows a
- * socket is open is the dashboard — while `sandboxr expire` runs in a *different*
+ * socket is open is the dashboard — while `sandboxer expire` runs in a *different*
  * process and would see none of it. A set of open sockets held in memory would
  * give the CLI and the dashboard two different answers to "is this in use", which
  * is precisely the drift docs/architecture/state.md exists to forbid.
  *
  * So the file is an original, not a copy, and it passes §4.2's test — *does its
  * correctness depend on a container?* — the same way `state/name/` does, and for
- * the same reason it needs no `sandboxr.created` stamp:
+ * the same reason it needs no `sandboxer.created` stamp:
  *
  * **What it records is a timestamp, and an old timestamp cannot keep anything
  * alive.** The keep marker is a permission, so a stale one left behind for a
@@ -65,13 +65,13 @@ export const ATTACH_HEARTBEAT_MS = 30_000;
 
 export interface AttachOptions {
   env?: NodeJS.ProcessEnv | undefined;
-  /** `$SANDBOXR_HOME`, for a caller that already has it resolved. */
+  /** `$SANDBOXER_HOME`, for a caller that already has it resolved. */
   home?: string | undefined;
 }
 
 function pathsFor(options: AttachOptions) {
   const env = options.env ?? process.env;
-  return options.home === undefined ? paths(env) : paths({ ...env, SANDBOXR_HOME: options.home });
+  return options.home === undefined ? paths(env) : paths({ ...env, SANDBOXER_HOME: options.home });
 }
 
 /** `state/attach/<project>/<slug>` — keyed like the keep marker, on the container's project. */

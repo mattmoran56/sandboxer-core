@@ -13,15 +13,15 @@
  * retype at any moment must not be able to move them. Renaming a worktree
  * changes one line on a screen and no address anywhere.
  *
- * It is written to `~/.sandboxr/state/name/<project>/<slug>`, following the
+ * It is written to `~/.sandboxer/state/name/<project>/<slug>`, following the
  * keep-alive marker's precedent for where mutable host state may live
  * (contracts §4.2, §4.2.1). Two differences from that file are deliberate:
  *
  *  - **The key's `<project>` is the workspace *directory* name**, the one §4.1
  *    calls the key and the one every worktree route already uses — not the
- *    `project:` a sandboxr.yaml declares, which is what labels a container. The
+ *    `project:` a sandboxer.yaml declares, which is what labels a container. The
  *    two are allowed to differ, and this file names a directory on disk.
- *  - **There is no `sandboxr.created` stamp**, and there must not be one. The
+ *  - **There is no `sandboxer.created` stamp**, and there must not be one. The
  *    keep marker names a *container instance* because keeping a dead sandbox's
  *    successor alive would be wrong; a name belongs to the worktree, which is
  *    the thing that persists. Stamping it would throw the name away every time
@@ -76,7 +76,7 @@ export class DisplayNameError extends Error {
  * delete a file by hand.
  *
  * Trimming first is what makes that work, and is also why the file can be
- * written with a trailing newline like every other one sandboxr writes.
+ * written with a trailing newline like every other one sandboxer writes.
  */
 export function normaliseDisplayName(raw: string): string | null {
   const name = raw.trim();

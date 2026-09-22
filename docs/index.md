@@ -1,34 +1,34 @@
 ---
 title: Welcome
-description: sandboxr turns a git worktree into a running copy of your whole project, on its own hostname.
+description: sandboxer turns a git worktree into a running copy of your whole project, on its own hostname.
 tableOfContents: false
 ---
 
-**sandboxr turns a git worktree into a running copy of your whole project, on its own
+**sandboxer turns a git worktree into a running copy of your whole project, on its own
 hostname.** One container holds every service, every front-end, its own database and its own
 file storage. Several run at once, so two branches can be open in two browser tabs.
 
 ```bash
 cd .worktrees/tkt-4821
-sandboxr up
+sandboxer up
 # https://tkt-4821--app--acme.sbx.localhost
 ```
 
 ## Hand this to your agent
 
 ```prompt
-Install sandboxr on this machine, then start a sandbox for the git worktree I am in.
+Install sandboxer on this machine, then start a sandbox for the git worktree I am in.
 
 Read docs/getting-started/install.md and work through it, then do the same with
 docs/getting-started/first-sandbox.md. Stop and tell me if Docker is not running, if Docker
-has under 8 GB of memory available, or if this worktree has no sandboxr.yaml at its root.
+has under 8 GB of memory available, or if this worktree has no sandboxer.yaml at its root.
 ```
 
 ## What do you want to do?
 
 | I want to… | Go to |
 |---|---|
-| Understand what this is, in plain words | [What sandboxr is](introduction.md) |
+| Understand what this is, in plain words | [What sandboxer is](introduction.md) |
 | Understand how it works before I install it | [How it works, in five steps](how-it-works.md) |
 | Get it running on my machine | [Start here](getting-started/index.md) |
 | Work out which arrangement suits me | [Which setup is yours](setups/index.md) |
@@ -46,8 +46,8 @@ The apps a sandbox serves are **public by default**, and the controls that start
 rebuild sandboxes are **always behind a password**. That second half cannot be switched off.
 [Access and security](access.md) explains both.
 
-sandboxr is early software, and the docs say so where it matters rather than everywhere.
+sandboxer is early software, and the docs say so where it matters rather than everywhere.
 [What is built](reference/status.md) is the honest inventory of what has been run for real.
 
-**Next:** [What sandboxr is](introduction.md) if you are deciding whether this helps you, or
+**Next:** [What sandboxer is](introduction.md) if you are deciding whether this helps you, or
 [Start here](getting-started/index.md) if you already know and want it running.

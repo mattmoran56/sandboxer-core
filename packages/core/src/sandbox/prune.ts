@@ -11,7 +11,7 @@
  * beside the volume doctrine it copies. Leaving them to a command that has to be
  * asked twice is how roughly six gigabytes a project a rebuild accumulated until
  * a machine ran out of disk. What is left here that `gc` does not do is the
- * report — sizes, a total, and the build cache, which sandboxr is not the only
+ * report — sizes, a total, and the build cache, which sandboxer is not the only
  * writer of.
  *
  * A pure function of what `docker system df` reports, for the same reason the
@@ -43,9 +43,9 @@ export interface PruneInput {
    * Whether the build cache may actually be removed.
    *
    * Off unless asked, and the plan reports the cache either way. The cache is
-   * Docker's rather than sandboxr's — other projects on the same daemon built
+   * Docker's rather than sandboxer's — other projects on the same daemon built
    * into it too — so taking it as part of routine housekeeping would delete work
-   * sandboxr never created. Its size still belongs in the report: on a machine
+   * sandboxer never created. Its size still belongs in the report: on a machine
    * that has run out of room it is usually the largest number on the page, and
    * leaving it out would make the report look like the whole answer.
    */

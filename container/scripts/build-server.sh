@@ -14,7 +14,7 @@ set -euo pipefail
 
 LOG_TAG="build-server"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
 LABEL="${1:?build-server.sh needs a front-end label}"
 RECORD=$(service_by server label "$LABEL")

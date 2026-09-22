@@ -1,5 +1,5 @@
 // Tests for the host path set:
-// - paths: SANDBOXR_HOME honoured, defaulted, and an empty value treated as absent
+// - paths: SANDBOXER_HOME honoured, defaulted, and an empty value treated as absent
 // - every directory in contracts §4 present and under the home
 // - logsFor / secretsFile / envFile / cacheFile shapes
 // - directoriesOf: the set a command creates up front
@@ -7,27 +7,31 @@
 // - projectDir / worktreesDir / keepFile / attachFile / slugFile / configFile shapes
 // - isInside: a path in a directory, the directory itself, a sibling with a shared prefix
 // - samePath: identical strings, and two spellings of one place
+// - legacyHomeNotice: names the old home only when it is there and the new one is
+//   not, says nothing once SANDBOXER_HOME is set, and never moves anything
 
-import { homedir } from "node:os";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { WORKTREES_DIR, directoriesOf, isInside, paths, samePath } from "./paths.js";
+import { WORKTREES_DIR, directoriesOf, isInside, legacyHomeNotice, paths, samePath } from "./paths.js";
 
 describe("paths", () => {
-  const p = paths({ SANDBOXR_HOME: "/tmp/sbx" });
+  const p = paths({ SANDBOXER_HOME: "/tmp/sbx" });
 
-  it("uses SANDBOXR_HOME when it is set", () => {
+  it("uses SANDBOXER_HOME when it is set", () => {
     expect(p.home).toBe("/tmp/sbx");
   });
 
-  it("defaults to ~/.sandboxr", () => {
-    expect(paths({}).home).toBe(join(homedir(), ".sandboxr"));
+  it("defaults to ~/.sandboxer", () => {
+    expect(paths({}).home).toBe(join(homedir(), ".sandboxer"));
   });
 
-  it("treats an empty SANDBOXR_HOME as unset", () => {
-    expect(paths({ SANDBOXR_HOME: "" }).home).toBe(join(homedir(), ".sandboxr"));
+  it("treats an empty SANDBOXER_HOME as unset", () => {
+    expect(paths({ SANDBOXER_HOME: "" }).home).toBe(join(homedir(), ".sandboxer"));
   });
 
   it.each([
@@ -80,13 +84,13 @@ describe("paths", () => {
 
 describe("workspace", () => {
   it("sits under the home by default", () => {
-    expect(paths({ SANDBOXR_HOME: "/tmp/sbx" }).workspace).toBe(join("/tmp/sbx", "workspace"));
+    expect(paths({ SANDBOXER_HOME: "/tmp/sbx" }).workspace).toBe(join("/tmp/sbx", "workspace"));
   });
 
   // Its own variable because the repositories are the one part of the tree
   // worth putting on a different disk from the seed cache and the logs.
   it("can be moved off the home entirely", () => {
-    const moved = paths({ SANDBOXR_HOME: "/tmp/sbx", SANDBOXR_WORKSPACE: "/srv/projects" });
+    const moved = paths({ SANDBOXER_HOME: "/tmp/sbx", SANDBOXER_WORKSPACE: "/srv/projects" });
     expect(moved.workspace).toBe("/srv/projects");
     expect(moved.projectDir("acme")).toBe(join("/srv/projects", "acme"));
     expect(moved.worktreesDir("acme")).toBe(join("/srv/projects", "acme", "wt"));
@@ -96,13 +100,13 @@ describe("workspace", () => {
   // from its path alone and a second spelling is how a config gets looked for in
   // the wrong directory.
   it("puts worktrees under wt/ inside the project directory", () => {
-    const p = paths({ SANDBOXR_HOME: "/tmp/sbx" });
+    const p = paths({ SANDBOXER_HOME: "/tmp/sbx" });
     expect(p.worktreesDir("acme")).toBe(join(p.projectDir("acme"), WORKTREES_DIR));
     expect(WORKTREES_DIR).toBe("wt");
   });
 
-  it("treats an empty override as absent, like SANDBOXR_HOME does", () => {
-    expect(paths({ SANDBOXR_HOME: "/tmp/sbx", SANDBOXR_WORKSPACE: "" }).workspace).toBe(
+  it("treats an empty override as absent, like SANDBOXER_HOME does", () => {
+    expect(paths({ SANDBOXER_HOME: "/tmp/sbx", SANDBOXER_WORKSPACE: "" }).workspace).toBe(
       join("/tmp/sbx", "workspace"),
     );
   });
@@ -112,7 +116,7 @@ describe("keepFile", () => {
   // Under state/ rather than build/: build is regenerated on every `up`, and a
   // keep-alive marker has to outlive that.
   it("is one file per sandbox, under the state directory", () => {
-    const p2 = paths({ SANDBOXR_HOME: "/tmp/sbx" });
+    const p2 = paths({ SANDBOXER_HOME: "/tmp/sbx" });
     expect(p2.keepFile("acme", "tkt-1")).toBe(join("/tmp/sbx", "state", "keep", "acme", "tkt-1"));
   });
 });
@@ -122,7 +126,7 @@ describe("attachFile", () => {
   // rather than the workspace directory: it is joined to a sandbox, not to a
   // worktree.
   it("is one file per sandbox, under the state directory", () => {
-    const p2 = paths({ SANDBOXR_HOME: "/tmp/sbx" });
+    const p2 = paths({ SANDBOXER_HOME: "/tmp/sbx" });
     expect(p2.attachFile("acme", "tkt-1")).toBe(join("/tmp/sbx", "state", "attach", "acme", "tkt-1"));
   });
 });
@@ -131,7 +135,7 @@ describe("slugFile", () => {
   // Keyed on the worktree *directory* name and not on a slug: the slug is the
   // thing this file decides, so it cannot also be the key.
   it("is one file per worktree directory, under the state directory", () => {
-    const p2 = paths({ SANDBOXR_HOME: "/tmp/sbx" });
+    const p2 = paths({ SANDBOXER_HOME: "/tmp/sbx" });
     expect(p2.slugFile("acme", "feat-tkt-1-thing")).toBe(
       join("/tmp/sbx", "state", "slug", "acme", "feat-tkt-1-thing"),
     );
@@ -142,18 +146,18 @@ describe("configFile", () => {
   // At the top of the home, not inside state/: everything under state/ is
   // generated and may be rewritten, and this one is written by hand.
   it("is config.yaml at the top of the home", () => {
-    expect(paths({ SANDBOXR_HOME: "/tmp/sbx" }).configFile).toBe(join("/tmp/sbx", "config.yaml"));
+    expect(paths({ SANDBOXER_HOME: "/tmp/sbx" }).configFile).toBe(join("/tmp/sbx", "config.yaml"));
   });
 });
 
 describe("isInside", () => {
   it.each([
-    ["a path under the directory", "/srv/sandboxr/workspace", "/srv/sandboxr", true],
-    ["the directory itself", "/srv/sandboxr", "/srv/sandboxr", true],
-    ["several levels down", "/srv/sandboxr/a/b/c", "/srv/sandboxr", true],
-    ["a parent", "/srv", "/srv/sandboxr", false],
+    ["a path under the directory", "/srv/sandboxer/workspace", "/srv/sandboxer", true],
+    ["the directory itself", "/srv/sandboxer", "/srv/sandboxer", true],
+    ["several levels down", "/srv/sandboxer/a/b/c", "/srv/sandboxer", true],
+    ["a parent", "/srv", "/srv/sandboxer", false],
     // The guard the whole function exists for: a plain `startsWith` says yes.
-    ["a sibling sharing a prefix", "/srv/sandboxr-other", "/srv/sandboxr", false],
+    ["a sibling sharing a prefix", "/srv/sandboxer-other", "/srv/sandboxer", false],
   ])("%s", (_name, child, parent, expected) => {
     expect(isInside(child, parent)).toBe(expected);
   });
@@ -173,5 +177,48 @@ describe("samePath", () => {
     // that made a string comparison report a worktree git had just created as
     // one it had never heard of.
     expect(samePath("/tmp", "/tmp")).toBe(true);
+  });
+});
+
+describe("legacyHomeNotice", () => {
+  /** A fake home, with whichever of the two directories the case needs. */
+  const homeWith = async (...dirs: string[]): Promise<string> => {
+    const home = await mkdtemp(join(tmpdir(), "sandboxer-home-"));
+    for (const dir of dirs) await mkdir(join(home, dir));
+    return home;
+  };
+
+  it("names the old home when only the old home is there", async () => {
+    const home = await homeWith(".sandboxr");
+    const said = legacyHomeNotice({ HOME: home });
+    expect(said).toContain(join(home, ".sandboxr"));
+    expect(said).toContain(join(home, ".sandboxer"));
+    expect(said).toContain("mv ");
+  });
+
+  it("says nothing once the new home exists", async () => {
+    // Both present is the state after somebody has moved it, or after they have
+    // decided not to. Either way the decision is made and repeating it is noise.
+    expect(legacyHomeNotice({ HOME: await homeWith(".sandboxr", ".sandboxer") })).toBeUndefined();
+  });
+
+  it("says nothing on a machine that never ran the old name", async () => {
+    expect(legacyHomeNotice({ HOME: await homeWith() })).toBeUndefined();
+  });
+
+  it("says nothing when SANDBOXER_HOME names the state itself", async () => {
+    // The person has said where their state is, so the default home is not the
+    // question and a sentence about it would be wrong rather than merely noisy.
+    const home = await homeWith(".sandboxr");
+    expect(legacyHomeNotice({ HOME: home, SANDBOXER_HOME: "/somewhere/else" })).toBeUndefined();
+  });
+
+  it("moves nothing", async () => {
+    // Read-only is the whole design: an automatic mv of the directory holding
+    // every worktree on the machine is help that is only noticed when it fails.
+    const home = await homeWith(".sandboxr");
+    legacyHomeNotice({ HOME: home });
+    expect(existsSync(join(home, ".sandboxr"))).toBe(true);
+    expect(existsSync(join(home, ".sandboxer"))).toBe(false);
   });
 });

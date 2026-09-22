@@ -16,7 +16,7 @@ import { ATTACH_HEARTBEAT_MS, attachFileFor, markAttached } from "./attach.js";
 let home: string;
 
 beforeEach(async () => {
-  home = await mkdtemp(join(tmpdir(), "sandboxr-attach-"));
+  home = await mkdtemp(join(tmpdir(), "sandboxer-attach-"));
 });
 
 describe("markAttached", () => {
@@ -53,12 +53,12 @@ describe("markAttached", () => {
 
 describe("attachFileFor", () => {
   it("prefers an explicit home to the one in the environment", () => {
-    const file = attachFileFor("acme", "tkt-1", { env: { SANDBOXR_HOME: "/elsewhere" }, home });
+    const file = attachFileFor("acme", "tkt-1", { env: { SANDBOXER_HOME: "/elsewhere" }, home });
     expect(file).toBe(join(home, "state", "attach", "acme", "tkt-1"));
   });
 
   it("falls back to the environment when no home is given", () => {
-    const file = attachFileFor("acme", "tkt-1", { env: { SANDBOXR_HOME: "/elsewhere" } });
+    const file = attachFileFor("acme", "tkt-1", { env: { SANDBOXER_HOME: "/elsewhere" } });
     expect(file).toBe(join("/elsewhere", "state", "attach", "acme", "tkt-1"));
   });
 });

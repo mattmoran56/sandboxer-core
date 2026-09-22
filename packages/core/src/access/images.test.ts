@@ -10,8 +10,10 @@
 //   and does not fill it (contracts §7.2)
 // - initAccess reports where a front end must listen, and says that nothing is
 //   serving the bare domain
+// - initAccess tells somebody whose state is still under the old name to move it,
+//   and moves nothing itself
 
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -29,17 +31,17 @@ import { BASE_IMAGE, DEFAULT_FRONTEND_PORT, baseImageTag, initAccess } from "./i
  * and there is nothing here to import them from. `PROTECTED_IMAGES` in
  * ../naming.ts is where the same strings are reserved against reclamation.
  */
-const DASHBOARD_IMAGE_NAME = "sandboxr/dashboard";
-const WORKSTATION_IMAGE_NAME = "sandboxr/workstation";
+const DASHBOARD_IMAGE_NAME = "sandboxer/dashboard";
+const WORKSTATION_IMAGE_NAME = "sandboxer/workstation";
 
 /** An installation whose `container/` holds one file in each directory that matters. */
 async function installation(): Promise<NodeJS.ProcessEnv> {
-  const root = await mkdtemp(join(tmpdir(), "sandboxr-install-"));
+  const root = await mkdtemp(join(tmpdir(), "sandboxer-install-"));
   for (const dir of ["base", "project", "examples", "workstation", "dashboard", "orchestrator", "agent-layer", "scripts"]) {
     await mkdir(join(root, "container", dir), { recursive: true });
     await writeFile(join(root, "container", dir, "Dockerfile"), `# ${dir}\n`, "utf8");
   }
-  return { SANDBOXR_INSTALL: root };
+  return { SANDBOXER_INSTALL: root };
 }
 
 /** A docker that records its builds and answers a declared set of existing images. */
@@ -59,7 +61,7 @@ describe("baseImageTag", () => {
   it.each(["base", "scripts"])("moves when container/%s/ changes, because the build reads it", async (dir) => {
     const env = await installation();
     const before = await baseImageTag(env);
-    await writeFile(join(env.SANDBOXR_INSTALL as string, "container", dir, "Dockerfile"), "# changed\n", "utf8");
+    await writeFile(join(env.SANDBOXER_INSTALL as string, "container", dir, "Dockerfile"), "# changed\n", "utf8");
     expect(await baseImageTag(env)).not.toBe(before);
   });
 
@@ -78,7 +80,7 @@ describe("baseImageTag", () => {
     async (dir) => {
       const env = await installation();
       const before = await baseImageTag(env);
-      await writeFile(join(env.SANDBOXR_INSTALL as string, "container", dir, "Dockerfile"), "# changed\n", "utf8");
+      await writeFile(join(env.SANDBOXER_INSTALL as string, "container", dir, "Dockerfile"), "# changed\n", "utf8");
       expect(await baseImageTag(env)).toBe(before);
     },
   );
@@ -88,7 +90,7 @@ describe("baseImageTag", () => {
  * The engine's base image has no agent in it, and that is a boundary rather than
  * a detail of what it happens to install.
  *
- * sandboxr runs a project and has no opinion about who edits the worktree
+ * sandboxer runs a project and has no opinion about who edits the worktree
  * (contracts §7.2); an agent lives one layer above, in an image a product
  * builds `FROM` this one. Asserted as "the file mentions neither name" rather
  * than by building the image, because a build takes minutes and the thing that
@@ -130,15 +132,17 @@ describe("container/base/Dockerfile", () => {
  * machine.
  */
 describe("initAccess", () => {
-  const run = async (): Promise<{ built: string[]; report: Awaited<ReturnType<typeof initAccess>> }> => {
-    const root = await mkdtemp(join(tmpdir(), "sandboxr-init-"));
+  const run = async (
+    prepare?: (root: string, env: NodeJS.ProcessEnv) => Promise<void>,
+  ): Promise<{ root: string; built: string[]; report: Awaited<ReturnType<typeof initAccess>> }> => {
+    const root = await mkdtemp(join(tmpdir(), "sandboxer-init-"));
     for (const dir of ["base", "project", "examples", "workstation", "dashboard", "scripts"]) {
       await mkdir(join(root, "container", dir), { recursive: true });
       await writeFile(join(root, "container", dir, "Dockerfile"), `# ${dir}\n`, "utf8");
     }
     const env: NodeJS.ProcessEnv = {
-      SANDBOXR_INSTALL: root,
-      SANDBOXR_HOME: join(root, "home"),
+      SANDBOXER_INSTALL: root,
+      SANDBOXER_HOME: join(root, "home"),
       HOME: join(root, "home"),
       // Set so the host lookups answer from the environment rather than shelling
       // out to `git` and `gh`: what this asserts must not depend on which account
@@ -147,6 +151,7 @@ describe("initAccess", () => {
       GIT_AUTHOR_EMAIL: "ada@example.com",
       GH_TOKEN: "gho_test",
     };
+    await prepare?.(root, env);
 
     const built: string[] = [];
     const docker = {
@@ -164,7 +169,7 @@ describe("initAccess", () => {
     } as unknown as Docker;
 
     const report = await initAccess({ env, docker, tls: false, start: false });
-    return { built, report };
+    return { root, built, report };
   };
 
   it("builds the base image and no product's", async () => {
@@ -190,5 +195,33 @@ describe("initAccess", () => {
   it("says that nothing is serving the bare domain", async () => {
     const { report } = await run();
     expect(report.notes.join("\n")).toContain("command-line tool");
+  });
+
+  // The tool was renamed and its home moved with it. `init` is the verb run
+  // straight after an upgrade, so it is the one that says where the old state
+  // is — and it has to look *before* it makes the new home, or it finds the new
+  // home and concludes there is nothing to say. Driven without SANDBOXER_HOME,
+  // because a person who has set that has already answered the question.
+  it("tells somebody whose state is under the old name to move it, and moves nothing", async () => {
+    const { root, report } = await run(async (dir, env) => {
+      await mkdir(join(dir, "home", ".sandboxr"), { recursive: true });
+      delete env.SANDBOXER_HOME;
+    });
+    const said = report.notes.join("\n");
+    expect(said).toContain(join(root, "home", ".sandboxr"));
+    expect(said).toContain(`mv ${join(root, "home", ".sandboxr")} ${join(root, "home", ".sandboxer")}`);
+    // Read-only: the old directory is exactly where it was, and the new one is
+    // the empty tree `init` always makes — not a copy of the old.
+    expect((await readdir(join(root, "home", ".sandboxr"))).length).toBe(0);
+    expect(await readdir(join(root, "home"))).toEqual([".sandboxer", ".sandboxr"]);
+  });
+
+  // The upgrade sentence is for one situation. On a machine that never ran the
+  // old name it must not appear, or every first install reads as a migration.
+  it("says nothing about the old name on a machine that never had it", async () => {
+    const { report } = await run(async (_dir, env) => {
+      delete env.SANDBOXER_HOME;
+    });
+    expect(report.notes.join("\n")).not.toContain(".sandboxr");
   });
 });

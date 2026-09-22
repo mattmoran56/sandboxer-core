@@ -22,9 +22,9 @@ saying so in the commit message. A package that disagrees with the contract is a
 | Slug derivation, the 31-character ceiling, and hashing rather than truncation | §3.1 |
 | The hostname shape, and the bare domain a control plane may be put on | §3.2 |
 | Container, network, volume and image names; which volumes and images are never reclaimed | §3.3 |
-| Labels as the only state; labels holding durable state only; no `sandboxr.expires` | §3.4 |
-| Host paths under `SANDBOXR_HOME`; the workspace; the keep-alive stamp; `config.yaml` | §4, §4.1, §4.2, §4.3 |
-| Three runtime kinds; on-demand static builds; the reserved `/__sandboxr/` prefix; `optional` never reading as a fault | §5.1 |
+| Labels as the only state; labels holding durable state only; no `sandboxer.expires` | §3.4 |
+| Host paths under `SANDBOXER_HOME`; the workspace; the keep-alive stamp; `config.yaml` | §4, §4.1, §4.2, §4.3 |
+| Three runtime kinds; on-demand static builds; the reserved `/__sandboxer/` prefix; `optional` never reading as a fault | §5.1 |
 | The secrets rules | §5.2 |
 | Refusing a public sandbox, and `anonymised: true` as an assertion | §5.3 |
 | `plan.json` as the only boundary into the container | §5.5 |
@@ -33,7 +33,7 @@ saying so in the commit message. A package that disagrees with the contract is a
 | Where a seed artifact lives and how the container reaches it | §6.2 |
 | The forward-auth handshake, the bare domain it trusts, and that the engine answers none of it | §7 |
 | Git mounts, the commit identity, and the GitHub token | §7.1 |
-| Claiming the bare domain with `sandboxr.frontend`, and what `init` leaves empty | §7.2 |
+| Claiming the bare domain with `sandboxer.frontend`, and what `init` leaves empty | §7.2 |
 | The verbs and their scopes, and that a refusal is the last word | §8 |
 
 Everything else on this page is implementation reasoning. It is still load-bearing, and the
@@ -109,7 +109,7 @@ migrations cannot coexist — or itself per-branch, at which point you have re-i
 with more moving parts. *The cost:* a sandbox is a fat container and is not how the project is
 deployed. It is not meant to be. Testing deployment topology is a different job.
 
-**The container reads a resolved plan, not the config file.** *Obvious:* mount `sandboxr.yaml` and
+**The container reads a resolved plan, not the config file.** *Obvious:* mount `sandboxer.yaml` and
 let the container read it. *Why not:* the container would have to merge defaults, validate
 combinations and compute addresses — in shell, with no schema and no type checker. It would then
 have to agree with the host's implementation of the same rules for ever. *Instead:* the host emits a
@@ -229,17 +229,17 @@ gets its own state — never `down`.
   The container is the right thing to resolve a label.
 - **The handshake router's priority is explicit.** Traefik would otherwise order rules by their
   length.
-- **`/__sandboxr/` is reserved and answers before any app.** A path under it that names nothing
+- **`/__sandboxer/` is reserved and answers before any app.** A path under it that names nothing
   is a 404 from the router itself. [In full](request-path.md).
 - **State lives only in Docker labels.** A manifest file goes wrong in the ordinary case.
   [In full](state.md).
-- **There is no `sandboxr.expires` label.** A stored deadline is already in the past when the
+- **There is no `sandboxer.expires` label.** A stored deadline is already in the past when the
   reaper acts on it, so the ttl is stored as a *duration*.
 - **The status document is derived, never asserted.** There is no state field for anyone to set
   wrongly.
 - **Per-service log files, trimmed rather than rotated.** One interleaved stream cannot be
   filtered after the fact.
-- **`SANDBOXR_HOME` is never inside a repository.** `git clean -xdf` is a normal thing to run.
+- **`SANDBOXER_HOME` is never inside a repository.** `git clean -xdf` is a normal thing to run.
 
 <details class="why">
 <summary><b>Why it works this way</b> — the obvious design for each of those, why it fails, and what it costs</summary>
@@ -284,7 +284,7 @@ not:* Traefik defaults priority to the **length of the rule**, so which of two r
 depend on how long somebody's branch name is. *Instead:* a fixed high number, so the reserved prefix
 wins every time.
 
-**`/__sandboxr/` is reserved and answers before any app.** *Obvious:* let the status routes sit
+**`/__sandboxer/` is reserved and answers before any app.** *Obvious:* let the status routes sit
 alongside an app's routes. *Why not:* a host matcher matches every path, so a status path that named
 nothing fell through to whichever front-end the request arrived on. A dormant service's health probe
 came back as that app's own 503 while the app was unbuilt. Once it was built the same probe came back
@@ -298,7 +298,7 @@ file with `docker ps` and believe `docker ps`. At that point the file is a cache
 already have to read. *The cost:* labels are immutable strings, so runtime state is derived at read
 time instead. [In full](state.md).
 
-**There is no `sandboxr.expires` label.** *Obvious:* store the deadline. *Why not:* `created + ttl`
+**There is no `sandboxer.expires` label.** *Obvious:* store the deadline. *Why not:* `created + ttl`
 is a fixed instant, and it is already in the past the moment the reaper stops a sandbox. Restarting
 one would get it stopped again on the very next pass, and the button would look broken. *Instead:*
 store the ttl as a *duration* and derive the deadline from the container's current start time and
@@ -316,8 +316,8 @@ fact — unreadable for a person, and for an agent trying to find its own failur
 than rotated* because these are development logs, and a sandbox left up for days must not be able to
 fill its own disk.
 
-**`SANDBOXR_HOME` is never inside a repository.** *Obvious:* keep state next to the project, in
-`.sandboxr/`. *Why not:* `git clean -xdf` is a normal thing to run, and it would destroy the seed
+**`SANDBOXER_HOME` is never inside a repository.** *Obvious:* keep state next to the project, in
+`.sandboxer/`. *Why not:* `git clean -xdf` is a normal thing to run, and it would destroy the seed
 cache, the certificates and every sandbox's logs.
 
 </details>
@@ -333,7 +333,7 @@ cache, the certificates and every sandbox's logs.
   wins, and `root` is always the worktree.
 - **The config search is bounded at the top of a managed worktree.** An unbounded walk would
   leave the checkout.
-- **The machine's settings live in `~/.sandboxr/config.yaml`, not in `sandboxr.yaml`.** A
+- **The machine's settings live in `~/.sandboxer/config.yaml`, not in `sandboxer.yaml`.** A
   setting that lives in a repository is a setting a repository can *ask for*.
 - **The GitHub token has no flag and no environment variable.** It decides which code may act
   as the person running it. **The default is off.**
@@ -374,7 +374,7 @@ sibling worktree into the sandbox and resolve every declared path one directory 
 inside a managed worktree the walk stops at the worktree top, and the explicit fallback is the only
 sanctioned way to reach the project-level file.
 
-**The machine's settings live in `~/.sandboxr/config.yaml`, not in `sandboxr.yaml`.** *Obvious:* put
+**The machine's settings live in `~/.sandboxer/config.yaml`, not in `sandboxer.yaml`.** *Obvious:* put
 the lifetime and the GitHub setting where the rest of the project's configuration is. *Why not:* a
 setting that lives in a repository is a setting a repository can *ask for*. Clone something, start a
 sandbox, and its committed config would have helped itself to a credential reaching every repository
@@ -476,7 +476,7 @@ migration silently waits on the other.
 The engine ships one face, the command line. These are the decisions that bind anything else
 built on it, and they are here because each one was paid for once.
 
-- **An embedder calls core in process, never the `sandboxr` command.** A second implementation
+- **An embedder calls core in process, never the `sandboxer` command.** A second implementation
   of a core rule drifts within a week.
 - **Whatever holds the Docker socket offers a closed table of commands, never a generic one.**
   A "run this command" endpoint behind a password is a remote shell with an extra step.
@@ -491,11 +491,11 @@ built on it, and they are here because each one was paid for once.
 <details class="why">
 <summary><b>Why it works this way</b> — the obvious design for each of those, why it fails, and what it costs</summary>
 
-**An embedder calls core in process, never the `sandboxr` command.** *Obvious:* implement start,
+**An embedder calls core in process, never the `sandboxer` command.** *Obvious:* implement start,
 stop and rebuild in the thing that needs them; it is a few functions. *Why not:* it is not. Volume
 names keyed on a lockfile hash, seed cache invalidation, plan resolution, the worktree cases — a
 second implementation drifts within a week, and then the two disagree about what a sandbox is.
-*Instead:* call `@sandboxr/core`, and reach it through exactly one file of your own, so a renamed
+*Instead:* call `@sandboxer/core`, and reach it through exactly one file of your own, so a renamed
 export is a compile error in one place rather than a surprise at run time. Two things core does not
 express, and an embedder that wants them holds the Docker socket itself: streaming an exec line by
 line, and hijacking a connection for a terminal.

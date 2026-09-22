@@ -1,6 +1,6 @@
 ---
 title: Paths
-description: Every path sandboxr reads or writes — in its own repository, in your project, on your computer, and inside a container.
+description: Every path sandboxer reads or writes — in its own repository, in your project, on your computer, and inside a container.
 ---
 
 Four separate places, and mixing them up is the most common way to get lost. This page lists all of
@@ -12,10 +12,10 @@ One file, at the root of the project you want to sandbox.
 
 ```
 your-project/
-  sandboxr.yaml     ← the whole configuration, versioned with the code
+  sandboxer.yaml     ← the whole configuration, versioned with the code
 ```
 
-It lives with the project rather than with sandboxr, so a new service and the settings that describe
+It lives with the project rather than with sandboxer, so a new service and the settings that describe
 it land in the same commit.
 
 **The directory holding that file is what gets mounted at `/workspace`.** The config's directory, not
@@ -28,7 +28,7 @@ still what gets mounted.
 
 ## 2. On your computer
 
-Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.sandboxr`.
+Everything sandboxer writes at run time lives under `SANDBOXER_HOME`, default `~/.sandboxer`.
 
 | Path | What it holds | Survives `down`? |
 |---|---|---|
@@ -47,7 +47,7 @@ Everything sandboxr writes at run time lives under `SANDBOXR_HOME`, default `~/.
 | `host.env` | What only this machine can look up, for whatever runs on the bare domain. Mode 0600 — see below | yes |
 | `config.yaml` | The machine's own settings | yes |
 | `workspace/<project>/` | A managed project: its bare clone and its worktrees | yes |
-| `workspace/<project>/sandboxr.yaml` | Optional: a config for worktrees that have none | yes |
+| `workspace/<project>/sandboxer.yaml` | Optional: a config for worktrees that have none | yes |
 
 The logs surviving is on purpose. The logs from a sandbox you have just deleted are usually exactly
 the ones you wanted.
@@ -58,7 +58,7 @@ the ones you wanted.
 
 ### The two files you edit
 
-`config.yaml` holds what belongs to the machine rather than to any project. `sandboxr init` writes a
+`config.yaml` holds what belongs to the machine rather than to any project. `sandboxer init` writes a
 commented example the first time and never touches it again.
 
 ```yaml
@@ -72,7 +72,7 @@ share:
   - host: ~/.claude/.credentials.json
     into: /root/.claude/.credentials.json
 # Per project, optional. The key is the project's workspace directory, or the
-# `project:` its own sandboxr.yaml declares. Either works.
+# `project:` its own sandboxer.yaml declares. Either works.
 projects:
   acme-monorepo: { ttl: 3d, github: token }
 ```
@@ -86,7 +86,7 @@ project's secrets.
 > which loses the file you were pointing at. An empty file mounted over a container's working copy
 > replaces something with nothing — which is how a Mac whose `~/.claude/.credentials.json` is an
 > empty placeholder made every sandbox report `Not logged in`, with a valid login sitting on the
-> host the whole time. So sandboxr checks that the source is a file with something in it, and
+> host the whole time. So sandboxer checks that the source is a file with something in it, and
 > quietly leaves the row out otherwise. It never reads what is in it.
 
 > [!WARNING] Upgrading: a machine with no `share:` row shares nothing
@@ -99,19 +99,19 @@ silently applying a default lifetime to a machine where somebody has just writte
 they wanted is how a week of work gets stopped after twelve hours.
 
 A `projects:` key naming no project is a warning rather than an error: one stale entry must not stop
-every other project on the machine starting. `sandboxr doctor` names it, and lists the names that
+every other project on the machine starting. `sandboxer doctor` names it, and lists the names that
 would have matched.
 
 `secrets/<project>.env` is the other one. It holds a project's third-party credentials, at mode
-`0600`, as `NAME="value"` one per line. It is **edited, not generated**: `sandboxr secrets set`,
-`sandboxr secrets edit` all author it directly, and
-`sandboxr secrets import` merges a project's own `.env` files into whatever is already there. It is
+`0600`, as `NAME="value"` one per line. It is **edited, not generated**: `sandboxer secrets set`,
+`sandboxer secrets edit` all author it directly, and
+`sandboxer secrets import` merges a project's own `.env` files into whatever is already there. It is
 mounted read-only into every sandbox of the project, so an edit reaches a running one on a restart.
 See [Secrets](../configuration/secrets.md).
 
 ### `host.env`, which you do not edit
 
-`host.env` is the opposite of those two: generated every time `sandboxr init` runs, so an edit to it
+`host.env` is the opposite of those two: generated every time `sandboxer init` runs, so an edit to it
 is lost. It holds the handful of values only a program running on this machine can find — the GitHub
 token out of the login keychain and your commit identity out of your gitconfig, plus whatever
 extra keys the thing that ran `init` asked for — so that whatever you put on the bare domain can
@@ -135,8 +135,8 @@ it.
 It exists because a websocket does not appear in the router's log until it *closes*, and the line is
 stamped with the moment it opened — so a session held open for longer than the sandbox's lifetime
 left no evidence of being used, and the sandbox was stopped underneath it. This is the one thing on
-the machine sandboxr has to write down rather than derive, because the only process that knows a
-socket is open is the one holding it, and `sandboxr expire` on the command line is a different
+the machine sandboxer has to write down rather than derive, because the only process that knows a
+socket is open is the one holding it, and `sandboxer expire` on the command line is a different
 process.
 
 It survives `down`, and a stale one is harmless: all it records is a moment, and a moment older than
@@ -157,7 +157,7 @@ time you rebuilt.
 
 It is only a label. **Renaming a worktree moves nothing**: the slug, the hostname, the container
 name and every URL are still built from the branch and the directory. Set it with
-`sandboxr worktree name <project> <branch> <name>`; an empty name hands the worktree back to its
+`sandboxer worktree name <project> <branch> <name>`; an empty name hands the worktree back to its
 branch. The file is plain text and you can edit it by hand — one that has been
 edited into something that is not a name (more than 60 characters, or with a line break in it) is
 read as *no name*, so the worktree shows its branch again rather than showing something broken.
@@ -170,41 +170,41 @@ and a slug is what names the container, the volumes, the hostname and the databa
 without this the two branches would be one sandbox, and starting the second would take the
 first one's database.
 
-When sandboxr cuts the second worktree it notices, gives it a slug of its own — `eng-3941-7k2f`,
+When sandboxer cuts the second worktree it notices, gives it a slug of its own — `eng-3941-7k2f`,
 four random characters — and writes it here. **The random part cannot be worked out again, so
 this file is the only place the answer exists.** Everything that needs the slug reads it from
 here first and derives only when there is nothing to read.
 
 It is keyed on the worktree's *directory* name rather than on a slug, because the slug is the
 thing the file decides. It survives `down` and every rebuild, for the same reason a worktree's
-name does: it belongs to the worktree, not to a container. `sandboxr worktree rm` deletes it.
+name does: it belongs to the worktree, not to a container. `sandboxer worktree rm` deletes it.
 
 You can edit it by hand, and a file edited into something that is not a slug reads as *nothing
 recorded* — the worktree goes back to the slug it derives. That is visible and undoable, which
 is what you want from a value that ends up in a hostname.
 
-> [!NOTE] Only worktrees sandboxr cut for you
-> The check happens when sandboxr creates a worktree, so it covers the ones under
+> [!NOTE] Only worktrees sandboxer cut for you
+> The check happens when sandboxer creates a worktree, so it covers the ones under
 > `workspace/<project>/wt/`. Worktrees you keep yourself, in your own repository, can still
-> collide — pass a name with `sandboxr up <name>` if two of them share a ticket.
+> collide — pass a name with `sandboxer up <name>` if two of them share a ticket.
 
 ### The workspace
 
-The workspace has its own variable, `SANDBOXR_WORKSPACE`, because the repositories are the one part
+The workspace has its own variable, `SANDBOXER_WORKSPACE`, because the repositories are the one part
 of this tree worth putting on a different disk. Inside it, one directory per project:
 
 ```
 <workspace>/<project>/
-  sandboxr.yaml    optional — a config for every worktree that has none of its own
+  sandboxer.yaml    optional — a config for every worktree that has none of its own
   repo.git/        a bare clone — this is what makes the directory a project
   wt/<branch>/     one worktree per branch, all peers
 ```
 
 **A project is a directory containing `repo.git`.** There is no registry file, so listing the
-projects is a directory read — a pure function of the filesystem, for the same reason `sandboxr ls`
+projects is a directory read — a pure function of the filesystem, for the same reason `sandboxer ls`
 is a pure function of `docker ps`.
 
-`sandboxr.yaml` here is the only file you put in a project directory by hand, and it is a stopgap. A
+`sandboxer.yaml` here is the only file you put in a project directory by hand, and it is a stopgap. A
 worktree is a separate checkout, so an uncommitted config in one does not exist in any other, and
 without this you would copy the file into every new worktree for ever. A worktree that carries its
 own config always wins, so committing the file upstream ends the arrangement on its own. See
@@ -212,11 +212,11 @@ own config always wins, so committing the file upstream ends the arrangement on 
 
 > [!WARNING] The project directory is read, never mounted
 > It holds `repo.git` and every other worktree. Only a worktree is ever mounted at `/workspace`, and
-> running `sandboxr up` from the project directory itself is refused with an error saying so.
+> running `sandboxer up` from the project directory itself is refused with an error saying so.
 
-`SANDBOXR_HOME` overrides the root and everything else is derived from it, so there is no second
+`SANDBOXER_HOME` overrides the root and everything else is derived from it, so there is no second
 variable to set. On a server, set it **in the service definition**, not in a login shell: a service
-started at boot has no login shell, and the fallback to `~/.sandboxr` under a service account puts
+started at boot has no login shell, and the fallback to `~/.sandboxer` under a service account puts
 the state somewhere nobody looks.
 
 ## 3. Inside a running sandbox
@@ -224,24 +224,24 @@ the state somewhere nobody looks.
 | Path | What it is | Mounted |
 |---|---|---|
 | `/workspace` | Your worktree | read-write |
-| `/sandboxr/plan.json` | The plan | read-only |
-| `/sandboxr/secrets.env` | The project's third-party credentials — only when it has a secrets file | read-only |
-| `/sandboxr/cache/` | The host's seed cache | read-only |
-| `/sandboxr/seed/<name>` | A seed file you declared with `seed_from.file` — that one file, from wherever you keep it | read-only |
-| `/var/lib/sandboxr/data` | The database | the `data` volume |
-| `/var/lib/sandboxr/blob` | Object storage | the `blob` volume |
-| `/var/lib/sandboxr/bin` | Compiled backends | the `bin` volume |
+| `/sandboxer/plan.json` | The plan | read-only |
+| `/sandboxer/secrets.env` | The project's third-party credentials — only when it has a secrets file | read-only |
+| `/sandboxer/cache/` | The host's seed cache | read-only |
+| `/sandboxer/seed/<name>` | A seed file you declared with `seed_from.file` — that one file, from wherever you keep it | read-only |
+| `/var/lib/sandboxer/data` | The database | the `data` volume |
+| `/var/lib/sandboxer/blob` | Object storage | the `blob` volume |
+| `/var/lib/sandboxer/bin` | Compiled backends | the `bin` volume |
 | `/srv/www` | Built websites, one directory per app label | the `www` volume |
 | `/srv/www/.built.json` | What this sandbox has built, and when | on that volume |
-| `/var/log/sandboxr` | Per-service log files | from the host's `logs/` |
-| `/run/sandboxr` | Marker files the status document is composed from | a tmpfs — gone with the container |
-| `/opt/sandboxr/scripts/` | The container scripts | from the image |
+| `/var/log/sandboxer` | Per-service log files | from the host's `logs/` |
+| `/run/sandboxer` | Marker files the status document is composed from | a tmpfs — gone with the container |
+| `/opt/sandboxer/scripts/` | The container scripts | from the image |
 | `/opt/deps` | Dependencies installed into the image, copied out on first boot | from the image |
 | `/go/pkg/mod`, `/go/cache` | Go's module and build caches | machine-wide volumes |
 | `<each `share:` row's `into:`>` | Whatever `config.yaml` says to share — an `.npmrc`, a deploy key, a tool's stored credential | that one host file, read-write |
 
 ```bash
-sandboxr shell tkt-4821      # and look for yourself
+sandboxer shell tkt-4821      # and look for yourself
 ```
 
 <details class="agent">
@@ -272,7 +272,7 @@ container — and the symptom is not a missing mount, it is "sandboxes are just 
 
 </details>
 
-## 4. The sandboxr repository
+## 4. The sandboxer repository
 
 Where to look when you need the source rather than the documentation.
 [Package by package](../architecture/packages.md) is the guide to this.
@@ -293,12 +293,12 @@ Where to look when you need the source rather than the documentation.
 
 | Question | File |
 |---|---|
-| What fields does `sandboxr.yaml` accept? | `packages/core/src/config/schema.ts` |
+| What fields does `sandboxer.yaml` accept? | `packages/core/src/config/schema.ts` |
 | What refuses a config, and why? | `packages/core/src/config/load.ts`, `access.ts`, `advice.ts` |
-| What is in `~/.sandboxr/config.yaml`? | `packages/core/src/config/machine.ts` |
+| What is in `~/.sandboxer/config.yaml`? | `packages/core/src/config/machine.ts` |
 | What does the container actually receive? | `packages/core/src/config/plan.ts`, and `container/README.md` |
 | What is a sandbox called? | `packages/core/src/naming.ts` |
-| Where does sandboxr write on my disk? | `packages/core/src/paths.ts` |
+| Where does sandboxer write on my disk? | `packages/core/src/paths.ts` |
 | Which paths does the container see? | `packages/core/src/sandbox/layout.ts` |
 | What does `docker run` get? | `packages/core/src/sandbox/run.ts` |
 | What does the host pass into a container? | `packages/core/src/sandbox/env.ts` |
@@ -314,21 +314,21 @@ For a project `acme` and a slug `tkt-4821`:
 
 | Object | Name |
 |---|---|
-| Container | `sandboxr-acme-tkt-4821` |
-| Network | `sandboxr` — one, shared by every sandbox on the machine |
-| Database volume | `sandboxr-data-acme-tkt-4821` |
-| Uploads volume | `sandboxr-blob-acme-tkt-4821` |
-| Binaries volume | `sandboxr-bin-acme-tkt-4821` |
-| Built sites volume | `sandboxr-www-acme-tkt-4821` |
-| Shared dependencies | `sandboxr-deps-<16 hex of the lockfile hash>` |
-| Shared Go caches | `sandboxr-gocache`, `sandboxr-gomod` |
-| Project image | `sandboxr/acme:<12 hex of the build inputs>` |
-| Machine image | `sandboxr/base` |
-| The router | `sandboxr-router` |
+| Container | `sandboxer-acme-tkt-4821` |
+| Network | `sandboxer` — one, shared by every sandbox on the machine |
+| Database volume | `sandboxer-data-acme-tkt-4821` |
+| Uploads volume | `sandboxer-blob-acme-tkt-4821` |
+| Binaries volume | `sandboxer-bin-acme-tkt-4821` |
+| Built sites volume | `sandboxer-www-acme-tkt-4821` |
+| Shared dependencies | `sandboxer-deps-<16 hex of the lockfile hash>` |
+| Shared Go caches | `sandboxer-gocache`, `sandboxer-gomod` |
+| Project image | `sandboxer/acme:<12 hex of the build inputs>` |
+| Machine image | `sandboxer/base` |
+| The router | `sandboxer-router` |
 
 ## What is not stored anywhere
 
-There is no list of sandboxes. No manifest file, no database of what exists. Everything sandboxr
+There is no list of sandboxes. No manifest file, no database of what exists. Everything sandboxer
 knows about a running sandbox is read from Docker container labels at the moment you ask.
 [Why that matters](../architecture/state.md).
 

@@ -26,11 +26,11 @@ import {
 
 let env: NodeJS.ProcessEnv;
 
-// SANDBOXR_HOME is passed as an environment rather than set on the process, per
+// SANDBOXER_HOME is passed as an environment rather than set on the process, per
 // the note on `paths()`: the whole tree moves to a temporary directory without
 // the test having to mutate anything global.
 beforeEach(async () => {
-  env = { SANDBOXR_HOME: await mkdtemp(join(tmpdir(), "sandboxr-name-")) };
+  env = { SANDBOXER_HOME: await mkdtemp(join(tmpdir(), "sandboxer-name-")) };
 });
 
 describe("normaliseDisplayName", () => {
@@ -160,7 +160,7 @@ describe("removeDisplayName", () => {
 
 // The difference from the keep-alive marker, stated as a test because it is the
 // whole reason this file exists separately from keep.ts: a keep marker carries
-// the `sandboxr.created` of the container it applies to and is ignored when that
+// the `sandboxer.created` of the container it applies to and is ignored when that
 // does not match, so it dies with its sandbox. A name belongs to the worktree,
 // which outlives every sandbox cut on it — nothing here is keyed on an instance,
 // so there is nothing a stop-and-recreate can invalidate.
@@ -168,7 +168,7 @@ describe("a name is not stamped with a sandbox instance", () => {
   it("survives anything that happens to the sandbox on the worktree", async () => {
     await writeDisplayName("acme", "tkt-1", "the checkout flow rewrite", env);
     // Whatever a sandbox did in between — stopped, removed, created again with a
-    // new `sandboxr.created` — this call takes no instance and reads the same.
+    // new `sandboxer.created` — this call takes no instance and reads the same.
     expect(await readDisplayName("acme", "tkt-1", env)).toBe("the checkout flow rewrite");
   });
 });

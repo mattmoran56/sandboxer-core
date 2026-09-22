@@ -8,21 +8,21 @@ set -euo pipefail
 
 LOG_TAG="build-backend"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
 NAME="${1:?build-backend.sh needs a backend name}"
 RECORD=$(service_by backend name "$NAME")
 [[ -n "$RECORD" ]] || die "no backend called '$NAME' in the plan"
 
 ID=$(svc_id "$RECORD")
-BIN="$SANDBOXR_STATE/bin/$ID"
+BIN="$SANDBOXER_STATE/bin/$ID"
 WORKDIR="$WORKSPACE/$(field "$RECORD" workdir .)"
 BUILD=$(field "$RECORD" build)
 
 [[ -n "$BUILD" ]] || die "backend '$NAME' declares no build command"
 [[ -d "$WORKDIR" ]] || die "workdir $WORKDIR does not exist in this worktree"
 
-mkdir -p "$SANDBOXR_STATE/bin"
+mkdir -p "$SANDBOXER_STATE/bin"
 
 # Placeholders as documented in the config schema: {out} is where the binary must
 # land, {name} is the service's own name.
@@ -41,7 +41,7 @@ needs_build() {
     -print -quit 2>/dev/null)" ]]
 }
 
-if [[ "${SANDBOXR_FORCE_BUILD:-false}" == "true" ]] || needs_build; then
+if [[ "${SANDBOXER_FORCE_BUILD:-false}" == "true" ]] || needs_build; then
   log "building $NAME"
   cd "$WORKDIR"
   # The command is the project's own, from its config; it is run as written so a

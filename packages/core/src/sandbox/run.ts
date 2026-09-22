@@ -53,7 +53,7 @@ export interface MountedVolume {
 }
 
 /** The image a sandbox runs. The container package builds it. */
-export const DEFAULT_IMAGE = "sandboxr/base:latest";
+export const DEFAULT_IMAGE = "sandboxer/base:latest";
 
 /** The entrypoint inside that image. */
 export const ENTRYPOINT = `${SCRIPTS_DIR}/entrypoint.sh`;
@@ -215,7 +215,7 @@ export function runArgs(input: RunInput): string[] {
 
   args.push("--env-file", input.envFile);
 
-  if (input.with && input.with.length > 0) args.push("-e", `SANDBOXR_WITH=${input.with.join(",")}`);
+  if (input.with && input.with.length > 0) args.push("-e", `SANDBOXER_WITH=${input.with.join(",")}`);
 
   args.push("--memory", input.memory ?? memoryFor(config));
 

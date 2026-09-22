@@ -11,8 +11,8 @@ The entries near the top waste an afternoon, because the message names the wrong
 ```prompt
 Something is wrong with a sandbox on this machine. Work out what.
 
-Read docs/troubleshooting.md first. Start with the ladder at the top of that page — sandboxr doctor,
-docker system df, sandboxr ls, sandboxr status, sandboxr logs — then match what you find against the
+Read docs/troubleshooting.md first. Start with the ladder at the top of that page — sandboxer doctor,
+docker system df, sandboxer ls, sandboxer status, sandboxer logs — then match what you find against the
 symptom headings. Tell me the symptom, the cause and the fix before you change anything. Stop and
 ask me before running anything that removes a container, a volume or an image.
 ```
@@ -22,13 +22,13 @@ ask me before running anything that removes a container, a volume or an image.
 Each step is cheap and rules out the one below it.
 
 ```bash
-sandboxr doctor              # is the local setup sane at all?
+sandboxer doctor              # is the local setup sane at all?
 docker system df             # disk, because a full disk lies about what it is
-sandboxr ls                  # is it running, and is it degraded?
-sandboxr status <slug>       # one sandbox in detail, including the migration verdict
-sandboxr logs <slug>         # the container's own stream
-sandboxr db shell <slug>     # the database, if the symptom is a data one
-sandboxr shell <slug>        # inside, and look for yourself
+sandboxer ls                  # is it running, and is it degraded?
+sandboxer status <slug>       # one sandbox in detail, including the migration verdict
+sandboxer logs <slug>         # the container's own stream
+sandboxer db shell <slug>     # the database, if the symptom is a data one
+sandboxer shell <slug>        # inside, and look for yourself
 ```
 
 Add `--json` to any of them for a machine-readable result on stdout.
@@ -47,16 +47,16 @@ InnoDB: ... probably out of disk space
 problem. Check the disk before you believe anything else a failing database tells you.
 
 ```bash
-sandboxr prune          # what could be handed back, and how much. Removes nothing
+sandboxer prune          # what could be handed back, and how much. Removes nothing
 ```
 
 | What grows | Reclaimed by |
 |---|---|
-| **Project images a newer build replaced** (~6 GB each) | `sandboxr gc`, or `sandboxr prune --yes` |
-| Volumes no sandbox owns any more | `sandboxr gc`, or `sandboxr prune --yes` |
-| A sandbox's volumes (a few hundred MB each) | `sandboxr down <slug>` |
-| **Docker's build cache — the thing that actually fills the disk** | `sandboxr prune --build-cache --yes`, or `docker builder prune -a` |
-| The base image (~580 MB, once per machine) | `docker image rm sandboxr/base:latest`, then `sandboxr init` to get it back |
+| **Project images a newer build replaced** (~6 GB each) | `sandboxer gc`, or `sandboxer prune --yes` |
+| Volumes no sandbox owns any more | `sandboxer gc`, or `sandboxer prune --yes` |
+| A sandbox's volumes (a few hundred MB each) | `sandboxer down <slug>` |
+| **Docker's build cache — the thing that actually fills the disk** | `sandboxer prune --build-cache --yes`, or `docker builder prune -a` |
+| The base image (~580 MB, once per machine) | `docker image rm sandboxer/base:latest`, then `sandboxer init` to get it back |
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — why the message says corrupt, and what <code>prune</code> will and will not touch</summary>
@@ -68,14 +68,14 @@ recovery procedures for a disk problem.
 directory is created once, by the `mysql-init` oneshot, and that script sent mysqld's output to
 `/dev/null` so a normal boot stayed readable. A full disk therefore produced no message at all —
 only a oneshot exiting non-zero, which reads as a broken image rather than a full disk. It now keeps
-mysqld's output and prints it on failure, so `sandboxr logs <slug>` carries the InnoDB error above.
+mysqld's output and prints it on failure, so `sandboxer logs <slug>` carries the InnoDB error above.
 A sandbox that fails to initialise on an older image will not show it; check `docker system df`
 before believing anything else.
 
-`sandboxr prune` reports before it removes, and never offers the shared volumes: the Go caches
+`sandboxer prune` reports before it removes, and never offers the shared volumes: the Go caches
 are expensive to rebuild, and anything an embedder declared its own is left alone on its word.
 
-The build cache is the one thing it asks about rather than assumes. sandboxr is not its only writer,
+The build cache is the one thing it asks about rather than assumes. sandboxer is not its only writer,
 so it is included only with `--build-cache`.
 
 [Giving Docker the whole machine](guides/docker-capacity.md) has the rest.
@@ -85,7 +85,7 @@ so it is included only with `--build-cache`.
 ### An image build fails and the first line is a deprecation notice
 
 ```
-Start sandbox: docker build -f /tmp/sandboxr-build-Xh39sf/Dockerfile -t sandboxr/acme:40ed880f9db8 … exited 1:
+Start sandbox: docker build -f /tmp/sandboxer-build-Xh39sf/Dockerfile -t sandboxer/acme:40ed880f9db8 … exited 1:
 DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
 ```
 
@@ -97,7 +97,7 @@ mounts a Go module or a dependency lockfile brings with it.
 Until that container carries buildx, **build that project's image once from the host**:
 
 ```bash
-sandboxr up --project acme --branch main     # on the host, where buildx is installed
+sandboxer up --project acme --branch main     # on the host, where buildx is installed
 ```
 
 The image tag is content-addressed, so the next build finds it already there.
@@ -114,7 +114,7 @@ Every Dockerfile that switches on `TARGETARCH` then fails in whatever way its sh
 `TARGETARCH: unbound variable`, or `unsupported arch ` with nothing after it, or a download of
 `linux-/…` that comes back 404 and reads like a broken mirror. None of them names the architecture.
 
-sandboxr's Dockerfiles now resolve the architecture themselves and fall back to `uname -m`, and the
+sandboxer's Dockerfiles now resolve the architecture themselves and fall back to `uname -m`, and the
 host passes `--build-arg TARGETARCH` as well.
 
 **The cache-mount half is not.** The legacy builder refuses `RUN --mount=type=cache` outright:
@@ -138,7 +138,7 @@ npm ERR! code 137
 ```
 
 **The kernel's out-of-memory killer.** `137` is `128 + 9` — killed by `SIGKILL`. Nothing in the
-output mentions memory. Declare what the build needs, then `sandboxr up` again:
+output mentions memory. Declare what the build needs, then `sandboxer up` again:
 
 ```yaml
 frontends:
@@ -156,22 +156,22 @@ frontends:
 A static site generator spreads rendering over many worker processes, so no single Node memory flag
 bounds it. What the kernel measures is the **total for the whole container**.
 
-**It has to be `sandboxr up`.** A memory limit is fixed when the container is created, so a rebuild
+**It has to be `sandboxer up`.** A memory limit is fixed when the container is created, so a rebuild
 inside a running container cannot pick up a new one.
 
 **The whole sandbox then runs with 6 GB** — not 6 GB for that build and 4 GB for everything else.
 The container's limit is the **largest** `memory:` any single runtime declares, with a floor of 4 GB
 that a smaller declaration cannot lower.
 
-`sandboxr reload --web` watches for `137` or `Killed` and says so in words. Take it at face value.
+`sandboxer reload --web` watches for `137` or `Killed` and says so in words. Take it at face value.
 
 </details>
 
-### `SANDBOXR_MEMORY=6g sandboxr up` changed nothing
+### `SANDBOXER_MEMORY=6g sandboxer up` changed nothing
 
 That advice comes from inside the container, and **the host does not read that variable**. There is
 no per-run memory override. Declare `memory:` on the runtime that needs it, as in the entry above,
-then `sandboxr down` and `sandboxr up`.
+then `sandboxer down` and `sandboxer up`.
 
 ### A restart changed nothing
 
@@ -204,13 +204,13 @@ read a run script.
 container reads it when it sets its environment up — which happens at start, not continuously.
 
 ```bash
-sandboxr stop <slug> && sandboxr start <slug>
+sandboxer stop <slug> && sandboxer start <slug>
 ```
 
 If the value is one a front-end reads — a `VITE_*`, a `NEXT_PUBLIC_*` — **rebuild it as well**:
 
 ```bash
-sandboxr reload <slug> --web
+sandboxer reload <slug> --web
 ```
 
 <details class="failure">
@@ -222,7 +222,7 @@ restart applied it to every process that reads its environment, which is every b
 every served front-end — and to nothing already compiled.
 
 If a rebuild does not fix it either, the name is probably one the project's own `env:` map also
-defines. That map is expanded last and wins. `sandboxr secrets list` names those.
+defines. That map is expanded last and wins. `sandboxer secrets list` names those.
 
 </details>
 
@@ -233,8 +233,8 @@ defines. That map is expanded last and wins. `sandboxr secrets list` names those
 ```yaml
 secrets:
   rename:
-    VITE_AUTH0_DOMAIN: SANDBOXR_AUTH0_SPA_DOMAIN
-    VITE_AUTH0_CLIENT_ID: SANDBOXR_AUTH0_SPA_CLIENT_ID
+    VITE_AUTH0_DOMAIN: SANDBOXER_AUTH0_SPA_DOMAIN
+    VITE_AUTH0_CLIENT_ID: SANDBOXER_AUTH0_SPA_CLIENT_ID
 ```
 
 <details class="failure">
@@ -251,7 +251,7 @@ same thing, and one service rejects the other's token as having an **invalid iss
 **Two sandboxes collided on one database lock.** Check what the sandboxes are actually called:
 
 ```bash
-sandboxr ls
+sandboxer ls
 ```
 
 <details class="failure">
@@ -261,7 +261,7 @@ A migration takes a named lock containing the sandbox's slug, and MySQL silently
 off at 64 characters. Two long branch names whose slugs match up to that point are one lock, and one
 migration waits for ever on the other.
 
-sandboxr caps a slug at 31 characters and **hashes** rather than truncates past it, precisely to
+sandboxer caps a slug at 31 characters and **hashes** rather than truncates past it, precisely to
 prevent this.
 
 </details>
@@ -300,26 +300,26 @@ curl: (7) Failed to connect to tkt-4821--app--acme.sbx.localhost port 443
 Work outwards:
 
 ```bash
-sandboxr doctor      # is the router running? on which ports? http or https?
-sandboxr ls          # does the sandbox exist and is it running?
+sandboxer doctor      # is the router running? on which ports? http or https?
+sandboxer ls          # does the sandbox exist and is it running?
 ```
 
 Common causes, in order:
 
 | Cause | Fix |
 |---|---|
-| `sandboxr init` has never been run on this machine | `sandboxr init` |
-| The router is publishing on non-default ports | The URL needs the port. `sandboxr status` prints the real one |
-| The router is serving HTTP and you asked for HTTPS | `mkcert -install`, then `sandboxr init` again |
-| The sandbox was started while the router was down | `sandboxr up` again — it warns when the router is not running |
+| `sandboxer init` has never been run on this machine | `sandboxer init` |
+| The router is publishing on non-default ports | The URL needs the port. `sandboxer status` prints the real one |
+| The router is serving HTTP and you asked for HTTPS | `mkcert -install`, then `sandboxer init` again |
+| The sandbox was started while the router was down | `sandboxer up` again — it warns when the router is not running |
 
 ### An `https://` app hostname says the site cannot be reached
 
 Nothing is listening on 443. Check what the router serves:
 
 ```bash
-docker port sandboxr-router          # 80 alone, or 80 and 443
-ls ~/.sandboxr/state/dynamic         # cert-<domain>.yml exists only when TLS is configured
+docker port sandboxer-router          # 80 alone, or 80 and 443
+ls ~/.sandboxer/state/dynamic         # cert-<domain>.yml exists only when TLS is configured
 ```
 
 Either drop the `s` for now, or set TLS up properly — see the next entry.
@@ -333,9 +333,9 @@ Either drop the `s` for now, or set TLS up properly — see the next entry.
 
 The router terminates TLS only when a trusted certificate exists on the machine. On one that has
 never run `mkcert` it listens on port 80 alone. An `https://` URL for it fails to connect before any
-of sandboxr is involved, which is why the browser blames the site rather than the certificate.
+of sandboxer is involved, which is why the browser blames the site rather than the certificate.
 
-Once `sandboxr init` has written a certificate, the router serves TLS and every URL sandboxr
+Once `sandboxer init` has written a certificate, the router serves TLS and every URL sandboxer
 prints becomes `https://` on its own — the scheme is read off the router rather than assumed.
 
 </details>
@@ -346,16 +346,16 @@ The router is serving a certificate your machine has no reason to trust.
 
 ```bash
 mkcert -install     # asks for your password once
-sandboxr init       # re-issue and restart the router
+sandboxer init       # re-issue and restart the router
 ```
 
-`sandboxr init` will not install a trust root implicitly. It is the one step that needs an
+`sandboxer init` will not install a trust root implicitly. It is the one step that needs an
 administrator password.
 
 ### 404 from Traefik
 
 The router is up and no sandbox matched the hostname. Check the slug and the project against
-`sandboxr ls`, and the domain against `SANDBOXR_DOMAIN`.
+`sandboxer ls`, and the domain against `SANDBOXER_DOMAIN`.
 
 ### 404 naming the host it was asked for
 
@@ -368,9 +368,9 @@ and was not started.
 
 - **A wrong label.** A label is sanitised the way a slug is, so a label with an underscore or a
   capital in the config is not the label in the URL.
-- **A wrong domain.** `sandboxr status <slug>` prints the one the sandbox was started with.
+- **A wrong domain.** `sandboxer status <slug>` prints the one the sandbox was started with.
 - **A dormant service.** A service marked `optional` that nobody asked for has no site block at all,
-  so its hostname 404s exactly as a misspelling would. Start it with `sandboxr up --with <label>`.
+  so its hostname 404s exactly as a misspelling would. Start it with `sandboxer up --with <label>`.
 
 </details>
 
@@ -379,27 +379,27 @@ and was not started.
 | Response | Means |
 |---|---|
 | **502** | The label is right and the service behind it is not up yet. A truthful answer during a first boot |
-| **503 with build instructions** | The app is not built. `sandboxr reload --web=<label>` |
+| **503 with build instructions** | The app is not built. `sandboxer reload --web=<label>` |
 | **404 from something that is clearly an API** | A `routes` prefix pointing at the wrong service, or none matched and the request fell through to the static files |
 
 The fastest single check answers on **every** hostname a sandbox serves, and is not gated on the
 database:
 
 ```bash
-curl https://tkt-4821--app--acme.sbx.localhost/__sandboxr/live         # ok = the request arrived
-curl https://tkt-4821--app--acme.sbx.localhost/__sandboxr/status.json  # booting / ok / degraded
+curl https://tkt-4821--app--acme.sbx.localhost/__sandboxer/live         # ok = the request arrived
+curl https://tkt-4821--app--acme.sbx.localhost/__sandboxer/status.json  # booting / ok / degraded
 ```
 
 ### A domain override appears to do nothing
 
 Every request lands on a catch-all 404 and nothing explains why. Ask the sandbox what domain it
-thinks it has: `sandboxr status <slug>`, or the `domain` field of `status.json`.
+thinks it has: `sandboxer status <slug>`, or the `domain` field of `status.json`.
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — why a hand-edited router config does not survive</summary>
 
 The sandbox's router config is generated at every boot, and it reads the domain from
-`SANDBOXR_DOMAIN` in exactly one place. So a hand-edited generated config loses the edit on the next
+`SANDBOXER_DOMAIN` in exactly one place. So a hand-edited generated config loses the edit on the next
 restart.
 
 </details>
@@ -448,23 +448,23 @@ Three variants, all decided by `static_mode`:
 None of these is a crash, which is why the mode is declared rather than guessed. [In
 full](configuration/runtime-kinds.md).
 
-### `sandboxr reload --web app` rebuilt everything, or named a sandbox called `app`
+### `sandboxer reload --web app` rebuilt everything, or named a sandbox called `app`
 
 **The space is the problem.** `--web` and `--go` do not take the next word as their value, so `app`
 is read as the *slug*. Use the `=` form whenever you name a target:
 
 ```bash
-sandboxr reload --web=app        # one front-end
-sandboxr reload tkt-4821 --web=app
-sandboxr reload --web            # bare: every front-end in the build-everything set
+sandboxer reload --web=app        # one front-end
+sandboxer reload tkt-4821 --web=app
+sandboxer reload --web            # bare: every front-end in the build-everything set
 ```
 
 [CLI commands](reference/cli.md) lists the flags that do take a following word.
 
 ### A dependency change did not take effect
 
-`sandboxr reload` rebuilds code. It does not touch dependencies. A lockfile change needs
-`sandboxr up`, which replaces the container and **keeps its volumes**, so the database and uploads
+`sandboxer reload` rebuilds code. It does not touch dependencies. A lockfile change needs
+`sandboxer up`, which replaces the container and **keeps its volumes**, so the database and uploads
 survive.
 
 <details class="failure">
@@ -482,7 +482,7 @@ repairs it on its own. To be rid of it outright, delete the volume — it is reb
 and nothing else, so that is always safe:
 
 ```bash
-docker volume rm sandboxr-deps-<hash>     # `docker volume ls` to find it
+docker volume rm sandboxer-deps-<hash>     # `docker volume ls` to find it
 ```
 
 <details class="failure">
@@ -492,7 +492,7 @@ A dependency volume is shared by every sandbox whose lockfile matches, and it is
 first boot that mounts it. A boot interrupted part-way through that copy leaves a tree that is
 non-empty and short of packages.
 
-sandboxr treats only `node_modules/.sandboxr-deps` — written last, by rename — as "installed". So
+sandboxer treats only `node_modules/.sandboxer-deps` — written last, by rename — as "installed". So
 the next boot repairs a volume without one, and `deps-init.log` says
 `node_modules is not marked complete -- repairing it`.
 
@@ -552,22 +552,22 @@ or add database.seed_from.fixtures
 
 </details>
 
-### `no seed artifact in /sandboxr/cache`, and you declared a `file:`
+### `no seed artifact in /sandboxer/cache`, and you declared a `file:`
 
 The container found nothing to restore, so it started from an empty database. Check that the plan
 actually names your file:
 
 ```bash
-jq .database.seed ~/.sandboxr/build/<project>/<slug>.plan.json
+jq .database.seed ~/.sandboxer/build/<project>/<slug>.plan.json
 ```
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — what the plan should say, and how to make the choice fail loudly</summary>
 
-A declared `seed_from.file` should appear as `/sandboxr/seed/<name>`. A dump sandboxr cached itself
-appears as `/sandboxr/cache/<name>`.
+A declared `seed_from.file` should appear as `/sandboxer/seed/<name>`. A dump sandboxer cached itself
+appears as `/sandboxer/cache/<name>`.
 
-If yours is missing entirely, the source was not usable at start time. `sandboxr up` prints which
+If yours is missing entirely, the source was not usable at start time. `sandboxer up` prints which
 source it chose. `--seed file` forces the question and fails loudly rather than falling through to
 the next source.
 
@@ -582,8 +582,8 @@ is usually how you find out.
 before believing the message:
 
 ```bash
-sandboxr status <slug>       # `ok` and migrations `ok` means the container did its job
-sandboxr logs <slug>         # `db-init: done` and `migrate: ok` in the boot log
+sandboxer status <slug>       # `ok` and migrations `ok` means the container did its job
+sandboxer logs <slug>         # `db-init: done` and `migrate: ok` in the boot log
 ```
 
 Nothing is lost. The container half has already done the work. Recorded in
@@ -605,7 +605,7 @@ The grant is missing, or its underscore is not escaped. MySQL treats `_` as a si
 wildcard in the database part of a `GRANT`:
 
 ```sql
-GRANT ALL ON `acme\_%`.* TO 'sandboxr'@'%';
+GRANT ALL ON `acme\_%`.* TO 'sandboxer'@'%';
 ```
 
 <details class="failure">
@@ -619,18 +619,18 @@ GRANT ALL ON `acme\_%`.* TO 'sandboxr'@'%';
 ### `Refusing to run until these are resolved`
 
 **A previous migration died part-way through, and the runner is protecting you.** That is the
-project's own runner saying it, not sandboxr.
+project's own runner saying it, not sandboxer.
 
 ```bash
-sandboxr db shell <slug>        # look
-sandboxr db snapshot <slug>     # see what actually landed
-sandboxr down <slug> && sandboxr up     # or just start clean
+sandboxer db shell <slug>        # look
+sandboxer db snapshot <slug>     # see what actually landed
+sandboxer down <slug> && sandboxer up     # or just start clean
 ```
 
 <details class="failure">
-<summary><b>If it goes wrong</b> — why sandboxr will not clear it for you, and the two rules if you write the repair</summary>
+<summary><b>If it goes wrong</b> — why sandboxer will not clear it for you, and the two rules if you write the repair</summary>
 
-If the sandbox was seeded from a database in that state, it inherits it. sandboxr does not touch the
+If the sandbox was seeded from a database in that state, it inherits it. sandboxer does not touch the
 runner's bookkeeping table, because that would be reimplementing the project's migration logic.
 
 If you write the repair in the project: **complete a row, never delete it**, and never complete a row
@@ -675,7 +675,7 @@ worktree. Both the migrate command and the owner's serve command need the variab
 ```yaml
 database:
   migrate:
-    command: npx wrangler d1 migrations apply DB --local --persist-to "$SANDBOXR_D1_DIR"
+    command: npx wrangler d1 migrations apply DB --local --persist-to "$SANDBOXER_D1_DIR"
 ```
 
 <details class="failure">
@@ -684,19 +684,19 @@ database:
 Two sandboxes made from one worktree are then sharing that file, so this is usually the real cause
 of a hang as well.
 
-`sandboxr doctor` warns when it can see the variable missing. It cannot always see it, so it warns
+`sandboxer doctor` warns when it can see the variable missing. It cannot always see it, so it warns
 rather than refusing.
 
 </details>
 
 ### `migrate.since` seems to be ignored
 
-It is exported as `SANDBOXR_MIGRATE_SINCE` rather than added to your command as a flag, because
-sandboxr cannot guess a runner's flag spelling. **Your command has to reference it:**
+It is exported as `SANDBOXER_MIGRATE_SINCE` rather than added to your command as a flag, because
+sandboxer cannot guess a runner's flag spelling. **Your command has to reference it:**
 
 ```yaml
 migrate:
-  command: go run ./cmd/migrate --since "$SANDBOXR_MIGRATE_SINCE"
+  command: go run ./cmd/migrate --since "$SANDBOXER_MIGRATE_SINCE"
   since: "20240101"
 ```
 
@@ -707,18 +707,18 @@ this branch do" question you wanted answered.
 
 ## The sandbox itself
 
-### `sandboxr ls` shows `degraded`
+### `sandboxer ls` shows `degraded`
 
 **The container is up and the migration failed.** That is intended, because inspecting a failed
 migration is one of the reasons the sandbox exists.
 
 ```bash
-sandboxr status <slug>       # the verdict, the failing file, the error text
-sandboxr logs <slug>
-sandboxr db shell <slug>
+sandboxer status <slug>       # the verdict, the failing file, the error text
+sandboxer logs <slug>
+sandboxer db shell <slug>
 ```
 
-`db-init.log` under `~/.sandboxr/logs/<project>/<slug>/` has the whole provisioning run.
+`db-init.log` under `~/.sandboxer/logs/<project>/<slug>/` has the whole provisioning run.
 
 ### The sandbox sits at `starting` for ever
 
@@ -726,14 +726,14 @@ The log stops mid-way through database setup with nothing after it.
 
 For a file database, that is the two-writer deadlock above. For MySQL, check the disk first.
 
-### `sandboxr up` refuses, naming the project directory
+### `sandboxer up` refuses, naming the project directory
 
 ```
 … is the project-level config for a managed project, so it cannot be run from …
 ```
 
 You are standing in a managed project's own directory rather than in one of its worktrees. Run from
-a worktree under `<project>/wt/`, or use `sandboxr up --project <name> --branch <branch>`.
+a worktree under `<project>/wt/`, or use `sandboxer up --project <name> --branch <branch>`.
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — why that one directory is refused</summary>
@@ -744,7 +744,7 @@ wording.
 
 </details>
 
-### Every command fails with an error naming `~/.sandboxr/config.yaml`
+### Every command fails with an error naming `~/.sandboxer/config.yaml`
 
 The machine's settings file is malformed. Fix the key the error names. A *missing* file is always
 fine.
@@ -757,12 +757,12 @@ a `3d` that was really `3D` ends up stopping a week of work after twelve hours.
 
 </details>
 
-### `sandboxr keep` refuses
+### `sandboxer keep` refuses
 
 Two messages, and both mean the marker would have been meaningless.
 
-- `no sandbox called <slug> in <project>` — there is nothing to keep. `sandboxr ls`.
-- `carries no created label` — the container predates the label. `sandboxr down` and `up` again to
+- `no sandbox called <slug> in <project>` — there is nothing to keep. `sandboxer ls`.
+- `carries no created label` — the container predates the label. `sandboxer down` and `up` again to
   relabel it.
 
 <details class="failure">
@@ -778,11 +778,11 @@ the marker would outlive the sandbox it was meant for.
 Another worktree of the same project already answered to the slug this one would have taken —
 almost always two branches on one ticket, since a ticket id in the name beats the branch. A slug
 names the container, all four volumes and the database lock, so two worktrees cannot share one:
-the second one sandboxr cut was given `<slug>-<4 characters>` instead, and `sandboxr worktree add`
+the second one sandboxer cut was given `<slug>-<4 characters>` instead, and `sandboxer worktree add`
 said so at the time.
 
 Nothing needs fixing. The name is in
-`~/.sandboxr/state/slug/<project>/<worktree directory>` if you want to read it.
+`~/.sandboxer/state/slug/<project>/<worktree directory>` if you want to read it.
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — the same two branches without the guard, and why it is not repaired for you</summary>
@@ -792,16 +792,16 @@ Without it, both worktrees resolve to one slug, so they are one container and on
 the second worktree tears the first one's sandbox down and hands its database to a branch that never
 wrote it. Nothing downstream can tell the two apart.
 
-The guard runs when sandboxr **cuts** a worktree, so it covers `sandboxr worktree add` and not a
-worktree you cut yourself. For those, pass a name: `sandboxr up <name>`.
+The guard runs when sandboxer **cuts** a worktree, so it covers `sandboxer worktree add` and not a
+worktree you cut yourself. For those, pass a name: `sandboxer up <name>`.
 
 Collisions already on disk are deliberately left alone. Renaming a worktree that has a running
-sandbox would leave its container and its volumes stranded under the old name — `sandboxr down` one
+sandbox would leave its container and its volumes stranded under the old name — `sandboxer down` one
 of them and bring it up with an explicit slug instead.
 
 </details>
 
-### sandboxr says a slug belongs to two projects
+### sandboxer says a slug belongs to two projects
 
 Slugs come from ticket ids, so two projects sharing a `tkt-4821` is ordinary. `stop`, `start`,
 `keep` and `unkeep` refuse rather than pick between them. Say which with `--project <name>`.
@@ -809,8 +809,8 @@ Slugs come from ticket ids, so two projects sharing a `tkt-4821` is ordinary. `s
 ### A sandbox exists for a worktree that is gone
 
 ```bash
-sandboxr gc --dry-run
-sandboxr gc
+sandboxer gc --dry-run
+sandboxer gc
 ```
 
 Such a sandbox is unreachable anyway. Nothing can be rebuilt in it, because the source it would
@@ -819,13 +819,13 @@ build from is gone.
 ### `fatal: not a git repository` inside a sandbox
 
 ```
-$ sandboxr shell tkt-4821
+$ sandboxer shell tkt-4821
 # cd /workspace && git status
-fatal: not a git repository: /Users/you/.sandboxr/workspace/acme/repo.git/worktrees/tkt-4821
+fatal: not a git repository: /Users/you/.sandboxer/workspace/acme/repo.git/worktrees/tkt-4821
 ```
 
-sandboxr mounts the worktree and its repository both, so this should not happen. Where it does, the
-sandbox predates that fix and `sandboxr up` again is the whole of it.
+sandboxer mounts the worktree and its repository both, so this should not happen. Where it does, the
+sandbox predates that fix and `sandboxer up` again is the whole of it.
 
 One case is not fixable that way, and says so instead: a project that is a **subdirectory of a
 larger repository**.
@@ -847,18 +847,18 @@ work inside the sandbox* — and everything else about the sandbox works normall
 ### `gh` in a sandbox says it is not logged in
 
 That is the default. A sandbox has `gh` but no credential until you say otherwise, per project, in
-`~/.sandboxr/config.yaml`:
+`~/.sandboxer/config.yaml`:
 
 ```yaml
 projects:
   acme-monorepo: { github: token }
 ```
 
-**The key is the project's name as sandboxr shows it** — its directory in the workspace, the name
-`sandboxr ls` prints — or the `project:` its own `sandboxr.yaml` declares. Either works. A key that
+**The key is the project's name as sandboxer shows it** — its directory in the workspace, the name
+`sandboxer ls` prints — or the `project:` its own `sandboxer.yaml` declares. Either works. A key that
 is neither does nothing at all, silently, which is the commonest way this goes wrong: run
-`sandboxr doctor` and it names any entry that matches no project, along with the names that would.
-`sandboxr config`, run in the worktree, says what this project resolved to.
+`sandboxer doctor` and it names any entry that matches no project, along with the names that would.
+`sandboxer config`, run in the worktree, says what this project resolved to.
 
 Then start the sandbox again. See [Access and security](access.md) for what that hands over, because
 it is more than the one project.
@@ -871,7 +871,7 @@ it is more than the one project.
 <details class="failure">
 <summary><b>If it goes wrong</b> — still logged out after turning it on</summary>
 
-Check that the entry matches. `sandboxr config` in the worktree prints the resolved mode and, in
+Check that the entry matches. `sandboxer config` in the worktree prints the resolved mode and, in
 brackets, the `projects:` key that decided it — so an entry keyed on a name no project answers to
 shows up as `github none` with no key beside it.
 
@@ -888,14 +888,14 @@ nothing is stale.
 git will not check out one branch in two places, and the branch you want is very often already open
 elsewhere.
 
-For a project in the workspace, sandboxr handles this itself: `sandboxr worktree add` picks the
-right form. For a repository you keep yourself, run the commands by hand and then `sandboxr up`
+For a project in the workspace, sandboxer handles this itself: `sandboxer worktree add` picks the
+right form. For a repository you keep yourself, run the commands by hand and then `sandboxer up`
 from inside the worktree.
 
 <details class="agent">
 <summary><b>Details for an agent</b> — the four forms, and what a detached worktree means</summary>
 
-| Where the branch is | What sandboxr runs |
+| Where the branch is | What sandboxer runs |
 |---|---|
 | A local branch nothing has checked out | `git worktree add <path> <branch>` |
 | A local branch checked out somewhere else | `git worktree add --detach <path> <the freshest safe ref>` |
@@ -903,10 +903,10 @@ from inside the worktree.
 | A new branch off a base | `git worktree add -b <branch> <path> <base>` |
 
 A worktree created the second way is **detached**, which is git working as intended rather than a
-failure. sandboxr recovers the branch name from the commit, so the sandbox is still labelled and
+failure. sandboxer recovers the branch name from the commit, so the sandbox is still labelled and
 still reachable at the hostname you expect.
 
-Every one of those resolves a ref, so sandboxr fetches the project's mirror first and moves the
+Every one of those resolves a ref, so sandboxer fetches the project's mirror first and moves the
 local branch up to the remote where that is a fast-forward and the branch is checked out nowhere.
 A branch checked out elsewhere is never moved — the new worktree is detached at `origin/<branch>`
 instead. See [Several repositories at once](setups/many-projects.md).
@@ -918,12 +918,12 @@ instead. See [Several repositories at once](setups/many-projects.md).
 The commits are on the remote and the checkout is behind. Pull it, then restart the sandbox:
 
 ```bash
-sandboxr worktree pull acme feat/tkt-4821
-sandboxr stop feat-tkt-4821 && sandboxr start feat-tkt-4821
+sandboxer worktree pull acme feat/tkt-4821
+sandboxer stop feat-tkt-4821 && sandboxer start feat-tkt-4821
 ```
 
 A front-end is built rather than merely run, so rebuild those as well:
-`sandboxr reload feat-tkt-4821 --web built`.
+`sandboxer reload feat-tkt-4821 --web built`.
 
 <details class="failure">
 <summary><b>If it goes wrong</b> — the four things a pull refuses, and what each one wants</summary>
@@ -935,7 +935,7 @@ at once, so there is no fixing one and running it again to be told the next.
 |---|---|
 | `N files have uncommitted changes that the incoming commits also change: …` | Commit, stash or discard those files. Only files the incoming commits also touch are in the way |
 | `N untracked files would be overwritten by the incoming commits: …` | Move or delete them |
-| `<branch> has N commits that origin/<branch> does not` | Those N commits exist on no remote branch, in any form. Push them, or drop them. A branch somebody rebased does **not** produce this — sandboxr compares patches, so commits the remote already has under a different hash are not counted, and the worktree is moved onto the rebuilt branch instead |
+| `<branch> has N commits that origin/<branch> does not` | Those N commits exist on no remote branch, in any form. Push them, or drop them. A branch somebody rebased does **not** produce this — sandboxer compares patches, so commits the remote already has under a different hash are not counted, and the worktree is moved onto the rebuilt branch instead |
 | `origin has no branch called <branch>` | It was deleted or renamed on the remote |
 | `This worktree is on <sha> and no branch points at it` | Check it out on a branch first |
 
@@ -957,9 +957,9 @@ A config error exits `2` and names the file and the field. The common ones:
 
 | Message | Cause |
 |---|---|
-| `no sandboxr.yaml here or in any parent directory` | You are not inside a project that describes itself |
+| `no sandboxer.yaml here or in any parent directory` | You are not inside a project that describes itself |
 | `is empty` / `is not valid YAML` | The file itself |
-| `needs sandboxr <range>, and this is <version>` | The `sandboxr:` constraint. Upgrade the tool, or relax it |
+| `needs sandboxer <range>, and this is <version>` | The `sandboxer:` constraint. Upgrade the tool, or relax it |
 | `label "<x>" is already used by <y>` | Two runtimes want one hostname label |
 | `two backends are called "<x>"` | Duplicate backend name |
 | `is both a static build (out) and a server (serve) — pick one` | One app declared as two runtime kinds |

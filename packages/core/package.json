@@ -1,5 +1,5 @@
 {
-  "name": "@sandboxr/core",
+  "name": "@sandboxer/core",
   "version": "0.1.0",
   "description": "Config, database drivers, docker orchestration and sandbox lifecycle.",
   "type": "module",

@@ -178,7 +178,7 @@ export async function markOutcome(ctx: DriverContext, result: MigrateResult): Pr
   await ctx.exec([
     "sh",
     "-lc",
-    `mkdir -p ${RUN_DIR} && cat > ${MIGRATE_STATE} <<'SANDBOXR_EOF'\n${state}\nSANDBOXR_EOF`,
+    `mkdir -p ${RUN_DIR} && cat > ${MIGRATE_STATE} <<'SANDBOXER_EOF'\n${state}\nSANDBOXER_EOF`,
   ]);
 }
 

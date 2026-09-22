@@ -54,10 +54,10 @@ reads to a crawler.
 
 ```bash
 npm run docs:dev                              # the site on http://localhost:4321/, watching docs/
-npm --workspace @sandboxr/docs run build      # both builds, then the static files, into dist/
-npm --workspace @sandboxr/docs run preview    # serve dist/ as a static host would
-npm --workspace @sandboxr/docs run test       # vitest
-npm --workspace @sandboxr/docs run typecheck  # tsc, no emit
+npm --workspace @sandboxer/docs run build      # both builds, then the static files, into dist/
+npm --workspace @sandboxer/docs run preview    # serve dist/ as a static host would
+npm --workspace @sandboxer/docs run test       # vitest
+npm --workspace @sandboxer/docs run typecheck  # tsc, no emit
 ```
 
 `dev` watches `docs/` as well as this package, so editing a page reloads the browser. Adding or

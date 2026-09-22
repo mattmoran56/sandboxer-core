@@ -140,8 +140,8 @@ describe("gitFacts", () => {
 });
 
 describe("gitMounts", () => {
-  const worktree = "/home/me/.sandboxr/workspace/acme/wt/staging";
-  const repo = "/home/me/.sandboxr/workspace/acme/repo.git";
+  const worktree = "/home/me/.sandboxer/workspace/acme/wt/staging";
+  const repo = "/home/me/.sandboxer/workspace/acme/repo.git";
 
   it("mounts a linked worktree and the repository it points at", async () => {
     const run = fakeGit({

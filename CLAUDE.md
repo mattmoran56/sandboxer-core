@@ -1,14 +1,14 @@
-# Working on sandboxr
+# Working on sandboxer
 
-sandboxr turns a git worktree into a running copy of a whole project, on its own hostname.
-A project describes itself in `sandboxr.yaml`; sandboxr resolves that into a `plan.json`,
+sandboxer turns a git worktree into a running copy of a whole project, on its own hostname.
+A project describes itself in `sandboxer.yaml`; sandboxer resolves that into a `plan.json`,
 runs one Docker container per sandbox, and puts a shared Traefik router in front. It is a
-command-line tool: `sandboxr.yaml`, the `sandboxr` CLI, `~/.sandboxr`, the `sandboxr.*`
-Docker labels and every `SANDBOXR_*` variable are its, and there is no dashboard in this
+command-line tool: `sandboxer.yaml`, the `sandboxer` CLI, `~/.sandboxer`, the `sandboxer.*`
+Docker labels and every `SANDBOXER_*` variable are its, and there is no dashboard in this
 repository.
 
 **A product is built on this engine, and it lives in another repository.** It embeds
-`@sandboxr/core` in process and runs its own dashboard, its own agent sessions and its own
+`@sandboxer/core` in process and runs its own dashboard, its own agent sessions and its own
 containers on the bare domain. Nothing here imports anything from it, and nothing here may
 start to. Where a back-reference looks necessary, invert it: the engine takes a parameter
 instead of reaching for a session, an agent or a dashboard. contracts §2 is the statement
@@ -37,7 +37,7 @@ Three rules that follow from that table:
 
 - **Only `container/` contains bash.** Everything host-side is TypeScript.
 - **React is the only frontend framework.** The documentation site is the one browser app
-  here, and it renders from `@sandboxr/tokens`. A second framework, or a second palette, is
+  here, and it renders from `@sandboxer/tokens`. A second framework, or a second palette, is
   how the engine and the product stop looking like one thing.
 - **Logic belongs in core.** If the CLI and an embedder could disagree about what a sandbox
   is, the logic is in the wrong package.

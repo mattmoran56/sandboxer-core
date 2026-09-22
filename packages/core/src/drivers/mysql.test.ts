@@ -51,7 +51,7 @@ function configWith(migrate?: Record<string, unknown>): ResolvedConfig {
   return resolveConfig(
     {
       project: "acme",
-      sandboxr: ">=0.1.0",
+      sandboxer: ">=0.1.0",
       access: { apps: "private" },
       database: {
         driver: "mysql",
@@ -60,7 +60,7 @@ function configWith(migrate?: Record<string, unknown>): ResolvedConfig {
         ...(migrate ? { migrate } : { migrate: { command: "migrate" } }),
       },
     },
-    "/repo/sandboxr.yaml",
+    "/repo/sandboxer.yaml",
   );
 }
 
@@ -93,9 +93,9 @@ function fakeContext(
 describe("mysqlSettings", () => {
   it("defaults the sandbox credentials and names the database after the project", () => {
     expect(mysqlSettings({}, "acme-shop")).toMatchObject({
-      user: "sandboxr",
-      password: "sandboxr",
-      rootPassword: "sandboxr",
+      user: "sandboxer",
+      password: "sandboxer",
+      rootPassword: "sandboxer",
       database: "acme_shop",
       ttlHours: 24,
     });
@@ -113,18 +113,18 @@ describe("mysqlSettings", () => {
   });
 
   it.each([
-    ["SANDBOXR_DB_USER", "user", "app"],
-    ["SANDBOXR_DB_PASSWORD", "password", "s3cret"],
-    ["SANDBOXR_DB_NAME", "database", "other"],
-    ["SANDBOXR_MYSQL_IMAGE", "image", "mysql:8.0"],
-    ["SANDBOXR_SOURCE_DB_USER", "sourceUser", "reader"],
+    ["SANDBOXER_DB_USER", "user", "app"],
+    ["SANDBOXER_DB_PASSWORD", "password", "s3cret"],
+    ["SANDBOXER_DB_NAME", "database", "other"],
+    ["SANDBOXER_MYSQL_IMAGE", "image", "mysql:8.0"],
+    ["SANDBOXER_SOURCE_DB_USER", "sourceUser", "reader"],
   ])("lets %s override %s", (variable, field, value) => {
     const resolved = mysqlSettings({ [variable]: value }, "acme", "8.4") as unknown as Record<string, string>;
     expect(resolved[field]).toBe(value);
   });
 
   it("falls back to the default ttl when the environment holds nonsense", () => {
-    expect(mysqlSettings({ SANDBOXR_CACHE_TTL_HOURS: "soon" }, "acme").ttlHours).toBe(24);
+    expect(mysqlSettings({ SANDBOXER_CACHE_TTL_HOURS: "soon" }, "acme").ttlHours).toBe(24);
   });
 });
 
@@ -301,29 +301,29 @@ describe("provision", () => {
     kind: "dump",
     source: "file",
     key: "declared",
-    path: "/home/dev/.sandboxr/seeds/acme-base.sql.zst",
+    path: "/home/dev/.sandboxer/seeds/acme-base.sql.zst",
     createdAt: "2026-08-28T00:00:00.000Z",
   } as const;
 
-  const cached = { ...seed, source: "local", key: "3f2a1b", path: "/home/.sandboxr/cache/seed-acme-3f2a1b.sql.zst" } as const;
+  const cached = { ...seed, source: "local", key: "3f2a1b", path: "/home/.sandboxer/cache/seed-acme-3f2a1b.sql.zst" } as const;
 
   const restoreOf = (calls: string[][]) => calls.map((cmd) => cmd.join(" ")).find((cmd) => cmd.includes("zstd -dc"));
 
   // The whole point of the mount: a declared `file:` is not in the cache, so
-  // naming it under /sandboxr/cache pointed the restore at nothing and the
+  // naming it under /sandboxer/cache pointed the restore at nothing and the
   // sandbox started empty.
   it("reads a declared seed from the path it was mounted at", async () => {
-    const home = await mkdtemp(join(tmpdir(), "sandboxr-mysql-"));
+    const home = await mkdtemp(join(tmpdir(), "sandboxer-mysql-"));
     const { ctx, calls } = fakeContext(home, [["information_schema.tables", { stdout: "0\n" }]]);
     await mysqlDriver.provision(ctx, { ...seed, kind: "dump" }).catch(() => undefined);
-    expect(restoreOf(calls)).toContain("/sandboxr/seed/acme-base.sql.zst");
+    expect(restoreOf(calls)).toContain("/sandboxer/seed/acme-base.sql.zst");
   });
 
   it("reads a cached seed from the cache mount", async () => {
-    const home = "/home/.sandboxr";
+    const home = "/home/.sandboxer";
     const { ctx, calls } = fakeContext(home, [["information_schema.tables", { stdout: "0\n" }]]);
     await mysqlDriver.provision(ctx, { ...cached, kind: "dump" }).catch(() => undefined);
-    expect(restoreOf(calls)).toContain("/sandboxr/cache/seed-acme-3f2a1b.sql.zst");
+    expect(restoreOf(calls)).toContain("/sandboxer/cache/seed-acme-3f2a1b.sql.zst");
   });
 
   // Both halves provision: the container's oneshot does it at boot and `up`
@@ -331,7 +331,7 @@ describe("provision", () => {
   // it over a surviving data volume failed on Error 1050 and reported a healthy
   // sandbox as "Provisioning did not complete".
   it("keeps an already-populated database instead of restoring over it", async () => {
-    const home = await mkdtemp(join(tmpdir(), "sandboxr-mysql-"));
+    const home = await mkdtemp(join(tmpdir(), "sandboxer-mysql-"));
     const { ctx, calls, logs } = fakeContext(home, [["information_schema.tables", { stdout: "105\n" }]]);
     await mysqlDriver.provision(ctx, { ...seed, kind: "dump" });
     expect(restoreOf(calls)).toBeUndefined();
@@ -345,11 +345,11 @@ describe("migrate", () => {
     const config = resolveConfig(
       {
         project: "acme",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         access: { apps: "private" },
         database: { driver: "mysql", seed_from: { fixtures: "f.sql" } },
       },
-      "/repo/sandboxr.yaml",
+      "/repo/sandboxer.yaml",
     );
     const { ctx } = fakeContext(home, [], config);
     const result = await mysqlDriver.migrate(ctx);
@@ -411,7 +411,7 @@ describe("migrate", () => {
     const run = seen.find((call) => call.cmd[0] === "sh");
     expect(run?.cmd).toEqual(["sh", "-lc", "migrate"]);
     expect(run?.options?.env).toMatchObject({ DB_NAME: "acme", DB_HOST: "127.0.0.1", DB_PORT: "3306" });
-    expect(run?.options?.env?.SANDBOXR_MIGRATION_LOCK).toBe("sandboxr_migrate_acme_tkt_1");
+    expect(run?.options?.env?.SANDBOXER_MIGRATION_LOCK).toBe("sandboxer_migrate_acme_tkt_1");
   });
 });
 
@@ -442,18 +442,18 @@ describe("streamToFile", () => {
    * is under test is Node's own behaviour when the binary is absent.
    */
   const outPath = async (): Promise<string> =>
-    join(await mkdtemp(join(tmpdir(), "sandboxr-stream-")), "out.bin");
+    join(await mkdtemp(join(tmpdir(), "sandboxer-stream-")), "out.bin");
 
   it("reports a source that is not installed rather than crashing", async () => {
     const result = await streamToFile(
-      { bin: "sandboxr-no-such-binary", args: [] },
+      { bin: "sandboxer-no-such-binary", args: [] },
       undefined,
       await outPath(),
     );
     expect(result.code).not.toBe(0);
     // Named, because "spawn … ENOENT" says nothing about what it was for, and
     // the person is looking at a database seed that failed.
-    expect(result.stderr).toContain("sandboxr-no-such-binary is not installed");
+    expect(result.stderr).toContain("sandboxer-no-such-binary is not installed");
   });
 
   it("reports a compressor that is not installed rather than crashing", async () => {
@@ -461,11 +461,11 @@ describe("streamToFile", () => {
     // through is missing.
     const result = await streamToFile(
       { bin: "echo", args: ["hello"] },
-      { bin: "sandboxr-no-such-compressor", args: [] },
+      { bin: "sandboxer-no-such-compressor", args: [] },
       await outPath(),
     );
     expect(result.code).not.toBe(0);
-    expect(result.stderr).toContain("sandboxr-no-such-compressor is not installed");
+    expect(result.stderr).toContain("sandboxer-no-such-compressor is not installed");
   });
 
   it("still streams through a compressor that is there", async () => {

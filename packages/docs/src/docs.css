@@ -3,7 +3,7 @@
  *
  * The palette, the three colour schemes, the fonts, the light/dark mechanism, the
  * page wash, the focus ring and the named utilities all come from
- * `@sandboxr/tokens/tokens.css`, imported below. **Nothing colour-shaped belongs
+ * `@sandboxer/tokens/tokens.css`, imported below. **Nothing colour-shaped belongs
  * in this file.** Somebody with the dashboard in one tab and the documentation in
  * the other has to see one product, and a hex written here would be invisible to
  * the dashboard — which is exactly how two halves of one product come apart.
@@ -20,11 +20,11 @@
  * belonging to what follows it rather than floating between two sections.
  */
 
-@import "@sandboxr/tokens/tokens.css";
+@import "@sandboxer/tokens/tokens.css";
 
 /*
  * Tailwind scans the package that imports it, and the import above happens to live
- * in another one — `@sandboxr/tokens`, which holds that one stylesheet and no
+ * in another one — `@sandboxer/tokens`, which holds that one stylesheet and no
  * markup at all. Without this line every utility in `src/components` would be
  * absent from the built stylesheet and the whole site would render unstyled — a
  * failure with no error attached to it, which is the same trap `app.css` documents

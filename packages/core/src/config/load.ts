@@ -1,5 +1,5 @@
 /**
- * Finding, parsing and resolving `sandboxr.yaml`.
+ * Finding, parsing and resolving `sandboxer.yaml`.
  *
  * Resolution is where the file stops being a document and becomes something the
  * rest of the tool can use without re-deciding anything: `defaults:` merged into
@@ -43,7 +43,7 @@ export class ConfigError extends Error {
 }
 
 export interface LoadOptions {
-  /** The version the `sandboxr:` constraint is checked against. */
+  /** The version the `sandboxer:` constraint is checked against. */
   toolVersion?: string | undefined;
   /**
    * Whether to refuse a config whose public apps would be backed by real data.
@@ -96,7 +96,7 @@ export function resolveConfig(document: unknown, file: string, options: ResolveO
     root,
     origin: options.origin ?? "repo",
     project: raw.project,
-    sandboxr: raw.sandboxr,
+    sandboxer: raw.sandboxer,
     database: resolveDatabase(raw, file),
     backends: resolveBackends(raw, file),
     frontendRoot: raw.frontends && "root" in raw.frontends ? (raw.frontends.root ?? "") : "",
@@ -189,18 +189,18 @@ export async function loadConfig(from: string = process.cwd(), options: LoadOpti
 function checkToolVersion(raw: RawConfig, file: string, toolVersion: string): void {
   let ok: boolean;
   try {
-    ok = satisfies(toolVersion, raw.sandboxr);
+    ok = satisfies(toolVersion, raw.sandboxer);
   } catch (error) {
     if (error instanceof VersionError) {
-      throw new ConfigError(file, `${error.message} — expected something like ">=0.1.0"`, "sandboxr");
+      throw new ConfigError(file, `${error.message} — expected something like ">=0.1.0"`, "sandboxer");
     }
     throw error;
   }
   if (!ok) {
     throw new ConfigError(
       file,
-      `needs sandboxr ${raw.sandboxr}, and this is ${toolVersion} — upgrade the tool, or relax the constraint`,
-      "sandboxr",
+      `needs sandboxer ${raw.sandboxer}, and this is ${toolVersion} — upgrade the tool, or relax the constraint`,
+      "sandboxer",
     );
   }
 }

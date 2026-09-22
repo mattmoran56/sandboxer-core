@@ -11,7 +11,7 @@ they disagree, one of them is a bug.
 
 ## These pages are the engine's
 
-`docs/` documents `sandboxr` and nothing else. The product built on it documents itself in its
+`docs/` documents `sandboxer` and nothing else. The product built on it documents itself in its
 own repository, and **a page here may not link into that one**: a relative link to a file that is
 not in this tree is a 404 on the site and a dead link on GitHub, with nobody to notice. Name the
 product thing in prose instead.
@@ -25,7 +25,7 @@ product thing in prose instead.
    be short sentences, one idea each, in a narrative order: introduce a thing, use it, then
    introduce the next thing. Never assume a term that has not been introduced on the page or
    linked to the glossary.
-2. **A coding agent** — the reader who will actually install and operate sandboxr on the first
+2. **A coding agent** — the reader who will actually install and operate sandboxer on the first
    reader's behalf. It needs exact paths, exact flags, exact schema fields, exact failure modes.
    All of that goes inside a `<details>` block, so it is present without being in the way.
 
@@ -56,7 +56,7 @@ Plain HTML `<details>`, which GitHub renders natively and the site styles.
 
 ```md
 <details class="agent">
-<summary><b>Details for an agent</b> — every flag <code>sandboxr up</code> accepts</summary>
+<summary><b>Details for an agent</b> — every flag <code>sandboxer up</code> accepts</summary>
 
 The body is ordinary Markdown. **A blank line above and below it is required** — without
 it GitHub renders the body as literal text rather than Markdown.
@@ -87,7 +87,7 @@ card with a copy button, so a person can hand it straight to their agent.
 
 ````md
 ```prompt
-Install sandboxr on this machine and set it up.
+Install sandboxer on this machine and set it up.
 
 Read https://…/getting-started/install/ first, then work through it. Stop and
 tell me if Docker is not running or has under 8 GB of memory available.
@@ -139,7 +139,7 @@ Link the first use of any term that has a glossary entry.
 served as a file.
 
 ```md
-![The sandboxr mark](assets/brand/mark.svg)
+![The sandboxer mark](assets/brand/mark.svg)
 ```
 
 The path is relative to the page, exactly as a link's is, and it must land under `docs/assets/`.

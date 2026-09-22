@@ -8,6 +8,9 @@
 // - no file under src/ mentions `@jef/`, and none reaches for a `session/`, `agent/`
 //   or `code/` directory that used to be here
 // - no file under src/ names the agent, with one allowlisted line that has to
+// - the engine never says the name it used to have: no `sandboxr`, `SANDBOXR` or
+//   `Sandboxr`, and no `@jef/` or `JEF_`, anywhere in packages/core/src,
+//   packages/cli/src or container/
 //
 // Three assertions where one would do, and that is the point. The first
 // subsumes the other two and fails with the file, the line and the specifier;
@@ -26,7 +29,7 @@ const SRC = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_JSON = join(SRC, "..", "package.json");
 
 /**
- * The only bare specifiers `@sandboxr/core` may name.
+ * The only bare specifiers `@sandboxer/core` may name.
  *
  * `yaml` and `zod` are its two runtime dependencies (contracts §2). `vitest` is
  * here because the walk deliberately includes `*.test.ts`: a back-reference
@@ -44,7 +47,7 @@ const MOVED = ['"../session/', '"../agent/', '"../code/', '"./session/', '"./age
  * `@jef/` catches the package. It does not catch a *value*, and a value is how
  * this boundary actually broke: `CLAUDE_DIR` lived in `sandbox/layout.ts`,
  * `CLAUDE_VOLUME` in `naming.ts`, and `sandbox/run.ts` mounted one at the other
- * and set `CLAUDE_CONFIG_DIR` on every container — so `sandboxr up` on a machine
+ * and set `CLAUDE_CONFIG_DIR` on every container — so `sandboxer up` on a machine
  * with no such agent installed mounted a credential store for a program that was
  * not in the image. None of it imported anything. Only a grep for the name would
  * have said so, which is why this assertion is by name and not by specifier.
@@ -129,6 +132,62 @@ async function filesUnder(dir: string): Promise<string[]> {
   return out.sort();
 }
 
+/**
+ * The names this engine answered to before, and the product's, in every spelling
+ * that was ever written down.
+ *
+ * Case-sensitive on purpose. `sandboxRule` and `sandboxRouteLabels` are
+ * `sandbox` plus a capitalised word and have nothing to do with the old name, so
+ * a case-insensitive rule would forbid two correct exports and teach whoever hit
+ * it to weaken the test.
+ *
+ * `@jef/` and `JEF_` are the product's package scope and variable prefix. They
+ * are here rather than only in the import rule above because a name reaches a
+ * boundary through a *string* as often as through an import: a label read back,
+ * a variable looked up, a comment somebody later follows.
+ */
+const OLD_NAMES = ["sandboxr", "SANDBOXR", "Sandboxr", "@jef/", "JEF_"] as const;
+
+/**
+ * Every tree the engine ships code in, for the old-name sweep.
+ *
+ * `container/` is in it because the shell scripts are the half no type-checker
+ * reads: a `$SANDBOXR_D1_DIR` left behind there is an empty variable at run time
+ * inside a container, which surfaces as a database that was never created.
+ */
+const SWEPT = [SRC, join(SRC, "..", "..", "cli", "src"), join(SRC, "..", "..", "..", "container")];
+
+/**
+ * The three files that have to say the old name, each with the reason.
+ *
+ * Keyed on the path relative to `packages/`, and asserted from both ends: an
+ * entry whose file has stopped saying an old name is an exemption that has
+ * outlived its reason, and the test fails on that too. Whole files rather than
+ * lines because two of these are prose about the rename, which gets reworded.
+ *
+ * Nothing else may be added here without the same shape of justification. "The
+ * old name is mentioned" is not one; "this is the code that tells somebody
+ * their data is under the old name" is.
+ */
+const OLD_NAME_ALLOWED = new Map<string, string>([
+  ["core/src/paths.ts", "legacyHomeNotice has to name ~/.sandboxr to tell somebody to move it"],
+  ["core/src/paths.test.ts", "it drives legacyHomeNotice against a home holding the old directory"],
+  ["core/src/access/images.test.ts", "it drives init against a home holding the old directory, and reads the sentence back"],
+  ["core/src/secrets.ts", "it states that the old SANDBOXR_ prefix is not read, which is the rule"],
+]);
+
+/** Every file under one of the swept trees, whatever its extension. */
+async function allFilesUnder(dir: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...(await allFilesUnder(full)));
+    // Both boundary tests are exempt: each has to spell what it forbids.
+    else if (entry.name !== "boundary.test.ts") out.push(full);
+  }
+  return out.sort();
+}
+
 const sources = await filesUnder(SRC);
 const contents = new Map<string, string>(
   await Promise.all(sources.map(async (file) => [file, await readFile(file, "utf8")] as const)),
@@ -204,5 +263,52 @@ describe("the engine imports nothing from the product", () => {
     for (const [line, why] of AGENT_NAME_ALLOWED) {
       expect(all, `allowlisted but absent (${why}): ${line}`).toContain(line);
     }
+  });
+});
+
+describe("the engine never says the name it used to have", () => {
+  // The rename from `sandboxr` to `sandboxer` was one commit and a three-
+  // expression sed, and a sed is exactly the tool that leaves a name in the one
+  // file nobody re-read. None of what it would leave behind is a compile error:
+  // an old config filename is "this is not a project", an old label is a sandbox
+  // the listing cannot see, an old variable is an empty string inside a
+  // container. Every one of them looks like something other than a rename.
+  //
+  // **No compatibility window, by decision** (contracts §3.3). The old names are
+  // not read anywhere, so a survivor is a bug and never a fallback.
+  it("says no old name anywhere in core, the CLI or container/", async () => {
+    const offenders: string[] = [];
+    for (const dir of SWEPT) {
+      for (const file of await allFilesUnder(dir)) {
+        const key = relative(join(SRC, "..", ".."), file);
+        if (OLD_NAME_ALLOWED.has(key)) continue;
+        const text = await readFile(file, "utf8");
+        for (const [index, line] of text.split("\n").entries()) {
+          for (const name of OLD_NAMES) {
+            if (line.includes(name)) offenders.push(`${key}:${index + 1} says ${name}`);
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("exempts nothing that has stopped needing it", async () => {
+    // The other end of the allowlist. An entry left behind after its file was
+    // rewritten is a hole in the rule that nothing else would report, and a
+    // fourth file could then be slipped in beside it as "one of the exceptions".
+    const stale: string[] = [];
+    for (const [key, reason] of OLD_NAME_ALLOWED) {
+      const text = await readFile(join(SRC, "..", "..", key), "utf8");
+      if (!OLD_NAMES.some((name) => text.includes(name))) stale.push(`${key} no longer says one: ${reason}`);
+    }
+    expect(stale).toEqual([]);
+  });
+
+  it("sweeps all three trees, and every file in them", async () => {
+    // A walk that found nothing would pass the assertion above and mean nothing,
+    // and the container tree is the one most easily lost to a wrong path.
+    const counts = await Promise.all(SWEPT.map(async (dir) => (await allFilesUnder(dir)).length));
+    for (const count of counts) expect(count).toBeGreaterThan(5);
   });
 });

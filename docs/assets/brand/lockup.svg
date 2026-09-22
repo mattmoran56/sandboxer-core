@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="240" height="64" viewBox="0 0 240 64" role="img" aria-label="sandboxr">
-  <title>sandboxr</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="64" viewBox="0 0 240 64" role="img" aria-label="sandboxer">
+  <title>sandboxer</title>
   <!--
     The lockup both headers draw — the dashboard's and this site's — at twice
     their size: a 28px mark, a 10px gap, and the wordmark at 20px. Every number
@@ -36,5 +36,5 @@
       <path d="M14 36.75h22.75"/>
     </g>
   </g>
-  <text class="sbx-word" x="76" y="46">sandboxr</text>
+  <text class="sbx-word" x="76" y="46">sandboxer</text>
 </svg>

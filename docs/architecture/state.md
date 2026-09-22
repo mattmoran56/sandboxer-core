@@ -5,8 +5,8 @@ description: Why there is no list of sandboxes anywhere, and how runtime state i
 
 There is no manifest file and no database of sandboxes. Nothing on the machine keeps a list.
 
-`sandboxr ls` asks Docker which containers exist, and reads every column off a label on the
-container. `sandboxr gc` decides which sandboxes to reap the same way. Both are pure functions of
+`sandboxer ls` asks Docker which containers exist, and reads every column off a label on the
+container. `sandboxer gc` decides which sandboxes to reap the same way. Both are pure functions of
 `docker ps`, so neither can drift out of sync with what is running. (`gc` also asks `docker system
 df` which images are lying around, but that is disk, not sandbox state — nothing about a sandbox is
 read from it.)
@@ -17,22 +17,22 @@ allowed to live on the host after all.
 ## The labels
 
 ```
-sandboxr.project    the project's name
-sandboxr.slug       the sandbox's short name — the filter that finds every sandbox
-sandboxr.branch     the branch it started from, or "?"
-sandboxr.commit     the commit it started from, or "?"
-sandboxr.dirty      "true" or "false" — the worktree's state when it started
-sandboxr.worktree   the absolute path on the host it was built from
-sandboxr.driver     the database driver
-sandboxr.created    ISO 8601, UTC
-sandboxr.access     public or private
-sandboxr.ttl        seconds it may sit unused for, or "never"
-sandboxr.env        a digest of the environment it was created with — a record, not a comparison
+sandboxer.project    the project's name
+sandboxer.slug       the sandbox's short name — the filter that finds every sandbox
+sandboxer.branch     the branch it started from, or "?"
+sandboxer.commit     the commit it started from, or "?"
+sandboxer.dirty      "true" or "false" — the worktree's state when it started
+sandboxer.worktree   the absolute path on the host it was built from
+sandboxer.driver     the database driver
+sandboxer.created    ISO 8601, UTC
+sandboxer.access     public or private
+sandboxer.ttl        seconds it may sit unused for, or "never"
+sandboxer.env        a digest of the environment it was created with — a record, not a comparison
 ```
 
-The shared router carries `sandboxr.role=router` instead, and a control plane somebody puts on
+The shared router carries `sandboxer.role=router` instead, and a control plane somebody puts on
 the bare domain carries a role of its own. Neither has a slug label, so neither can ever appear in
-a sandbox listing. A control plane also carries `sandboxr.frontend`, which says "this container
+a sandbox listing. A control plane also carries `sandboxer.frontend`, which says "this container
 answers on the bare domain" — it is what *any* container put there carries, and it is how the
 engine reads a request *about* a sandbox rather than *to* one.
 
@@ -41,13 +41,13 @@ engine reads a request *about* a sandbox rather than *to* one.
 
 `LABELS` in `packages/core/src/sandbox/labels.ts` is the authority.
 
-- **The filter that finds every sandbox is `label=sandboxr.slug`**, whatever project it belongs to.
+- **The filter that finds every sandbox is `label=sandboxer.slug`**, whatever project it belongs to.
 - **A branch or commit that cannot be resolved is recorded as `?`**, never omitted. A missing label
   and an unknown branch would otherwise read the same, and only one of them is a bug.
-- **`sandboxr.env` records the past and must not be read as a live answer.** It is a digest of
+- **`sandboxer.env` records the past and must not be read as a live answer.** It is a digest of
   the project's credentials and its `env:` map as they were when the container was created. An
   empty one means *unknown*, never *unchanged*.
-- **An absent `sandboxr.ttl` reads as `never`.** Anything the expiry planner cannot parse has to
+- **An absent `sandboxer.ttl` reads as `never`.** Anything the expiry planner cannot parse has to
   fail closed. A sandbox started before this label existed and coming out as "already expired"
   would be stopped the first time the reaper ran.
 - **A container with no slug label yields nothing**, rather than a sandbox with invented fields. A
@@ -66,17 +66,17 @@ runs. So anything that changes at runtime is **derived at read time** instead.
 | Changes at runtime | Where it actually lives |
 |---|---|
 | Which front-ends have been built | `/srv/www/.built.json`, inside the container |
-| Whether the last migration succeeded | a marker file in `/run/sandboxr`, inside the container |
-| Whether a backend is healthy right now | asked, live, over `/__sandboxr/health/<service>` |
+| Whether the last migration succeeded | a marker file in `/run/sandboxer`, inside the container |
+| Whether a backend is healthy right now | asked, live, over `/__sandboxer/health/<service>` |
 | `running` / `degraded` / `stopped` / `starting` | computed from Docker's state plus those markers |
-| When a sandbox expires | `max(startedAt, lastActive) + sandboxr.ttl`, computed per read |
+| When a sandbox expires | `max(startedAt, lastActive) + sandboxer.ttl`, computed per read |
 | When a sandbox was last used | the shared router's access log, the agent index, and the heartbeat a held-open socket leaves in `state/attach/`, read at the moment they are asked for |
 | Whether it has read the current credentials | the secrets file's mtime against the container's `StartedAt` |
 
 A label recording "running" would be a second source of truth that goes stale the moment a process
 dies. That is exactly the drift this design exists to avoid.
 
-The last row is `sandboxr.env`'s twin, and the difference between them is a bug that has already
+The last row is `sandboxer.env`'s twin, and the difference between them is a bug that has already
 been made. The label says what the environment *was* when the container was created, and Docker
 will not let a label be changed after that — so a sandbox restarted to pick up a rotated credential
 kept the label it started life with. The badge stayed lit, the button appeared to do nothing, and
@@ -86,11 +86,11 @@ it clears itself, because a restart moves `StartedAt`.
 The case that matters most is `degraded`. A failed migration deliberately leaves the container
 running, so anything reading only Docker's state reports a degraded sandbox as healthy.
 
-### There is deliberately no `sandboxr.expires` label
+### There is deliberately no `sandboxer.expires` label
 
 A deadline label is the obvious design and it is wrong.
 
-`sandboxr.ttl` is a *duration*, which is durable. A deadline is not. `sandboxr.created` is stamped
+`sandboxer.ttl` is a *duration*, which is durable. A deadline is not. `sandboxer.created` is stamped
 once and never moves, so a deadline of `created + ttl` is already in the past the moment the reaper
 stops a sandbox. Pressing Restart would hand the next pass a sandbox that is still expired, it
 would be stopped again, and the button would look broken.
@@ -124,13 +124,13 @@ would stop every sandbox on the machine at once.
 So the lifetime measures **idleness, not uptime**. Using a sandbox resets its clock. The precedence
 chain for the ttl itself is in [Environment
 variables](../reference/environment.md#the-setting-that-is-a-file-not-a-variable), and the verb
-that acts on it is `sandboxr expire` — see [CLI commands](../reference/cli.md).
+that acts on it is `sandboxer expire` — see [CLI commands](../reference/cli.md).
 
 </details>
 
 ## What labels-only buys
 
-- **A listing cannot be stale.** A container that does not exist cannot appear in `sandboxr ls`,
+- **A listing cannot be stale.** A container that does not exist cannot appear in `sandboxer ls`,
   because the listing *is* the container set.
 - **A listing cannot lie.** Every reader reads live, so there is no cache to invalidate.
 - **Crash recovery is free.** Interrupt `up` halfway, reboot, `docker rm` a container by hand —
@@ -160,10 +160,10 @@ to read, and its only remaining function is to be wrong occasionally.
 
 ## What it costs
 
-**A label is a string.** No nested structures, no lists, no booleans — `sandboxr.dirty` is the text
+**A label is a string.** No nested structures, no lists, no booleans — `sandboxer.dirty` is the text
 `"true"`.
 
-**`sandboxr.commit` and `sandboxr.dirty` go stale.** They are a snapshot from `up`. A commit you
+**`sandboxer.commit` and `sandboxer.dirty` go stale.** They are a snapshot from `up`. A commit you
 make in the worktree afterwards is not reflected. They answer "what was this started from", not
 "what is it now", and the code says so rather than pretending otherwise. That is a genuine wart, and
 it is preferable to keeping a second copy of the truth on the host.
@@ -187,8 +187,8 @@ point it is a cache of something you had to read anyway. If it does not, it is a
 <details class="why">
 <summary><b>Why it works this way</b> — the workspace is an original, not a copy</summary>
 
-`~/.sandboxr/workspace/<project>/repo.git` is where a repository lives on this machine, and that is
-recorded nowhere else that survives the last container. The `sandboxr.worktree` label dies with its
+`~/.sandboxer/workspace/<project>/repo.git` is where a repository lives on this machine, and that is
+recorded nowhere else that survives the last container. The `sandboxer.worktree` label dies with its
 container, and the plan file holds container paths.
 
 Run the six failures above against it and none of them apply. No lifecycle command writes it. A
@@ -207,10 +207,10 @@ deregistering anything.
 <summary><b>Why it works this way</b> — the keep-alive marker, and the stamp that makes it legal</summary>
 
 A keep-alive marker exempts one sandbox from its idle limit. It cannot be a label, because a running
-container's labels are immutable. So it is a file: `~/.sandboxr/state/keep/<project>/<slug>`. It is
+container's labels are immutable. So it is a file: `~/.sandboxer/state/keep/<project>/<slug>`. It is
 the one piece of per-sandbox state that lives on the host.
 
-It is legal because of one detail. **The file contains that container's `sandboxr.created` value,
+It is legal because of one detail. **The file contains that container's `sandboxer.created` value,
 and a marker whose stamp does not match the live container is ignored.**
 
 That makes a stale marker fail closed, which is what removes the need for a reconciliation pass.
@@ -230,7 +230,7 @@ place by being unable to disagree with reality, not by being written carefully.
 <summary><b>Why it works this way</b> — a worktree's name, and why this one must <i>not</i> be stamped</summary>
 
 You can call a worktree "the checkout flow rewrite" instead of `feat/tkt-4821`. That name is a file
-too: `~/.sandboxr/state/name/<project>/<slug>`.
+too: `~/.sandboxer/state/name/<project>/<slug>`.
 
 It passes the same test, and it reaches the **opposite** conclusion about the stamp — which is the
 useful part, because it shows the test is about the question being asked and not about the file
@@ -255,7 +255,7 @@ worktree changes one line on a screen and no address anywhere.
 <summary><b>Why it works this way</b> — the attach heartbeat, the one signal with no original to read</summary>
 
 While something holds a terminal or another socket open on a sandbox, it re-stamps
-`~/.sandboxr/state/attach/<project>/<slug>` every thirty seconds. That is a written signal in a page
+`~/.sandboxer/state/attach/<project>/<slug>` every thirty seconds. That is a written signal in a page
 about not writing signals, so it needs the strongest form of the argument.
 
 **The test this file passes is that there is no original to read.** The router's log is the original
@@ -265,7 +265,7 @@ a terminal held open all afternoon left no evidence of use, the reaper stopped t
 live connection, and the log then recorded a request dated to that morning — a cause that looks
 nothing like its symptom.
 
-The one process that knows a socket is open is the one holding it, and `sandboxr expire` on the
+The one process that knows a socket is open is the one holding it, and `sandboxer expire` on the
 command line is a *different process*. Keeping the set in memory would give the two different
 answers to "is this in use", which is exactly the drift this page forbids. So the fact is put where
 both readers can see it.
@@ -286,7 +286,7 @@ starts counting again.
 
 ## The best example of the argument: last activity
 
-A sandbox is stopped once it has sat unused for its `sandboxr.ttl`, so something has to answer "when
+A sandbox is stopped once it has sat unused for its `sandboxer.ttl`, so something has to answer "when
 was this last used?".
 
 The obvious design is to store it: a timestamp per sandbox, written whenever a request arrives. Run
@@ -296,7 +296,7 @@ working in.
 
 For almost all of it there is nothing to store, because the answer is already written down. The
 shared router logs one line per request, and each line ends with the router's name — which for a
-sandbox **is** its container name. So last activity is a `docker logs sandboxr-router --since
+sandbox **is** its container name. So last activity is a `docker logs sandboxer-router --since
 <window>` at the moment somebody asks, parsed and thrown away. No file, no writer, no
 reconciliation. It cannot disagree with what actually happened, because it *is* what actually
 happened.
@@ -312,7 +312,7 @@ believed as soon as it stops being refreshed.
 <details class="agent">
 <summary><b>Details for an agent</b> — three load-bearing details of the activity signal</summary>
 
-- **The per-sandbox logs are not a substitute.** `~/.sandboxr/logs/<project>/<slug>/` looks like the
+- **The per-sandbox logs are not a substitute.** `~/.sandboxer/logs/<project>/<slug>/` looks like the
   same signal and is not. A control plane's health probes dial containers directly on the Docker
   network, so they write to those logs every few seconds on a sandbox nobody is touching. A timer
   keyed on them would never fire. The router's log is the right one *because* the probes do not go
@@ -333,8 +333,8 @@ sandbox would fall back to its start time rather than being expired wrongly. The
 
 ## What is not in labels
 
-Some things must **outlive** a container. Those live under `SANDBOXR_HOME`, which defaults to
-`~/.sandboxr`.
+Some things must **outlive** a container. Those live under `SANDBOXER_HOME`, which defaults to
+`~/.sandboxer`.
 
 | Path | Why it is not a label |
 |---|---|
@@ -351,34 +351,34 @@ Some things must **outlive** a container. Those live under `SANDBOXR_HOME`, whic
 | `state/slug/<project>/<worktree dir>` | The slug a worktree was given when two branches on one ticket would have shared one — random, so it cannot be derived again |
 | `state/attach/<project>/<slug>` | A socket is open on this sandbox right now — a fact no other process can see |
 
-`SANDBOXR_HOME` is deliberately never inside a repository, so `git clean -xdf` cannot destroy your
+`SANDBOXER_HOME` is deliberately never inside a repository, so `git clean -xdf` cannot destroy your
 seed cache or your certificates. The full list is in [Paths](../reference/paths.md).
 
 ## Reading the labels yourself
 
 ```bash
-docker ps --filter label=sandboxr.project=acme \
-  --format '{{.Names}}\t{{.Label "sandboxr.slug"}}\t{{.Label "sandboxr.branch"}}'
+docker ps --filter label=sandboxer.project=acme \
+  --format '{{.Names}}\t{{.Label "sandboxer.slug"}}\t{{.Label "sandboxer.branch"}}'
 ```
 
 ```
-sandboxr-acme-tkt-4821	tkt-4821	tkt-4821
-sandboxr-acme-fix-nav	fix-nav	fix/nav
+sandboxer-acme-tkt-4821	tkt-4821	tkt-4821
+sandboxer-acme-fix-nav	fix-nav	fix/nav
 ```
 
-If `sandboxr ls` and `docker ps` ever disagree, that is a bug in the listing code, because there is
+If `sandboxer ls` and `docker ps` ever disagree, that is a bug in the listing code, because there is
 nothing else it could be.
 
 ## The names
 
 | Thing | Name |
 |---|---|
-| Container | `sandboxr-<project>-<slug>` |
-| Network | `sandboxr` — one, shared |
-| Per-sandbox volumes | `sandboxr-<purpose>-<project>-<slug>`, purpose one of `data`, `blob`, `bin`, `www` |
-| Shared volumes | `sandboxr-deps-<lockfile hash>`, `sandboxr-gocache`, `sandboxr-gomod` |
-| Project image | `sandboxr/<project>:<12 hex>` — the hash covers the tool version, the rendered Dockerfile and every staged manifest |
-| The machine's own image | `sandboxr/base`, tagged by tool version and `latest` |
+| Container | `sandboxer-<project>-<slug>` |
+| Network | `sandboxer` — one, shared |
+| Per-sandbox volumes | `sandboxer-<purpose>-<project>-<slug>`, purpose one of `data`, `blob`, `bin`, `www` |
+| Shared volumes | `sandboxer-deps-<lockfile hash>`, `sandboxer-gocache`, `sandboxer-gomod` |
+| Project image | `sandboxer/<project>:<12 hex>` — the hash covers the tool version, the rendered Dockerfile and every staged manifest |
+| The machine's own image | `sandboxer/base`, tagged by tool version and `latest` |
 
 <details class="agent">
 <summary><b>Details for an agent</b> — what <code>gc</code> and <code>prune</code> may each remove</summary>
@@ -386,7 +386,7 @@ nothing else it could be.
 Reclamation is a contract, not a heuristic.
 
 `gc` reads the sandbox list, the volume list and `docker system df`. It reaps a sandbox whose
-`sandboxr.worktree` no longer exists on disk, removes any `sandboxr-` volume no surviving sandbox
+`sandboxer.worktree` no longer exists on disk, removes any `sandboxer-` volume no surviving sandbox
 has mounted, and removes any project image a newer build of the same project replaced. Because the
 image tag is a content hash, every base image rebuild and every tool version bump strands a
 project's previous image — at roughly six gigabytes each, that is where a machine's disk actually
@@ -394,14 +394,14 @@ goes, and it is why the reaping happens in the command that gets run routinely r
 the one you have to remember.
 
 `prune` reads `docker system df` too and reports the same volumes and images with sizes against
-them, plus — only when asked — Docker's build cache, which sandboxr is not the only writer of.
+them, plus — only when asked — Docker's build cache, which sandboxer is not the only writer of.
 
 Four rules bind both:
 
 - **The shared volumes are never removed, by either**, and neither is anything the caller declared
   its own: a machine-wide credential store looks exactly like a volume nobody wants on an evening
   when every sandbox is stopped.
-- **`sandboxr/base` is never removed as superseded**, nor are the `sandboxr/` names reserved for a
+- **`sandboxer/base` is never removed as superseded**, nor are the `sandboxer/` names reserved for a
   product's own machine images. They are tagged by version rather than by content, so "older tag"
   does not mean "replaced".
 - **Of each project's images, the newest survives.** A content-addressed tag means the next `up`

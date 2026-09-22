@@ -10,11 +10,11 @@ page is the one command that does that, and what each kind of rebuild costs.
 ```prompt
 I have edited a file in this worktree. Get the sandbox serving the new version.
 
-Read docs/guides/edit-and-reload.md first. Work out from the project's sandboxr.yaml
-which runtime the file belongs to, then run the right `sandboxr reload` for it and tell
+Read docs/guides/edit-and-reload.md first. Work out from the project's sandboxer.yaml
+which runtime the file belongs to, then run the right `sandboxer reload` for it and tell
 me what you ran and what it printed.
 
-Stop and ask me if I changed sandboxr.yaml or the lockfile — those need `sandboxr up`,
+Stop and ask me if I changed sandboxer.yaml or the lockfile — those need `sandboxer up`,
 which replaces the container. Stop and tell me if the build output contains `Killed` or
 `137`: that is the sandbox running out of memory, not a broken build.
 ```
@@ -24,12 +24,12 @@ which replaces the container. Stop and tell me if the build output contains `Kil
 Edit, reload, refresh. There are three things `reload` can do, and you pick one:
 
 ```bash
-sandboxr reload --go=api        # rebuild one backend and restart it
-sandboxr reload --go            # every backend
-sandboxr reload --web=app       # build one front-end into the web root
-sandboxr reload --web=all       # the build-everything set
-sandboxr reload --web=built     # exactly what this sandbox has already built
-sandboxr reload --migrate       # re-run this sandbox's migrations
+sandboxer reload --go=api        # rebuild one backend and restart it
+sandboxer reload --go            # every backend
+sandboxer reload --web=app       # build one front-end into the web root
+sandboxer reload --web=all       # the build-everything set
+sandboxer reload --web=built     # exactly what this sandbox has already built
+sandboxer reload --migrate       # re-run this sandbox's migrations
 ```
 
 One kind at a time. If you pass more than one, `--migrate` wins, then `--web`, then `--go`.
@@ -42,8 +42,8 @@ One kind at a time. If you pass more than one, `--migrate` wins, then `--web`, t
 | A static front-end's source | `reload --web=<label>` | seconds to minutes, depending on the app |
 | A `serve:` front-end's source | usually nothing — see below | — |
 | A migration file | `reload --migrate` | as long as the migration takes |
-| `sandboxr.yaml` | `sandboxr up` — the plan is written at start | a restart, seconds |
-| The lockfile | `sandboxr up` — the dependency volume is keyed on its hash | an install |
+| `sandboxer.yaml` | `sandboxer up` — the plan is written at start | a restart, seconds |
+| The lockfile | `sandboxer up` — the dependency volume is keyed on its hash | an install |
 
 The last two need `up` rather than `reload` for the same reason: neither the plan nor the
 mounted volumes can change on a container that is already running. `up` replaces the
@@ -56,25 +56,25 @@ worth understanding rather than working around.
 
 A dev server watching for changes holds its whole module graph in memory for as long as the
 container lives, whether or not anybody ever opens that app. One dev server per app, per
-sandbox, and the whole point of sandboxr is running several sandboxes at once. Four sandboxes
+sandbox, and the whole point of sandboxer is running several sandboxes at once. Four sandboxes
 with three apps each is twelve resident dev servers on one machine.
 
 A static build costs a few seconds when you ask for it, and nothing when you do not. So
-sandboxr builds when asked.
+sandboxer builds when asked.
 
 **Where you genuinely need hot reload, run that one app's dev server on your own machine and
 point it at the sandbox's API.** Keep the sandbox for the integration. That gets you the fast
 inner loop where you are actually working and the realistic environment everywhere else.
 
-### The one exception is not an exception sandboxr makes
+### The one exception is not an exception sandboxer makes
 
 A front-end declared with `serve:` instead of `out:` is a **long-running process** — a real
 dev server, supervised inside the sandbox. If that server hot-reloads, it hot-reloads, and it
 did so because the project's own dev server does that. It is the project's behaviour, not
-sandboxr's, and sandboxr neither adds it nor takes it away.
+sandboxer's, and sandboxer neither adds it nor takes it away.
 
 These are the expensive ones, which is why a project usually marks them `optional: true` and
-starts them with `sandboxr up --with <label>`. See [The three runtime
+starts them with `sandboxer up --with <label>`. See [The three runtime
 kinds](../configuration/runtime-kinds.md).
 
 ## An app that has not been built answers 503
@@ -87,11 +87,11 @@ which an app's hostname is live and the app is not there yet, and opening it giv
 ```
 app has not been built in this sandbox.
 
-Run:  sandboxr build <slug> --app app
+Run:  sandboxer build <slug> --app app
 ```
 
 > [!WARNING] That page names a command that does not exist
-> The real command is `sandboxr reload <slug> --web=<label>`. `sandboxr build` was never
+> The real command is `sandboxer reload <slug> --web=<label>`. `sandboxer build` was never
 > added to the CLI, and the 503 page in `container/scripts/gen-caddyfile.sh` still points at
 > it. Use `reload`.
 
@@ -101,7 +101,7 @@ restart, no separate step.
 <details class="agent">
 <summary><b>Details for an agent</b> — <code>reload</code>'s exact surface, and what runs inside the container</summary>
 
-`sandboxr help` prints this:
+`sandboxer help` prints this:
 
 ```
 reload [slug] --go [name]                Rebuild a backend and restart it
@@ -111,11 +111,11 @@ reload [slug] --go [name]                Rebuild a backend and restart it
 
 > [!WARNING] The spacing in that help text does not work
 > `--web` and `--go` are not among the flags that take the next word as a value, so
-> `sandboxr reload --web app` sets `--web` to `true` and reads `app` as the **slug**. Always
+> `sandboxer reload --web app` sets `--web` to `true` and reads `app` as the **slug**. Always
 > write `--web=app`. Every example on this page uses the `=` form for that reason.
 > [CLI commands](../reference/cli.md) has the parser's full flag list.
 
-Also accepted, and not listed in `sandboxr help`: `--backend [name]` is a synonym for
+Also accepted, and not listed in `sandboxer help`: `--backend [name]` is a synonym for
 `--go`. `--project NAME` and `--worktree PATH` resolve which sandbox is meant, exactly as on
 the other verbs. `--json` puts the result on stdout.
 
@@ -132,15 +132,15 @@ the other verbs. `--json` puts the result on stdout.
 What actually happens inside the container:
 
 - **A backend** runs the project's `build:` command in its `workdir`. `{out}` in that command
-  is replaced with `/var/lib/sandboxr/bin/<name>` and `{name}` with the backend's name. On
-  success, core execs `sandboxr-restart <name> || true` in the container.
+  is replaced with `/var/lib/sandboxer/bin/<name>` and `{name}` with the backend's name. On
+  success, core execs `sandboxer-restart <name> || true` in the container.
 - **A static front-end** runs the project's `build:` command in its package directory, then
   copies the output directory over `/srv/www/<label>/` by swap, so a page load mid-build never
   sees a half-written bundle. The build time is recorded in `/srv/www/.built.json`.
-- **A `serve:` front-end** is not built. Core execs `sandboxr-restart <label> || true`.
+- **A `serve:` front-end** is not built. Core execs `sandboxer-restart <label> || true`.
   `build-server.sh` runs the app's optional `prepare` step if it declares one.
 - **`--migrate`** runs `container/scripts/migrate-run.sh`, which runs the project's own
-  migration command and writes the verdict to `/run/sandboxr/migrate.json`. It never exits
+  migration command and writes the verdict to `/run/sandboxer/migrate.json`. It never exits
   non-zero; the verdict comes from the output.
 
 `reload` refuses on a sandbox that is stopped or does not exist:
@@ -148,7 +148,7 @@ What actually happens inside the container:
 of the build output are printed.
 
 `build:`, `out:`, `serve:`, `prepare:`, `in_build_all:` and `memory:` are all config fields —
-[sandboxr.yaml, field by field](../configuration/sandboxr-yaml.md) is the reference, and
+[sandboxer.yaml, field by field](../configuration/sandboxer-yaml.md) is the reference, and
 [CLI commands](../reference/cli.md) is the full flag list.
 
 </details>
@@ -157,11 +157,11 @@ of the build output are printed.
 <summary><b>If it goes wrong</b> — a rebuild that succeeds and changes nothing</summary>
 
 The restart step of `reload --go` and `reload --web=<serve-label>` calls a helper named
-`sandboxr-restart` inside the container, and tolerates its absence with `|| true`. **No such
+`sandboxer-restart` inside the container, and tolerates its absence with `|| true`. **No such
 program is installed in the base image.** So the build happens, `reload` reports the service
 as rebuilt, and the old process carries on serving the old binary.
 
-If a backend rebuild appears to do nothing, that is why. `sandboxr up` is the reliable way
+If a backend rebuild appears to do nothing, that is why. `sandboxer up` is the reliable way
 round it: it replaces the container, and each backend's supervisor script rebuilds it on the
 way up if the source is newer than the binary. The volumes are kept, so this costs seconds.
 
@@ -180,7 +180,7 @@ serves the last thing that compiled, which is what you want when the failure is 
 are about to fix.
 
 **A front-end build does not check types.** Projects usually spell their build script as
-`tsc -b && vite build`. sandboxr's own examples declare `npx vite build` instead, because a
+`tsc -b && vite build`. sandboxer's own examples declare `npx vite build` instead, because a
 branch that does not typecheck still needs a sandbox, and CI is what enforces types. Your
 project chooses: whatever you put in `build:` is what runs, verbatim.
 
@@ -235,7 +235,7 @@ frontends:
       memory: 6g
 ```
 
-Then `sandboxr up` again. The limit is set at `docker run` and cannot change on a live
+Then `sandboxer up` again. The limit is set at `docker run` and cannot change on a live
 container.
 
 > [!TIP] A generator will die at 6 GB too, just later
@@ -250,7 +250,7 @@ machine](docker-capacity.md).
 
 ## When `reload` is not enough
 
-`sandboxr up` again. It replaces the container from the current config and the current
+`sandboxer up` again. It replaces the container from the current config and the current
 commit, keeps every volume, and takes seconds because nothing is restored. It is the right
 answer after a config change, a lockfile change, or any time you are not sure what state the
 container has got itself into.

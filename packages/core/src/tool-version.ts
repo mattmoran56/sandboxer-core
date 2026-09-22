@@ -1,5 +1,5 @@
 /**
- * This tool's own version, which the `sandboxr:` constraint in a project's
+ * This tool's own version, which the `sandboxer:` constraint in a project's
  * config is checked against.
  *
  * A constant rather than a read of package.json: the published package is

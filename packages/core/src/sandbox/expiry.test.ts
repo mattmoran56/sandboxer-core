@@ -38,7 +38,7 @@ function sandbox(overrides: Partial<Sandbox> = {}): Sandbox {
     kind: "runtime",
     session: "",
     state: "running",
-    container: "sandboxr-acme-tkt-1",
+    container: "sandboxer-acme-tkt-1",
     ...overrides,
   };
 }
@@ -224,7 +224,7 @@ describe("planExpiry", () => {
   });
 
   // The regression test for the Restart bug. The deadline is derived from the
-  // container's current start time, not from `sandboxr.created` — which is
+  // container's current start time, not from `sandboxer.created` — which is
   // stamped once and never moves. Measured from `created` this sandbox is three
   // days past an 8h ttl, so the reaper would stop it, the developer would press
   // Restart, and the next pass would stop it again: the button would look

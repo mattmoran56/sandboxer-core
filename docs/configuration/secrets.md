@@ -7,21 +7,21 @@ A sandbox needs your project's third-party credentials — an identity provider,
 key, a maps key. It must **not** have anything saying where things run. Those two kinds of
 setting live side by side in the same `.env` files, so the config says which is which.
 
-Every one of those credentials lives in **one file**, `~/.sandboxr/secrets/<project>.env`.
+Every one of those credentials lives in **one file**, `~/.sandboxer/secrets/<project>.env`.
 You can write it by hand or from the CLI, and you can import into it from the `.env` files
 your project already has. All three are the same file.
 
 ```prompt
-Set up this project's secrets block and get its credentials into sandboxr.
+Set up this project's secrets block and get its credentials into sandboxer.
 
 Read docs/configuration/secrets.md. Find the project's .env files, then write a `secrets`
 block listing them under `read`, an exact-name allowlist under `keep`, and glob patterns
 under `never` for anything describing where something runs. Then run
-`sandboxr secrets import` and `sandboxr secrets check`.
+`sandboxer secrets import` and `sandboxer secrets check`.
 
 If `check` still names something as missing, the value is on no file on this machine: tell
 me which names those are and ask me for each one, then set it with
-`printf '%s' "$VALUE" | sandboxr secrets set NAME` so it never reaches the shell history.
+`printf '%s' "$VALUE" | sandboxer secrets set NAME` so it never reaches the shell history.
 
 Never print a value from a .env file, in any output, for any reason. Stop and ask me if a
 name could plausibly be either a credential or an address.
@@ -31,7 +31,7 @@ name could plausibly be either a credential or an address.
 
 | | |
 |---|---|
-| Where | `~/.sandboxr/secrets/<project>.env` |
+| Where | `~/.sandboxer/secrets/<project>.env` |
 | Mode | `0600` — nobody else on the machine reads it |
 | Format | `NAME="value"`, one per line, **always quoted** |
 | Written by | `secrets set`, `secrets edit`, `secrets import`, or your editor |
@@ -74,19 +74,19 @@ under those mounts and pin each container to the unlinked old one.
 Six verbs, and only one of them shows you a value.
 
 ```bash
-sandboxr secrets list          # names, the last four characters, the length
-sandboxr secrets set NAME      # the value is read from a prompt, or from stdin
-sandboxr secrets unset NAME    # remove one
-sandboxr secrets edit          # open the whole file in $EDITOR, checked on save
-sandboxr secrets import        # merge the project's own .env files in
-sandboxr secrets check         # say which credentials are missing, by name
+sandboxer secrets list          # names, the last four characters, the length
+sandboxer secrets set NAME      # the value is read from a prompt, or from stdin
+sandboxer secrets unset NAME    # remove one
+sandboxer secrets edit          # open the whole file in $EDITOR, checked on save
+sandboxer secrets import        # merge the project's own .env files in
+sandboxer secrets check         # say which credentials are missing, by name
 ```
 
 **The value is never an argument to `set`.** It is typed at a prompt that does not echo, or
 piped in:
 
 ```bash
-printf '%s' "$STRIPE_KEY" | sandboxr secrets set STRIPE_SECRET_KEY
+printf '%s' "$STRIPE_KEY" | sandboxer secrets set STRIPE_SECRET_KEY
 ```
 
 An argument would be in your shell history, and in every `ps` on the machine for as long as
@@ -96,13 +96,13 @@ the command runs. A pipe is what a script or a server operator uses.
 keys apart and to spot a paste that lost its tail:
 
 ```
-/home/you/.sandboxr/secrets/acme.env
+/home/you/.sandboxer/secrets/acme.env
 NAME                 ENDS   CHARS
 ANALYTICS_ENDPOINT   …f10a  38
 AUTH0_CLIENT_SECRET  …9c2d  64
 JWT_SECRET           -      9
-   ! STRIPE_SECRET_KEY is declared in sandboxr.yaml and not set
-      sandboxr secrets set STRIPE_SECRET_KEY
+   ! STRIPE_SECRET_KEY is declared in sandboxer.yaml and not set
+      sandboxer secrets set STRIPE_SECRET_KEY
 ```
 
 **Names only, never values.** That is a design goal, not politeness. The output is safe to
@@ -123,9 +123,9 @@ nothing lands in a transcript.
 | `secrets unset NAME` | Exits `0` when the name was not there — the file is in the state asked for |
 | `secrets edit` | Opens `$VISUAL`, then `$EDITOR`, then `vi`, on a `0600` copy beside the real file. Comments and order are not kept: the file is rewritten sorted by name. A name it no longer carries is removed. Exits `1` if any line was refused |
 | `secrets import` | **Merges.** `--replace` rebuilds the file from the `.env` files instead, discarding anything set by hand |
-| `secrets check` | Exits `0` when nothing is missing, `1` when the file does not exist or any expected name is absent. `sandboxr doctor` runs the same check |
+| `secrets check` | Exits `0` when nothing is missing, `1` when the file does not exist or any expected name is absent. `sandboxer doctor` runs the same check |
 
-`edit` on an empty file opens a template listing the names `sandboxr.yaml` declares, commented
+`edit` on an empty file opens a template listing the names `sandboxer.yaml` declares, commented
 out — the case it exists for is a fresh checkout with nothing to import from, and a blank
 buffer does not say which keys the project is waiting for.
 
@@ -137,17 +137,17 @@ would refuse can still have its secrets managed.
 ### Names a sandbox works out for itself are refused
 
 A sandbox derives its own database address, its own object storage and its own inter-service
-URLs, and exports them under a `SANDBOXR_` prefix. Those exact names are refused here,
+URLs, and exports them under a `SANDBOXER_` prefix. Those exact names are refused here,
 whoever typed them:
 
-`SANDBOXR_SLUG`, `SANDBOXR_PROJECT`, `SANDBOXR_DOMAIN`, `SANDBOXR_ACCESS`, `SANDBOXR_SCHEME`,
-`SANDBOXR_PUBLIC_PORT`, `SANDBOXR_WITH`, `SANDBOXR_SEED`, `SANDBOXR_PLAN`, `SANDBOXR_SCRIPTS`,
-`SANDBOXR_SANDBOX`, `SANDBOXR_ENV_READY`, and everything beginning `SANDBOXR_DB_`,
-`SANDBOXR_S3_`, `SANDBOXR_D1_`, `SANDBOXR_URL_` or `SANDBOXR_PORT_`.
+`SANDBOXER_SLUG`, `SANDBOXER_PROJECT`, `SANDBOXER_DOMAIN`, `SANDBOXER_ACCESS`, `SANDBOXER_SCHEME`,
+`SANDBOXER_PUBLIC_PORT`, `SANDBOXER_WITH`, `SANDBOXER_SEED`, `SANDBOXER_PLAN`, `SANDBOXER_SCRIPTS`,
+`SANDBOXER_SANDBOX`, `SANDBOXER_ENV_READY`, and everything beginning `SANDBOXER_DB_`,
+`SANDBOXER_S3_`, `SANDBOXER_D1_`, `SANDBOXER_URL_` or `SANDBOXER_PORT_`.
 
-Your project's **own** `SANDBOXR_`-prefixed names are fine, which is why this is a list rather
+Your project's **own** `SANDBOXER_`-prefixed names are fine, which is why this is a list rather
 than the prefix. `rename` legitimately carries a browser-side identity domain across to
-`SANDBOXR_AUTH0_SPA_DOMAIN`, and only the project can supply that value.
+`SANDBOXER_AUTH0_SPA_DOMAIN`, and only the project can supply that value.
 
 The refusal names what to do instead. A refused name in a pasted `.env` is reported and the
 rest of the paste is still applied, so one bad line does not cost you the other nineteen.
@@ -165,7 +165,7 @@ secrets:
     - JWT_SECRET
   rename:
     ANALYTICS_API_HOST: ANALYTICS_ENDPOINT
-    VITE_AUTH0_DOMAIN: SANDBOXR_AUTH0_SPA_DOMAIN
+    VITE_AUTH0_DOMAIN: SANDBOXER_AUTH0_SPA_DOMAIN
   never:
     - "DB_*"
     - "MYSQL_*"
@@ -208,7 +208,7 @@ testing safely runs against something that was never a copy.
 So `never` is written as patterns over the *shape* of a name, not as a list of the ones you
 happened to think of.
 
-Addresses come from [`env`](sandboxr-yaml.md#env) instead, which can only ever reference the
+Addresses come from [`env`](sandboxer-yaml.md#env) instead, which can only ever reference the
 sandbox's own computed values.
 
 ## The order the rules are applied
@@ -255,13 +255,13 @@ purpose.
 ## Importing is a merge
 
 ```bash
-sandboxr secrets import
+sandboxer secrets import
 ```
 
 ```
   ok read /home/you/acme/services/api/.env
    ! not found: /home/you/acme/web/packages/web/.env
-  ok merged 7 credential(s) into /home/you/.sandboxr/secrets/acme.env
+  ok merged 7 credential(s) into /home/you/.sandboxer/secrets/acme.env
   imported (names only):
       ANALYTICS_ENDPOINT
       AUTH0_CLIENT_ID
@@ -283,13 +283,13 @@ refresh.
 ## How it reaches a sandbox
 
 The file is **bind-mounted read-only** into every sandbox of the project, at
-`/sandboxr/secrets.env`. The container reads it line by line, as data and never as a shell
+`/sandboxer/secrets.env`. The container reads it line by line, as data and never as a shell
 script, before it derives anything of its own.
 
 Two consequences follow, and both are things people go looking for:
 
 - **A credential the services read at run time is picked up by a restart.** Change the value,
-  then `sandboxr stop` and `sandboxr start`. The container re-reads
+  then `sandboxer stop` and `sandboxer start`. The container re-reads
   the file every time it sets its environment up.
 - **A value baked into a front-end bundle at build time needs a rebuild too** — a `VITE_*`, a
   `NEXT_PUBLIC_*`. It is already in the built files, and nothing in the environment can reach
@@ -325,8 +325,8 @@ Lowest to highest:
 1. this file;
 2. what the host passes in — the generated per-sandbox environment, your git identity, a
    GitHub token;
-3. what the sandbox derives for itself — `SANDBOXR_DB_*`, `SANDBOXR_S3_*`, `SANDBOXR_URL_*`;
-4. the project's `env:` map in `sandboxr.yaml`, expanded last.
+3. what the sandbox derives for itself — `SANDBOXER_DB_*`, `SANDBOXER_S3_*`, `SANDBOXER_URL_*`;
+4. the project's `env:` map in `sandboxer.yaml`, expanded last.
 
 Two of those orderings have a failure that does not resemble its cause, so they are worth
 stating plainly.
@@ -345,9 +345,9 @@ environment, group by group.
 
 ## What `secrets` does not touch
 
-None of these verbs edits `sandboxr.yaml`. The `env:` map is versioned with the project's code,
+None of these verbs edits `sandboxer.yaml`. The `env:` map is versioned with the project's code,
 and it is still the only way to wire an internal address such as
-`VITE_API_URL: "${SANDBOXR_URL_API}"`.
+`VITE_API_URL: "${SANDBOXER_URL_API}"`.
 
 ## Public sandboxes get dummy credentials
 
@@ -361,12 +361,12 @@ access:
   credentials: dummy    # the default
 ```
 
-With `credentials: dummy` and a secrets file that **holds something**, `sandboxr up`
+With `credentials: dummy` and a secrets file that **holds something**, `sandboxer up`
 **refuses to start** and names both ways out:
 
 ```
 acme serves public apps, so it may not carry the real credentials in
-/home/you/.sandboxr/secrets/acme.env
+/home/you/.sandboxer/secrets/acme.env
   Either set access.credentials to real (and accept that), or set access.apps to private.
 ```
 

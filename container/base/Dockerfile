@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 #
-# The sandboxr base image: everything that is true of every sandbox and nothing
+# The sandboxer base image: everything that is true of every sandbox and nothing
 # that is true of one project.
 #
 # Build context is `container/`:
-#     docker build -f base/Dockerfile -t sandboxr/base:<version> container/
+#     docker build -f base/Dockerfile -t sandboxer/base:<version> container/
 #
 # There is no toolchain here, no database engine and no project dependencies. A
 # project's layer adds exactly what its `toolchain:` and `database:` blocks
@@ -14,7 +14,7 @@
 # never installs a database server.
 #
 # There is also no *agent* here, and that absence is deliberate rather than an
-# omission. sandboxr runs a project; it has no opinion about who or what edits
+# omission. sandboxer runs a project; it has no opinion about who or what edits
 # the worktree. An embedder that puts an agent in its sandboxes builds one layer
 # on top of this image and installs it there, and passes that image as the base
 # the project layer is built from. Keeping the agent out is what lets this image
@@ -227,28 +227,28 @@ COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 # reaches in to restart one process.
 ENV PATH="/command:/usr/local/bin:${PATH}"
 
-COPY scripts/ /opt/sandboxr/scripts/
-COPY base/s6/ /opt/sandboxr/s6/
+COPY scripts/ /opt/sandboxer/scripts/
+COPY base/s6/ /opt/sandboxer/s6/
 
-RUN chmod -R 755 /opt/sandboxr/scripts
+RUN chmod -R 755 /opt/sandboxer/scripts
 
 # The skeleton's bundle directories are empty, so git needs a placeholder in each
 # to track them at all. s6-rc-compile reads a bundle's contents.d as a list of
 # service names, so the placeholder is removed here rather than relying on the
 # compiler to skip it.
-RUN find /opt/sandboxr/s6 -name '.gitkeep' -delete
+RUN find /opt/sandboxer/s6 -name '.gitkeep' -delete
 
 # /empty is where a migration command runs when the project declares no workdir,
 # so no dotfile lying around the repo can shadow the environment the sandbox
 # passed in.
 RUN mkdir -p \
-      /sandboxr \
-      /run/sandboxr \
-      /var/log/sandboxr \
-      /var/lib/sandboxr/bin \
-      /var/lib/sandboxr/data \
-      /var/lib/sandboxr/blob \
-      /var/lib/sandboxr/schema \
+      /sandboxer \
+      /run/sandboxer \
+      /var/log/sandboxer \
+      /var/lib/sandboxer/bin \
+      /var/lib/sandboxer/data \
+      /var/lib/sandboxer/blob \
+      /var/lib/sandboxer/schema \
       /srv/www \
       /workspace \
       /empty \
@@ -278,9 +278,9 @@ RUN caddy version \
 ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=0 \
     S6_KEEP_ENV=1 \
     S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0 \
-    SANDBOXR_SANDBOX=true
+    SANDBOXER_SANDBOX=true
 
 # The entrypoint composes the service tree from the plan and then execs /init.
 # It cannot be /init directly: s6 compiles its service database once, before any
 # service runs, so the set of services has to be settled first.
-ENTRYPOINT ["/opt/sandboxr/scripts/entrypoint.sh"]
+ENTRYPOINT ["/opt/sandboxer/scripts/entrypoint.sh"]

@@ -8,15 +8,15 @@
 set -euo pipefail
 
 LOG_TAG="entrypoint"
-: "${SANDBOXR_SLUG:?SANDBOXR_SLUG is required}"
+: "${SANDBOXER_SLUG:?SANDBOXER_SLUG is required}"
 
-SANDBOXR_PLAN="${SANDBOXR_PLAN:-/sandboxr/plan.json}"
-[[ -f "$SANDBOXR_PLAN" ]] || {
-  echo "entrypoint: no plan at $SANDBOXR_PLAN -- the host must mount one" >&2
+SANDBOXER_PLAN="${SANDBOXER_PLAN:-/sandboxer/plan.json}"
+[[ -f "$SANDBOXER_PLAN" ]] || {
+  echo "entrypoint: no plan at $SANDBOXER_PLAN -- the host must mount one" >&2
   exit 1
 }
-jq -e . "$SANDBOXR_PLAN" >/dev/null 2>&1 || {
-  echo "entrypoint: $SANDBOXR_PLAN is not valid JSON" >&2
+jq -e . "$SANDBOXER_PLAN" >/dev/null 2>&1 || {
+  echo "entrypoint: $SANDBOXER_PLAN is not valid JSON" >&2
   exit 1
 }
 
@@ -26,15 +26,15 @@ jq -e . "$SANDBOXR_PLAN" >/dev/null 2>&1 || {
 # environment and S6_KEEP_ENV=1 hands it to every supervised service, which is
 # why it has to happen here, before the exec.
 # shellcheck source-path=SCRIPTDIR source=lib.sh
-source "${SANDBOXR_SCRIPTS:-/opt/sandboxr/scripts}/lib.sh"
+source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
-mkdir -p "$SANDBOXR_RUN" "$SANDBOXR_LOGS" "$SANDBOXR_WWW" \
-  "$SANDBOXR_STATE/bin" "$SANDBOXR_STATE/data" "$SANDBOXR_STATE/blob"
+mkdir -p "$SANDBOXER_RUN" "$SANDBOXER_LOGS" "$SANDBOXER_WWW" \
+  "$SANDBOXER_STATE/bin" "$SANDBOXER_STATE/data" "$SANDBOXER_STATE/blob"
 
-log "$SANDBOXR_PROJECT/$SANDBOXR_SLUG on $SANDBOXR_DOMAIN, driver $SANDBOXR_DB_DRIVER"
+log "$SANDBOXER_PROJECT/$SANDBOXER_SLUG on $SANDBOXER_DOMAIN, driver $SANDBOXER_DB_DRIVER"
 
-"$SANDBOXR_SCRIPTS/status.sh" booting
-"$SANDBOXR_SCRIPTS/gen-caddyfile.sh"
-"$SANDBOXR_SCRIPTS/gen-services.sh"
+"$SANDBOXER_SCRIPTS/status.sh" booting
+"$SANDBOXER_SCRIPTS/gen-caddyfile.sh"
+"$SANDBOXER_SCRIPTS/gen-services.sh"
 
 exec /init "$@"

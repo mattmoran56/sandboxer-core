@@ -1,4 +1,4 @@
-// Tests for finding, validating and resolving sandboxr.yaml:
+// Tests for finding, validating and resolving sandboxer.yaml:
 // - every shipped example config parses and resolves, checked structurally rather than by value
 // - loadConfig: the error when there is no config anywhere (finding one is locate.test.ts's job)
 // - the version constraint: satisfied, unsatisfied, unparseable
@@ -27,11 +27,11 @@ const EXAMPLES = new URL("../../../../examples/", import.meta.url).pathname;
 /** The smallest config that resolves, as a base for one-field variations. */
 const minimal = {
   project: "thing",
-  sandboxr: ">=0.1.0",
+  sandboxer: ">=0.1.0",
   access: { apps: "private" },
 };
 
-function resolveDoc(document: unknown, file = "/repo/sandboxr.yaml") {
+function resolveDoc(document: unknown, file = "/repo/sandboxer.yaml") {
   return resolveConfig(document, file);
 }
 
@@ -103,31 +103,31 @@ describe("the example configs", () => {
 describe("loadConfig", () => {
   it("explains itself when it finds nothing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sbx-none-"));
-    await expect(loadConfig(join(dir, "definitely", "not", "here"))).rejects.toThrow(/sandboxr\.yaml/);
+    await expect(loadConfig(join(dir, "definitely", "not", "here"))).rejects.toThrow(/sandboxer\.yaml/);
   });
 });
 
 describe("the version constraint", () => {
   it("accepts a tool that satisfies it", () => {
-    expect(resolveConfig({ ...minimal, sandboxr: ">=0.1.0" }, "/f.yaml", { toolVersion: "0.4.0" }).project).toBe(
+    expect(resolveConfig({ ...minimal, sandboxer: ">=0.1.0" }, "/f.yaml", { toolVersion: "0.4.0" }).project).toBe(
       "thing",
     );
   });
 
   it("refuses a tool that is too old, naming the field", () => {
     try {
-      resolveConfig({ ...minimal, sandboxr: ">=2.0.0" }, "/f.yaml", { toolVersion: "0.1.0" });
+      resolveConfig({ ...minimal, sandboxer: ">=2.0.0" }, "/f.yaml", { toolVersion: "0.1.0" });
       expect.unreachable("should have thrown");
     } catch (error) {
       expect(error).toBeInstanceOf(ConfigError);
-      expect((error as ConfigError).field).toBe("sandboxr");
+      expect((error as ConfigError).field).toBe("sandboxer");
       expect((error as ConfigError).message).toContain("/f.yaml");
       expect((error as ConfigError).message).toContain(">=2.0.0");
     }
   });
 
   it("refuses a constraint it cannot parse", () => {
-    expect(() => resolveConfig({ ...minimal, sandboxr: "whenever" }, "/f.yaml")).toThrow(ConfigError);
+    expect(() => resolveConfig({ ...minimal, sandboxer: "whenever" }, "/f.yaml")).toThrow(ConfigError);
   });
 });
 
@@ -380,7 +380,7 @@ describe("file-backed drivers", () => {
 describe("public sandboxes (contracts §5.3)", () => {
   const publicWith = (seed: Record<string, unknown>) => ({
     project: "p",
-    sandboxr: ">=0.1.0",
+    sandboxer: ">=0.1.0",
     access: { apps: "public" },
     database: { driver: "mysql", seed_from: seed, migrate: { command: "x" } },
   });
@@ -428,7 +428,7 @@ describe("public sandboxes (contracts §5.3)", () => {
     expect(() =>
       resolveDoc({
         project: "p",
-        sandboxr: ">=0.1.0",
+        sandboxer: ">=0.1.0",
         database: { driver: "mysql", seed_from: { local: { container: "db" } }, migrate: { command: "x" } },
       }),
     ).toThrow(ConfigError);
@@ -438,10 +438,10 @@ describe("public sandboxes (contracts §5.3)", () => {
 describe("ConfigError", () => {
   it("names the file and the field for a schema error", () => {
     try {
-      resolveDoc({ project: "Not Valid", sandboxr: ">=0.1.0" });
+      resolveDoc({ project: "Not Valid", sandboxer: ">=0.1.0" });
       expect.unreachable("should have thrown");
     } catch (error) {
-      expect((error as ConfigError).file).toBe("/repo/sandboxr.yaml");
+      expect((error as ConfigError).file).toBe("/repo/sandboxer.yaml");
       expect((error as ConfigError).field).toBe("project");
     }
   });
@@ -456,14 +456,14 @@ describe("ConfigError", () => {
 
   it("reports invalid YAML against the file", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sbx-bad-"));
-    const file = join(dir, "sandboxr.yaml");
+    const file = join(dir, "sandboxer.yaml");
     await writeFile(file, "project: [unclosed\n");
     await expect(loadConfig(file)).rejects.toThrow(/not valid YAML/);
   });
 
   it("reports an empty file", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sbx-empty-"));
-    const file = join(dir, "sandboxr.yaml");
+    const file = join(dir, "sandboxer.yaml");
     await writeFile(file, "\n");
     await expect(loadConfig(file)).rejects.toThrow(/is empty/);
   });
