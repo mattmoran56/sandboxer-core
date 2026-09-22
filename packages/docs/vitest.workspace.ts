@@ -15,7 +15,7 @@ export default defineWorkspace([
     plugins: [emptyContent()],
     test: {
       name: "logic",
-      include: ["src/**/*.test.ts", "plugins/**/*.test.ts"],
+      include: ["src/**/*.test.ts", "plugins/**/*.test.ts", "build/**/*.test.ts"],
       environment: "node",
     },
   },
