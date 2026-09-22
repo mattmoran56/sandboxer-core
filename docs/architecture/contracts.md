@@ -311,6 +311,16 @@ of packages. The container writes `node_modules/.sandboxer-deps` — the lockfil
 installed from — as the *last* step, by rename, and treats only that marker as done. Same
 shape as a seed artifact's `.partial`, and for the same reason.
 
+**That volume is only half of an install, and the other half is not shareable.** npm hoists a
+dependency to the root tree only when nothing disagrees about its version; where two workspace
+packages want different versions of one package, the loser is written *nested*, at
+`packages/<name>/node_modules`, and the lockfile records it there. The root tree is the volume;
+the nested trees are in the **worktree**, which no two sandboxes share. So the marker above — which
+lives in the volume — can say nothing about whether a given worktree has them, and the container
+seeds them on **every** boot rather than once, guarded per directory so a real `npm ci` in the
+branch is never overwritten. A marked volume plus a fresh worktree is the case that makes this
+necessary, and it is the ordinary case: the second sandbox cut on a lockfile.
+
 **An embedder's shared volume is shared by every sandbox on the machine, and the trade goes
 with it rather than with the engine.** Jef's is the whole of that case: sharing the store is what
 makes signing into an MCP server something you do once per machine rather than once per worktree,

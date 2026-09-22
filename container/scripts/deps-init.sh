@@ -6,6 +6,12 @@
 # hides anything the image installed there. This seeds the node_modules volume
 # from /opt/deps instead.
 #
+# Two trees come out of that install, not one, and both are needed: the root
+# `node_modules`, which is the shared volume, and the per-workspace
+# `packages/*/node_modules` npm writes for every dependency it could not hoist.
+# The second lands in the worktree rather than the volume, so it is seeded on
+# every boot rather than once -- see `seed_workspace_deps`.
+#
 # That volume is named after the lockfile hash (contracts §3.3), so every sandbox
 # with the same dependencies shares one install, and a branch that changes its
 # dependencies transparently gets its own. When the branch's lockfile does not
@@ -31,6 +37,7 @@ LOCKFILE=$(plan .deps.lockfile package-lock.json)
 DEPS_DIR="$WORKSPACE/$ROOT"
 TARGET="$DEPS_DIR/node_modules"
 SOURCE=/opt/deps/node_modules
+WORKSPACE_SOURCE=/opt/deps
 
 # What "already installed" means, and it is deliberately not "the directory has
 # something in it".
@@ -61,6 +68,54 @@ commit_marker() {
 [[ -d "$DEPS_DIR" ]] || {
   log "no $ROOT in this worktree"
   exit 0
+}
+
+# Copy the per-workspace node_modules the root tree does not contain.
+#
+# npm only hoists a dependency to the root when nothing disagrees about its
+# version. Where two workspace packages want different versions of the same
+# thing, the loser is installed *nested*, at `packages/<name>/node_modules`, and
+# the lockfile records it there. Seeding only `$SOURCE` therefore copies a tree
+# that npm never intended to be complete on its own.
+#
+# The symptom is indistinguishable from a corrupt install and sends you to the
+# wrong place entirely: a front-end build fails to resolve a package that is in
+# `package.json`, sits in the lockfile, and is plainly installed — just not where
+# the resolver looks. It cost an afternoon here. `@vitejs/plugin-react` was
+# declared by nine workspace packages and hoisted for none of them, so every one
+# of four dev servers died on an import that every file in the repo agreed
+# existed. Deleting the volume and reinstalling reproduced it exactly, because
+# the image's own staging directory had the same shape.
+#
+# **This runs on every boot, not only when the volume is seeded.** The marker
+# below lives in the node_modules volume, which is shared across every sandbox on
+# a lockfile; these directories live in the *worktree*, which is not shared and is
+# new for every sandbox. A marked volume therefore says nothing about whether
+# this worktree has its nested packages, so gating this on the marker would fix
+# the first sandbox on a lockfile and no other -- which is worse than not fixing
+# it, because it would work when you tested it.
+seed_workspace_deps() {
+  [[ -d "$WORKSPACE_SOURCE" ]] || return 0
+
+  local copied=0 src rel dest
+  # -mindepth 2 skips `/opt/deps/node_modules` itself, which $SOURCE already
+  # covers; the -path prune skips the nested trees *inside* it, which belong to
+  # packages rather than to workspaces. What is left is exactly one entry per
+  # workspace package that npm refused to hoist, at whatever depth the
+  # workspace globs put it.
+  while IFS= read -r src; do
+    rel=${src#"$WORKSPACE_SOURCE"/}
+    dest="$DEPS_DIR/$rel"
+    # Never over the top of an existing tree: a real `npm ci` in the branch has
+    # already written the right thing there, and the image's copy is by
+    # definition the older one.
+    [[ -e "$dest" ]] && continue
+    mkdir -p "$(dirname "$dest")" || continue
+    cp -a "$src" "$(dirname "$dest")/" && copied=$((copied + 1))
+  done < <(find "$WORKSPACE_SOURCE" -mindepth 2 -type d -name node_modules -not -path "*/node_modules/*" 2>/dev/null)
+
+  [[ "$copied" -gt 0 ]] && log "seeded $copied nested workspace node_modules"
+  return 0
 }
 
 # Recreate the node_modules/.bin entries that workspace packages declare.
@@ -129,8 +184,12 @@ mkdir -p "$TARGET"
 
 if [[ -f "$MARKER" ]] && [[ "$(cat "$MARKER" 2>/dev/null)" == "$WANT" ]]; then
   log "node_modules already populated"
-  # Still re-linked: the volume is shared between sandboxes and outlives any one
-  # of them, so a bin added by a later branch would otherwise never appear.
+  # Still seeded and re-linked: both of these live in the worktree rather than in
+  # the volume the marker describes, so a populated volume tells us nothing about
+  # whether this sandbox has them. A bin added by a later branch would otherwise
+  # never appear, and a second sandbox on a lockfile would never get its nested
+  # packages at all.
+  seed_workspace_deps
   link_workspace_bins
   exit 0
 fi
@@ -154,6 +213,10 @@ if [[ -n "$WANT" && "$WANT" != "$HAVE" ]]; then
   fi
   log "dependencies installed"
   commit_marker "$WANT"
+  # A real install writes its own nested trees, so this finds nothing to do and
+  # is called anyway rather than reasoned about: the guard is per-directory, so
+  # the no-op case costs one `find` and cannot overwrite what npm just wrote.
+  seed_workspace_deps
   link_workspace_bins
   exit 0
 fi
@@ -170,4 +233,5 @@ fi
 log "seeded in $(($(date +%s) - START))s"
 commit_marker "$WANT"
 
+seed_workspace_deps
 link_workspace_bins

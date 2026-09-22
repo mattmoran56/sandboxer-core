@@ -500,6 +500,45 @@ A volume filled in by an older version has no marker and is repaired the same wa
 
 </details>
 
+### The same symptom, when deleting the volume changes nothing
+
+**If the import still cannot be resolved after the volume has been rebuilt, the package was never
+in that volume to begin with — it is a nested one.** npm only hoists a dependency to the root tree
+when nothing disagrees about its version. Where two workspace packages want different versions, the
+loser is installed at `packages/<name>/node_modules`, and that is in the worktree, not in the
+shared volume. Rebuilding the volume reproduces the same tree exactly, which is the tell: a genuine
+half-finished copy comes back different, and this comes back identical.
+
+Versions of sandboxer before this seeded only the root tree, so those nested packages never
+arrived and no amount of deleting anything helped. Current versions seed them on every boot. If you
+are on an older container image, rebuild it — the fix is in `deps-init.sh`, not in the volume.
+
+<details class="failure">
+<summary><b>If it goes wrong</b> — telling the two causes apart before you delete anything</summary>
+
+Look for the package where npm actually put it rather than where you expect it:
+
+```bash
+sandboxer shell <slug>
+grep -n '"node_modules/.*/node_modules/<package>"' <root>/package-lock.json | head
+```
+
+A hit means the lockfile puts it under a workspace, so the root `node_modules` is not where it
+belongs and its absence there is not a fault. Then check the worktree has it:
+
+```bash
+ls -d <root>/packages/*/node_modules/<package> 2>/dev/null | wc -l
+```
+
+Zero, with the lockfile saying otherwise, is this bug and not the interrupted-copy one above.
+`deps-init.log` says `seeded <n> nested workspace node_modules` on a boot that placed them.
+
+The symptom is worth recognising by shape: a front-end build fails on a package that is in
+`package.json`, is in the lockfile, and is visibly installed — just not on any path the resolver
+walks from the file that imports it.
+
+</details>
+
 ## Databases
 
 ### `no usable seed source`
