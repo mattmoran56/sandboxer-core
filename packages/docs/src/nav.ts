@@ -114,14 +114,6 @@ export const NAV: readonly NavGroup[] = [
       { slug: "reference/environment", label: "Environment variables" },
       { slug: "reference/paths", label: "Paths" },
       { slug: "reference/glossary", label: "Glossary" },
-      // Beside the glossary on purpose, and a top-level file rather than one under
-      // `reference/`: the brand belongs to the product rather than to this site —
-      // the dashboard renders from the same stylesheet — but the page itself is a
-      // lookup, and it answers the same shape of question the glossary does. One
-      // fixes what a word means, the other what a colour, a size and a shape mean.
-      // A slug and a sidebar group are independent; `databases` and `access` are
-      // top-level files too.
-      { slug: "brand", label: "The brand" },
       { slug: "reference/agent-prompts", label: "Every agent prompt" },
       { slug: "reference/status", label: "What is built" },
     ],

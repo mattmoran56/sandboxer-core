@@ -45,11 +45,11 @@ side is TypeScript.
 `packages/docs` is the machinery that turns `docs/` into a website. The pages themselves are plain
 Markdown in `docs/`, so they read on GitHub with no build step.
 
-## The one that holds the palette
+## The one that holds the stylesheet
 
 `packages/tokens` is a single stylesheet, `tokens.css`. It is what the documentation site is
-drawn from, and it is shared with the product's dashboard in the other repository so the two look
-like one thing.
+drawn from, and a product built on the engine, in another repository, draws from the same file
+rather than keeping a second copy of it.
 
 ## How they fit together
 

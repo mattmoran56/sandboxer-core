@@ -575,27 +575,5 @@ would alter a boundary described in contracts.md — that file has to change fir
 commit message.
 ```
 
-### The brand
-
-Applies the product's identity to a new surface, and checks the result against the guide.
-
-**Needs first:** A checkout of the sandboxer repository.  
-**From:** [The brand](../brand.md)
-
-```prompt
-Apply the sandboxer brand to a surface I am about to describe, then check the result against the
-brand guide.
-
-Read docs/brand.md first, and then packages/tokens/tokens.css, which is where the values
-actually live. Build the surface from the semantic tokens — surface, line, ink, ink-muted, brand,
-and the status hues — and never from a hex you typed yourself. Headings are the serif, body is the
-sans, anything a machine cares about is the mono. Draw a panel or a card as a hairline on a
-surface, not as a shadow. Write the wordmark as `sandboxer`, with no letterspacing and no
-tagline.
-
-Stop and ask me if the surface seems to need a colour the palette does not have, a second
-typeface, a gradient, or the mark redrawn rather than rescaled.
-```
-
 **Next:** [Cheat sheet](cheat-sheet.md) for the commands these prompts run, or
 [Start here](../getting-started/index.md) if you have not set the machine up yet.

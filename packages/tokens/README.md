@@ -1,6 +1,6 @@
 # `@sandboxer/tokens`
 
-The design system, as one stylesheet: the palette, the three colour schemes, the two themes,
+The docs site's stylesheet, as tokens: the palette, the three colour schemes, the two themes,
 the fonts, the light/dark mechanism, the base layer and the named shapes.
 
 One file, `tokens.css`. No build, one export:
@@ -9,15 +9,14 @@ One file, `tokens.css`. No build, one export:
 @import "@sandboxer/tokens/tokens.css";
 ```
 
-**Its header comment is the document for it**, and [`docs/brand.md`](../../docs/brand.md) is
-that header written for a reader.
+**Its header comment is the document for it.**
 
 ## Why it is a package
 
-Two apps render the same design — the documentation site (`packages/docs`) here, and the
-product's dashboard in the repository built on this one — and neither may hold a second copy
-of a hex. A palette that exists twice drifts, and it drifts silently: nothing about the
-dashboard looking right tells you the docs site does.
+Two apps render from the same stylesheet — the documentation site (`packages/docs`) here, and
+a product built on the engine, in another repository — and neither may hold a second copy
+of a hex. A palette that exists twice drifts, and it drifts silently: nothing about one app
+looking right tells you the other does.
 
 It used to live in the dashboard, and the docs site imported it from there. That only worked
 while the two were one repository. They are not: `packages/docs` publishes the engine's

@@ -1,14 +1,14 @@
 /*
- * Tide II — the design system, as tokens.
+ * Tide II — the docs site's stylesheet, as tokens.
  *
  * This file is the whole of it — palette, schemes, fonts, the light/dark
  * mechanism, the base layer and the named shapes — and it is deliberately
- * separate from the app that renders on top of it. Two apps render the same
- * design: the documentation site (`packages/docs`) here, and the product's
- * dashboard in the repository built on this one. They import this file; neither
- * of them holds a second copy of a hex. A palette that existed twice would
- * drift, and it would drift silently, because nothing about the dashboard
- * looking right tells you the docs site does.
+ * separate from the app that renders on top of it. Two apps render from the
+ * same stylesheet: the documentation site (`packages/docs`) here, and a
+ * product built on the engine, in another repository. They import this file;
+ * neither of them holds a second copy of a hex. A palette that existed twice
+ * would drift, and it would drift silently, because nothing about one app
+ * looking right tells you the other does.
  *
  * **It lives in `packages/tokens` — `@sandboxer/tokens` — and not in either of
  * them.** It was the dashboard's while the two apps were one repository and the
@@ -27,11 +27,6 @@
  * dashboard's dependencies over it; that is an accident of one repository's
  * layout, not something to rely on after the split. Tailwind is a peer rather
  * than a dependency, for the reason in the comment on its import.
- *
- * **`docs/brand.md` is this file written for a reader** — the name, the mark, the
- * lockup, the palette, the type, the material and the voice — and it is the page
- * to change alongside this one, and the one to hand anybody putting the brand on
- * a surface that is not one of these two apps.
  *
  * **Tide II is the same DNA with the glass taken off and the serif given room.**
  * Instrument Serif for display, Inter Tight for text, JetBrains Mono for data;

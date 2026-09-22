@@ -28,7 +28,7 @@ change the contract first and say so in the commit message.
 | `packages/core` | **Where the work happens.** Config, drivers, Docker orchestration, the access layer, lifecycle | TypeScript |
 | `packages/cli` | A thin face over core. One thing per command, prints the result | TypeScript |
 | `packages/docs` | The machinery that publishes `docs/` as a site. React, Tailwind, Vite, prerendered to static HTML | TypeScript |
-| `packages/tokens` | `tokens.css`: the palette, the colour schemes, the fonts. Shared with the product's dashboard so the two look like one thing | CSS |
+| `packages/tokens` | `tokens.css`: the palette, the colour schemes, the fonts. The docs site's stylesheet, imported by a product built on the engine too, so the CSS has one copy rather than two | CSS |
 | `container/` | What runs *inside* a sandbox: Dockerfiles, s6 services, scripts | Bash |
 | `docs/` | The pages themselves, so they read on GitHub without a build | Markdown |
 | `examples/` | Example configs, and `demo-worker`, a project that really runs | — |
@@ -37,8 +37,7 @@ Three rules that follow from that table:
 
 - **Only `container/` contains bash.** Everything host-side is TypeScript.
 - **React is the only frontend framework.** The documentation site is the one browser app
-  here, and it renders from `@sandboxer/tokens`. A second framework, or a second palette, is
-  how the engine and the product stop looking like one thing.
+  here, and it renders from `@sandboxer/tokens`.
 - **Logic belongs in core.** If the CLI and an embedder could disagree about what a sandbox
   is, the logic is in the wrong package.
 

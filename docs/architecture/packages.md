@@ -169,7 +169,7 @@ with `shiki`.
 - `docs/architecture/contracts.md`, `packages/docs/AUTHORING.md` and any `README.md` are
   deliberately **not** site pages.
 
-This package depends on `@sandboxer/tokens`, so the two share one design system rather than
+This package depends on `@sandboxer/tokens`, so the two share one stylesheet rather than
 keeping two. It depends on nothing outside the engine: this site is the engine's, and an engine
 package may not depend on a product one.
 
@@ -179,19 +179,19 @@ package may not depend on a product one.
 
 **What it owns.** One stylesheet, `tokens.css`: the palette, the three colour schemes, the two
 themes, the fonts, the light/dark mechanism, the base layer and the named shapes. Its header
-comment is the document for it, and [the brand](../brand.md) is that header written for a reader.
+comment is the document for it.
 
 **Its public surface** is one export, `@sandboxer/tokens/tokens.css`. There is no build: the file
 is shipped as written, so it declares the three `@fontsource*` packages it imports, and Tailwind
 as a peer — the app's own `@tailwindcss/vite` is what resolves that import, and a second copy
 nested here would be a different Tailwind from the one the plugin runs.
 
-**Who calls it.** `packages/docs`, and nothing else here. It is also what the product's dashboard
-in the other repository is drawn from, so the two look like one thing.
+**Who calls it.** `packages/docs`, and nothing else here. A product built on the engine, in
+another repository, imports it too, so the stylesheet has exactly one copy rather than two.
 
 **What it may never do.** Contain a component, a script, or anything specific to one app. It
-exists so that no app owns the palette — a colour the documentation site and the dashboard
-disagreed about would be visible to anyone who opened both.
+exists so that no app owns the palette — a colour that the two consuming apps disagreed about
+would be visible to anyone who opened both.
 
 ## `container/`
 

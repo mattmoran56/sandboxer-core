@@ -1,10 +1,7 @@
 // The top bar: what this is, how to search it, and how it looks.
 //
-// Sticky and solid over a hairline, exactly as the dashboard's header is, because
-// somebody with the dashboard in one tab and the documentation in the other has to
-// see one product rather than two sites that happen to share a palette. The mark,
-// the serif wordmark, the flat brand tile and the three-position theme switch are
-// all the dashboard's, unchanged.
+// Sticky and solid over a hairline, so the mark, the name and the search button
+// stay reachable while a long page scrolls under them.
 //
 // The search *button* is here rather than a bare keyboard shortcut on purpose. A
 // shortcut nobody is told about is a feature for the person who wrote it, so the
@@ -38,9 +35,8 @@ export const Header = ({
       </span>
       <span className="font-serif text-xl leading-none text-ink">sandboxer</span>
       {/*
-        The word "docs" as a chip rather than as part of the wordmark. The product
-        is called sandboxer in both tabs; this is the one saying which tab you are
-        in.
+        The word "docs" as a chip rather than as part of the name, so the header
+        still reads as "sandboxer" and not "sandboxer docs".
       */}
       <span className="hidden rounded-full bg-brand-soft px-2 py-0.5 text-[0.6875rem] font-semibold tracking-wide text-brand sm:inline">
         docs
