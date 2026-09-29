@@ -1,5 +1,5 @@
 // What this covers:
-//  - the stored theme and scheme reaching `<html>` as `data-theme` / `data-scheme`
+//  - the stored theme reaching `<html>` as `data-theme`, and nothing else with it
 //  - `system` resolving against the machine, and following it when it changes
 //  - a change being written back to storage under the key `index.html` reads
 //  - the first render using the defaults, so hydration has the same markup to
@@ -20,13 +20,10 @@ const Probe = () => {
   return (
     <>
       <p data-testid="state">
-        {prefs.theme}/{prefs.scheme}/{String(prefs.expandAll)}/{theme}
+        {prefs.theme}/{String(prefs.expandAll)}/{theme}
       </p>
       <button type="button" onClick={() => set({ theme: "dark" })}>
         dark
-      </button>
-      <button type="button" onClick={() => set({ scheme: "fern" })}>
-        fern
       </button>
       <button type="button" onClick={() => set({ expandAll: true })}>
         expand
@@ -45,17 +42,17 @@ const mount = () =>
   );
 
 describe("PrefsProvider", () => {
-  it("puts the stored theme and scheme on <html>", () => {
+  it("puts the stored theme on <html>, and no scheme even when an old one is stored", () => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: "dark", scheme: "cobalt" }));
     mount();
     expect(root().dataset.theme).toBe("dark");
-    expect(root().dataset.scheme).toBe("cobalt");
+    expect(root().dataset.scheme).toBeUndefined();
   });
 
   it("resolves `system` against the machine rather than leaving it to a media query", () => {
     setSystemDark(true);
     mount();
-    expect(state()).toBe("system/tide/false/dark");
+    expect(state()).toBe("system/false/dark");
     expect(root().dataset.theme).toBe("dark");
   });
 
@@ -80,13 +77,6 @@ describe("PrefsProvider", () => {
     expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}")).toMatchObject({ theme: "dark" });
   });
 
-  it("writes the scheme picker's answer to <html> and to storage", () => {
-    mount();
-    act(() => screen.getByText("fern").click());
-    expect(root().dataset.scheme).toBe("fern");
-    expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}")).toMatchObject({ scheme: "fern" });
-  });
-
   it("remembers expand-everything", () => {
     mount();
     act(() => screen.getByText("expand").click());
@@ -95,7 +85,7 @@ describe("PrefsProvider", () => {
   });
 
   it("renders the defaults with no browser at all, which is what the prerender does", () => {
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: "dark", scheme: "fern" }));
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: "dark", expandAll: true }));
     // React warns about `useLayoutEffect` during a server render. Under jsdom
     // `typeof window` is defined, so the provider takes the browser branch and the
     // warning is an artefact of testing a Node path in a fake browser — it does not
@@ -110,7 +100,7 @@ describe("PrefsProvider", () => {
     // The defaults, not the stored preferences. The static file has to be the same
     // for every reader — it is one file — and the browser's first render has to
     // agree with it or hydration is reconciling against markup that never existed.
-    expect(markup).toContain("system/tide/false/light");
+    expect(markup).toContain("system/false/light");
   });
 
   it("does not write the defaults back merely because a page was opened", () => {

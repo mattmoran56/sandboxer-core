@@ -7,14 +7,14 @@
 // those gets one of them subtly wrong for keyboard readers. A drawer that trapped
 // a reader's Tab key inside the article behind it would be worse than no drawer.
 //
-// It also carries the appearance controls. On a phone the header has room for a
-// logo, a search button and a handle, so the theme and scheme switches live here
-// instead — the same controls, not lesser ones.
+// It also carries the theme switch. On a phone the header has room for the name,
+// a search button and a handle, so the switch lives here instead — the same
+// control, not a lesser one.
 
 import { useEffect, useRef } from "react";
 
 import { NavTree } from "./Sidebar.js";
-import { SchemePicker, ThemeSwitch } from "./Switches.js";
+import { ThemeSwitch } from "./Switches.js";
 import { Close } from "./icons.js";
 import { IconButton } from "./ui.js";
 
@@ -58,7 +58,7 @@ export const MobileNav = ({
       {open ? (
         <div className="flex h-full flex-col">
           <header className="flex items-center gap-2 border-b border-line px-3 py-3">
-            <span className="font-serif text-lg leading-none text-ink">Contents</span>
+            <span className="text-base font-semibold leading-none text-ink">Contents</span>
             <IconButton label="Close navigation" className="ml-auto" onClick={onClose}>
               <Close />
             </IconButton>
@@ -71,7 +71,6 @@ export const MobileNav = ({
 
           <footer className="flex items-center justify-between gap-2 border-t border-line px-3 py-3">
             <ThemeSwitch />
-            <SchemePicker />
           </footer>
         </div>
       ) : null}

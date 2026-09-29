@@ -8,9 +8,8 @@
 // copies start to differ in ways nobody notices.
 //
 // The one rule that came across intact: **a component never names a colour.** It
-// uses the semantic tokens from `@sandboxer/tokens/tokens.css`, so anything
-// assembled from these is already correct in light, in dark, and in all three
-// colour schemes without a single conditional.
+// uses the semantic names defined in `docs.css`, so anything assembled from
+// these is already correct in light and in dark without a single conditional.
 
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 

@@ -281,7 +281,6 @@ Where to look when you need the source rather than the documentation.
 |---|---|
 | `packages/core` | Config, drivers, Docker orchestration, the access layer, lifecycle |
 | `packages/cli` | The whole command surface |
-| `packages/tokens` | `tokens.css`: the palette the documentation site renders from |
 | `packages/docs` | The machinery that publishes `docs/` as a site |
 | `container/base`, `container/project` | The two images |
 | `container/scripts` | What a sandbox runs at boot |

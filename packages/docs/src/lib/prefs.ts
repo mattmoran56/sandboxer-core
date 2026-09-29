@@ -1,8 +1,8 @@
-// The three preferences this site remembers, and how a stored string becomes them.
+// The two preferences this site remembers, and how a stored string becomes them.
 //
-// **The key and the three names are fixed by `index.html`.** A blocking script in
-// the document head reads `sandboxer.docs.prefs.v1` and applies `theme` and
-// `scheme` to `<html>` before the bundle loads — see the comment there for why
+// **The key and the `theme` name are fixed by `index.html`.** A blocking script in
+// the document head reads `sandboxer.docs.prefs.v1` and applies `theme` to
+// `<html>` before the bundle loads — see the comment there for why
 // that has to happen ahead of the first paint. Renaming anything in this file
 // without changing that script gives every reader who chose dark a white flash on
 // every navigation, and nothing in a test would notice.
@@ -20,11 +20,9 @@
 // the default rather than being repaired.
 
 export type ThemeChoice = "light" | "dark" | "system";
-export type SchemeId = "tide" | "cobalt" | "fern";
 
 export interface Prefs {
   theme: ThemeChoice;
-  scheme: SchemeId;
   /**
    * Whether every `<details>` block on a page starts open.
    *
@@ -38,7 +36,6 @@ export interface Prefs {
 
 export const DEFAULTS: Prefs = {
   theme: "system",
-  scheme: "tide",
   expandAll: false,
 };
 
@@ -47,31 +44,11 @@ export const DEFAULTS: Prefs = {
  *
  * It was `sandboxr.docs.prefs.v1`, and the rename moved it deliberately rather
  * than reading the old key once. Nothing here is worth a compatibility path: a
- * reader's saved theme and scheme reset to the defaults once, on the next visit,
- * and they set them again in two clicks. Anything read from the old key would be
+ * reader's saved theme reset to the defaults once, on the next visit,
+ * and they set it again in one click. Anything read from the old key would be
  * code that exists for one visit and then lives for ever.
  */
 export const PREFS_KEY = "sandboxer.docs.prefs.v1";
-
-export interface SchemeInfo {
-  id: SchemeId;
-  name: string;
-  /** What the hue is, in words, for the swatch's label. */
-  note: string;
-}
-
-/**
- * The colour schemes on offer — the dashboard's three, in the dashboard's order.
- *
- * The list is repeated here rather than imported because it is a *label* list:
- * the ids have to match `tokens.css`'s `[data-scheme]` blocks, and the names are
- * this site's own copy. `tokens.css` is the shared thing, and it is imported.
- */
-export const SCHEMES: readonly SchemeInfo[] = [
-  { id: "tide", name: "Tide", note: "deep teal" },
-  { id: "cobalt", name: "Cobalt", note: "deep blue" },
-  { id: "fern", name: "Fern", note: "moss green" },
-];
 
 const isOneOf = <T extends string>(value: unknown, allowed: readonly T[]): value is T =>
   typeof value === "string" && (allowed as readonly string[]).includes(value);
@@ -92,12 +69,6 @@ export const readPrefs = (raw: string | null): Prefs => {
     theme: isOneOf<ThemeChoice>(held.theme, ["light", "dark", "system"])
       ? held.theme
       : DEFAULTS.theme,
-    scheme: isOneOf<SchemeId>(
-      held.scheme,
-      SCHEMES.map((scheme) => scheme.id),
-    )
-      ? held.scheme
-      : DEFAULTS.scheme,
     expandAll: typeof held.expandAll === "boolean" ? held.expandAll : DEFAULTS.expandAll,
   };
 };

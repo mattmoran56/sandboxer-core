@@ -1,9 +1,9 @@
 ---
 title: The shape of it
-description: The five pieces sandboxer is made of, what each one owns, and what each one is deliberately not allowed to know.
+description: The four pieces sandboxer is made of, what each one owns, and what each one is deliberately not allowed to know.
 ---
 
-sandboxer is five pieces of code. This page names each one and says what it owns. Every other page
+sandboxer is four pieces of code. This page names each one and says what it owns. Every other page
 in this section is a detail of one of the boundaries drawn here.
 
 One rule explains the whole layout. **One piece decides what a sandbox is, and everything else
@@ -45,11 +45,9 @@ side is TypeScript.
 `packages/docs` is the machinery that turns `docs/` into a website. The pages themselves are plain
 Markdown in `docs/`, so they read on GitHub with no build step.
 
-## The one that holds the stylesheet
-
-`packages/tokens` is a single stylesheet, `tokens.css`. It is what the documentation site is
-drawn from, and a product built on the engine, in another repository, draws from the same file
-rather than keeping a second copy of it.
+Its look is its own and deliberately plain: the system fonts, one neutral palette, light and
+dark. **The engine has no design system.** There is no other screen here for the site to match,
+and a product built on the engine owns its own design, in its own repository.
 
 ## How they fit together
 
@@ -77,8 +75,7 @@ parts of sandboxer to disagree.
 | `packages/core` | Print for a human, or know that a web server exists |
 | `packages/cli` | Decide anything. If an embedder could disagree with it, the logic is in the wrong place |
 | `container/` | Read `sandboxer.yaml`, or name a service, port, package or route of its own |
-| `packages/docs` | Be required for a page to be readable |
-| `packages/tokens` | Contain a component, a script, or anything specific to one app |
+| `packages/docs` | Be required for a page to be readable, or share its styling with anything else |
 
 <details class="why">
 <summary><b>Why it works this way</b> — what a second implementation costs</summary>
@@ -106,6 +103,6 @@ it is a bug.
 It is written for people changing the code, so it is deliberately not one of these pages.
 [Read it in the repository](contracts.md).
 
-**Next:** [Package by package](packages.md) for the same five pieces in full, including the
+**Next:** [Package by package](packages.md) for the same four pieces in full, including the
 interfaces between them. Or [How a request arrives](request-path.md) if you are chasing a routing
 problem right now.

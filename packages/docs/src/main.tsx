@@ -23,8 +23,8 @@ import { PREFS_KEY, readPrefs, resolveTheme } from "./lib/prefs.js";
  *
  * This is not that script repeated for nothing. That one is hand-written inline
  * and cannot import anything; this one goes through the same `readPrefs` and
- * `resolveTheme` the rest of the app uses. If the two ever disagree — a scheme
- * added here and not there — the app's answer wins, and it wins before React
+ * `resolveTheme` the rest of the app uses. If the two ever disagree, the app's
+ * answer wins, and it wins before React
  * renders rather than a frame later.
  */
 const first = (): void => {
@@ -32,7 +32,6 @@ const first = (): void => {
     const prefs = readPrefs(localStorage.getItem(PREFS_KEY));
     const dark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
     document.documentElement.dataset.theme = resolveTheme(prefs.theme, dark);
-    document.documentElement.dataset.scheme = prefs.scheme;
   } catch {
     // A browser with site data blocked throws on `localStorage` itself. The
     // stylesheet's own defaults are then what everybody gets, which is fine.

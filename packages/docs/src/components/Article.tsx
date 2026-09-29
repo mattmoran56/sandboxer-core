@@ -231,9 +231,8 @@ export const Article = ({
 
       // `base` is the only mermaid theme meant to be configured; the rest derive
       // their own palettes from a seed and override unevenly. Everything it is
-      // configured *with* comes from the tokens currently in force, so a diagram
-      // follows all six theme × scheme combinations without this file knowing a
-      // single colour. See lib/diagram.ts.
+      // configured *with* comes from the variables currently in force, so a
+      // diagram follows the theme without this file knowing a single colour. See lib/diagram.ts.
       const tokens = resolveTokens();
       mermaid.initialize({
         startOnLoad: false,
@@ -265,15 +264,12 @@ export const Article = ({
     void draw();
 
     // Re-drawn on a theme change, which is the whole reason diagrams are rendered
-    // here and not at build time — and on a *scheme* change too. Watching only
-    // `data-theme` was a real bug: the brand hue is baked into the SVG at render
-    // time, so switching tide to fern left every subgraph and every sequence
-    // label sitting in the previous scheme's colour, on a page that had otherwise
-    // changed completely.
+    // here and not at build time: every colour is baked into the SVG at render
+    // time, so a diagram drawn once would stay light on a page switched to dark.
     const observer = new MutationObserver(() => void draw());
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-theme", "data-scheme"],
+      attributeFilter: ["data-theme"],
     });
 
     return () => {
@@ -339,7 +335,7 @@ export const Article = ({
   return (
     <article className="min-w-0">
       <header className="mb-8 border-b border-line pb-6">
-        <h1 className="font-serif text-4xl leading-tight text-ink sm:text-[2.75rem]">{title}</h1>
+        <h1 className="text-3xl font-semibold leading-tight tracking-tight text-ink sm:text-4xl">{title}</h1>
         {description ? (
           <p className="mt-3 max-w-[46rem] text-[1.0625rem] leading-relaxed text-ink-muted">
             {description}

@@ -176,10 +176,9 @@ afterEach(() => {
   listeners.clear();
   clipboardWrites.length = 0;
   localStorage.clear();
-  // The theme and scheme are attributes on <html>, so one test's choice would
-  // otherwise still be there for the next.
+  // The theme is an attribute on <html>, so one test's choice would otherwise
+  // still be there for the next.
   document.documentElement.removeAttribute("data-theme");
-  document.documentElement.removeAttribute("data-scheme");
   // Every test that navigates leaves the History API somewhere; the router reads
   // its first location straight out of it.
   history.replaceState(null, "", "/");

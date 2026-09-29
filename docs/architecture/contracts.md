@@ -34,7 +34,7 @@ This tree was one repository until the engine was extracted from it, and the bou
 reason this file exists.
 
 - **The engine, `sandboxer`.** This repository: `packages/core`, `packages/cli`, `packages/docs`,
-  `packages/tokens`, `container/`, `docs/`, `examples/`. It turns a git worktree into a running
+  `container/`, `docs/`, `examples/`. It turns a git worktree into a running
   copy of a project on its own hostname. It knows about worktrees, sandboxes, images, volumes, a
   router and a certificate. It knows nothing about agents, sessions or Jef.
 - **The product, `Jef`.** The `meet-jef` repository: a dashboard, agent sessions, an orchestrator,
@@ -44,14 +44,13 @@ reason this file exists.
 ```
 packages/core      @sandboxer/core     Config, drivers, docker orchestration, lifecycle
 packages/cli       @sandboxer/cli      The `sandboxer` command
-packages/tokens    @sandboxer/tokens   One stylesheet, tokens.css, and the fonts it imports
-packages/docs      @sandboxer/docs     The documentation site
+packages/docs      @sandboxer/docs     The documentation site, styled plainly on its own
 container/         (no package)       What runs INSIDE a sandbox: Dockerfiles, s6, scripts
 examples/          (no package)       Example sandboxer.yaml files
 ```
 
-That is the whole of it. **The engine ships no `docker-compose.yml`, no dashboard, no session
-and no agent.** It is a CLI and a router; a constellation of long-running services is what a
+That is the whole of it. **The engine ships no `docker-compose.yml`, no dashboard, no session,
+no agent and no design system** — a product's look is the product's. It is a CLI and a router; a constellation of long-running services is what a
 product assembles out of it.
 
 **This file is the engine's contract. Jef's is `docs/jef/contracts.md`**, in the `meet-jef`

@@ -1,36 +1,194 @@
 /*
- * The documentation site's own layer over the shared design system.
+ * The documentation site's stylesheet — all of it.
  *
- * The palette, the three colour schemes, the fonts, the light/dark mechanism, the
- * page wash, the focus ring and the named utilities all come from
- * `@sandboxer/tokens/tokens.css`, imported below. **Nothing colour-shaped belongs
- * in this file.** Somebody with the dashboard in one tab and the documentation in
- * the other has to see one product, and a hex written here would be invisible to
- * the dashboard — which is exactly how two halves of one product come apart.
+ * **The engine has no design system, and this site does not borrow one.** There
+ * is no frontend in this repository apart from these pages, so there is nothing
+ * for them to match: the palette below is plain on purpose — near-black ink on
+ * white, one muted blue for links, grey hairlines — and it is this file's alone.
+ * A product built on the engine styles itself in its own repository; nothing
+ * here is shared with it and nothing here has to be kept in step with it.
  *
- * What is left is what a documentation site has and a dashboard does not: long-form
- * prose, and the five markup conventions the Markdown pipeline emits.
+ * It used to import a shared token package, and that package carried a product's
+ * brand — three colour schemes, three self-hosted typefaces — into a repository
+ * with no product in it. The site now uses the system font stack and one palette.
  *
- * Prose is not dashboard text, and that is the whole reason this file exists rather
- * than the site reusing the dashboard's base layer. A dashboard is scanned: dense,
- * 12px and 13px, tight leading, headings that label a panel. These pages are read
- * top to bottom by a person deciding whether the tool helps them, so the measure is
- * about 50rem, the leading is 1.7 rather than 1.5, and the space above a heading is
- * much larger than the space below it — which is what makes a heading read as
- * belonging to what follows it rather than floating between two sections.
+ * Two layers, in this order:
+ *
+ *  1. **The palette and the page** — the variables below, the light/dark switch,
+ *     and the handful of names Tailwind is told about. Components never name a
+ *     colour: they use `text-ink`, `border-line`, `bg-brand` and so on, and those
+ *     resolve to the variables here, so dark mode is the variables and not a
+ *     `dark:` class on every element.
+ *  2. **Prose** — long-form reading, and the five markup conventions the Markdown
+ *     pipeline emits. The measure is about 50rem, the leading 1.7, and the space
+ *     above a heading much larger than the space below it, which is what makes a
+ *     heading read as belonging to what follows it.
  */
 
-@import "@sandboxer/tokens/tokens.css";
+@import "tailwindcss";
+
+/* --- light and dark ----------------------------------------------------- */
 
 /*
- * Tailwind scans the package that imports it, and the import above happens to live
- * in another one — `@sandboxer/tokens`, which holds that one stylesheet and no
- * markup at all. Without this line every utility in `src/components` would be
- * absent from the built stylesheet and the whole site would render unstyled — a
- * failure with no error attached to it, which is the same trap `app.css` documents
- * for the server's templates.
+ * Dark mode is one `color-scheme` and a set of `light-dark()` pairs.
+ *
+ * Every variable is declared once with both of its values, and `light-dark()`
+ * picks between them from whatever `color-scheme` is in force. The theme switch
+ * (`state/prefs.tsx`) sets `data-theme` on `<html>`, which sets `color-scheme`
+ * and nothing else — so no variable can be defined in one theme and missing in
+ * the other. With no attribute at all (JavaScript off, storage blocked) the root
+ * keeps `light dark`, which follows the machine.
  */
-@source "./";
+:root {
+  color-scheme: light dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* --- the palette -------------------------------------------------------- */
+
+/*
+ * One neutral palette. Every ink clears WCAG AA (4.5:1) against every surface it
+ * is set on, in both themes — `ink-subtle` on `sunken` is the tightest pairing,
+ * and it is what pinned that grey.
+ *
+ * `brand` is not a brand. It is the link colour — a muted blue — and the one
+ * place the page spends a hue that does not carry a meaning: links, the focus
+ * ring, the current page in the sidebar, the `IMPORTANT` callout. The status
+ * hues are for the callouts and the diagrams, and each says one thing.
+ */
+:root {
+  --sb-bg: light-dark(#ffffff, #121212);
+  --sb-surface: light-dark(#ffffff, #121212);
+  --sb-surface-2: light-dark(#fafafa, #181818);
+  --sb-sunken: light-dark(#f4f4f5, #1c1c1c);
+  --sb-hover: light-dark(#f0f0f1, #222222);
+  --sb-line: light-dark(#e4e4e7, #2c2c2e);
+  --sb-line-strong: light-dark(#c8c8cc, #454548);
+  --sb-ink: light-dark(#18181b, #ececec);
+  --sb-ink-muted: light-dark(#4a4a50, #b0b0b4);
+  --sb-ink-subtle: light-dark(#63636a, #909096);
+
+  --sb-brand: light-dark(#2d5b87, #8db4dc);
+  --sb-brand-ink: light-dark(#ffffff, #0f1b27);
+  --sb-brand-soft: light-dark(#eaf0f6, #1a2530);
+  --sb-brand-line: light-dark(#b9cadc, #34475b);
+
+  --sb-ok: light-dark(#1f6f43, #6fcf97);
+  --sb-ok-soft: light-dark(#e6f3ec, #15261c);
+  --sb-busy: light-dark(#2d5b87, #8db4dc);
+  --sb-busy-soft: light-dark(#eaf0f6, #1a2530);
+  --sb-warn: light-dark(#7a5300, #e3b341);
+  --sb-warn-soft: light-dark(#f8f0dc, #2a2210);
+  --sb-bad: light-dark(#a3283b, #f08a9a);
+  --sb-bad-soft: light-dark(#f8e6e9, #2c171b);
+  --sb-important: light-dark(#5b3fa0, #b8a4ec);
+  --sb-important-soft: light-dark(#f0ecf9, #221c30);
+
+  --sb-shade: light-dark(rgb(0 0 0 / 0.12), rgb(0 0 0 / 0.6));
+}
+
+/*
+ * What Tailwind is allowed to see.
+ *
+ * `@theme inline` substitutes `var(--sb-…)` straight into each utility rather
+ * than a copy of today's hex, which is the whole mechanism by which flipping
+ * `data-theme` restyles the page.
+ */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --radius-card: 0.5rem;
+  --radius-panel: 0.5rem;
+  --radius-control: 0.375rem;
+
+  --shadow-raise: 0 1px 2px var(--sb-shade);
+  --shadow-pop: 0 12px 32px -12px var(--sb-shade);
+  --shadow-modal: 0 20px 48px -20px var(--sb-shade);
+}
+
+@theme inline {
+  --color-canvas: var(--sb-bg);
+  --color-surface: var(--sb-surface);
+  --color-surface-2: var(--sb-surface-2);
+  --color-sunken: var(--sb-sunken);
+  --color-hover: var(--sb-hover);
+  --color-line: var(--sb-line);
+  --color-line-strong: var(--sb-line-strong);
+  --color-ink: var(--sb-ink);
+  --color-ink-muted: var(--sb-ink-muted);
+  --color-ink-subtle: var(--sb-ink-subtle);
+
+  --color-brand: var(--sb-brand);
+  --color-brand-ink: var(--sb-brand-ink);
+  --color-brand-soft: var(--sb-brand-soft);
+  --color-brand-line: var(--sb-brand-line);
+
+  --color-ok: var(--sb-ok);
+  --color-ok-soft: var(--sb-ok-soft);
+  --color-busy: var(--sb-busy);
+  --color-busy-soft: var(--sb-busy-soft);
+  --color-warn: var(--sb-warn);
+  --color-warn-soft: var(--sb-warn-soft);
+  --color-bad: var(--sb-bad);
+  --color-bad-soft: var(--sb-bad-soft);
+}
+
+/* --- the page ----------------------------------------------------------- */
+
+@layer base {
+  /* Tailwind 4 defaults a border to `currentColor`; a hairline is what is meant. */
+  * {
+    border-color: var(--sb-line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--sb-bg);
+    color: var(--sb-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* One focus ring for everything, and never removed. */
+  :focus-visible {
+    outline: 2px solid var(--sb-brand);
+    outline-offset: 2px;
+    border-radius: 0.25rem;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--sb-brand) 25%, transparent);
+  }
+
+  /* The platform default scrollbar is a bright slab in dark mode. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sb-line-strong) transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 
 /* --- the reading column ------------------------------------------------- */
 
@@ -74,16 +232,14 @@
   /* --- headings --------------------------------------------------------- */
 
   /*
-   * The serif is the display face in both apps, and here it does the work of
-   * telling a reader where they are in a long page. Set at a real size rather than
-   * a dashboard's `1.35rem`: on a page of prose a heading has to be findable while
-   * scrolling past it.
+   * Headings do the work of telling a reader where they are in a long page, so
+   * they are set at a real size: on a page of prose a heading has to be findable
+   * while scrolling past it.
    */
   .sbx-prose :is(h2, h3, h4) {
     color: var(--sb-ink);
-    font-family: var(--font-serif);
-    font-weight: 400;
-    letter-spacing: 0;
+    font-weight: 600;
+    letter-spacing: -0.01em;
     scroll-margin-top: 5rem; /* clears the sticky header when an anchor is followed */
   }
 
@@ -92,30 +248,22 @@
     margin-bottom: 0.65rem;
     padding-bottom: 0.4rem;
     border-bottom: 1px solid var(--sb-line);
-    font-size: 1.9rem;
-    line-height: 1.2;
+    font-size: 1.6rem;
+    line-height: 1.25;
   }
 
   .sbx-prose h3 {
     margin-top: 2.25rem;
     margin-bottom: 0.4rem;
-    font-size: 1.4rem;
-    line-height: 1.3;
+    font-size: 1.25rem;
+    line-height: 1.35;
   }
 
-  /*
-   * `h4` is sans and bold rather than a smaller serif.
-   *
-   * Four levels of the same face is three levels nobody can tell apart. At this
-   * depth the job is no longer "find me in the page" but "label this paragraph",
-   * so it changes family instead of shrinking again.
-   */
+  /* At this depth the job is "label this paragraph", not "find me in the page". */
   .sbx-prose h4 {
     margin-top: 1.75rem;
     margin-bottom: 0.3rem;
-    font-family: var(--font-sans);
     font-size: 1rem;
-    font-weight: 600;
   }
 
   /* The first heading of a body has nothing above it to be separated from. */
@@ -170,9 +318,7 @@
    *
    * The pipeline marks off-site links with `target="_blank"`, and a link that
    * opens a new tab without warning is a link that loses the reader's place. This
-   * is the warning, and it is drawn with a border rather than an image because the
-   * dashboard's Content-Security-Policy forbids `data:` in a stylesheet and the two
-   * apps share this token layer.
+   * is the warning, drawn with a border so it takes the link's own colour.
    */
   .sbx-prose a[target="_blank"]::after {
     content: "";
@@ -371,18 +517,16 @@
 /*
  * A callout, in one of five kinds.
  *
- * One hue each, from the shared status tokens: `note` is the informational blue,
- * `tip` the green, `important` the brand, `warning` the amber and `caution` the
- * rose. Nothing here is a hex — see the head of this file.
+ * One hue each, from the palette at the head of this file: `note` is the
+ * informational blue, `tip` the green, `important` the violet, `warning` the amber
+ * and `caution` the red. Nothing here is a hex.
  *
- * **`warning` and `caution` have to differ, and for a while they could not.** The
- * token file was built for a dashboard, whose four states are running, starting,
- * broken and idle — none of which is "be careful" — so there was no amber, and the
- * two kinds both came out rose. Two callouts that a reader cannot tell apart are
- * one callout with two names, and AUTHORING gives them different jobs. `--sb-warn`
- * exists now and this reads it; `caution` keeps `--sb-bad`, which is right, because
- * a caution is the one that says something is about to go wrong rather than that
- * something needs care. The heavier left edge on a caution stays as the second
+ * **Every kind has to differ from every other.** Two callouts a reader cannot tell
+ * apart are one callout with two names, and AUTHORING gives them different jobs —
+ * `warning` and `caution` once both came out rose, and `note` and `important` would
+ * both be blue if `important` took the link colour. `caution` is the red one
+ * because it says something is about to go wrong rather than that something needs
+ * care. The heavier left edge on a caution stays as the second
  * signal, for anybody who cannot separate the two hues.
  */
 @layer base {
@@ -442,8 +586,8 @@
   }
 
   .sbx-alert--important {
-    --alert-hue: var(--sb-brand);
-    --alert-tint: var(--sb-brand-soft);
+    --alert-hue: var(--sb-important);
+    --alert-tint: var(--sb-important-soft);
   }
 
   .sbx-alert--warning {
@@ -564,14 +708,10 @@
  * introductory sentences (see AUTHORING.md), and it has to be the thing the eye
  * lands on before the prose.
  *
- * So this is **the one place the accent is allowed to be loud**: a flat brand
- * bar across the top and a border in the brand rather than the neutral line.
- * Everywhere else on the site the brand is a link colour and a 5%-tinted callout,
- * which is what leaves this one room to shout.
- *
- * It used to be louder still — a two-hue gradient across the bar and the brand's
- * own glow under the card. Tide II spends the brand as a single flat ink, and the
- * card is loud enough being the only saturated thing on the page.
+ * So this is **the one place the link colour is spent as a fill**: a flat bar
+ * across the top and a border in it rather than the neutral line. Everywhere else
+ * on the site it is only link text, which is what leaves this one room to stand
+ * out.
  */
 @layer base {
   .sbx-prompt {

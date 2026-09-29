@@ -56,9 +56,8 @@ describe("DIAGRAM_TOKENS", () => {
 
 describe("diagramThemeVariables", () => {
   it("takes every colour from a token and never from a literal", () => {
-    // This is the rule `tokens.css` exists to enforce: one palette, in one
-    // place. A hex here would be a second copy that nothing would notice going
-    // stale — and it would follow neither the theme nor the three schemes.
+    // One palette, in one place — `docs.css`. A hex here would be a second copy
+    // that nothing would notice going stale, and it would not follow the theme.
     for (const [name, value] of Object.entries(named())) {
       if (typeof value !== "string") continue;
       if (name === "fontSize") continue;

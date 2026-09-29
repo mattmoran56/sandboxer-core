@@ -169,29 +169,18 @@ with `shiki`.
 - `docs/architecture/contracts.md`, `packages/docs/AUTHORING.md` and any `README.md` are
   deliberately **not** site pages.
 
-This package depends on `@sandboxer/tokens`, so the two share one stylesheet rather than
-keeping two. It depends on nothing outside the engine: this site is the engine's, and an engine
-package may not depend on a product one.
+- **The styling is the site's own, in `packages/docs/src/docs.css`**: Tailwind, the system font
+  stack, one neutral palette as CSS variables, and a light/dark switch that sets `data-theme` on
+  `<html>`. There is no brand, no colour-scheme picker and no web font. Components name semantic
+  utilities (`text-ink`, `border-line`, `bg-brand`) and never a colour.
+
+**The engine has no design system.** It used to ship one, as a `@sandboxer/tokens` package that
+this site and a product's dashboard both imported so the two would look alike. The dashboard
+belongs to the product, the product owns its design in its own repository, and a documentation
+site has no reason to match it — so the package went, and nothing here is kept in step with
+anything outside the engine.
 
 </details>
-
-## `packages/tokens`
-
-**What it owns.** One stylesheet, `tokens.css`: the palette, the three colour schemes, the two
-themes, the fonts, the light/dark mechanism, the base layer and the named shapes. Its header
-comment is the document for it.
-
-**Its public surface** is one export, `@sandboxer/tokens/tokens.css`. There is no build: the file
-is shipped as written, so it declares the three `@fontsource*` packages it imports, and Tailwind
-as a peer — the app's own `@tailwindcss/vite` is what resolves that import, and a second copy
-nested here would be a different Tailwind from the one the plugin runs.
-
-**Who calls it.** `packages/docs`, and nothing else here. A product built on the engine, in
-another repository, imports it too, so the stylesheet has exactly one copy rather than two.
-
-**What it may never do.** Contain a component, a script, or anything specific to one app. It
-exists so that no app owns the palette — a colour that the two consuming apps disagreed about
-would be visible to anyone who opened both.
 
 ## `container/`
 
@@ -254,8 +243,7 @@ be invisible.
 |---|---|
 | `@sandboxer/core` | `yaml`, `zod` |
 | `@sandboxer/cli` | `@sandboxer/core` |
-| `@sandboxer/docs` | `@sandboxer/tokens`, `marked`, `mermaid`, React |
-| `@sandboxer/tokens` | The three `@fontsource*` packages it imports; Tailwind, as a peer |
+| `@sandboxer/docs` | `marked`, `mermaid`, React; Tailwind at build time |
 | `container/` | Nothing in `packages/`. Only what the base image guarantees |
 
 **`packages/` is built in directory order, not dependency order.** `npm run build --workspaces`

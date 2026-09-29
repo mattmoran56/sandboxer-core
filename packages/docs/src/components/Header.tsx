@@ -1,7 +1,7 @@
 // The top bar: what this is, how to search it, and how it looks.
 //
-// Sticky and solid over a hairline, so the mark, the name and the search button
-// stay reachable while a long page scrolls under them.
+// Sticky and solid over a hairline, so the name and the search button stay
+// reachable while a long page scrolls under them.
 //
 // The search *button* is here rather than a bare keyboard shortcut on purpose. A
 // shortcut nobody is told about is a feature for the person who wrote it, so the
@@ -10,9 +10,9 @@
 
 import { REPO } from "../lib/route.js";
 import { Link } from "../state/router.js";
-import { External, Mark, Menu, Search as SearchIcon } from "./icons.js";
+import { External, Menu, Search as SearchIcon } from "./icons.js";
 import { IconButton, Kbd } from "./ui.js";
-import { SchemePicker, ThemeSwitch } from "./Switches.js";
+import { ThemeSwitch } from "./Switches.js";
 
 export const Header = ({
   onSearch,
@@ -26,21 +26,9 @@ export const Header = ({
       <Menu size={18} />
     </IconButton>
 
-    <Link to="/" className="flex items-center gap-2.5 rounded-lg focus-visible:outline-offset-4">
-      <span
-        aria-hidden="true"
-        className="grid size-7 place-items-center rounded-[0.475rem] bg-brand text-brand-ink"
-      >
-        <Mark />
-      </span>
-      <span className="font-serif text-xl leading-none text-ink">sandboxer</span>
-      {/*
-        The word "docs" as a chip rather than as part of the name, so the header
-        still reads as "sandboxer" and not "sandboxer docs".
-      */}
-      <span className="hidden rounded-full bg-brand-soft px-2 py-0.5 text-[0.6875rem] font-semibold tracking-wide text-brand sm:inline">
-        docs
-      </span>
+    {/* The plain word and nothing else: the engine has no logo and no brand. */}
+    <Link to="/" className="rounded-lg focus-visible:outline-offset-4">
+      <span className="text-lg font-semibold leading-none tracking-tight text-ink">sandboxer</span>
     </Link>
 
     <div className="ml-auto flex items-center gap-2">
@@ -60,7 +48,6 @@ export const Header = ({
       </button>
 
       <ThemeSwitch />
-      <SchemePicker className="hidden sm:inline-flex" />
 
       <a
         href={REPO}

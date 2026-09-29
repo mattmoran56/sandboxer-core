@@ -18,7 +18,7 @@
 //  3. Only once that has happened does anything get written to `<html>`.
 //
 // Step 3 is not tidiness. The blocking script in `index.html` has *already* put
-// the right theme and scheme on the root before any of this ran; an effect that
+// the right theme on the root before any of this ran; an effect that
 // applied `DEFAULTS` first would undo it for one frame, which is exactly the
 // flash the blocking script exists to prevent.
 
@@ -74,11 +74,9 @@ const save = (prefs: Prefs): void => {
   }
 };
 
-/** Applies the preferences that the stylesheet reads off `<html>`. */
+/** Applies the preference that the stylesheet reads off `<html>`. */
 export const applyPrefs = (prefs: Prefs, systemPrefersDark: boolean): void => {
-  const root = document.documentElement;
-  root.dataset.theme = resolveTheme(prefs.theme, systemPrefersDark);
-  root.dataset.scheme = prefs.scheme;
+  document.documentElement.dataset.theme = resolveTheme(prefs.theme, systemPrefersDark);
 };
 
 export const PrefsProvider = ({ children }: { children: ReactNode }) => {
