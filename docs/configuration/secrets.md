@@ -58,6 +58,12 @@ sensible. Blank lines and `#` comment lines are skipped. One layer of matching q
 stripped. **An empty value is dropped**: a name present but blank is what a template looks
 like, and importing it would mask a real value from a later file.
 
+**A line the reader cannot use is skipped, and only that line.** A line with no `=`, and a
+line whose name is not a shell identifier — `2BAD=…`, `BAD NAME=…` — are both passed over,
+and everything after them is still read. This is a file people edit by hand, and a reader
+that stopped at the first typo would stop the entrypoint, every build and every database
+verb with it, none of them naming the file.
+
 There are exactly two readers — the host's, in `packages/core/src/secrets.ts`, and the
 container's, in `container/scripts/env.sh` — and both strip exactly one layer of matching
 quotes. If they ever disagree, every credential reaches the application with quotes around

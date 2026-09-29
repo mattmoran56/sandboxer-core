@@ -88,6 +88,13 @@ if [[ -f "$sandboxer_env_secrets" ]]; then
     # scripts running under `set -e`, and `export '2 bad=x'` fails — so one stray
     # line in a hand-edited file would stop the entrypoint, every build and every
     # database verb, and none of them would say which file was at fault.
+    #
+    # It has to come *before* the `${!...}` below, and not merely somewhere before
+    # the `export`: bash 5 treats an indirect expansion of a name that is not an
+    # identifier as a fatal error — `2BAD: invalid variable name` — so the check
+    # for "already set" would itself be the thing that killed the shell. bash 3.2
+    # answered "unset" and carried on, so reordering these two lines fails only on
+    # a modern bash, which is to say only on somebody else's machine.
     [[ "$sandboxer_env_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
     # Set already — by the image, by docker, or by the host — wins, per the
     # paragraph above. `${!name+set}` is non-empty exactly when the variable that
