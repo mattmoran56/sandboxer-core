@@ -32,23 +32,6 @@ const Svg = ({ size = 16, children, ...rest }: IconProps) => (
   </svg>
 );
 
-/** The product mark: three bars of decreasing length — a worktree, a sandbox on it, a hostname in front. */
-export const Mark = ({ size = 15 }: { size?: number }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2.2}
-    strokeLinecap="round"
-    aria-hidden="true"
-    focusable="false"
-  >
-    <path d="M5 8h14M5 12h9M5 16h11" />
-  </svg>
-);
-
 export const Search = (props: IconProps) => (
   <Svg {...props}>
     <circle cx="11" cy="11" r="7" />

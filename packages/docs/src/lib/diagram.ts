@@ -2,9 +2,8 @@
 //
 // A diagram on this site is drawn in the browser (see `Article.tsx`), and the
 // reason it is drawn there rather than at build time is that it has to follow the
-// reader's choices: light or dark, and one of three colour schemes. Six
-// combinations, one palette — `@sandboxer/tokens/tokens.css`. So this file holds
-// no hexes. It reads the tokens that are already in force and hands mermaid a
+// reader's choice of light or dark, from the one palette in `docs.css`. So this
+// file holds no hexes. It reads the tokens that are already in force and hands mermaid a
 // `themeVariables` map built from them.
 //
 // **mermaid's theme is `base`.** That is the one theme intended to be
@@ -43,7 +42,7 @@ export type DiagramToken = (typeof DIAGRAM_TOKENS)[number];
 export type TokenReader = (token: DiagramToken) => string;
 
 /**
- * Every token, resolved for whatever theme and scheme are currently in force.
+ * Every token, resolved for whichever theme is currently in force.
  *
  * **Not `getComputedStyle(root).getPropertyValue("--sb-ink")`.** That is the
  * obvious way to do this and it does not work: an unregistered custom property
@@ -56,8 +55,8 @@ export type TokenReader = (token: DiagramToken) => string;
  * The way that does work is to make the browser *use* the value: assign
  * `var(--token)` to a real property on a throwaway element and read the property
  * back. A used value has had `light-dark()` resolved against the inherited
- * `color-scheme`, so `color` answers `rgb(14, 26, 28)` — and it follows
- * `data-theme` and `data-scheme` for free, which is the whole point.
+ * `color-scheme`, so `color` answers `rgb(24, 24, 27)` — and it follows
+ * `data-theme` for free, which is the whole point.
  *
  * One element, one property per token, because each assignment has to be read
  * before the next overwrites it.
@@ -72,7 +71,7 @@ export const resolveTokens = (): Record<DiagramToken, string> => {
   probe.style.height = "0";
   probe.style.pointerEvents = "none";
   // Inside the document, so it inherits the `color-scheme` the theme switch set
-  // on <html> and the brand hue the scheme attribute selected. A detached
+  // on <html>. A detached
   // element inherits nothing and would resolve every token to its light value.
   (document.body ?? document.documentElement).appendChild(probe);
 
@@ -110,10 +109,10 @@ export const resolveTokens = (): Record<DiagramToken, string> => {
  *    unbranded as one where nothing is.
  *  - **Text is `--sb-ink` wherever mermaid will paint text.** Neither muted grey
  *    appears on a label, on purpose: mermaid has no separate variable for a
- *    label that lands on a tinted fill, and `tokens.css` records that both lose
- *    AA on a `-soft` background. Since a label here can land on
- *    `--sb-brand-soft` or `--sb-warn-soft`, the only answer that holds in all
- *    six theme × scheme combinations is the full-strength ink. `--sb-ink-subtle`
+ *    label that lands on a tinted fill, and a muted grey on a `-soft`
+ *    background is the pairing most likely to miss AA. Since a label here can
+ *    land on `--sb-brand-soft` or `--sb-warn-soft`, the only answer that holds
+ *    in both themes is the full-strength ink. `--sb-ink-subtle`
  *    does appear, but only on the *lines*, where the bar is the 3:1 of a
  *    meaningful graphic rather than the 4.5:1 of text — see below.
  *

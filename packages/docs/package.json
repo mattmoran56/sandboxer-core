@@ -13,7 +13,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@sandboxer/tokens": "0.1.0",
     "marked": "^16.4.2",
     "mermaid": "^11.17.2",
     "react": "^19.2.0",

@@ -2,11 +2,12 @@
 //  - readPrefs on nothing, on rubbish, on valid JSON that is not an object
 //  - readPrefs keeping the fields it recognises and defaulting the ones it does not
 //  - the storage key and preference names `index.html`'s blocking script depends on
+//  - a `scheme` left in storage by an older version of the site being ignored
 //  - resolveTheme, including the `system` case in both directions
 
 import { describe, expect, it } from "vitest";
 
-import { DEFAULTS, PREFS_KEY, readPrefs, resolveTheme, SCHEMES } from "./prefs.js";
+import { DEFAULTS, PREFS_KEY, readPrefs, resolveTheme } from "./prefs.js";
 
 describe("readPrefs", () => {
   it("gives the defaults for nothing stored", () => {
@@ -25,19 +26,17 @@ describe("readPrefs", () => {
   });
 
   it("reads every field back", () => {
-    expect(readPrefs('{"theme":"dark","scheme":"fern","expandAll":true}')).toEqual({
+    expect(readPrefs('{"theme":"dark","expandAll":true}')).toEqual({
       theme: "dark",
-      scheme: "fern",
       expandAll: true,
     });
   });
 
   it("defaults the fields it does not recognise and keeps the ones it does", () => {
-    // A hand-edited value, a scheme that no longer exists, and a boolean stored as
-    // the string a form would have submitted.
-    expect(readPrefs('{"theme":"sepia","scheme":"tide","expandAll":"yes"}')).toEqual({
+    // A hand-edited value, and a boolean stored as the string a form would have
+    // submitted.
+    expect(readPrefs('{"theme":"sepia","expandAll":"yes"}')).toEqual({
       theme: DEFAULTS.theme,
-      scheme: "tide",
       expandAll: DEFAULTS.expandAll,
     });
   });
@@ -46,8 +45,17 @@ describe("readPrefs", () => {
     // The dashboard's own preferences, in case both apps ever share an origin.
     expect(readPrefs('{"theme":"light","grouping":"status","collapsed":["acme"]}')).toEqual({
       theme: "light",
-      scheme: DEFAULTS.scheme,
       expandAll: DEFAULTS.expandAll,
+    });
+  });
+
+  it("drops the colour scheme an older version of the site stored", () => {
+    // The site once offered three colour schemes and wrote the reader's pick
+    // under the same key. It is read past rather than migrated, and never
+    // written back.
+    expect(readPrefs('{"theme":"dark","scheme":"fern","expandAll":true}')).toEqual({
+      theme: "dark",
+      expandAll: true,
     });
   });
 });
@@ -57,13 +65,9 @@ describe("the contract with index.html", () => {
   // module, so it names the key and the fields as literals. Renaming either here
   // would leave the script reading a key nothing writes — with no error, just a
   // flash of the wrong theme on every load.
-  it("keeps the key and the three names the blocking script reads", () => {
+  it("keeps the key and the names the blocking script reads", () => {
     expect(PREFS_KEY).toBe("sandboxer.docs.prefs.v1");
-    expect(Object.keys(DEFAULTS).sort()).toEqual(["expandAll", "scheme", "theme"]);
-  });
-
-  it("offers the three schemes the token file defines", () => {
-    expect(SCHEMES.map((scheme) => scheme.id)).toEqual(["tide", "cobalt", "fern"]);
+    expect(Object.keys(DEFAULTS).sort()).toEqual(["expandAll", "theme"]);
   });
 });
 
