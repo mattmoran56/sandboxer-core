@@ -48,12 +48,29 @@ const UNSET = "<unset>";
  * Sources `lib.sh` — which sources `env.sh` — and prints what each named
  * variable ended up as, NUL-separated because a value may contain anything but a
  * newline.
+ *
+ * A name that is not a shell identifier is asked of the process environment
+ * instead of with `${!name}`. bash 5 makes an indirect expansion of a name that
+ * is not an identifier a *fatal* error — `2BAD: invalid variable name`, the whole
+ * shell gone, under the `set -e` below — while bash 3.2 quietly answered "unset".
+ * So this harness passed on macOS and died on CI's Ubuntu at the very line it
+ * exists to check, and the failure named `dump` rather than the reader, which
+ * read as a bug in `env.sh` when `env.sh` had skipped the line correctly.
+ * `env` is not a weaker question: `2BAD` can never be a shell variable, so the
+ * process environment is the only place an `export` that had wrongly succeeded
+ * could ever show up.
  */
 const DUMP = `
 set -euo pipefail
 source "$SANDBOXER_SCRIPTS/lib.sh"
 for sandboxer_test_name in "$@"; do
-  printf '%s=%s\\0' "$sandboxer_test_name" "\${!sandboxer_test_name-${UNSET}}"
+  if [[ "$sandboxer_test_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    printf '%s=%s\\0' "$sandboxer_test_name" "\${!sandboxer_test_name-${UNSET}}"
+  elif sandboxer_test_found=$(env | grep -m1 -e "^$sandboxer_test_name="); then
+    printf '%s\\0' "$sandboxer_test_found"
+  else
+    printf '%s=%s\\0' "$sandboxer_test_name" '${UNSET}'
+  fi
 done
 `;
 
@@ -190,8 +207,11 @@ describe("the container's reader and the host's writer", () => {
     expect(read.NOT_A_PAIR).toBe(UNSET);
     // A name that is not a variable name is skipped rather than exported: under
     // `set -e` an `export '2BAD=x'` would stop the entrypoint, every build and
-    // every database verb, and none of them would name the file.
+    // every database verb, and none of them would name the file. Read out of the
+    // process environment rather than with `${!name}` — see DUMP for why.
     expect(read["2BAD"]).toBe(UNSET);
+    // And the lines *after* the bad one still arrive, which is the half of
+    // "skipping only the lines it cannot use" that a bad name could break.
     expect(read.UNQUOTED).toBe("plain value");
     expect(read.SINGLE).toBe("in single quotes");
     // The one a `while read` loop loses without `|| [[ -n "$line" ]]`.
