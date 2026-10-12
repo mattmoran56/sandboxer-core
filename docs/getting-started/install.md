@@ -100,6 +100,8 @@ flowchart TB
 The [base image](../reference/glossary.md) is the long part. It is a Debian image carrying the
 supervisor that runs a sandbox's services, the Caddy web server that answers inside it, MinIO for
 object storage, `jq`, `git` and the GitHub CLI. Measured on arm64 it comes to around 580 MB.
+MinIO publishes no binaries or images any more, so it is compiled from source on the first build,
+which adds a few minutes. Later builds reuse the cached layer.
 
 It carries **no agent**, and that is a boundary rather than an omission: sandboxer runs a project
 and has no opinion about who edits the worktree. A product that wants one in every sandbox builds

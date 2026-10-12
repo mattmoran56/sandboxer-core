@@ -26,33 +26,38 @@
 FROM caddy:2-alpine AS caddy
 
 # --- object storage ----------------------------------------------------------
-# Lifted out of MinIO's own images, and it used to be a `curl` from dl.min.io.
+# Built from source, because MinIO no longer publishes anything we can pull.
 #
-# That download stopped working: every URL under
+# It used to be a `curl` from dl.min.io. Every URL under
 # `https://dl.min.io/server/minio/release/linux-<arch>/minio` (and the matching
 # `mc` one) now answers **410 Gone**, and the GitHub releases for `minio/minio`
-# carry no binary assets at all any more. The build failed on the MinIO layer
-# with `curl: (22) The requested URL returned error: 410` -- a number that reads
-# like a broken mirror and is in fact a withdrawal.
+# carry no binary assets. The next home was MinIO's own images on quay.io, and
+# those went too: a pinned tag now answers **401 UNAUTHORIZED** to an anonymous
+# HEAD, and Docker Hub's `minio/minio` says the repository does not exist. A 401
+# reads like a login problem and is in fact a withdrawal, the same way the 410
+# read like a broken mirror.
 #
-# What is still published is the container image, on quay.io rather than Docker
-# Hub (`docker pull minio/minio` answers "pull access denied ... repository does
-# not exist"). So the binaries come out of those images the same way `caddy`
-# above does, and for the same reason: both are static Go binaries, so lifting
-# one into a Debian image is safe.
+# What is still public is the source, through the Go module proxy. `go install`
+# of a module at a git tag resolves the tag to a pseudo-version and builds the
+# command at the module root, which is where both `minio` and `mc` keep theirs.
+# Neither go.mod carries a `replace`, which is what `go install pkg@version`
+# needs. `CGO_ENABLED=0` keeps the binaries static, so copying them into the
+# Debian image below is as safe as lifting `caddy` out of Alpine.
 #
-# Pinned to an exact RELEASE tag, not `latest`: the base image is
-# content-addressed on the files under `container/`, so a floating tag would
-# leave two machines with the same digest running different object stores.
+# Pinned to the same RELEASE tags the images used, not `@latest`: the base image
+# is content-addressed on the files under `container/`, so a floating version
+# would leave two machines with the same digest running different object stores.
+# `minio` and `mc` are pinned separately because MinIO releases them separately.
 #
-# `minio` and `mc` are pinned separately because MinIO releases them separately
-# -- there is no single tag that names both.
-#
-# Two full `FROM`s rather than one, because a stage is a whole image and these
-# are two images. Neither costs anything in the result: only the one binary each
-# is copied, and BuildKit never ships the rest.
-FROM quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z AS minio
-FROM quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z AS mc
+# The Go image tracks the newer of the two modules' `go` directives (minio says
+# 1.24). Building costs a few minutes the first time; BuildKit caches the stage
+# after that, and only the two binaries reach the result.
+FROM golang:1.24-bookworm AS minio
+ARG MINIO_RELEASE=RELEASE.2025-09-07T16-13-09Z
+ARG MC_RELEASE=RELEASE.2025-08-13T08-35-41Z
+ENV CGO_ENABLED=0 GOBIN=/out
+RUN go install "github.com/minio/minio@${MINIO_RELEASE}" \
+ && go install "github.com/minio/mc@${MC_RELEASE}"
 
 # --- runtime -----------------------------------------------------------------
 # Debian bookworm, and specifically NOT a vendor MySQL image.
@@ -147,8 +152,8 @@ RUN set -eux; \
 # as BuildKit resolved it, and BuildKit resolves a `FROM` to the *target*
 # platform. The arch is therefore right by construction rather than by a case
 # statement, which is one fewer place for the failure the s6 note describes.
-COPY --from=minio /usr/bin/minio /usr/local/bin/minio
-COPY --from=mc    /usr/bin/mc    /usr/local/bin/mc
+COPY --from=minio /out/minio /usr/local/bin/minio
+COPY --from=minio /out/mc    /usr/local/bin/mc
 RUN chmod +x /usr/local/bin/minio /usr/local/bin/mc
 
 # --- gh, and a git that works ------------------------------------------------
