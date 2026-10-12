@@ -262,21 +262,14 @@ A slug ends up in a database advisory lock name, which is why a slug over 31 cha
 is hashed rather than truncated — two sandboxes that truncated to the same name would
 collide on one lock.
 
-**`mysql` is the hard case**, and the host half of that driver currently has two known
-defects. Neither is fixed, and both are written down in
-`docs/architecture/contracts.md` §6.1. The short version: the container brings a MySQL
-sandbox up correctly and does all the real work, while every host-side `mysql` exec
-against it fails on an access-denied error. So `sandboxer up` can report "Provisioning
-did not complete" against a sandbox that is in fact fine. Nothing is lost, but nothing
-the *host* driver does to a running MySQL sandbox runs at all.
-
-MySQL has also never been run against a real project — none of it. See
-[What is built](../reference/status.md).
+**`mysql` is the hard case.** It has come up end to end against one real project, and
+little else. See [What is built](../reference/status.md).
 
 `provision` runs twice on purpose, once from the container at boot and once from the
 host when the container answers, so it has to be idempotent. An already-populated
 database is kept on both sides; `provision` means *first boot*, and the table count is
-what decides whether this is one.
+what decides whether this is one. The container owns first boot: `up` waits for its `boot.ok`
+or `boot.fail` marker before the host half runs.
 
 </details>
 
