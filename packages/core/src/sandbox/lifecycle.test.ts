@@ -11,6 +11,7 @@
 // - up: keys config.yaml on the workspace directory as well as the declared project:
 // - up: says once that this project's sandboxes carry no GitHub token, and names both reasons push fails
 // - up: a failed provision leaves the sandbox up and reports the failure
+// - waitForBoot: returns once db-init leaves a boot marker, and names the wait when it never does
 // - up on a provided workspace: the caller's mounts replace the worktree bind, and
 //   no gitMounts pair is added
 // - up on a provided workspace: the slug, the workspace name, the git facts, the
@@ -39,7 +40,7 @@ import { resolveConfig } from "../config/load.js";
 import type { ResolvedConfig } from "../config/types.js";
 import type { ContainerRow, DiskUsage, Docker, ExecResult } from "../docker.js";
 import { LABELS, labelsFor } from "./labels.js";
-import { down, gc, list, prune, reload, status, up } from "./index.js";
+import { down, gc, list, prune, reload, status, up, waitForBoot } from "./index.js";
 
 interface FakeOptions {
   rows?: ContainerRow[];
@@ -1037,5 +1038,21 @@ describe("prune", () => {
     const result = await prune({ docker: asked.docker, apply: true, buildCache: true });
     expect(asked.argsOf("builderPrune")).toHaveLength(1);
     expect(result.removed.buildCacheBytes).toBe(1_000_000);
+  });
+});
+
+describe("waitForBoot", () => {
+  // The driver provisions after db-init. Asked while the boot restore was
+  // still running, it counted zero tables and restored a second time.
+  it("returns once db-init has left a boot marker", async () => {
+    let asks = 0;
+    const docker = { exec: async () => ({ code: ++asks < 3 ? 1 : 0, stdout: "", stderr: "" }) };
+    await waitForBoot(docker, "sbx", 5);
+    expect(asks).toBe(3);
+  });
+
+  it("names the wait when db-init never finishes", async () => {
+    const docker = { exec: async () => ({ code: 1, stdout: "", stderr: "" }) };
+    await expect(waitForBoot(docker, "sbx", 0)).rejects.toThrow("did not finish its own provisioning in 0s");
   });
 });
