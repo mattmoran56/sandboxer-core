@@ -95,10 +95,16 @@ describe("mysqlSettings", () => {
     expect(mysqlSettings({}, "acme-shop")).toMatchObject({
       user: "sandboxer",
       password: "sandboxer",
-      rootPassword: "sandboxer",
+      rootPassword: "",
       database: "acme_shop",
       ttlHours: 24,
     });
+  });
+
+  // The container initialises root with no password. A default here sent `-p`
+  // on every host-side statement and every one failed on Error 1045.
+  it("sends no root password by default, matching the container's server", () => {
+    expect(restoreArgs(mysqlSettings({}, "acme"), "acme").join(" ")).not.toContain("-p");
   });
 
   // A migration is only meaningfully tested against the version it will really

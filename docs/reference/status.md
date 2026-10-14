@@ -26,7 +26,14 @@ The Workers demo in `examples/demo-worker` has been taken all the way through.
   `~/.sandboxer/secrets/<project>.env` reached a running application process, did not appear in
   `docker inspect`, and a changed value was picked up by a restart.
 
-That is the only path proven end to end for a *project*.
+A MySQL project has also come up end to end: a private monorepo with Go APIs and React front-ends.
+The container provisioned at boot, `up` waited for it, and the host's `provision` found the schema
+populated and kept it. Migrations ran `ok` and every API answered. That run found and fixed two
+host-side MySQL bugs: a root password the container never set, and a host `provision` that raced the
+boot. It also fixed the base image, which now builds MinIO from source because MinIO withdrew its
+binaries and its images.
+
+Those are the only paths proven end to end for a *project*.
 [Run the demo project](../getting-started/demo-project.md) walks it, which makes it the honest
 "does my machine work" check.
 
@@ -37,7 +44,7 @@ one thing wrong in the details.
 
 | Area | What a real run would settle |
 |---|---|
-| **MySQL, all of it** | Data-directory initialisation, the app user and its grants against a live server, restoring a real dump, and the schema snapshot |
+| **MySQL, beyond one project** | One real project has come up (above). The schema snapshot, the migration lock, and a first boot across MySQL versions have not been watched |
 | **Compiled backends** | None has been built or run. The staleness check and the build-failure pause are untested against a real compiler |
 | **Bundled front-end builds** | Nothing with a real bundler has been built in a sandbox. The memory refusal and the out-of-memory hint are untested against a real build |
 | **Dependency seeding** | The seed from `/opt/deps`, the lockfile-hash mismatch that falls back to a real install, and the workspace bin re-linking |

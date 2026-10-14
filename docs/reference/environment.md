@@ -83,7 +83,7 @@ file's top-level value, then the built-in `none`. See [Access and security](../a
 | `SANDBOXER_SOURCE_DB_PASSWORD` | empty | The same. An empty value omits the flag entirely |
 | `SANDBOXER_DB_USER` | `sandboxer` | The user the app connects as, inside the sandbox |
 | `SANDBOXER_DB_PASSWORD` | `sandboxer` | Its password |
-| `SANDBOXER_DB_ROOT_PASSWORD` | `sandboxer` | Root inside the sandbox's own server |
+| `SANDBOXER_DB_ROOT_PASSWORD` | empty | Root inside the sandbox's own server. An empty value sends no `-p`, which matches the container |
 | `SANDBOXER_DB_NAME` | the project name, non-alphanumerics folded to `_` | The database inside the sandbox |
 | `SANDBOXER_MYSQL_IMAGE` | `mysql:<database.version>`, else `mysql:8.4` | The image a dump is restored into on the host |
 
@@ -91,12 +91,9 @@ The sandbox's own MySQL server is initialised with **no root password**. It list
 container's loopback and its contents are disposable, so a password there would protect nothing. The
 app user gets one anyway, because application config expects one.
 
-> [!IMPORTANT] `SANDBOXER_DB_ROOT_PASSWORD` is half of a known defect
-> The container initialises root without a password; the host driver defaults to `sandboxer`. Every
-> host-side `mysql` call into a running sandbox therefore fails with `Error 1045: Access denied`,
-> which is why `up` can report "Provisioning did not complete" against a sandbox that came up
-> perfectly. Nothing is lost — the container half does the work. It is recorded in
-> [What is built](status.md) and in the contract, and it is not fixed.
+Set `SANDBOXER_DB_ROOT_PASSWORD` only if your own image gives root a password. It used to default to
+`sandboxer`, which the server does not accept, so every host-side `mysql` call failed with
+`Error 1045: Access denied`.
 
 ### The one variable that is not ours
 

@@ -1554,24 +1554,19 @@ A `mysqldump` carries `CREATE TABLE` and no `DROP TABLE IF EXISTS`, so replaying
 populated schema fails on Error 1050. **An already-populated database is kept, on both sides**;
 `provision` means *first boot*, and the table count is what decides whether this is one.
 
-> [!WARNING] Two known defects in the host half of the mysql driver. Neither is fixed.
->
-> **The host authenticates as `root` with a password the container does not set.**
-> `mysql-init.sh` initialises the server with `--initialize-insecure` — root has no password,
-> deliberately and for a reason it states — while `mysqlSettings` defaults `rootPassword` to
-> `sandboxer` (and `docs/reference/environment.md` documents that default). Every host-side
-> `mysql` exec against a sandbox therefore fails with `Error 1045: Access denied`, which is
-> why `up` reports "Provisioning did not complete" against a sandbox the container has
-> brought up perfectly. The container half does all the work, so nothing is lost — but
-> nothing the host driver does to a running MySQL sandbox currently runs at all.
->
-> **Nothing orders the two provisioners.** `up` waits only for `/workspace` to exist before
-> calling `provision`, which is seconds before `mysqld` is accepting connections, so the host
-> half loses the race and fails rather than colliding. Correcting the credentials *without*
-> also deciding who owns first boot would turn a harmless failure into two concurrent restores
-> of the same dump into the same schema. The two have to be fixed together, and fixing them
-> means saying here which half owns first boot — the host (and `db-init` waits for it) or the
-> container (and the host's `provision` becomes a report rather than an action).
+**The container owns first boot.** `db-init` provisions, then writes `/run/sandboxer/boot.ok`
+or `boot.fail`. `up` waits for one of those markers (`waitForBoot`) before it calls the
+driver's `provision`, so the host half always meets a finished restore, counts its tables and
+keeps them. Before this ordering, `up` called `provision` as soon as `/workspace` existed,
+seconds before `mysqld` accepted connections.
+
+**The host connects as `root` with no password.** `mysql-init.sh` initialises the server with
+`--initialize-insecure`, deliberately and for a reason it states, so `mysqlSettings` defaults
+`rootPassword` to empty and sends no `-p`. It used to default to `sandboxer`, and every
+host-side `mysql` exec failed with `Error 1045: Access denied`, which `up` reported as
+"Provisioning did not complete" against a healthy sandbox. The two were fixed together:
+correct credentials without the ordering would have meant two concurrent restores of one dump
+into one schema.
 
 **d1 / sqlite** — the easy case. The database is a *file*. Seeding is a copy, forking is a
 copy, there is no server and no lock. One rule: **one writer per file.** Two processes

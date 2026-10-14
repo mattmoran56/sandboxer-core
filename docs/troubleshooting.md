@@ -615,26 +615,29 @@ is usually how you find out.
 
 </details>
 
-### `up` says "Provisioning did not complete" and the sandbox is fine
+### `up` says "did not finish its own provisioning"
 
-**Known, and it is the host's report that is wrong rather than the sandbox.** Check the sandbox itself
-before believing the message:
+`sandboxer up` waits for the sandbox to set up its own database before it checks the result from
+the host. This message means that setup never finished in time. Look at where it stopped:
 
 ```bash
-sandboxer status <slug>       # `ok` and migrations `ok` means the container did its job
-sandboxer logs <slug>         # `db-init: done` and `migrate: ok` in the boot log
+sandboxer logs <slug>         # the boot log; `db-init: done` means setup finished
+sandboxer status <slug>
 ```
 
-Nothing is lost. The container half has already done the work. Recorded in
-[What is built](reference/status.md).
+A large dump can need longer: pass `--timeout <seconds>` to `up`.
 
 <details class="failure">
-<summary><b>If it goes wrong</b> — which half fails, and why</summary>
+<summary><b>If it goes wrong</b> — what `up` is waiting for</summary>
 
-The container provisions itself at boot, and the host runs the same driver a second time to report
-on it. The host half authenticates as `root` with a password the container does not set. The
-container initialises the server root password-less on purpose, so the host's first statement fails,
-and the driver reports that as a provisioning failure.
+The container owns first boot. Its `db-init` oneshot writes `/run/sandboxer/boot.ok` or
+`boot.fail` when it finishes. `up` waits for either before calling the driver's `provision`, for
+as long as it waits for the container (180 s by default). A `boot.fail` does not stop `up`;
+the host half runs and reports what it finds. On D1, a setup that never finishes is usually two
+openers on one file: see [Databases](databases.md).
+
+"Provisioning did not complete" against a healthy MySQL sandbox was a host-side bug, now fixed:
+the host sent root a password the container never set, and failed on `Error 1045`.
 
 </details>
 

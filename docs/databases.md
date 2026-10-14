@@ -226,41 +226,33 @@ Under `~/.sandboxer/logs/<project>/<slug>/`:
 
 # MySQL: the hard case
 
-> [!WARNING] MySQL has never been run, and its host half has two known defects
-> Nothing in this section has been exercised against a live MySQL server. Two specific bugs
-> are known and neither is fixed; they are described immediately below, because they change
-> what you should expect to see. See [What is built](reference/status.md).
+> [!WARNING] MySQL has been run against one real project, and not much else
+> A private monorepo with Go APIs and React front-ends has come up end to end: schema kept,
+> migrations `ok`, every API up. Most of this section is still unexercised. See
+> [What is built](reference/status.md).
 
-## Two known defects in the host half
+## Who provisions, and in what order
 
-**The host authenticates as `root` with a password the container does not set.** Every
-host-side `mysql` command against a sandbox fails with `Error 1045: Access denied`.
-
-**Nothing orders the two provisioners.** The host half is called before `mysqld` accepts
-connections, so it loses the race.
-
-The visible symptom of both is `sandboxer up` reporting **"Provisioning did not complete"**
-against a sandbox the container brought up perfectly. Nothing is lost, because the container
-half does all the work. But nothing the host driver does to a running MySQL sandbox runs at
-all.
+The sandbox sets up its own database when it boots. `sandboxer up` waits for that to finish,
+then checks the result from the host. If the database already has tables, the host keeps them.
 
 <details class="failure">
-<summary><b>If it goes wrong</b> — the mechanism behind both defects, and why they have to be fixed together</summary>
+<summary><b>If it goes wrong</b> — the boot markers, the root password, and the two bugs they fixed</summary>
 
-**The credential.** The container initialises its server with `--initialize-insecure`, so
-root has no password — deliberately, and for a reason the script states. The host driver's
-settings default `rootPassword` to `sandboxer`. Every host-side statement therefore fails on
-`Error 1045: Access denied`, and the driver reports that as a provisioning failure.
+**The container owns first boot.** `db-init` provisions, then writes `/run/sandboxer/boot.ok`
+or `boot.fail`. `up` waits for one of them before calling the driver's `provision`, for as long
+as it waits for the container (`--timeout`, 180 s by default). If neither appears, `up` reports
+`did not finish its own provisioning in <n>s`; read `sandboxer logs <slug>`.
 
-**The ordering.** `provision` runs twice by design. The container's own `db-init` oneshot
-provisions at boot, and `up` calls the driver's `provision` once the container is answering.
-Both are wanted: the container has to come up on its own, and the host has to be able to
-report what happened. But `up` waits only for `/workspace` to exist before calling
-`provision`, which is seconds before `mysqld` accepts connections.
+**The host connects as `root` with no password.** The container initialises its server with
+`--initialize-insecure`, deliberately, so `SANDBOXER_DB_ROOT_PASSWORD` defaults to empty and the
+host sends no `-p`. Set it only if your own image gives root a password.
 
-**They have to be fixed together.** Correcting the credentials *without* deciding who owns
-first boot would turn a harmless failure into two concurrent restores of the same dump into
-the same schema.
+Both used to be wrong. `up` called `provision` seconds before `mysqld` accepted connections,
+and the host sent root the password `sandboxer`. Every host-side statement failed on
+`Error 1045: Access denied`, and `up` reported **"Provisioning did not complete"** against a
+healthy sandbox. They were fixed together, because correct credentials without the ordering
+would have meant two concurrent restores of the same dump into the same schema.
 
 </details>
 
@@ -605,7 +597,7 @@ The two-writer deadlock has no error message, so recognise it by shape.
 | A `.sqlite` file turns up in `git status` | A command is missing `--persist-to "$SANDBOXER_D1_DIR"` |
 | `no D1 database in <directory> yet` from `db shell` | Nothing has created it. Normal on a fresh worktree with no seed |
 | Fixtures did not apply | Non-fatal by design — a fixture that no longer matches the schema is a signal, not a reason to refuse to start |
-| `Provisioning did not complete` on a MySQL sandbox that looks fine | The known host-side credential defect above. The container did the work |
+| `up` says `did not finish its own provisioning in <n>s` | Database setup never finished. Here, suspect two openers; `sandboxer logs <slug>` shows where it stopped |
 
 Two sandboxes of the same project can never deadlock each other; each has its own copy in
 its own volume. The deadlock is always *within* one sandbox, or between a sandbox and

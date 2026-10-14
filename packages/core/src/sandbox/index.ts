@@ -502,6 +502,7 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
   if (!options.detach) {
     await waitForContainer(docker, container, options.timeoutSeconds ?? 180);
     try {
+      await waitForBoot(docker, container, options.timeoutSeconds ?? 180);
       // A failed migration does not stop the sandbox: the failure is recorded,
       // the state becomes degraded, and the services boot anyway — inspecting a
       // failed migration is one of the reasons the sandbox exists.
@@ -1166,6 +1167,25 @@ async function waitForContainer(docker: Docker, container: string, seconds: numb
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   throw new SandboxError(`${container} did not become ready in ${seconds}s`);
+}
+
+/**
+ * Waits for the container's own `db-init` to finish, by its `boot.ok` or
+ * `boot.fail` marker under /run/sandboxer.
+ *
+ * Both halves provision: `db-init` at boot, and `up` through the driver after.
+ * The driver keeps an already-populated database, but only if the boot restore
+ * has finished. Run while it is still going, the driver counted zero tables and
+ * started a second restore into the same database, and `up` reported a healthy
+ * sandbox as "Provisioning did not complete".
+ */
+export async function waitForBoot(docker: Pick<Docker, "exec">, container: string, seconds: number): Promise<void> {
+  const booted = ["sh", "-lc", "test -f /run/sandboxer/boot.ok -o -f /run/sandboxer/boot.fail"];
+  for (let waited = 0; waited < seconds; waited += 1) {
+    if ((await docker.exec(container, booted)).code === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new SandboxError(`${container} did not finish its own provisioning in ${seconds}s — see: sandboxer logs ${container}`);
 }
 
 /**

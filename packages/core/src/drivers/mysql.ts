@@ -52,6 +52,11 @@ export interface MysqlSettings {
   /** Credentials the sandbox's own server is created with. */
   user: string;
   password: string;
+  /**
+   * Root's password inside the sandbox. Empty by default, because
+   * `mysql-init.sh` initialises the server with `--initialize-insecure`; an
+   * empty value sends no `-p` at all.
+   */
   rootPassword: string;
   /** The database inside the sandbox. */
   database: string;
@@ -75,7 +80,7 @@ export function mysqlSettings(env: NodeJS.ProcessEnv, project: string, version?:
     sourcePassword: env.SANDBOXER_SOURCE_DB_PASSWORD ?? "",
     user: env.SANDBOXER_DB_USER ?? "sandboxer",
     password: env.SANDBOXER_DB_PASSWORD ?? "sandboxer",
-    rootPassword: env.SANDBOXER_DB_ROOT_PASSWORD ?? "sandboxer",
+    rootPassword: env.SANDBOXER_DB_ROOT_PASSWORD ?? "",
     database: env.SANDBOXER_DB_NAME ?? identifier(project),
     image: env.SANDBOXER_MYSQL_IMAGE ?? `mysql:${version ?? "8.4"}`,
     ttlHours: Number(env.SANDBOXER_CACHE_TTL_HOURS ?? "24") || 24,
