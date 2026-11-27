@@ -14,7 +14,7 @@
 // - migrate: no command configured, a failing command marking the failure, a successful one clearing it
 // - describeSeedChoice: one line per source
 // - streamToFile: a binary that is not installed is a failed dump with a legible
-//   reason, not an unhandled 'error' event that takes the whole process down
+//   reason, completion waits for all bytes, failed pipelines cancel their producers; not an unhandled 'error' event that takes the whole process down
 
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -474,11 +474,50 @@ describe("streamToFile", () => {
     expect(result.stderr).toContain("sandboxer-no-such-compressor is not installed");
   });
 
+  it("cancels an ongoing dump when its compressor cannot start", async () => {
+    const path = await outPath();
+    const marker = path + ".producer-finished";
+    const result = await streamToFile({
+      bin: process.execPath,
+      args: ["-e", 'setTimeout(() => require("node:fs").writeFileSync(process.argv[1], "done"), 700)', marker],
+    }, { bin: "sandboxer-no-such-compressor", args: [] }, path);
+    expect(result.code).toBe(127);
+    expect(result.stderr).toContain("sandboxer-no-such-compressor is not installed");
+    await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reports an unwritable destination and stops the producers", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sandboxer-stream-destination-"));
+    const result = await streamToFile({ bin: "echo", args: ["hello"] }, { bin: "cat", args: [] }, directory);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("writing " + directory);
+  });
+
   it("still streams through a compressor that is there", async () => {
     const path = await outPath();
     const result = await streamToFile({ bin: "echo", args: ["hello"] }, { bin: "cat", args: [] }, path);
     expect(result.code).toBe(0);
     expect((await readFile(path, "utf8")).trim()).toBe("hello");
+  });
+
+  it("returns only after a buffered dump is completely written", async () => {
+    const path = await outPath();
+    const length = 4 * 1024 * 1024;
+    const result = await streamToFile({
+      bin: process.execPath,
+      args: ["-e", `process.stdout.write(Buffer.alloc(${length}, 97))`],
+    }, { bin: "cat", args: [] }, path);
+    expect(result.code).toBe(0);
+    expect(await readFile(path)).toEqual(Buffer.alloc(length, 97));
+  });
+
+  it("rejects a compressor that exits before consuming the dump", async () => {
+    const result = await streamToFile({
+      bin: process.execPath,
+      args: ["-e", 'setTimeout(() => process.stdout.write("later"), 1000)'],
+    }, { bin: process.execPath, args: ["-e", "process.exit(0)"] }, await outPath());
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("before consuming the complete dump");
   });
 
   it("carries a failing source's own complaint back", async () => {
