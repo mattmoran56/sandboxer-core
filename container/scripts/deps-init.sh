@@ -95,15 +95,8 @@ commit_marker() {
 # the first sandbox on a lockfile and no other -- which is worse than not fixing
 # it, because it would work when you tested it.
 seed_workspace_deps() {
-  [[ -d "$WORKSPACE_SOURCE" ]] || return 0
-
   local copied=0 src rel dest
-  # -mindepth 2 skips `/opt/deps/node_modules` itself, which $SOURCE already
-  # covers; the -path prune skips the nested trees *inside* it, which belong to
-  # packages rather than to workspaces. What is left is exactly one entry per
-  # workspace package that npm refused to hoist, at whatever depth the
-  # workspace globs put it.
-  while IFS= read -r src; do
+  while IFS= read -r -d '' src; do
     rel=${src#"$WORKSPACE_SOURCE"/}
     dest="$DEPS_DIR/$rel"
     # Never over the top of an existing tree: a real `npm ci` in the branch has
@@ -112,7 +105,7 @@ seed_workspace_deps() {
     [[ -e "$dest" ]] && continue
     mkdir -p "$(dirname "$dest")" || continue
     cp -a "$src" "$(dirname "$dest")/" && copied=$((copied + 1))
-  done < <(find "$WORKSPACE_SOURCE" -mindepth 2 -type d -name node_modules -not -path "*/node_modules/*" 2>/dev/null)
+  done < <(workspace_dep_trees "$WORKSPACE_SOURCE")
 
   [[ "$copied" -gt 0 ]] && log "seeded $copied nested workspace node_modules"
   return 0
