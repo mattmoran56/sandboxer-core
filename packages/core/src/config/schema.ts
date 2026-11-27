@@ -59,6 +59,7 @@ export const seedFromSchema = z.strictObject({
 });
 
 export const migrateSchema = z.strictObject({
+  requires_deps: z.boolean().optional(),
   workdir: nonEmpty.optional(),
   command: nonEmpty,
   since: z.union([nonEmpty, z.number()]).optional(),
@@ -79,6 +80,7 @@ export const databaseSchema = z.strictObject({
 });
 
 const backendFields = {
+  requires_deps: z.boolean().optional(),
   build: nonEmpty.optional(),
   workdir: nonEmpty.optional(),
   health: nonEmpty.optional(),
@@ -120,6 +122,9 @@ const frontendFields = {
    */
   static_mode: z.enum(["spa", "files", "html"]).optional(),
   in_build_all: z.boolean().optional(),
+  cache: z.boolean().optional(),
+  cache_inputs: z.array(nonEmpty.refine(value => !value.startsWith("/") && !value.split(/[\\/]/).includes(".."), "must stay inside the workspace")).min(1).optional(),
+  cache_git: z.boolean().optional(),
   optional: z.boolean().optional(),
 };
 

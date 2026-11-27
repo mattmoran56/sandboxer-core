@@ -295,7 +295,8 @@ The paths under that one hostname are Jef's §3.
 - Volumes: `sandboxer-<purpose>-<project>-<slug>` where purpose is one of
   `data` (database), `blob` (object storage), `bin` (built binaries), `www` (built sites).
 - Shared volumes, the engine's own: `sandboxer-deps-<hash>` (node_modules, keyed on lockfile),
-  `sandboxer-gocache`, `sandboxer-gomod`. `SHARED_VOLUMES` names the last two and nothing else.
+  `sandboxer-gocache`, `sandboxer-gomod`, and `sandboxer-static-cache`. `SHARED_VOLUMES` names
+  those three; the frontend cache is mounted only for opted-in static apps.
 - **An embedder's shared volume is the embedder's**, mounted by handing `up` a
   `UpOptions.volumes` row and reserved by naming it in `protectVolumes`. Jef's is
   `sandboxer-claude`, an agent's credential store at `/root/.claude` with `CLAUDE_CONFIG_DIR`
@@ -1264,6 +1265,27 @@ it into the other two.
 **Static builds are on demand, never at startup.** A sandbox must come up in seconds; an
 app that has not been built yet answers with a page saying which command to run.
 
+**Static artifact caching is opt-in and does not change the runtime kind.** `cache: true`
+allows reuse of verified production output in `/var/cache/sandboxer/static-builds`, backed by
+`sandboxer-static-cache`. The served directory stays in the sandbox's private `www` volume.
+The key binds source file contents (including untracked files), the build definition and
+environment, managed dependency identity, Node version and architecture, and Git branch/revision.
+Only artifact hashes are stored as metadata; environment values are not logged. Declared output
+directories, Git internals and managed dependency trees are excluded from source hashing.
+
+`cache_inputs` optionally names complete input files/directories relative to the workspace;
+without it the whole checkout is hashed. `cache_git: false` excludes Git branch/revision only
+when the project asserts that its build does not use them. Both fields support frontend defaults.
+A narrower scope is the project's assertion about all of its inputs, not an inferred dependency
+graph. Dynamic builds or builds with undeclared external inputs must leave caching off. Manual
+installed-dependency modifications require `SANDBOXER_FORCE_BUILD=true` to bypass the cache.
+
+Cache hits verify output checksums. A failed build never publishes old output, and a build whose
+inputs change while it runs is not cached. Per-label and per-key locks serialize publication in
+the Linux runtime. Invalid artifacts are replaced under the key lock; cache errors fall back to
+a normal build. Different build environments, including sandbox origins, produce different keys.
+The shared cache volume is protected from sandbox deletion and orphan-volume collection.
+
 **A declared thing is visible before it exists.** Every service in the plan appears in the
 dashboard's view of a sandbox whether or not it has been built or started — a static app that
 has never been built is listed, marked as such, and carries the control that builds it. This
@@ -1428,6 +1450,13 @@ Two driver-specific notes:
 - For file-backed drivers, both the `serve` and `migrate` commands must direct the runtime
   at the sandbox's own state directory (`$SANDBOXER_D1_DIR` for wrangler's `--persist-to`),
   or the runtime writes into the worktree instead of the sandbox.
+
+A migration and a backend each default to waiting for the project's Node dependency tree.
+Set `database.migrate.requires_deps: false` when the migration can run without it. A
+backend can likewise set `requires_deps: false` on its entry or in `backends.defaults`.
+Every backend still waits for database provisioning, including the migration. Served
+frontends always wait for Node dependencies. A plan without a migration retains the
+existing database startup order.
 
 ### 5.5 `plan.json` — the container's view of a project
 

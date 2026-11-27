@@ -31,6 +31,9 @@ source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 mkdir -p "$SANDBOXER_RUN" "$SANDBOXER_LOGS" "$SANDBOXER_WWW" \
   "$SANDBOXER_STATE/bin" "$SANDBOXER_STATE/data" "$SANDBOXER_STATE/blob"
 
+# No frontend build may use a completion marker from an earlier boot.
+rm -f "$SANDBOXER_RUN/deps-finished" "$SANDBOXER_RUN/deps-finished.tmp"
+
 log "$SANDBOXER_PROJECT/$SANDBOXER_SLUG on $SANDBOXER_DOMAIN, driver $SANDBOXER_DB_DRIVER"
 
 "$SANDBOXER_SCRIPTS/status.sh" booting

@@ -73,6 +73,28 @@ const full = resolveConfig(
 describe("planFor", () => {
   const plan = planFor(full, { seed: { path: "/sandboxer/cache/seed-acme-3f2a1b.sql.zst" } });
 
+  it("carries opt-in static caching through defaults and per-app overrides only", () => {
+    const config = resolveConfig({
+      project: "cache-example",
+      sandboxer: ">=0.1.0",
+      frontends: {
+        defaults: { build: "npm run build", out: "dist", cache: true, cache_inputs: ["web"], cache_git: false },
+        apps: [
+          { label: "app", package: "app" },
+          { label: "www", package: "website", cache: false },
+          { label: "cms", package: "cms", serve: "npm run dev", port: 3000 },
+        ],
+      },
+    }, "/repo/sandboxer.yaml");
+    const services = planFor(config).services;
+    expect(services.find(service => "label" in service && service.label === "app")).toHaveProperty("cache", true);
+    expect(services.find(service => "label" in service && service.label === "app")).toHaveProperty("cache_inputs", ["web"]);
+    expect(services.find(service => "label" in service && service.label === "app")).toHaveProperty("cache_git", false);
+    expect(services.find(service => "label" in service && service.label === "www")).not.toHaveProperty("cache");
+    expect(services.find(service => "label" in service && service.label === "www")).not.toHaveProperty("cache_inputs");
+    expect(services.find(service => "label" in service && service.label === "cms")).not.toHaveProperty("cache");
+  });
+
   it("emits the documented top-level shape", () => {
     expect(Object.keys(plan).sort()).toEqual([
       "database",

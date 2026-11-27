@@ -29,6 +29,8 @@ export interface SeedFrom {
 }
 
 export interface MigrateConfig {
+  /** Whether startup waits for the project Node dependencies. Defaults to true. */
+  requiresDeps?: boolean | undefined;
   /** Directory the command runs in, relative to the repo root. */
   workdir?: string | undefined;
   /** The project's own migration command. Never reimplemented, only invoked. */
@@ -64,6 +66,8 @@ export interface DatabaseConfig {
 
 /** A long-running process with a port, built once to a binary. */
 export interface BackendService {
+  /** Whether startup waits for the project Node dependencies. Defaults to true. */
+  requiresDeps?: boolean | undefined;
   name: string;
   port: number;
   label: string;
@@ -103,6 +107,12 @@ export interface FrontendApp {
   memory?: string | undefined;
   /** Included when a caller asks to build everything. */
   inBuildAll: boolean;
+  /** Reuse static artifacts for identical local inputs; opt-in for deterministic builds. */
+  cache?: boolean | undefined;
+  /** Complete source inputs, relative to the workspace. Defaults to the whole checkout. */
+  cacheInputs?: string[] | undefined;
+  /** Include Git branch/revision unless the build is explicitly independent of them. */
+  cacheGit?: boolean | undefined;
   /** Started only when asked for. */
   optional: boolean;
   kind: "static" | "server";

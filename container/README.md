@@ -367,6 +367,13 @@ deps-init ──────────────┘
 caddy   (ungated)
 ```
 
+This diagram shows the default. If `database.migrate.requires_deps` is false, database
+provisioning and migrations can proceed while `deps-init` runs. Backend services default
+to waiting for both `db-init` and `deps-init`. A backend with `requires_deps: false`
+waits for `db-init` alone. To start a Go backend during npm installation, opt out on
+both its migration and its backend entry. Served frontends always wait for both.
+Omitting the migration preserves the original dependency on `deps-init`.
+
 Oneshots gate longruns, so nothing serves traffic against a database that is not
 ready. Which of them exist depends on the plan: `mysql-init` and `mysqld` only for
 `driver: mysql`, `minio` only when storage is declared, `deps-init` only when there

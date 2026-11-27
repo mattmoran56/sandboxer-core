@@ -121,6 +121,7 @@ is an assertion by whoever wrote the config, not something the tool can verify.
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `command` | string | **yes** | Your project's own runner |
+| `requires_deps` | boolean | no | Wait for the Node dependency install before migration. Default `true`. Set `false` for a migration that can run during the install. |
 | `workdir` | path | no | Where to run it. Relative to the tree the config governs |
 | `since` | string or number | no | A cutoff, exported as `SANDBOXER_MIGRATE_SINCE` |
 | `failure_pattern` | string | no | Treat output matching this as a failure, even on exit 0 |
@@ -180,6 +181,7 @@ backends:
 | `port` | port | **yes** | no | Where it listens **inside** the container |
 | `label` | hostname label | **yes** | no | Its hostname: `<slug>--<label>--<project>.<domain>` |
 | `build` | string | **yes**, here or in `defaults` | yes | `{name}` and `{out}` are substituted |
+| `requires_deps` | boolean | no | yes | Wait for the Node dependency install before building and starting this backend. Default `true`. The database and its migrations must still be ready. |
 | `workdir` | path | no | yes | Where the build runs, and where the binary is started from |
 | `health` | path | no | yes | Probed to decide whether the service is up |
 | `memory` | memory | no | yes | Raises the whole sandbox's limit |
@@ -224,6 +226,9 @@ frontends:
 | `health` | path | no | yes | For a **served** app. Ignored for a static app |
 | `static_mode` | `spa` \| `files` \| `html` | no | yes | How the built directory is served. Default `spa` |
 | `in_build_all` | boolean | no | yes | Whether "rebuild everything" includes it. Default `true` |
+| `cache` | boolean | no | yes | Reuse identical static build artifacts. Default `false`; ignored for served apps |
+| `cache_inputs` | list of paths | no | yes | Complete source inputs relative to the workspace. Defaults to the whole checkout; see [artifact caching](runtime-kinds.md#reusing-static-build-artifacts) |
+| `cache_git` | boolean | no | yes | Include Git revision/branch in the artifact key. Default `true`; set `false` only for Git-independent builds |
 | `memory` | memory | no | yes | Raises the whole sandbox's limit |
 | `optional` | boolean | no | yes | Dormant unless named in `--with`. Default `false` |
 

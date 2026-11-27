@@ -23,6 +23,7 @@ import { dirname } from "node:path";
 import type { ResolvedConfig, RouteMap } from "./types.js";
 
 export interface PlanBackend {
+  requires_deps?: boolean;
   kind: "backend";
   name: string;
   label: string;
@@ -45,6 +46,9 @@ export interface PlanStatic {
   memory?: string;
   /** Only written when false: the default is to be included. */
   in_build_all?: false;
+  cache?: true;
+  cache_inputs?: string[];
+  cache_git?: false;
   optional?: true;
 }
 
@@ -64,6 +68,7 @@ export interface PlanServer {
 export type PlanService = PlanBackend | PlanStatic | PlanServer;
 
 export interface PlanMigrate {
+  requires_deps?: boolean;
   command: string;
   workdir?: string;
   since?: string;
@@ -149,6 +154,7 @@ export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
           health: backend.health,
           workdir: backend.workdir,
           memory: backend.memory,
+          requires_deps: backend.requiresDeps === false ? false : undefined,
           optional: backend.optional ? (true as const) : undefined,
         }),
     ),
@@ -181,6 +187,9 @@ export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
         static_mode: app.staticMode,
         memory: app.memory,
         in_build_all: app.inBuildAll ? undefined : (false as const),
+        cache: app.cache ? (true as const) : undefined,
+        cache_inputs: app.cache ? app.cacheInputs : undefined,
+        cache_git: app.cache && app.cacheGit === false ? (false as const) : undefined,
         optional: app.optional ? (true as const) : undefined,
       });
     }),
@@ -203,6 +212,7 @@ export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
           command: migrate.command,
           workdir: migrate.workdir,
           since: migrate.since,
+          requires_deps: migrate.requiresDeps === false ? false : undefined,
           failure_pattern: migrate.failurePattern,
           file_pattern: migrate.filePattern,
           error_pattern: migrate.errorPattern,
