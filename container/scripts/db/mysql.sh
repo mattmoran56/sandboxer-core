@@ -47,8 +47,34 @@ decompress() {
   esac
 }
 
+prepared_accounts() {
+  # The artifact contains no application logins. Runtime settings may rotate
+  # while a volume survives; apply them to both socket and loopback accounts.
+  local user="$SANDBOXER_DB_USER" password="$SANDBOXER_DB_PASSWORD"
+  [[ "$DB" =~ ^[a-zA-Z0-9_-]{1,64}$ && "$user" =~ ^[a-zA-Z0-9_-]{1,32}$ &&
+     "${user,,}" != root ]] || { warn "invalid prepared database or app account"; return 1; }
+  password=${password//\'/\'\'}
+  # Pass SQL through stdin and use explicit quoting rules so the app password
+  # is neither a process argument nor part of an error message.
+  "${ROOT[@]}" --binary-mode >/dev/null 2>&1 <<SQL || { warn "could not provision the runtime app account"; return 1; }
+SET SESSION sql_mode='NO_BACKSLASH_ESCAPES';
+CREATE USER IF NOT EXISTS '$user'@'%' IDENTIFIED BY '$password';
+CREATE USER IF NOT EXISTS '$user'@'localhost' IDENTIFIED BY '$password';
+ALTER USER '$user'@'%' IDENTIFIED BY '$password';
+ALTER USER '$user'@'localhost' IDENTIFIED BY '$password';
+GRANT ALL PRIVILEGES ON \`${DB//_/\\_}\`.* TO '$user'@'%', '$user'@'localhost';
+GRANT ALL PRIVILEGES ON \`${DB//_/\\_}\\_%\`.* TO '$user'@'%';
+SQL
+}
+
 provision() {
   ready || return 1
+  if [[ -n "$(plan .database.prepared_baseline)" ]]; then
+    # Physical seeds are complete even when their schema has no tables. Never
+    # fall through to the logical seed cache for an unrelated sandbox.
+    prepared_accounts
+    return $?
+  fi
 
   # The escaped underscore matters: MySQL treats `_` and `%` as wildcards in the
   # database part of a GRANT. Escaping it makes `<db>\_%` match the sibling

@@ -211,6 +211,47 @@ fingerprinted anyway.
 
 </details>
 
+### Prepared synthetic MySQL databases
+
+A project with a large synthetic seed can build it once and give each sandbox a private copy.
+Changes made in one sandbox stay in that sandbox. Existing database volumes keep their rows
+across restarts and image updates.
+
+<details class="agent">
+<summary><b>Details for an agent</b> — build, select and verify a prepared baseline</summary>
+
+Run the builder in the same Linux MySQL project image that will run the sandbox. Supply reviewed
+synthetic SQL for one schema. Include the schema, reference data and fixture rows in that input.
+The loader has privileges for that schema only, so omit global administration statements and
+explicit object definers. Keep application passwords and exports from live databases out of the
+artifact. Concurrent builds for a key share a lock. Preparation starts an isolated Unix-socket
+server, imports the SQL, shuts MySQL down cleanly, and removes server identity and key files.
+
+```bash
+key=$(/opt/sandboxer/scripts/db/prepare-mysql-baseline.sh /opt/sandboxer/mysql-baselines demo /build/synthetic.sql)
+printf '%s\n' "$key"
+```
+
+Use the returned 64-character lowercase SHA-256 in `database.prepared_baseline`, with
+`database.driver: mysql`. This replaces `database.seed_from`. The normal project migration
+command still runs on the private copy. To calculate the same key before building, prepend
+`--key` to the builder arguments. The key covers the SQL bytes, database name, format version,
+MySQL version and machine architecture. The format number versions the preparation recipe and
+must change whenever its MySQL initialization or shutdown settings change. A different version
+or architecture needs its own build.
+
+Bake `/opt/sandboxer/mysql-baselines/<key>/` into the image, or mount the prepared parent directory
+read-only at that path. On an empty volume the container copies the files to a private sibling
+directory, verifies their checksum and atomically renames the copy into place. A filesystem
+supporting reflinks shares unchanged blocks. Other filesystems copy the bytes. Each server
+generates its own UUID and credentials come from that sandbox's runtime settings.
+An interrupted copy is retried on the next boot. A missing or incompatible artifact, failed
+integrity check, or unrecognized nonempty datadir stops first boot and leaves existing contents
+intact. Use the container logs for the specific reason. With a prepared baseline, attached
+`sandboxer up` waits for the container's database boot result.
+
+</details>
+
 ### What a driver keeps, per sandbox
 
 Under `~/.sandboxer/logs/<project>/<slug>/`:

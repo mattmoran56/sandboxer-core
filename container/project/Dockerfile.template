@@ -168,8 +168,8 @@ RUN set -eux; \
     rm -f /tmp/mysql.tar.xz; \
     rm -rf /opt/mysql/mysql-test /opt/mysql/docs /opt/mysql/man; \
     find /opt/mysql/bin -type f -name 'mysql_client_test*' -delete; \
-    groupadd -r mysql; \
-    useradd -r -g mysql -s /sbin/nologin mysql; \
+    getent group mysql >/dev/null || groupadd -r mysql; \
+    id -u mysql >/dev/null 2>&1 || useradd -r -g mysql -s /sbin/nologin mysql; \
     install -d -o mysql -g mysql /run/mysqld /var/lib/sandboxer/data; \
     /opt/mysql/bin/mysqld --version
 

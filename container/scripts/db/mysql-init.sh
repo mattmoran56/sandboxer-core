@@ -12,6 +12,18 @@ source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
 DATADIR="$SANDBOXER_STATE/data/mysql"
 
+prepared=$(plan .database.prepared_baseline)
+if [[ -n "$prepared" ]]; then
+  if ! "$SANDBOXER_SCRIPTS/db/clone-mysql-baseline.sh" "$prepared" "$SANDBOXER_DB_NAME" "$DATADIR"; then
+    mkdir -p "$SANDBOXER_RUN"
+    touch "$SANDBOXER_RUN/boot.fail"
+    "$SANDBOXER_SCRIPTS/status.sh" degraded
+    die "prepared baseline could not initialize this sandbox"
+  fi
+  install -d -o mysql -g mysql /run/mysqld
+  exit 0
+fi
+
 if [[ -d "$DATADIR/mysql" ]]; then
   log "data directory already initialised"
   exit 0

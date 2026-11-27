@@ -1577,8 +1577,23 @@ name the single service that owns it.
 
 ### 6.2 Where a seed artifact lives, and how the container reaches it
 
-There are two kinds of seed artifact and they are not interchangeable, which is the whole
-reason this subsection exists:
+**Prepared synthetic MySQL baselines are an opt-in physical seed.**
+`database.prepared_baseline` is a lowercase SHA-256 artifact key, requires MySQL,
+and replaces `seed_from`. The key covers synthetic SQL bytes, database name,
+recipe version, MySQL version and architecture. Artifacts live under
+`/opt/sandboxer/mysql-baselines/<key>` and are created from reviewed schema-scoped
+synthetic SQL, never a running database or application credentials. Publication
+follows clean server shutdown and is serialized per key.
+
+Each new sandbox receives an integrity-checked private copy in its own data
+volume, with fresh server identity and runtime app accounts. Copy-on-write is
+allowed; hard links are not. Existing initialized volumes are preserved. The
+container owns cloning, provisioning and migrations for this seed type; `up`
+waits for its boot marker and does not run a second host provisioner. Ordinary
+logical seeds retain the host provisioning and `waitForBoot` ordering in §6.1.
+A failed artifact validation stops initialization and leaves existing data intact.
+
+Logical seeds still have two forms, and their container mounts are not interchangeable:
 
 - **A cached dump**, which sandboxer produced itself and content-addressed into
   `~/.sandboxer/cache`. The filename is the identity and the directory is fixed on both
