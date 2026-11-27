@@ -10,6 +10,7 @@ import { createWriteStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, join } from "node:path";
+import { finished } from "node:stream/promises";
 
 import { projectPath } from "../config/load.js";
 import { lockName } from "../naming.js";
@@ -295,12 +296,6 @@ export async function streamToFile(
   await mkdir(dirname(outPath), { recursive: true });
   const out = createWriteStream(outPath);
   let stderr = "";
-  // A write that fails — a full disk, a directory that went — reaches here the
-  // same way a child's does: as an `error` event with nothing listening.
-  out.on("error", (err: Error) => {
-    stderr += `writing ${outPath}: ${err.message}\n`;
-  });
-
   const source = spawn(first.bin, first.args, { stdio: ["ignore", "pipe", "pipe"] });
   source.stderr.on("data", (chunk: Buffer) => {
     stderr += chunk.toString();
@@ -320,19 +315,45 @@ export async function streamToFile(
     source.stdout.pipe(out);
   }
 
-  const [from, thru] = await Promise.all([
-    ended(source, first.bin),
-    sink && through ? ended(sink, through.bin) : Promise.resolve({ code: 0 } as { code: number; message?: string }),
-  ]);
-  // Killed rather than left: one half failing to start leaves the other waiting
-  // on a pipe that will never carry anything, and a sandbox that hangs is worse
-  // than one that fails.
-  if (from.code !== 0) sink?.kill();
-  if (thru.code !== 0) source.kill();
-  out.end();
+  let failure = 0;
+  function stop(code: number): void {
+    if (failure) return;
+    failure = code;
+    // A missing compressor leaves its producer blocked by backpressure. Cancel
+    // before joining the children, and close our readers even when another
+    // process inherited a pipe from a child that has already exited.
+    source.kill("SIGKILL");
+    source.stdout.destroy();
+    source.stderr.destroy();
+    if (sink) {
+      sink.kill("SIGKILL");
+      sink.stdin.destroy();
+      sink.stdout.destroy();
+      sink.stderr.destroy();
+    }
+    out.destroy();
+  }
 
-  for (const { message } of [from, thru]) if (message) stderr += `${message}\n`;
-  return { code: from.code !== 0 ? from.code : thru.code, stderr };
+  async function watch(child: ChildProcess, bin: string): Promise<void> {
+    const result = await ended(child, bin);
+    if (result.message) stderr += `${result.message}\n`;
+    if (result.code !== 0) stop(result.code);
+    else if (child === sink && !source.stdout.readableEnded && !failure) {
+      stderr += `${bin} stopped before consuming the complete dump\n`;
+      stop(1);
+    }
+  }
+
+  // Wait for file closure before the caller renames the partial into the cache.
+  // A write error must also stop the processes trying to fill the broken pipe.
+  const written = finished(out).catch((err: Error) => {
+    if (!failure) {
+      stderr += `writing ${outPath}: ${err.message}\n`;
+      stop(1);
+    }
+  });
+  await Promise.all([watch(source, first.bin), sink && through ? watch(sink, through.bin) : undefined, written]);
+  return { code: failure, stderr };
 }
 
 const ZSTD = { bin: "zstd", args: ["-3", "-T0", "-q", "-c"] };

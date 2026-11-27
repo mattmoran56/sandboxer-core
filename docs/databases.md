@@ -108,6 +108,16 @@ marker, so the sandbox reports `running` rather than sitting at `starting` for e
 
 Making the seed happens on your computer, **once**. Everything else is inside the sandbox.
 
+<details class="failure">
+<summary><b>If it goes wrong</b> — a dump or compressor fails</summary>
+
+A seed is published to the cache only after its output file has finished writing.
+If the dump process, compressor or destination fails, sandboxer stops the remaining
+processes and reports the failed operation. A compressor that exits before consuming
+the dump is a failure even if it reports success. The partial output is not published.
+
+</details>
+
 ```mermaid
 flowchart TB
   subgraph hostside["On your computer"]
