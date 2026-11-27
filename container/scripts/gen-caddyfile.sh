@@ -66,7 +66,7 @@ port_of() {
   # because a snippet must exist before anything imports it.
   printf '(sandboxer_unbuilt) {\n'
   printf '\trespond `{args[0]} has not been built in this sandbox.\n\n'
-  printf 'Run:  sandboxer build %s --app {args[0]}\n' "$SANDBOXER_SLUG"
+  printf 'Run:  sandboxer reload %s --web={args[0]}\n' "$SANDBOXER_SLUG"
   printf '` 503\n'
   printf '}\n\n'
 

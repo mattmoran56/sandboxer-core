@@ -38,16 +38,17 @@ to produce the file it looks like it produces.
 | `3` | The sandbox is [degraded](glossary.md#d) — up, with a failed migration |
 
 <details class="agent">
-<summary><b>Details for an agent</b> — how flags are parsed, and the two spellings that are not interchangeable</summary>
+<summary><b>Details for an agent</b> — how flags and reload targets are parsed</summary>
 
-The parser is `packages/cli/src/args.ts`. It is deliberately tiny, and three of its rules bite.
+The parser is `packages/cli/src/args.ts`. It accepts both spaced and `=` values for named flags.
 
 - **Only a fixed list of flags takes the next word as a value**: `--worktree`, `--slug`,
   `--project`, `--branch`, `--base`, `--name`, `--ttl`, `--seed`, `--tail`, `--timeout`, `--with`,
-  `--bind`, `--http-port`, `--https-port`. Everything else is a boolean.
-- **`--web` and `--go` are not on that list.** `sandboxer reload --web=app` works.
-  `sandboxer reload --web app` does not: `--web` becomes `true`, and `app` is taken as the
-  *positional slug*. Always use the `=` form when naming a target. The same applies to `--backend`.
+  `--bind`, `--http-port`, `--https-port`, `--web`, `--go`, `--backend`, `--target`, `--ref`,
+  `--prefer`, `--since`. Everything else is a boolean.
+- **Reload targets accept either spelling.** `sandboxer reload ticket --web app` and
+  `sandboxer reload ticket --web=app` both build only `app`. The same applies to `--go`
+  and `--backend`. A bare reload flag still selects all targets of its kind.
 - **`--name=value` works for every flag**, so the `=` form is the safe spelling everywhere.
 - `--no-x` sets the boolean `x` to false. That is how `--no-tls` works.
 - A single-dash cluster sets each letter as a boolean: `-f` is follow, `-y` is yes, `-h` is help.
@@ -281,9 +282,8 @@ is missing or stopped.
 One kind at a time. If you pass more than one, `--migrate` wins, then `--web`, then `--go`. Passing
 none of them is an error naming the three.
 
-> [!WARNING] Use the `=` form when you name a target
-> `--web app` is parsed as `--web` plus a positional word, and the positional word is read as the
-> slug. `--web=app` is the spelling that does what it looks like.
+A target can follow a space or `=`: `--web app` and `--web=app` are equivalent.
+When using a bare flag to build all targets, put the sandbox slug before it: `reload ticket --web`.
 
 Exit `1` if any target failed, with the last 20 lines of its output.
 

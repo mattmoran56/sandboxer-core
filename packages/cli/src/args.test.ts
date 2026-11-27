@@ -1,3 +1,5 @@
+// Argument parsing: positional commands, valued and bare flags, reload targets,
+// passthrough arguments, and typed flag accessors.
 import { describe, expect, it } from "vitest";
 
 import { flagBoolean, flagList, flagNumber, flagString, parseArgs } from "./args.js";
@@ -28,6 +30,21 @@ describe("parseArgs", () => {
   it("does not consume the next word when it looks like a flag", () => {
     const args = parseArgs(["up", "--slug", "--detach"]);
     expect(args.flags).toEqual({ slug: true, detach: true });
+  });
+
+  it.each(["web", "go", "backend"])("takes a reload target after --%s without adding a positional slug", (flag) => {
+    const args = parseArgs(["reload", "ticket", `--${flag}`, "app"]);
+    expect(args.flags).toEqual({ [flag]: "app" });
+    expect(args.positional).toEqual(["ticket"]);
+    expect(args).toEqual(parseArgs(["reload", "ticket", `--${flag}=app`]));
+  });
+
+  it.each(["web", "go", "backend"])("preserves a bare --%s reload flag", (flag) => {
+    expect(parseArgs(["reload", "ticket", `--${flag}`]).flags).toEqual({ [flag]: true });
+    expect(parseArgs(["reload", "ticket", `--${flag}`, "--json"]).flags).toEqual({
+      [flag]: true,
+      json: true,
+    });
   });
 
   it("keeps a word after an unknown flag as positional", () => {
