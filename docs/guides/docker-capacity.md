@@ -298,6 +298,34 @@ discovering the limit halfway through a build.
 [On a server, for a team](../setups/shared-server.md) has the rest of the arithmetic — and
 says plainly which parts of running sandboxer on a server do not exist yet.
 
+## Measuring a workload
+
+Measure a running sandbox before changing its memory or CPU limits. Compare the same app and
+source revision, and separate startup from steady use.
+
+<details class="agent">
+<summary><b>Details for an agent</b> — collect a bounded resource report</summary>
+
+From a sandboxer source checkout, build core and sample an explicitly named container:
+
+```sh
+npm --workspace @sandboxer/core run build
+npm run --silent measure -- sandboxer-acme-example 30 8001 /health > measurement.json
+```
+
+The report reads cgroup v2 counters and optionally calls a loopback HTTP endpoint with `curl`.
+It does not collect application logs or credentials. A 2xx response counts as ready; a redirect
+does not. `readyAfterMs` starts when measurement begins, not when `sandboxer up` begins.
+An already healthy container therefore measures probe latency, not startup.
+
+`sampledPeakMemoryBytes` is the largest observed usage. `lifetimePeakMemoryBytes` includes work
+before sampling began. CPU percentages describe the interval between the first and last
+samples; 100% means one fully occupied CPU. Short spikes may fall between samples.
+No readable samples is an error. See `tools/README.md` in the source checkout for the report
+fields and comparison procedure.
+
+</details>
+
 **Next:** [Start, stop, list, clean up](lifecycle.md) is the exact rule for what each
 reclaiming command removes. [Troubleshooting](../troubleshooting.md) covers the failures a
 full disk reports as something else entirely.
