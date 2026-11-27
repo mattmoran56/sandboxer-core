@@ -38,6 +38,9 @@ const VALUE_FLAGS = new Set([
   "bind",
   "http-port",
   "https-port",
+  "web",
+  "go",
+  "backend",
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {
