@@ -285,6 +285,17 @@ none of them is an error naming the three.
 > `--web app` is parsed as `--web` plus a positional word, and the positional word is read as the
 > slug. `--web=app` is the spelling that does what it looks like.
 
+<details class="agent">
+<summary><b>Details for an agent</b> — dependency readiness before a reload</summary>
+
+A front-end reload waits up to five minutes for this boot's Node dependency setup, including
+workspace package copies and executable links. A timeout leaves the install running. Check the
+container's `deps-init` logs and retry. If setup finishes with an install error, the build still
+runs and reports its own result. Projects without a dependency root can build immediately. Rebuild
+the sandbox image and recreate sandboxes created with an older image to pick up the wait helper.
+
+</details>
+
 Exit `1` if any target failed, with the last 20 lines of its output.
 
 ## Cleaning up

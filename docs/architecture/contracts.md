@@ -1429,6 +1429,13 @@ Two driver-specific notes:
   at the sandbox's own state directory (`$SANDBOXER_D1_DIR` for wrangler's `--persist-to`),
   or the runtime writes into the worktree instead of the sandbox.
 
+A migration and a backend each default to waiting for the project's Node dependency tree.
+Set `database.migrate.requires_deps: false` when the migration can run without it. A
+backend can likewise set `requires_deps: false` on its entry or in `backends.defaults`.
+Every backend still waits for database provisioning, including the migration. Served
+frontends always wait for Node dependencies. A plan without a migration retains the
+existing database startup order.
+
 ### 5.5 `plan.json` — the container's view of a project
 
 `sandboxer.yaml` is the human-facing file. Nothing inside a container ever reads it.

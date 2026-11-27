@@ -820,6 +820,23 @@ describe("reload", () => {
     expect(result.built).toEqual(["app", "cms"]);
   });
 
+  it("reports all requested frontends when dependency initialization times out", async () => {
+    const { docker, argsOf } = fakeDocker({
+      rows: [row(labelsOf("tkt-1"), "sandboxer-acme-tkt-1")],
+      running: true,
+      exec: (cmd) => cmd[0]?.endsWith("/wait-deps.sh")
+        ? { code: 1, stderr: "dependency initialization is still pending" }
+        : { stdout: "" },
+    });
+    const result = await reload("acme", "tkt-1", { kind: "frontend", target: "all", docker, config: configOf() });
+    expect(result.built).toEqual([]);
+    expect(result.failed).toEqual(["app", "cms"]);
+    expect(result.output).toContain("dependency initialization is still pending");
+    const commands = argsOf("exec").map(args => (args[1] as string[]).join(" "));
+    expect(commands.filter(command => command.includes("/wait-deps.sh"))).toHaveLength(1);
+    expect(commands.some(command => /sandboxer-restart|with-env/.test(command))).toBe(false);
+  });
+
   it("builds one named front-end", async () => {
     const { docker } = running();
     const result = await reload("acme", "tkt-1", { kind: "frontend", target: "www", docker, config: configOf() });

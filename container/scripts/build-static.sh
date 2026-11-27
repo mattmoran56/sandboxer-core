@@ -120,6 +120,9 @@ esac
 # Each build runs in a subshell, so its `cd` and its NODE_OPTIONS cannot leak into
 # the next one and a failure ends that build rather than the whole run: a broken
 # app is exactly when the others are most worth having.
+if [[ -n "$TARGETS" ]]; then
+  "$SANDBOXER_SCRIPTS/wait-deps.sh"
+fi
 FAILED=""
 for label in $TARGETS; do
   (build_one "$label") || FAILED+=" $label"

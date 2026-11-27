@@ -59,6 +59,7 @@ export const seedFromSchema = z.strictObject({
 });
 
 export const migrateSchema = z.strictObject({
+  requires_deps: z.boolean().optional(),
   workdir: nonEmpty.optional(),
   command: nonEmpty,
   since: z.union([nonEmpty, z.number()]).optional(),
@@ -79,6 +80,7 @@ export const databaseSchema = z.strictObject({
 });
 
 const backendFields = {
+  requires_deps: z.boolean().optional(),
   build: nonEmpty.optional(),
   workdir: nonEmpty.optional(),
   health: nonEmpty.optional(),
