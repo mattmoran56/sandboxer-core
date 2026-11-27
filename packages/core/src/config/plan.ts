@@ -74,6 +74,7 @@ export interface PlanMigrate {
 
 export interface PlanDatabase {
   driver: "mysql" | "d1" | "sqlite" | "none";
+  prepared_baseline?: string;
   version?: string;
   name?: string;
   owner?: string;
@@ -189,6 +190,7 @@ export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
   const migrate = config.database.migrate;
   const database: PlanDatabase = compact({
     driver: config.database.driver,
+    prepared_baseline: config.database.preparedBaseline,
     version: config.database.version,
     // Defaulted here rather than in the container: the name belongs to the
     // project, and a shell default would be a second place it is decided.

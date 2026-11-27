@@ -26,6 +26,11 @@ The container **hard-fails** if the plan is missing or is not valid JSON. It nev
 
 ## The whole plan
 
+For a prepared synthetic MySQL seed, `database.prepared_baseline` contains its
+64-character SHA-256 key instead of `database.seed`. The container resolves it
+under `/opt/sandboxer/mysql-baselines` and verifies the artifact before copying it
+into the sandbox's private data volume. See [Databases](../databases.md#prepared-synthetic-mysql-databases).
+
 A complete plan for the fictional project **acme**: a Go backend, a bundled front-end, a CMS dev
 server, MySQL and object storage.
 

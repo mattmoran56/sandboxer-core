@@ -370,6 +370,32 @@ describe("down", () => {
 });
 
 describe("up", () => {
+  it("leaves prepared MySQL provisioning and migration to the container", async () => {
+    const { dir, home } = await worktree();
+    const { docker, argsOf } = fakeDocker({ running: true, exists: false, exec: () => ({ stdout: "{}" }) });
+    const result = await up({
+      config: configOf({ database: { driver: "mysql", prepared_baseline: "b".repeat(64), migrate: { command: "apply-migrations" } } }),
+      worktree: dir, docker, env: { SANDBOXER_HOME: home, SANDBOXER_IMAGE: "prepared:fixture" },
+    });
+    expect(result.seed.source).toBe("prepared");
+    const commands = argsOf("exec").map(args => (args[1] as string[]).join(" "));
+    expect(commands.some(cmd => cmd.includes("test -f /run/sandboxer/boot.ok"))).toBe(true);
+    expect(commands.some(cmd => /mysql |apply-migrations/.test(cmd))).toBe(false);
+  });
+
+  it("reports a prepared database failure without attempting a logical restore", async () => {
+    const { dir, home } = await worktree();
+    const { docker, argsOf } = fakeDocker({ running: true, exists: false,
+      exec: cmd => ({ code: cmd.join(" ").includes("test ! -f /run/sandboxer/boot.fail") ? 1 : 0, stdout: "{}" }),
+    });
+    const result = await up({
+      config: configOf({ database: { driver: "mysql", prepared_baseline: "b".repeat(64) } }),
+      worktree: dir, docker, env: { SANDBOXER_HOME: home, SANDBOXER_IMAGE: "prepared:fixture" },
+    });
+    expect(result.migrationFailure).toContain("prepared database boot failed");
+    expect(argsOf("exec").some(args => /mysql /.test((args[1] as string[]).join(" ")))).toBe(false);
+  });
+
   async function worktree(): Promise<{ dir: string; home: string }> {
     const dir = await mkdtemp(join(tmpdir(), "sbx-up-"));
     await mkdir(join(dir, "tkt-1"), { recursive: true });

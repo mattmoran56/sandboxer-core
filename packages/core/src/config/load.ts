@@ -211,12 +211,16 @@ function resolveDatabase(raw: RawConfig, file: string): DatabaseConfig {
 
   const seed = db.seed_from;
   const migrate = db.migrate;
-  if (db.driver !== "none" && !migrate && !seed) {
+  if (db.prepared_baseline && (db.driver !== "mysql" || seed)) {
+    throw new ConfigError(file, "requires mysql and cannot be combined with seed_from", "database.prepared_baseline");
+  }
+  if (db.driver !== "none" && !migrate && !seed && !db.prepared_baseline) {
     throw new ConfigError(file, "a driver with neither a seed nor a migration has nothing to do", "database");
   }
 
   return {
     driver: db.driver,
+    preparedBaseline: db.prepared_baseline,
     version: db.version === undefined ? undefined : String(db.version),
     seedFrom: seed
       ? {

@@ -55,6 +55,13 @@ export interface ChooseSeedOptions {
  * a separate code path.
  */
 export function chooseSeed(config: ResolvedConfig, options: ChooseSeedOptions = {}): SeedChoice {
+  if (config.database.preparedBaseline) {
+    if (options.prefer && options.prefer !== "prepared") {
+      throw new SeedError("this sandbox uses a prepared MySQL baseline; remove the seed override");
+    }
+    return { source: "prepared" };
+  }
+  if (options.prefer === "prepared") throw new SeedError("no prepared MySQL baseline is configured");
   const seed = config.database.seedFrom;
   if (config.database.driver === "none" || !seed) return { source: "none" };
 
