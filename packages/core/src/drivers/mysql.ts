@@ -346,6 +346,10 @@ export const mysqlDriver: DatabaseDriver = {
     const now = ctx.now?.() ?? new Date();
     const docker = ctx.docker;
 
+    if (ctx.config.database.preparedBaseline) {
+      return { kind: "copy", source: "prepared", key: ctx.config.database.preparedBaseline, createdAt: now.toISOString() };
+    }
+
     const localAvailable = docker
       ? await docker.containerRunning(ctx.config.database.seedFrom?.local?.container ?? "")
       : false;
@@ -710,6 +714,8 @@ async function applyFixtures(ctx: DriverContext, settings: MysqlSettings): Promi
 /** Exposed for the lifecycle, which reports the seed choice before starting. */
 export function describeSeedChoice(choice: SeedChoice): string {
   switch (choice.source) {
+    case "prepared":
+      return "private copy of the prepared synthetic baseline";
     case "local":
       return `forking ${choice.container}${choice.database ? `:${choice.database}` : ""} (read-only)`;
     case "file":

@@ -46,7 +46,7 @@ export interface DriverContext {
 }
 
 /** Where a seed came from, which decides whether a public sandbox may use it. */
-export type SeedSource = "local" | "file" | "fixtures" | "none";
+export type SeedSource = "prepared" | "local" | "file" | "fixtures" | "none";
 
 export interface SeedArtifact {
   /**

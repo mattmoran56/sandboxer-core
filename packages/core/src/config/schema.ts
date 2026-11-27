@@ -73,6 +73,8 @@ export const migrateSchema = z.strictObject({
 export const databaseSchema = z.strictObject({
   driver: z.enum(["mysql", "d1", "sqlite", "none"]),
   version: z.union([nonEmpty, z.number()]).optional(),
+  prepared_baseline: z.string().regex(/^[a-f0-9]{64}$/, "must be a lowercase SHA-256 key").optional(),
+  cache_baseline: z.boolean().optional(),
   seed_from: seedFromSchema.optional(),
   migrate: migrateSchema.optional(),
   owner: nonEmpty.optional(),

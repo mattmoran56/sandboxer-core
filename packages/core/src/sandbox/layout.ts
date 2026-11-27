@@ -113,6 +113,8 @@ export const GOMOD_DIR = "/go/pkg/mod";
 
 /** Built static sites, served by the sandbox's own file server. */
 export const WWW_DIR = "/srv/www";
+/** Immutable local MySQL seeds; writable databases still use DATA_DIR. */
+export const MYSQL_BASELINES_DIR = "/opt/sandboxer/local-mysql-baselines";
 
 /** Runtime state, on a tmpfs: gone when the container stops, as it should be. */
 export const RUN_DIR = "/run/sandboxer";

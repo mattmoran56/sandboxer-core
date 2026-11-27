@@ -51,6 +51,9 @@ export interface DatabaseConfig {
   driver: DriverName;
   /** Driver-specific: the server version a dump is restored into. */
   version?: string | undefined;
+  preparedBaseline?: string | undefined;
+  /** Cache a private, pre-migration physical copy of a local logical seed. */
+  cacheBaseline?: boolean | undefined;
   seedFrom?: SeedFrom | undefined;
   migrate?: MigrateConfig | undefined;
   /**

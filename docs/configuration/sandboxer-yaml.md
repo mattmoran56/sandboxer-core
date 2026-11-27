@@ -87,6 +87,8 @@ database:
 |---|---|---|---|
 | `driver` | `mysql` \| `d1` \| `sqlite` \| `none` | **yes** if the block is present | See [Databases](../databases.md) |
 | `version` | string or number | no | The version production runs, not the one you happen to have |
+| `prepared_baseline` | SHA-256 key | no, MySQL only | Private copy of a [prepared synthetic database](../databases.md#prepared-synthetic-mysql-databases); replaces `seed_from` |
+| `cache_baseline` | boolean | no, defaults to `false` | Cache a physical baseline of a MySQL file or local seed, then clone private data for each sandbox. See [local MySQL caching](../databases.md#cached-local-mysql-seeds) |
 | `seed_from` | [block](#databaseseed_from) | no | Where the initial data comes from |
 | `migrate` | [block](#databasemigrate) | no | The project's own migration command |
 | `owner` | string | no | The one runtime allowed to open a file-backed database |

@@ -14,6 +14,7 @@ import type { BackendService, FrontendApp, ResolvedConfig } from "../config/type
 import {
   GOCACHE_VOLUME,
   GOMOD_VOLUME,
+  MYSQL_BASELINES_VOLUME,
   NETWORK,
   containerName,
   depsVolumeName,
@@ -28,6 +29,7 @@ import {
   DATA_DIR,
   GOCACHE_DIR,
   GOMOD_DIR,
+  MYSQL_BASELINES_DIR,
   LOG_DIR,
   PLAN_FILE,
   SCRIPTS_DIR,
@@ -254,6 +256,9 @@ export function runArgs(input: RunInput): string[] {
   if (input.secretsFile) args.push("-v", `${input.secretsFile}:${SECRETS_FILE}:ro`);
   args.push("-v", `${volumeName("bin", config.project, slug)}:${BIN_DIR}`);
   args.push("-v", `${volumeName("www", config.project, slug)}:${WWW_DIR}`);
+  if (config.database.driver === "mysql" && config.database.cacheBaseline) {
+    args.push("-v", `${MYSQL_BASELINES_VOLUME}:${MYSQL_BASELINES_DIR}`);
+  }
   // One volume, two shapes: a server keeps its data directory here and a
   // file-backed driver keeps the sandbox's private copy of the file here, so
   // `down` removes the database either way.

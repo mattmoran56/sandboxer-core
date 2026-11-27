@@ -12,9 +12,51 @@ source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
 DATADIR="$SANDBOXER_STATE/data/mysql"
 
+prepared=$(plan .database.prepared_baseline)
+if [[ -n "$prepared" ]]; then
+  if ! "$SANDBOXER_SCRIPTS/db/clone-mysql-baseline.sh" "$prepared" "$SANDBOXER_DB_NAME" "$DATADIR"; then
+    mkdir -p "$SANDBOXER_RUN"
+    touch "$SANDBOXER_RUN/boot.fail"
+    "$SANDBOXER_SCRIPTS/status.sh" degraded
+    die "prepared baseline could not initialize this sandbox"
+  fi
+  install -d -o mysql -g mysql /run/mysqld
+  exit 0
+fi
+
 if [[ -d "$DATADIR/mysql" ]]; then
+  if [[ -f "$DATADIR/.sandboxer-local-baseline" ]]; then
+    mkdir -p "$SANDBOXER_RUN"
+    touch "$SANDBOXER_RUN/mysql-local-baseline"
+  fi
   log "data directory already initialised"
   exit 0
+fi
+
+if [[ "$(plan .database.cache_baseline)" == true ]]; then
+  seed=$(plan .database.seed.path)
+  [[ -z "$seed" || "$seed" == /* ]] || seed="/sandboxer/cache/$seed"
+  if [[ -n "$seed" && -f "$seed" ]]; then
+    cache=/opt/sandboxer/local-mysql-baselines
+    start=$(date +%s)
+    key=$("$SANDBOXER_SCRIPTS/db/prepare-mysql-baseline.sh" --key --local-dump "$cache" "$SANDBOXER_DB_NAME" "$seed")
+    if [[ -f "$cache/$key/manifest.json" ]]; then
+      log "reusing cached database baseline"
+    else
+      log "preparing database baseline (first use of this seed and MySQL version)"
+    fi
+    # Preparation and cloning are both serialized and publish only after a clean
+    # shutdown/integrity check. The shared volume is never a running datadir.
+    if { [[ -d "$cache/$key" ]] || "$SANDBOXER_SCRIPTS/db/prepare-mysql-baseline.sh" --local-dump "$cache" "$SANDBOXER_DB_NAME" "$seed" >/dev/null; } &&
+       SANDBOXER_MYSQL_BASELINES="$cache" "$SANDBOXER_SCRIPTS/db/clone-mysql-baseline.sh" "$key" "$SANDBOXER_DB_NAME" "$DATADIR"; then
+      mkdir -p "$SANDBOXER_RUN"
+      touch "$DATADIR/.sandboxer-local-baseline" "$SANDBOXER_RUN/mysql-local-baseline"
+      install -d -o mysql -g mysql /run/mysqld
+      log "private cached database ready in $(($(date +%s) - start))s"
+      exit 0
+    fi
+    warn "database cache unavailable; using ordinary isolated SQL restore"
+  fi
 fi
 
 log "initialising $DATADIR"
