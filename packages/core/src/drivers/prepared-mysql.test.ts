@@ -32,4 +32,3 @@ it.skipIf(!image)("boots isolated copies of a verified prepared MySQL baseline",
     "--entrypoint", "bash", image!, "/test.sh"]);
   expect(stdout).toContain("Verified two private MySQL servers");
 }, 180_000);
-
