@@ -121,6 +121,7 @@ is an assertion by whoever wrote the config, not something the tool can verify.
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `command` | string | **yes** | Your project's own runner |
+| `requires_deps` | boolean | no | Wait for the Node dependency install before migration. Default `true`. Set `false` for a migration that can run during the install. |
 | `workdir` | path | no | Where to run it. Relative to the tree the config governs |
 | `since` | string or number | no | A cutoff, exported as `SANDBOXER_MIGRATE_SINCE` |
 | `failure_pattern` | string | no | Treat output matching this as a failure, even on exit 0 |
@@ -180,6 +181,7 @@ backends:
 | `port` | port | **yes** | no | Where it listens **inside** the container |
 | `label` | hostname label | **yes** | no | Its hostname: `<slug>--<label>--<project>.<domain>` |
 | `build` | string | **yes**, here or in `defaults` | yes | `{name}` and `{out}` are substituted |
+| `requires_deps` | boolean | no | yes | Wait for the Node dependency install before building and starting this backend. Default `true`. The database and its migrations must still be ready. |
 | `workdir` | path | no | yes | Where the build runs, and where the binary is started from |
 | `health` | path | no | yes | Probed to decide whether the service is up |
 | `memory` | memory | no | yes | Raises the whole sandbox's limit |

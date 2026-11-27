@@ -9,7 +9,7 @@
 #
 #   mysql-init ──→ mysqld ──┐
 #   minio ──────────────────┼──→ db-init ──→ every backend and server
-#   deps-init ──────────────┘
+#   deps-init ──────────────┘  (migration and backend edges can opt out)
 #   caddy (no gate: the status surface must answer while the database restores)
 set -euo pipefail
 
@@ -120,17 +120,28 @@ fi
 
 # deps-init exists only when the project has a Node dependency tree to seed.
 # A Go-only or database-only sandbox skips it entirely.
-if [[ -n "$(plan .deps.root)" ]]; then
+deps_root=$(plan .deps.root)
+if [[ -n "$deps_root" ]]; then
   oneshot deps-init "$SANDBOXER_SCRIPTS/deps-init.sh"
   enable deps-init
-  GATES+=(deps-init)
 fi
+
+# Read the boolean directly with jq. The shared plan/field fallback treats false
+# as missing. Remove a previous edge if the generated tree is refreshed in place.
+node_deps_edge() {
+  if [[ -n "$deps_root" && "$2" == true ]]; then
+    needs "$1" deps-init
+  else
+    rm -f "$DST/$1/dependencies.d/deps-init"
+  fi
+}
 
 # db-init runs for every driver, `none` included: it is also what writes the
 # status file the dashboard reads, so a sandbox with no database still reports
 # whether it finished booting.
 oneshot db-init "$SANDBOXER_SCRIPTS/db-init.sh"
 enable db-init
+node_deps_edge db-init "$(jq -r '.database.migrate.requires_deps != false' "$SANDBOXER_PLAN")"
 [[ ${#GATES[@]} -gt 0 ]] && needs db-init "${GATES[@]}"
 
 # Caddy deliberately does NOT wait for db-init. It serves the status surface and
@@ -154,6 +165,7 @@ while read -r record; do
   [[ -n "$port" ]] && RUN_ENV=("PORT=$port")
   longrun "$id" "$SANDBOXER_SCRIPTS/run-backend.sh" "$name"
   needs "$id" db-init
+  node_deps_edge "$id" "$(jq -r '.requires_deps != false' <<<"$record")"
 
   if requested "$record"; then
     enable "$id"
@@ -170,7 +182,8 @@ while read -r record; do
 
   [[ -n "$port" ]] && RUN_ENV=("PORT=$port")
   longrun "$id" "$SANDBOXER_SCRIPTS/run-server.sh" "$label"
-  needs "$id" db-init deps-init
+  needs "$id" db-init
+  node_deps_edge "$id" true
 
   if requested "$record"; then
     enable "$id"

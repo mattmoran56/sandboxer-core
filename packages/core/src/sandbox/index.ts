@@ -49,7 +49,7 @@ import { envDigest, readProjectSecrets } from "../secrets.js";
 import { planGc } from "./gc.js";
 import { planPrune, type PruneResult } from "./prune.js";
 import { LABELS, SANDBOX_FILTER, deriveState, labelsFromConfig, sandboxFromLabels } from "./labels.js";
-import { BUILT_MANIFEST, MIGRATE_STATE, WITH_ENV, WWW_DIR, seedMount } from "./layout.js";
+import { BUILT_MANIFEST, MIGRATE_STATE, SCRIPTS_DIR, WITH_ENV, WWW_DIR, seedMount } from "./layout.js";
 import { DEFAULT_IMAGE, backendBuild, frontendBuild, lockHash, runArgs } from "./run.js";
 import type {
   DownOptions,
@@ -749,6 +749,13 @@ export async function reload(project: string, slug: string, options: ReloadOptio
 
   const apps = await frontendTargets(docker, container, config, options.target);
   if (apps.length === 0) throw new SandboxError(`nothing to build for "${options.target ?? "all"}"`);
+  // A database and Go backend may be ready before npm finishes preparing the
+  // workspace. Wait once for the whole reload, before building or restarting.
+  const deps = await docker.exec(container, [`${SCRIPTS_DIR}/wait-deps.sh`]);
+  output += deps.stdout + deps.stderr;
+  if (deps.code !== 0) {
+    return { kind: "frontend", built, failed: apps.map(app => app.label), output };
+  }
   for (const app of apps) {
     if (app.kind === "server") {
       log(`${app.label} is a long-running server, so it is restarted rather than built`);

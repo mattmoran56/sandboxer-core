@@ -23,6 +23,7 @@ import { dirname } from "node:path";
 import type { ResolvedConfig, RouteMap } from "./types.js";
 
 export interface PlanBackend {
+  requires_deps?: boolean;
   kind: "backend";
   name: string;
   label: string;
@@ -64,6 +65,7 @@ export interface PlanServer {
 export type PlanService = PlanBackend | PlanStatic | PlanServer;
 
 export interface PlanMigrate {
+  requires_deps?: boolean;
   command: string;
   workdir?: string;
   since?: string;
@@ -149,6 +151,7 @@ export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
           health: backend.health,
           workdir: backend.workdir,
           memory: backend.memory,
+          requires_deps: backend.requiresDeps === false ? false : undefined,
           optional: backend.optional ? (true as const) : undefined,
         }),
     ),
@@ -203,6 +206,7 @@ export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
           command: migrate.command,
           workdir: migrate.workdir,
           since: migrate.since,
+          requires_deps: migrate.requiresDeps === false ? false : undefined,
           failure_pattern: migrate.failurePattern,
           file_pattern: migrate.filePattern,
           error_pattern: migrate.errorPattern,

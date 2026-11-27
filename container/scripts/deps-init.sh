@@ -25,6 +25,20 @@ LOG_TAG="deps-init"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 
+# The shared volume marker describes the install only; this sandbox may still be
+# copying nested workspaces or linking their binaries. Publish completion of the
+# entire oneshot separately in this boot's private runtime directory.
+mkdir -p "$SANDBOXER_RUN"
+rm -f "$SANDBOXER_RUN/deps-finished" "$SANDBOXER_RUN/deps-finished.tmp"
+deps_outcome=finished
+finish_deps() {
+  local rc=$?
+  [[ $rc == 0 ]] || deps_outcome=failed
+  printf '%s\n' "$deps_outcome" > "$SANDBOXER_RUN/deps-finished.tmp" &&
+    mv "$SANDBOXER_RUN/deps-finished.tmp" "$SANDBOXER_RUN/deps-finished"
+}
+trap finish_deps EXIT
+
 ROOT=$(plan .deps.root)
 [[ -n "$ROOT" ]] || {
   log "the plan declares no dependency tree"
@@ -67,6 +81,7 @@ commit_marker() {
 
 [[ -d "$DEPS_DIR" ]] || {
   log "no $ROOT in this worktree"
+  deps_outcome=failed
   exit 0
 }
 
@@ -206,9 +221,10 @@ if [[ -n "$WANT" && "$WANT" != "$HAVE" ]]; then
   # Installing here is slow but correct, and it beats a sandbox that builds
   # against the wrong package versions and cannot say why.
   log "this worktree's $LOCKFILE differs from the image -- installing"
-  cd "$DEPS_DIR" || exit 0
+  cd "$DEPS_DIR" || { deps_outcome=failed; exit 0; }
   if ! eval "$INSTALL"; then
     warn "'$INSTALL' failed; front-end builds will not work"
+    deps_outcome=failed
     exit 0
   fi
   log "dependencies installed"
@@ -228,6 +244,7 @@ START=$(date +%s)
 # in what is missing never leaves it with less than it started with.
 if ! cp -a "$SOURCE/." "$TARGET/"; then
   warn "could not seed node_modules"
+  deps_outcome=failed
   exit 0
 fi
 log "seeded in $(($(date +%s) - START))s"
