@@ -1797,6 +1797,12 @@ the confirmation dialog are not** (Jef's §6).
 | `secrets`, `config` | machine or project | The files of §5.2 and §4.3 |
 | `init`, `teardown`, `doctor` | machine | The router, the certificate and the domain of §3.2 |
 
+The repository also includes a developer diagnostic, `npm run measure -- <container>`. It is
+not a lifecycle verb: it samples cgroup v2 counters from an explicitly named container and
+optionally probes a loopback HTTP endpoint. It never starts, stops or changes that container.
+Its sampling duration is configurable from 1 to 600 seconds, and its JSON output separates
+sampled memory usage, lifetime peak memory, CPU deltas and time to the first 2xx response.
+
 **A verb's scope is part of its identity**, and it answers "what does this act on", never "where
 is the button drawn". `worktree pull` is the case that makes it load-bearing. It brings one
 worktree up to its branch's head on the remote (§4.1.3), and it is scoped to the *worktree*

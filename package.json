@@ -17,7 +17,8 @@
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "docs:dev": "npm --workspace @sandboxer/docs run dev",
-    "docs:build": "npm --workspace @sandboxer/docs run build"
+    "docs:build": "npm --workspace @sandboxer/docs run build",
+    "measure": "node --experimental-strip-types tools/measure-sandbox.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
