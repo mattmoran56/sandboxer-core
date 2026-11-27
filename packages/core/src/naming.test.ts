@@ -363,7 +363,7 @@ describe("docker names", () => {
   // `protectVolumes`, and `orphanVolumes` never proposes a name of a shape the
   // engine does not mint. The list being short is the property under test.
   it("counts only the engine's own volumes among the machine-wide ones", () => {
-    expect([...SHARED_VOLUMES]).toEqual(["sandboxer-gocache", "sandboxer-gomod"]);
+    expect([...SHARED_VOLUMES]).toEqual(["sandboxer-gocache", "sandboxer-gomod", "sandboxer-static-cache"]);
   });
 
   // Spelt once, beside the name it prefixes: `orphanVolumes` recognises a volume

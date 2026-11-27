@@ -107,6 +107,12 @@ export interface FrontendApp {
   memory?: string | undefined;
   /** Included when a caller asks to build everything. */
   inBuildAll: boolean;
+  /** Reuse static artifacts for identical local inputs; opt-in for deterministic builds. */
+  cache?: boolean | undefined;
+  /** Complete source inputs, relative to the workspace. Defaults to the whole checkout. */
+  cacheInputs?: string[] | undefined;
+  /** Include Git branch/revision unless the build is explicitly independent of them. */
+  cacheGit?: boolean | undefined;
   /** Started only when asked for. */
   optional: boolean;
   kind: "static" | "server";

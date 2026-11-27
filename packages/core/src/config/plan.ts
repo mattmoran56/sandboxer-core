@@ -46,6 +46,9 @@ export interface PlanStatic {
   memory?: string;
   /** Only written when false: the default is to be included. */
   in_build_all?: false;
+  cache?: true;
+  cache_inputs?: string[];
+  cache_git?: false;
   optional?: true;
 }
 
@@ -184,6 +187,9 @@ export function planFor(config: ResolvedConfig, input: PlanInput = {}): Plan {
         static_mode: app.staticMode,
         memory: app.memory,
         in_build_all: app.inBuildAll ? undefined : (false as const),
+        cache: app.cache ? (true as const) : undefined,
+        cache_inputs: app.cache ? app.cacheInputs : undefined,
+        cache_git: app.cache && app.cacheGit === false ? (false as const) : undefined,
         optional: app.optional ? (true as const) : undefined,
       });
     }),

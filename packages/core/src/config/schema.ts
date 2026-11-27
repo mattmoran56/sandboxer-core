@@ -122,6 +122,9 @@ const frontendFields = {
    */
   static_mode: z.enum(["spa", "files", "html"]).optional(),
   in_build_all: z.boolean().optional(),
+  cache: z.boolean().optional(),
+  cache_inputs: z.array(nonEmpty.refine(value => !value.startsWith("/") && !value.split(/[\\/]/).includes(".."), "must stay inside the workspace")).min(1).optional(),
+  cache_git: z.boolean().optional(),
   optional: z.boolean().optional(),
 };
 

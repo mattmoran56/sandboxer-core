@@ -113,6 +113,8 @@ export const GOMOD_DIR = "/go/pkg/mod";
 
 /** Built static sites, served by the sandbox's own file server. */
 export const WWW_DIR = "/srv/www";
+/** Content-addressed static builds, shared between opted-in frontends. */
+export const STATIC_CACHE_DIR = "/var/cache/sandboxer/static-builds";
 
 /** Runtime state, on a tmpfs: gone when the container stops, as it should be. */
 export const RUN_DIR = "/run/sandboxer";

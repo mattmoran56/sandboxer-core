@@ -21,7 +21,7 @@ source "${SANDBOXER_SCRIPTS:-/opt/sandboxer/scripts}/lib.sh"
 BUILT_MANIFEST="$SANDBOXER_WWW/.built.json"
 
 build_one() {
-  local label="$1" record pkg_dir out build memory limit
+  local label="$1" record pkg_dir out build memory limit cache_key="" cache_entry="" started=$SECONDS
   record=$(service_by static label "$label")
   [[ -n "$record" ]] || die "no static front-end labelled '$label' in the plan"
 
@@ -32,6 +32,14 @@ build_one() {
 
   [[ -d "$pkg_dir" ]] || die "no package directory at $pkg_dir"
   [[ -n "$build" ]] || die "front-end '$label' declares no build command"
+
+  # Local CLI calls can overlap. Each label owns its served-directory swap;
+  # util-linux flock is installed in the runtime image (optional on test hosts).
+  if command -v flock >/dev/null; then
+    mkdir -p "$SANDBOXER_WWW/.locks"
+    exec 9>"$SANDBOXER_WWW/.locks/$label"
+    flock 9 || return 1
+  fi
 
   limit=$(mem_limit)
 
@@ -62,23 +70,62 @@ build_one() {
     export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=$((limit / 1048576 * 75 / 100))"
   fi
 
+  local cache_root="${SANDBOXER_STATIC_CACHE:-/var/cache/sandboxer/static-builds}"
+  if [[ "$(field "$record" cache false)" == true && "${SANDBOXER_FORCE_BUILD:-false}" != true ]]; then
+    if mkdir -p "$cache_root" && cache_key=$(node "$SANDBOXER_SCRIPTS/static-cache.mjs" key "$label"); then
+      cache_entry="$cache_root/$cache_key"
+      if command -v flock >/dev/null; then
+        mkdir -p "$cache_root/.locks"
+        exec 7>"$cache_root/.locks/$cache_key"
+        flock 7 || return 1
+      fi
+      if [[ -d "$cache_entry" ]] && node "$SANDBOXER_SCRIPTS/static-cache.mjs" verify "$cache_entry"; then
+        publish_static "$cache_entry/files" "$label" || return 1
+        record_built "$label"
+        log "reused $label from cache in $((SECONDS - started))s"
+        return 0
+      fi
+      # Invalid entries must not permanently poison this key. Writers/readers
+      # hold the same key lock, so only this invocation can replace it now.
+      [[ ! -d "$cache_entry" ]] || rm -rf "$cache_entry"
+      log "cache miss for $label (checked in $((SECONDS - started))s)"
+    else
+      cache_key=""
+      warn "cache unavailable for $label; building normally"
+    fi
+  fi
+
   log "building $label"
   cd "$pkg_dir"
-  eval "$build"
+  # This function is called from an || list, where Bash disables errexit even
+  # inside functions. Do not publish or cache old output after a failed build.
+  if ! eval "$build"; then return 1; fi
 
   [[ -d "$out" ]] || die "'$label' built but produced no $out/"
 
+  if [[ -n "$cache_key" ]]; then
+    local after_key
+    if after_key=$(node "$SANDBOXER_SCRIPTS/static-cache.mjs" key "$label") && [[ "$after_key" == "$cache_key" ]]; then
+      node "$SANDBOXER_SCRIPTS/static-cache.mjs" store "$out" "$cache_entry" || warn "could not cache $label"
+    else
+      log "inputs changed during build; did not cache $label"
+    fi
+  fi
+
+  publish_static "$out" "$label" || return 1
+  record_built "$label"
+  log "built $label in $((SECONDS - started))s -> $SANDBOXER_WWW/$label"
+}
+
+publish_static() {
   # Swapped rather than written in place, so a page load mid-build never sees a
   # half-written bundle.
-  local dest="$SANDBOXER_WWW/$label"
+  local source="$1" dest="$SANDBOXER_WWW/$2"
   rm -rf "$dest.new" "$dest.old"
-  cp -a "$out" "$dest.new"
+  cp -a "$source" "$dest.new" || return 1
   mv "$dest" "$dest.old" 2>/dev/null || true
-  mv "$dest.new" "$dest"
+  mv "$dest.new" "$dest" || return 1
   rm -rf "$dest.old"
-
-  record_built "$label"
-  log "built $label -> $dest"
 }
 
 # The build time is recorded because a directory listing cannot carry it, and
@@ -89,12 +136,18 @@ build_one() {
 # every app would then report itself as never built.
 record_built() {
   local now
+  if command -v flock >/dev/null; then
+    mkdir -p "$SANDBOXER_WWW/.locks"
+    exec 8>"$SANDBOXER_WWW/.locks/manifest"
+    flock 8 || return 1
+  fi
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local current='{}'
   [[ -f "$BUILT_MANIFEST" ]] && current=$(cat "$BUILT_MANIFEST" 2>/dev/null || echo '{}')
   printf '%s' "$current" |
     jq --arg l "$1" --arg t "$now" '. + { ($l): $t }' >"$BUILT_MANIFEST.new" &&
     mv "$BUILT_MANIFEST.new" "$BUILT_MANIFEST"
+  exec 8>&-
 }
 
 labels_all() {

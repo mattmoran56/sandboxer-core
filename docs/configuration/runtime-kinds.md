@@ -280,6 +280,56 @@ in one place.
 | A Workers project under `wrangler dev` | served | `serve:` and `port:` |
 | A worker with no HTTP interface at all | backend | an entry under `backends.services` |
 
+## Reusing static build artifacts
+
+Set `cache: true` on a static frontend (or in frontend defaults) to reuse a successful
+production build when its local inputs are identical. Caching is opt-in: use it for
+reproducible builds, not a static site that fetches fresh content from a CMS at build time.
+The served result remains the production bundle; this does not start a dev server.
+
+<details class="agent">
+<summary><b>Details for an agent</b> — cache inputs, verification and invalidation</summary>
+
+The shared Docker volume `sandboxer-static-cache` stores artifacts by content hash.
+The key includes source file contents (including untracked files and `.env`), Git
+revision and branch, the frontend build definition, Node version/architecture and the
+build environment. Declared static output directories, Git internals and managed
+`node_modules` trees are excluded from the source scan. Dependency lockfiles and the
+managed install markers identify dependencies; after manually modifying installed
+packages, bypass the cache with `SANDBOXER_FORCE_BUILD=true` inside the container.
+
+Cache hits verify artifact checksums before publishing. Failed builds are never
+published or cached, and a build whose source changes while it runs is not cached.
+Labels and shared cache entries are locked during builds so overlapping reloads cannot
+publish half-written output. Cache failures fall back to normal builds. Logs report
+miss/hit and elapsed seconds without printing environment values.
+
+By default the entire checkout and Git revision are inputs. For a frontend whose complete
+source, config, assets and shared libraries live in one subtree, declare `cache_inputs`
+(relative to the workspace) to avoid scanning unrelated services. Set `cache_git: false`
+only if the build does not embed Git revisions, branches or tags. These are assertions
+about the build's inputs: omitting an input can serve stale output. For example:
+
+```yaml
+frontends:
+  root: web/packages
+  defaults:
+    build: npx vite build
+    out: dist
+    cache_inputs: [web]
+    cache_git: false
+  apps:
+    - { label: app, package: app, cache: true }
+```
+
+With this configuration, a backend-only change or commit can reuse the frontend bundle;
+a change anywhere in the shared frontend tree still rebuilds it. Different sandbox
+origins or credentials also miss, preventing one sandbox from serving bundles compiled
+for another URL. This caches complete production artifacts, not incremental Vite compiler
+state. Keep caching disabled for builds with undeclared external files or live inputs.
+
+</details>
+
 **Next:** [sandboxer.yaml, field by field](sandboxer-yaml.md) for every field each kind
 accepts, or [The edit–reload loop](../guides/edit-and-reload.md) for what you run after you
 change something.

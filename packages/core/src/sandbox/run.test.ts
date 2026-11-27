@@ -268,6 +268,16 @@ describe("runArgs", () => {
     });
   });
 
+  it("shares opted-in static build artifacts while keeping served files private", () => {
+    const config = configOf({ frontends: { apps: [{ label: "app", package: "web", build: "build", out: "dist", cache: true }] } });
+    for (const slug of ["one", "two"]) {
+      const cached = runArgs({ ...base, config, slug });
+      expect(cached).toContain("sandboxer-static-cache:/var/cache/sandboxer/static-builds");
+      expect(cached).toContain(`sandboxer-www-acme-${slug}:/srv/www`);
+    }
+    expect(runArgs(base)).not.toContain("sandboxer-static-cache:/var/cache/sandboxer/static-builds");
+  });
+
   /**
    * What an embedder puts in every sandbox of its own, which the engine names
    * none of.

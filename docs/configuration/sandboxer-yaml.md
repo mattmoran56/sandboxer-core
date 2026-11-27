@@ -226,6 +226,9 @@ frontends:
 | `health` | path | no | yes | For a **served** app. Ignored for a static app |
 | `static_mode` | `spa` \| `files` \| `html` | no | yes | How the built directory is served. Default `spa` |
 | `in_build_all` | boolean | no | yes | Whether "rebuild everything" includes it. Default `true` |
+| `cache` | boolean | no | yes | Reuse identical static build artifacts. Default `false`; ignored for served apps |
+| `cache_inputs` | list of paths | no | yes | Complete source inputs relative to the workspace. Defaults to the whole checkout; see [artifact caching](runtime-kinds.md#reusing-static-build-artifacts) |
+| `cache_git` | boolean | no | yes | Include Git revision/branch in the artifact key. Default `true`; set `false` only for Git-independent builds |
 | `memory` | memory | no | yes | Raises the whole sandbox's limit |
 | `optional` | boolean | no | yes | Dormant unless named in `--with`. Default `false` |
 

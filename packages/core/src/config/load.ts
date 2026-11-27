@@ -322,6 +322,9 @@ function resolveFrontends(raw: RawConfig, file: string): FrontendApp[] {
       staticMode: entry.static_mode ?? defaults.static_mode ?? "spa",
       memory: entry.memory ?? defaults.memory,
       inBuildAll: entry.in_build_all ?? defaults.in_build_all ?? true,
+      cache: kind === "static" && (entry.cache ?? defaults.cache ?? false),
+      cacheInputs: kind === "static" ? (entry.cache_inputs ?? defaults.cache_inputs) : undefined,
+      cacheGit: kind === "static" ? (entry.cache_git ?? defaults.cache_git) : undefined,
       optional: entry.optional ?? defaults.optional ?? false,
       kind,
     };
