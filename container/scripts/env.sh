@@ -191,11 +191,11 @@ unset sandboxer_env_record sandboxer_env_port sandboxer_env_var
 # project, so it comes from the plan. Values go through envsubst, which expands
 # ${...} against what was exported above and against the secrets the host passed
 # in, and does not run a shell: a value is data, never a command.
-while read -r sandboxer_env_name; do
-  [[ -z "$sandboxer_env_name" ]] && continue
-  sandboxer_env_value=$(jq -r --arg n "$sandboxer_env_name" '.env[$n] // ""' "$SANDBOXER_PLAN")
+# Read the plan once. NUL delimits arbitrary multiline values; the host only
+# permits shell variable names. Keep the old sorted-key expansion order.
+while IFS= read -r -d '' sandboxer_env_name && IFS= read -r -d '' sandboxer_env_value; do
   export "$sandboxer_env_name=$(printf '%s' "$sandboxer_env_value" | envsubst)"
-done < <(jq -r '.env // {} | keys[]' "$SANDBOXER_PLAN")
+done < <(jq -j '.env // {} | keys[] as $k | $k, "\u0000", (.[$k] | split("\u0000") | join("")), "\u0000"' "$SANDBOXER_PLAN")
 unset sandboxer_env_name sandboxer_env_value
 
 export SANDBOXER_ENV_READY=1

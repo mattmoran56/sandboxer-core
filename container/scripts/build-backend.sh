@@ -29,16 +29,13 @@ mkdir -p "$SANDBOXER_STATE/bin"
 BUILD=${BUILD//\{out\}/$BIN}
 BUILD=${BUILD//\{name\}/$NAME}
 
-# Rebuilt only when something under the workdir is newer than the binary.
-# `-print -quit` stops at the first hit, so this stays cheap on a large tree even
-# though it walks it. node_modules and .git are skipped because neither
-# contributes to a compiled backend and both are large enough to dominate the
-# walk.
+# Prune ignored directories before descending. Filtering their files by path
+# still stats every installed package and Git object on each service restart.
 needs_build() {
   [[ ! -x "$BIN" ]] && return 0
-  [[ -n "$(find "$WORKDIR" -type f -newer "$BIN" \
-    -not -path '*/node_modules/*' -not -path '*/.git/*' \
-    -print -quit 2>/dev/null)" ]]
+  [[ -n "$(find "$WORKDIR" \
+    \( -type d \( -name node_modules -o -name .git \) -prune \) -o \
+    \( -type f -newer "$BIN" -print -quit \) 2>/dev/null)" ]]
 }
 
 if [[ "${SANDBOXER_FORCE_BUILD:-false}" == "true" ]] || needs_build; then

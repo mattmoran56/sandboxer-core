@@ -134,6 +134,8 @@ What actually happens inside the container:
 - **A backend** runs the project's `build:` command in its `workdir`. `{out}` in that command
   is replaced with `/var/lib/sandboxer/bin/<name>` and `{name}` with the backend's name. On
   success, core execs `sandboxer-restart <name> || true` in the container.
+  At service startup, the timestamp check prunes `.git` and `node_modules` directories before
+  entering them. Shared source files and a worktree’s `.git` pointer file can still trigger a build.
 - **A static front-end** runs the project's `build:` command in its package directory, then
   copies the output directory over `/srv/www/<label>/` by swap, so a page load mid-build never
   sees a half-written bundle. The build time is recorded in `/srv/www/.built.json`.

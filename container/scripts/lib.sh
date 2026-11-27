@@ -59,6 +59,14 @@ service_by() {
     "$SANDBOXER_PLAN" 2>/dev/null
 }
 
+# List only the installed trees owned by workspaces. Prune the root install
+# and each matched subtree before descending into any installed dependency.
+workspace_dep_trees() {
+  local root="$1"
+  [[ -d "$root" ]] || return 0
+  find "$root" -name node_modules -type d -prune ! -path "$root/node_modules" -print0
+}
+
 # requested <json> -- whether this service runs in this sandbox.
 #
 # A service the plan marks optional is defined but dormant until it is named in

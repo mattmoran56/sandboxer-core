@@ -40,6 +40,9 @@ So the derivation lives in `container/scripts/env.sh`, a library each of those s
 itself. Without that, a script would silently run with an empty `SANDBOXER_DB_FILE` and open a
 throwaway in-memory database instead of failing.
 
+The plan’s environment map is read in one pass. Names still expand in sorted order, so a later
+value can reference an earlier export. Values remain data: shell syntax is not executed.
+
 </details>
 
 ## The graph
@@ -191,12 +194,13 @@ So the image installs them at `/opt/deps`, and a boot step copies them into plac
 That step is `deps-init`, and it decides what to do in three stages:
 
 1. **Is `node_modules/.sandboxer-deps` already naming this lockfile?** If so, re-link the workspace
-   binaries and stop. Nothing else is needed.
+   binaries and seed any missing nested workspace dependencies. The root install is reused.
 2. **Does the lockfile hash match the one stamped into the image?** If so, copy from `/opt/deps`,
    which takes seconds.
 3. **Otherwise, run the plan's install command.** Slower, and correct.
 
-Either of the last two then writes the marker, by rename, and re-links the workspace binaries.
+Either of the last two then writes the marker, by rename, seeds missing nested workspace
+dependencies and re-links the workspace binaries.
 
 The dependency volume is named after the lockfile hash, so every sandbox with matching dependencies
 shares one install. A branch that changes them transparently gets its own.
@@ -215,6 +219,9 @@ inherit it. The only symptom is builds failing to resolve imports that plainly e
 as its **last** act, by rename, and treats only that marker as done. A volume whose marker is
 missing or names a different lockfile is repopulated over the top rather than emptied first,
 because another sandbox may be running against it at that moment.
+
+The workspace dependency scan stops at each `node_modules` directory. It copies a workspace’s
+installed tree without walking through the packages inside it, and skips the root install.
 
 **Workspace binaries are re-linked on every boot**, including when the tree is already populated,
 because the volume outlives any one sandbox. An image that installs from manifests alone skips
