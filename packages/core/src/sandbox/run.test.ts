@@ -3,7 +3,7 @@
 // - runArgs: one volume per purpose, the data mount per driver, storage only when declared
 // - runArgs: the seed cache is read-only, the secrets file is layered under the generated environment
 // - runArgs: a seed that is not in the cache is mounted as one read-only file, and its directory is not
-// - runArgs: the machine-wide Go caches are mounted for a Go project and absent for one without the toolchain
+// - runArgs: shared Go caches and opt-in MySQL baseline caches preserve private writable data
 // - runArgs: a caller's own volumes and variables are passed through, and nothing is added without them
 // - runArgs: the host's login is one file mounted read-write over the volume, never the directory, and absent without one
 // - runArgs: the git mounts land at the identical path inside and out, read-write, and none is /workspace
@@ -63,6 +63,15 @@ const base = {
 };
 
 describe("runArgs", () => {
+  it("shares immutable MySQL baselines but keeps each writable database private", () => {
+    const config = configOf({ database: { driver: "mysql", cache_baseline: true, seed_from: { file: "seed.sql" } } });
+    for (const slug of ["one", "two"]) {
+      const cached = runArgs({ ...base, config, slug });
+      expect(cached).toContain("sandboxer-mysql-baselines:/opt/sandboxer/local-mysql-baselines");
+      expect(cached).toContain(`sandboxer-data-acme-${slug}:/var/lib/sandboxer/data`);
+    }
+    expect(runArgs(base)).not.toContain("sandboxer-mysql-baselines:/opt/sandboxer/local-mysql-baselines");
+  });
   const args = runArgs(base);
 
   it("names the container and joins the one shared network", () => {

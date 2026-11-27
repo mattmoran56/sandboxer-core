@@ -442,6 +442,7 @@ export const PROTECTED_IMAGES = [
  */
 export const GOCACHE_VOLUME = "sandboxer-gocache";
 export const GOMOD_VOLUME = "sandboxer-gomod";
+export const MYSQL_BASELINES_VOLUME = "sandboxer-mysql-baselines";
 
 /**
  * Volumes shared by every sandbox on the machine, from contracts §3.3.
@@ -450,7 +451,7 @@ export const GOMOD_VOLUME = "sandboxer-gomod";
  * into every sandbox reserves it by passing `protectVolumes` (see `GcInput`),
  * because the engine cannot be asked to keep a list of names it does not mint.
  */
-export const SHARED_VOLUMES = [GOCACHE_VOLUME, GOMOD_VOLUME] as const;
+export const SHARED_VOLUMES = [GOCACHE_VOLUME, GOMOD_VOLUME, MYSQL_BASELINES_VOLUME] as const;
 
 /** The one shared docker network, from contracts §3.3. */
 export const NETWORK = "sandboxer";

@@ -31,6 +31,10 @@ For a prepared synthetic MySQL seed, `database.prepared_baseline` contains its
 under `/opt/sandboxer/mysql-baselines` and verifies the artifact before copying it
 into the sandbox's private data volume. See [Databases](../databases.md#prepared-synthetic-mysql-databases).
 
+`database.cache_baseline: true` keeps the normal logical `database.seed.path` and
+asks the container to cache its pre-migration physical state in the shared local
+MySQL baseline volume. This cannot be combined with `prepared_baseline`.
+
 A complete plan for the fictional project **acme**: a Go backend, a bundled front-end, a CMS dev
 server, MySQL and object storage.
 

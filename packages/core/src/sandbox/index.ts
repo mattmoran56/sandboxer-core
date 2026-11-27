@@ -500,13 +500,14 @@ export async function up(options: UpOptions = {}): Promise<UpResult> {
 
   let migrationFailure: string | undefined;
   if (!options.detach) {
-    const containerOwnsDatabase = seed.source === "prepared";
+    const containerOwnsDatabase = seed.source === "prepared" ||
+      (config.database.driver === "mysql" && config.database.cacheBaseline === true);
     await waitForContainer(docker, container, options.timeoutSeconds ?? 180);
     try {
       await waitForBoot(docker, container, options.timeoutSeconds ?? 180);
       if (containerOwnsDatabase && (await docker.exec(container,
         ["sh", "-lc", "test ! -f /run/sandboxer/boot.fail"])).code !== 0) {
-        throw new SandboxError("prepared database boot failed — inspect the container logs");
+        throw new SandboxError("prepared or cached database boot failed — inspect the container logs");
       }
       // A failed migration does not stop the sandbox: the failure is recorded,
       // the state becomes degraded, and the services boot anyway — inspecting a

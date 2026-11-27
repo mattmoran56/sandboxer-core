@@ -19,11 +19,13 @@ if [[ -e "$datadir" ]]; then
   [[ -d "$datadir" && -z "$(find "$datadir" -mindepth 1 -maxdepth 1 -print -quit)" ]] || baseline_error "unrecognized nonempty datadir; preserving its contents"
 fi
 
-artifact="/opt/sandboxer/mysql-baselines/$key"
+artifact="${SANDBOXER_MYSQL_BASELINES:-/opt/sandboxer/mysql-baselines}/$key"
 manifest="$artifact/manifest.json"
 [[ -f "$manifest" && ! -L "$manifest" && -d "$artifact/data" && ! -L "$artifact/data" && ! -L "$artifact" ]] || baseline_error "prepared artifact is missing"
 input=$(jq -er '.inputs.input_sha256' "$manifest") || baseline_error "missing input digest"
-descriptor=$(baseline_descriptor "$database" "$input")
+mode=$(jq -r '.inputs.mode // "synthetic"' "$manifest")
+[[ "$mode" == synthetic || "$mode" == local-dump ]] || baseline_error "unsupported artifact mode"
+descriptor=$(baseline_descriptor "$database" "$input" "$mode")
 [[ "$(printf '%s' "$descriptor" | baseline_digest)" == "$key" &&
    "$(jq -er .key "$manifest")" == "$key" &&
    "$(jq -cS .inputs "$manifest")" == "$descriptor" ]] || baseline_error "artifact key, MySQL version, architecture or database mismatch"

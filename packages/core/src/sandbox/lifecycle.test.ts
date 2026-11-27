@@ -370,6 +370,21 @@ describe("down", () => {
 });
 
 describe("up", () => {
+  it("reports a cached database failure without starting a competing restore", async () => {
+    const { dir, home } = await worktree();
+    const seed = join(dir, "seed.sql");
+    await writeFile(seed, "CREATE TABLE example(id INT PRIMARY KEY);\n");
+    const { docker, argsOf } = fakeDocker({ running: true, exists: false,
+      exec: cmd => ({ code: cmd.join(" ").includes("test ! -f /run/sandboxer/boot.fail") ? 1 : 0, stdout: "{}" }),
+    });
+    const result = await up({
+      config: configOf({ database: { driver: "mysql", cache_baseline: true, seed_from: { file: seed } } }),
+      worktree: dir, docker, env: { SANDBOXER_HOME: home, SANDBOXER_IMAGE: "cached:fixture" },
+    });
+    expect(result.migrationFailure).toContain("database boot failed");
+    expect(argsOf("exec").some(args => /mysql /.test((args[1] as string[]).join(" ")))).toBe(false);
+  });
+
   it("leaves prepared MySQL provisioning and migration to the container", async () => {
     const { dir, home } = await worktree();
     const { docker, argsOf } = fakeDocker({ running: true, exists: false, exec: () => ({ stdout: "{}" }) });
@@ -392,7 +407,7 @@ describe("up", () => {
       config: configOf({ database: { driver: "mysql", prepared_baseline: "b".repeat(64) } }),
       worktree: dir, docker, env: { SANDBOXER_HOME: home, SANDBOXER_IMAGE: "prepared:fixture" },
     });
-    expect(result.migrationFailure).toContain("prepared database boot failed");
+    expect(result.migrationFailure).toContain("database boot failed");
     expect(argsOf("exec").some(args => /mysql /.test((args[1] as string[]).join(" ")))).toBe(false);
   });
 

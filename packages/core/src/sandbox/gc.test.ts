@@ -108,6 +108,7 @@ describe("orphan volumes", () => {
     "sandboxer-blob-acme-tkt-1",
     "sandboxer-data-acme-tkt-2",
     "sandboxer-gocache",
+    "sandboxer-mysql-baselines",
     "sandboxer-jef-agent",
     "postgres-data",
   ];
@@ -128,6 +129,7 @@ describe("orphan volumes", () => {
   it("leaves the shared volumes alone", () => {
     const plan = planGc({ sandboxes: [], volumes, worktreeExists: alive });
     expect(plan.volumes).not.toContain("sandboxer-gocache");
+    expect(plan.volumes).not.toContain("sandboxer-mysql-baselines");
   });
 
   /**

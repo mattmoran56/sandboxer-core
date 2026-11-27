@@ -252,6 +252,38 @@ intact. Use the container logs for the specific reason. With a prepared baseline
 
 </details>
 
+### Cached local MySQL seeds
+
+A local seed can be imported once and reused by new sandboxes. Each sandbox still
+gets a private database, so its migrations and edits cannot change the baseline.
+
+<details class="agent">
+<summary><b>Details for an agent</b> — enable and maintain the local MySQL cache</summary>
+
+Set `database.cache_baseline: true` alongside an existing `seed_from.file` or
+`seed_from.local` to avoid importing the same logical dump into every new sandbox.
+The first use prepares a cleanly stopped MySQL directory in the machine's shared
+`sandboxer-mysql-baselines` Docker volume. Later starts copy it into each sandbox's
+private data volume, verify the copy, generate a fresh server identity, and apply
+the sandbox's runtime app credentials. Migrations still run on the private copy.
+Existing sandbox data is preserved; changes to the seed affect new sandboxes.
+
+Cache keys include the compressed dump bytes, database name, MySQL version,
+architecture and preparation recipe. Preparation is locked per key and published
+atomically. The source dump remains read-only; no running database directory or
+application credentials are cached. `.sql`, `.sql.gz` and `.sql.zst` are supported.
+The schema-scoped importer rejects global administration statements and unsupported
+definers; an unavailable or invalid cache falls back to the ordinary SQL restore
+with a visible warning. The cache can contain private source data, just like the
+configured dump: it stays in a local Docker volume and must not be baked into a
+published image. Normal sandbox teardown preserves this reusable volume.
+
+This is separate from `prepared_baseline`, which selects a prebuilt synthetic
+artifact. The two settings cannot be combined. The first cache fill adds preparation
+work; measure subsequent starts to assess the benefit for the project's seed size.
+
+</details>
+
 ### What a driver keeps, per sandbox
 
 Under `~/.sandboxer/logs/<project>/<slug>/`:

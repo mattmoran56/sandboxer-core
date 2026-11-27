@@ -211,6 +211,9 @@ function resolveDatabase(raw: RawConfig, file: string): DatabaseConfig {
 
   const seed = db.seed_from;
   const migrate = db.migrate;
+  if (db.cache_baseline && (db.driver !== "mysql" || db.prepared_baseline || !(seed?.file || seed?.local))) {
+    throw new ConfigError(file, "requires mysql with a file or local seed, and cannot be combined with prepared_baseline", "database.cache_baseline");
+  }
   if (db.prepared_baseline && (db.driver !== "mysql" || seed)) {
     throw new ConfigError(file, "requires mysql and cannot be combined with seed_from", "database.prepared_baseline");
   }
@@ -221,6 +224,7 @@ function resolveDatabase(raw: RawConfig, file: string): DatabaseConfig {
   return {
     driver: db.driver,
     preparedBaseline: db.prepared_baseline,
+    cacheBaseline: db.cache_baseline,
     version: db.version === undefined ? undefined : String(db.version),
     seedFrom: seed
       ? {

@@ -69,7 +69,7 @@ SQL
 
 provision() {
   ready || return 1
-  if [[ -n "$(plan .database.prepared_baseline)" ]]; then
+  if [[ -n "$(plan .database.prepared_baseline)" || -f "$SANDBOXER_RUN/mysql-local-baseline" ]]; then
     # Physical seeds are complete even when their schema has no tables. Never
     # fall through to the logical seed cache for an unrelated sandbox.
     prepared_accounts

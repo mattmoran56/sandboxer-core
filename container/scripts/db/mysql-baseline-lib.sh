@@ -5,15 +5,16 @@
 baseline_error() { printf 'mysql baseline: %s\n' "$*" >&2; exit 1; }
 
 baseline_descriptor() {
-  local database=$1 sql_sha=$2 version arch
+  local database=$1 sql_sha=$2 mode=${3:-synthetic} version arch
   [[ "$database" =~ ^[a-zA-Z0-9_-]{1,64}$ && "$sql_sha" =~ ^[a-f0-9]{64}$ ]] || baseline_error "invalid database or input digest"
   case "${database,,}" in mysql|information_schema|performance_schema|sys) baseline_error "system database is reserved";; esac
   version=$(mysqld --no-defaults --version)
   [[ "$version" =~ [[:space:]]Ver[[:space:]]([^[:space:]]+) ]] || baseline_error "unrecognized MySQL version"
   version=${BASH_REMATCH[1]}
   arch=$(uname -m)
-  jq -cnS --arg db "$database" --arg sql "$sql_sha" --arg version "$version" --arg arch "$arch" \
-    '{format:1,database:$db,input_sha256:$sql,mysql_version:$version,architecture:$arch}'
+  jq -cnS --arg db "$database" --arg sql "$sql_sha" --arg version "$version" --arg arch "$arch" --arg mode "$mode" \
+    '{format:1,database:$db,input_sha256:$sql,mysql_version:$version,architecture:$arch} +
+     (if $mode == "local-dump" then {format:2,mode:$mode} else {} end)'
 }
 
 baseline_digest() { sha256sum | cut -d ' ' -f 1; }

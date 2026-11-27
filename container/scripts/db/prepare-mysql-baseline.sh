@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Prepare only from reviewed synthetic SQL in a new private MySQL server.
+# Prepare reviewed synthetic SQL or an opted-in local dump in a private server.
 # No existing server, host configuration or project credentials participate.
 set -euo pipefail
 source "$(dirname "$0")/mysql-baseline-lib.sh"
 
 key_only=false
+mode=synthetic
 if [[ "${1:-}" == --key ]]; then key_only=true; shift; fi
-[[ $# == 3 ]] || baseline_error 'usage: prepare-mysql-baseline.sh [--key] OUTPUT_ROOT DATABASE SYNTHETIC.sql'
+if [[ "${1:-}" == --local-dump ]]; then mode=local-dump; shift; fi
+[[ $# == 3 ]] || baseline_error 'usage: prepare-mysql-baseline.sh [--key] [--local-dump] OUTPUT_ROOT DATABASE SEED.sql[.zst|.gz]'
 root=$1; database=$2; sql=$3
-[[ -f "$sql" && ! -L "$sql" ]] || baseline_error "synthetic SQL must be a regular file"
-descriptor=$(baseline_descriptor "$database" "$(baseline_digest < "$sql")")
+[[ -f "$sql" && ! -L "$sql" ]] || baseline_error "seed input must be a regular file"
+descriptor=$(baseline_descriptor "$database" "$(baseline_digest < "$sql")" "$mode")
 key=$(printf '%s' "$descriptor" | baseline_digest)
 if $key_only; then printf '%s\n' "$key"; exit 0; fi
 mkdir -p "$root"
@@ -58,7 +60,25 @@ done
   CREATE USER 'seed_loader'@'localhost'; GRANT ALL ON \`${database//_/\\_}\`.* TO 'seed_loader'@'localhost';" >/dev/null
 # A schema-scoped loader keeps the build input out of MySQL accounts and global
 # settings. Its DEFINER must not be used by views or routines in the artifact.
-"${client[@]}" -useed_loader "$database" < "$work/input.sql" >/dev/null 2>&1 || baseline_error "synthetic SQL import failed"
+seed_input() {
+  if [[ "$mode" == local-dump ]]; then
+    case "$sql" in
+      *.zst) zstd -dc "$work/input.sql" ;;
+      *.gz) gzip -dc "$work/input.sql" ;;
+      *) cat "$work/input.sql" ;;
+    esac
+  else
+    cat "$work/input.sql"
+  fi
+}
+# A local dump follows the same isolation rules as synthetic input: it cannot
+# create logins, change global settings or read host files. Incompatible dumps
+# fall back to the ordinary restore path instead of weakening this boundary.
+import_options=()
+if [[ "$mode" == local-dump ]]; then
+  import_options=(--default-character-set=utf8mb4 --init-command='SET FOREIGN_KEY_CHECKS=0, UNIQUE_CHECKS=0')
+fi
+seed_input | "${client[@]}" -useed_loader "${import_options[@]}" "$database" >/dev/null 2>&1 || baseline_error "schema-scoped SQL import failed"
 "${client[@]}" -uroot -e "DROP USER 'seed_loader'@'localhost';" >/dev/null
 mysqladmin --no-defaults --no-login-paths --skip-password --protocol=socket --socket="$socket" -uroot shutdown
 wait "$pid" || baseline_error "MySQL shutdown failed"

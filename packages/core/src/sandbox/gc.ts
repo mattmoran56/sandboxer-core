@@ -70,7 +70,7 @@ export interface GcInput {
    * Volumes the *caller* declares are its own, never to be reclaimed.
    *
    * The volume half of `protectImages`, and it exists for a sharper reason.
-   * `SHARED_VOLUMES` names the engine's two Go caches and nothing else, because
+   * `SHARED_VOLUMES` names only the engine's shared build and database caches, because
    * the engine cannot keep a list of names it does not mint — so a machine-wide
    * volume an embedder mounts into every sandbox (see `RunInput.volumes`) has to
    * be declared here or it is a volume with no sandbox behind it.
